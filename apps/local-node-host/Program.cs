@@ -92,7 +92,8 @@ public static class LocalNodeHostComposition
         TimeProvider? kernelClock = null,
         Action<IServiceCollection>? finalServiceRegistration = null,
         string? installFootprintRootOverride = null,
-        Action<IServiceCollection, IServiceProviderFactory<IServiceCollection>>? finalServiceProviderProbe = null)
+        Action<IServiceCollection, IServiceProviderFactory<IServiceCollection>>? finalServiceProviderProbe = null,
+        Func<string>? genesisAccountName = null)
     {
 var rootTimeProvider = kernelClock ?? TimeProvider.System;
 // Admin subcommand: mint an Argon2id hash for a WEB-CLIENT founder password so the plaintext never
@@ -489,6 +490,15 @@ builder.Services.AddSingleton<Harborline.Api.Foundation.Crypto.IOperationSigner>
 // reference them. They are assigned inside the block where they are computed.
 string capturedGenesisTeamId = string.Empty;
 string capturedGenesisPartyId = string.Empty;
+var sqlitePath = Path.Combine(
+    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"), "local-node.db");
+void AddInstallStore(IServiceCollection services)
+{
+    if (!string.IsNullOrWhiteSpace(localNodeOptions.StoreDekHex))
+        services.AddSqlCipherLocalNodeDbContextWithStoreDek(keyHierarchy.AtRestRootKey.Span, sqlitePath);
+    else
+        services.AddSqlCipherLocalNodeDbContext(rootSeed, sqlitePath, sqlCipherKeyDerivation);
+}
 {
     var genesisSigner = new Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner(rootSeed);
     // SINGLE SOURCE OF TRUTH for the genesis team id (GenesisTeamId.Resolve): the configured LocalNode:TeamId
@@ -507,29 +517,27 @@ string capturedGenesisPartyId = string.Empty;
     var genesisTeamId = resolvedGenesisTeam.Value;
     builder.Services.AddSingleton(new GenesisTeamIdProvider(resolvedGenesisTeam));
     var genesisVerifier = new Harborline.Api.Foundation.Crypto.Ed25519Verifier();
-    // gap #2 — derive the PER-NODE-DISTINCT genesis (= comms author) party id. The node public key is the
-    // base64url of the raw 32 pubkey bytes; take an 8-hex prefix of those bytes for a short, stable,
-    // per-node-distinct suffix (the key differs per root, so distinct nodes get distinct suffixes even when
-    // the OS username is shared — the two-user-test residual fix).
-    var osUserRaw = Environment.UserName;
-    var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
-    var nodeKeyHex8 = Convert.ToHexString(genesisSigner.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
-    // 274: the ONE minting site — a shell value is canonicalised here (trim + Unicode form C) and
-    // every other path refuses a non-canonical id outright.
-    var genesisPartyId = ActorId.Mint($"os:{osUser}#{nodeKeyHex8}").Value;
+    // Ticket 296: resolve the signed durable identity before any hosted service can publish.
+    // A renamed account is not a new principal: only a tenant without a log consults the shell.
+    MemberRoster? storedGenesisRoster;
+    var genesisStoreServices = new ServiceCollection();
+    AddInstallStore(genesisStoreServices);
+    await using (var genesisStore = genesisStoreServices.BuildServiceProvider())
+        storedGenesisRoster = await DurableGenesisIdentity.ReadAsync(
+            genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
+            genesisTeamId, genesisSigner.Signer.IssuerId, genesisVerifier, CancellationToken.None);
 
-    // #1291 F1 — RESTART-STABLE genesis. The genesis nonce + issuance instant are DERIVED deterministically from
-    // the node's stable identity (founder key ⇐ root seed, team id, party id) instead of Guid.NewGuid()/UtcNow,
-    // so every boot reconstructs the BYTE-IDENTICAL genesis record (same content-derived RecordId). The synced
-    // roster doctype dedups by RecordId, so a restart's re-mint collapses into the hydrated boot-1 genesis ⇒
-    // exactly ONE genesis ever. With the prior per-boot random nonce, a restart appended a SECOND genesis,
-    // tripping FromSyncedRecords' "≥2 genesis ⇒ Empty()" guard — bricking convergence + poisoning peers.
-    //
-    // gap #2 + #1291 F1 UNION: StableGenesis HKDF-folds (teamId, founderPartyId, founderKey) into the nonce, so
-    // seeding it with the per-node-distinct gap-#2 genesisPartyId (os:<user>#<key8>) keeps BOTH invariants —
-    // restart-stable (deterministic, no UtcNow/NewGuid) AND per-node-distinct (the distinct party id + per-root
-    // founder key both feed the derivation). The party id is bound to THIS signer's key in the admission record,
-    // so the comms author↔signing-key consistency the forge-proof gate checks holds by construction.
+    // Keep the install's admitted party when its configured tenant was founded by another node.
+    var genesisPartyId = storedGenesisRoster?.Members
+        .First(member => member.PublicKey.Equals(genesisSigner.Signer.IssuerId)).PartyId;
+    if (genesisPartyId is null)
+    {
+        var osUserRaw = (genesisAccountName ?? (() => Environment.UserName))();
+        var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
+        var nodeKeyHex8 = Convert.ToHexString(genesisSigner.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
+        genesisPartyId = ActorId.Mint($"os:{osUser}#{nodeKeyHex8}").Value;
+    }
+
     // C5 (DM key-substitution fix) — derive the founder's OWN team-scoped DM PUBLIC key (HKDF(root, genesisTeamId)
     // over the DM domain) BEFORE the genesis self-admission, so it can be SIGNED INTO the genesis admission envelope
     // (StableGenesis takes the DM key). This makes the founder's (party → DM-pubkey) binding forge-proof from the
@@ -539,7 +547,7 @@ string capturedGenesisPartyId = string.Empty;
         .DeriveDmPublicKey(rootSeed, genesisTeamId.ToString("D"));
     var ownGenesisDmKeyB64 = Harborline.Api.Foundation.Crypto.PrincipalId.FromBytes(ownGenesisDmKey).ToBase64Url();
 
-    var genesisRoster = MemberRoster.StableGenesis(
+    var genesisRoster = storedGenesisRoster ?? MemberRoster.StableGenesis(
         teamId: genesisTeamId,
         founderPartyId: genesisPartyId,
         founderSigner: genesisSigner.Signer,
@@ -1078,10 +1086,6 @@ if (localNodeOptions.Sync.Peers.Count > 0)
 //
 // MigrationsAssembly: migrations live in this host assembly. Generate via:
 //   dotnet ef migrations add <Name> -p apps/local-node-host -c LocalNodeDbContext
-var sqlitePath = Path.Combine(
-    localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"),
-    "local-node.db");
-
 // ADR 0115 SC-4 amendment (boundary Option A1). If the Tauri shell injected a
 // resolved Store DEK via LocalNode__StoreDekHex, key the relational store with
 // THAT DEK verbatim (the shell owns the envelope wrap/unwrap + Argon2id +
@@ -1094,18 +1098,8 @@ if (!string.IsNullOrWhiteSpace(localNodeOptions.StoreDekHex))
     Console.WriteLine(
         $"[local-node-host] Using injected Store DEK (length={keyHierarchy.AtRestRootKey.Length}B) — " +
         "SC-4 envelope recovery enabled for relational and per-team stores.");
-
-    builder.Services.AddSqlCipherLocalNodeDbContextWithStoreDek(
-        storeDek: keyHierarchy.AtRestRootKey.Span,
-        databasePath: sqlitePath);
 }
-else
-{
-    builder.Services.AddSqlCipherLocalNodeDbContext(
-        rootSeed: rootSeed,
-        databasePath: sqlitePath,
-        keyDerivation: sqlCipherKeyDerivation);
-}
+AddInstallStore(builder.Services);
 
 // ADR 0115 SC-4 amendment — fail-closed recoverability guard (SPOT-CHECK S1).
 //
