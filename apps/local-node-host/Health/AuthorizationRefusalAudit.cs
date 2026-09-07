@@ -33,6 +33,9 @@ public sealed class AuthorizationRefusalAudit
     /// <summary>The refusal event type on the unified trail.</summary>
     public static readonly AuditEventType AuthorizationRefusedEventType = new("AuthorizationRefused");
 
+    /// <summary>A previously reported refusal no longer applies.</summary>
+    public static readonly AuditEventType AuthorizationRefusalClearedEventType = new("AuthorizationRefusalCleared");
+
     private readonly IAuditTrail _trail;
     private readonly IOperationSigner _signer;
     private readonly ILogger<AuthorizationRefusalAudit> _logger;
@@ -55,14 +58,35 @@ public sealed class AuthorizationRefusalAudit
     /// Records <paramref name="refusal"/>. <paramref name="decision"/> is the very decision the guard
     /// made, or <see langword="null"/> when the act never reached one.
     /// </summary>
-    public async ValueTask RecordAsync(
+    public ValueTask RecordAsync(
         AuthorizationRefusal refusal,
         string permission,
         ActorId principal,
         TenantId tenant,
         DateTimeOffset at,
         AuthorizationDecision? decision,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType, ct);
+
+    /// <summary>Records the clearing of a previously reported refusal, retaining its original diagnostic.</summary>
+    public ValueTask RecordClearedAsync(
+        AuthorizationRefusal refusal,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        CancellationToken ct = default) =>
+        RecordCoreAsync(refusal, permission, principal, tenant, at, null, AuthorizationRefusalClearedEventType, ct);
+
+    private async ValueTask RecordCoreAsync(
+        AuthorizationRefusal refusal,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        AuthorizationDecision? decision,
+        AuditEventType eventType,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(refusal);
         try
@@ -79,7 +103,7 @@ public sealed class AuthorizationRefusalAudit
             var record = new AuditRecord(
                 AuditId: Guid.NewGuid(),
                 TenantId: tenant,
-                EventType: AuthorizationRefusedEventType,
+                EventType: eventType,
                 OccurredAt: at,
                 Payload: payload,
                 AttestingSignatures: [],
