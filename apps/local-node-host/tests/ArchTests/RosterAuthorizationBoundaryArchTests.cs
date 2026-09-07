@@ -1,5 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
@@ -27,7 +30,7 @@ public sealed class RosterAuthorizationBoundaryArchTests
             .SelectMany(file => RosterRecordMutations(file, root))
             .ToArray();
         var rawSql = EnumerateProductionSource(root)
-            .Where(file => HasRosterRawSql(CodeOnly(File.ReadAllText(file))))
+            .Where(file => HasRosterRawSql(RosterFenceSource(file, root)))
             .Select(file => Path.GetRelativePath(root, file))
             .ToArray();
 
@@ -152,7 +155,7 @@ public sealed class RosterAuthorizationBoundaryArchTests
 
     private static IReadOnlyList<RosterMutation> RosterRecordMutations(string file, string root)
     {
-        var source = CodeOnly(File.ReadAllText(file));
+        var source = RosterFenceSource(file, root);
         if (!source.Contains("NodeRosterRecord", StringComparison.Ordinal)
             && !source.Contains("RosterRecords", StringComparison.Ordinal))
         {
@@ -172,6 +175,25 @@ public sealed class RosterAuthorizationBoundaryArchTests
     private static bool HasRosterRawSql(string source) =>
         RawSqlCall.IsMatch(source)
             && source.Contains("roster_records", StringComparison.OrdinalIgnoreCase);
+
+    private static string RosterFenceSource(string file, string root)
+    {
+        var source = File.ReadAllText(file);
+        if (Path.GetRelativePath(root, file).Replace('\\', '/') != "Data/Roster/VerifiedTenantRosterReader.cs")
+            return CodeOnly(source);
+
+        // Classified read, ticket 296: this exact file/symbol/line reads the existing append order.
+        // Discover the call through Roslyn and require the complete parameterized SELECT, not a SQL prefix.
+        // Any changed SQL, extra call, moved owner or deletion still fails the same production fence.
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var read = Assert.Single(tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            call => call.Expression.ToString() == "db.RosterRecords.FromSql");
+        Assert.Equal("ReadGenesisAsync", read.Ancestors().OfType<MethodDeclarationSyntax>().First().Identifier.ValueText);
+        Assert.Equal(39, tree.GetLineSpan(read.Span).StartLinePosition.Line + 1);
+        Assert.Equal("db.RosterRecords.FromSql($\"SELECT * FROM roster_records WHERE team_id = {team} AND kind = 0 AND is_genesis = 1 ORDER BY rowid\")",
+            read.WithoutTrivia().ToString().Replace("\r", "").Replace("\n", "").Replace("            $", "$"));
+        return CodeOnly(source.Remove(read.SpanStart, read.Span.Length));
+    }
 
     private static bool HasTeamScope(string source, int mutationIndex)
     {

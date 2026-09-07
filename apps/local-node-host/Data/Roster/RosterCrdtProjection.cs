@@ -75,7 +75,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // Accessed only under the CRDT projection's async reconcile gate.
     // Replaced wholesale on every reconcile (never mutated in place): the AM-16/G1 fence counts every
     // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
-    private Dictionary<(string RecordId, string Code), RosterRevocationRefusal> _reportedRefusals = new();
+    private Dictionary<(string RecordId, string Code), RebuildRefusal> _reportedRefusals = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
 
@@ -535,9 +535,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 }
 
                 // (2) Live-roster rebuild — THE TRUST ANCHOR. Validate every record to genesis; drop forgeries.
-                var adopted = TryRebuildLiveRoster(snapshot);
+                var anchor = _nodeRoster is null ? null : await VerifiedTenantRosterReader.ReadGenesisAsync(
+                    _contextFactory, _nodeRoster.Current.TeamId, _verifier, ct).ConfigureAwait(false);
+                var adopted = TryRebuildLiveRoster(snapshot, anchor);
                 if (adopted is not null)
-                    await ReconcileRefusalAuditAsync(adopted.RefusedRevocations, ct).ConfigureAwait(false);
+                    await ReconcileRefusalAuditAsync(adopted, snapshot, anchor, ct).ConfigureAwait(false);
 
                 // (3) Ticket 290 — fold the administrator-authority log back onto the live roster. A revocation
                 //     CONVERGED from a peer never passed through a local revocation authority, so this is its
@@ -633,7 +635,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// </summary>
     public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot) => TryRebuildLiveRoster(snapshot);
 
-    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot)
+    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot, MemberAdmissionRecord? anchor = null)
     {
         if (_nodeRoster is null) return null; // minimal DI test — no live roster to push into.
 
@@ -689,7 +691,18 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         }
 
         // THE TRUST ANCHOR: rebuild + validate. Forged/unsigned/orphan records are dropped here.
-        var rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, _verifier);
+        var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
+            || a.Admission.Signature == anchor.Admission.Signature);
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier);
+
+        // Only the accepted admission may carry a live party's transport key. A dropped chain can name
+        // the same party, but that does not let its unsigned routing field replace the valid binding.
+        var accepted = rebuilt.EnumerateAdmissions().Select(a => a.Admission.Signature).ToHashSet(StringComparer.Ordinal);
+        carriedTransportByParty.Clear();
+        foreach (var admission in admissions.Where(a => accepted.Contains(a.Admission.Signature)
+                     && RosterSigning.VerifyAdmission(rebuilt.TeamId, a.PartyId, a.PublicKey, a.Admission, _verifier)))
+            if (admission.TransportPublicKey is { Length: > 0 } key)
+                carriedTransportByParty[admission.PartyId] = key;
 
         // If the rebuild has no trustworthy genesis (Members empty), DO NOT adopt it — keep the local roster.
         // This covers a peer who shares no genesis with us (never enrolled into one team): we never let a
@@ -838,29 +851,42 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         return rebuilt;
     }
 
-    private async Task ReconcileRefusalAuditAsync(IReadOnlyList<RosterRevocationRefusal> refusals, CancellationToken ct)
+    private sealed record RebuildRefusal(string RecordId, AuthorizationRefusal Report, string Permission,
+        ActorId Actor, TenantId Tenant, DateTimeOffset IssuedAt);
+
+    private async Task ReconcileRefusalAuditAsync(MemberRoster adopted, IReadOnlyList<RosterRecordCrdtState> snapshot,
+        MemberAdmissionRecord? anchor, CancellationToken ct)
     {
         if (_refusalAudit?.Invoke() is not { } audit) return;
+        var refusals = adopted.RefusedRevocations.Select(refusal => new RebuildRefusal(
+            RosterRecordCrdtState.FromRevocation(refusal.Revocation).RecordId, RefusalReport(refusal), Permission.MembersRevoke,
+            new ActorId(refusal.Revocation.Signed.RevokedByPartyId), new TenantId(refusal.Revocation.TeamId),
+            refusal.Revocation.Signed.IssuedAt)).ToList();
+        if (anchor is not null)
+            foreach (var candidate in snapshot.Where(s => s.Kind == RosterRecordKind.Admission && s.IsGenesis
+                         && s.TeamId == anchor.TeamId && s.SignatureB64Url != anchor.Admission.Signature))
+                refusals.Add(new RebuildRefusal(candidate.RecordId,
+                    new AuthorizationRefusal("roster.genesis.duplicate", "Roster genesis refused",
+                        "The durable log already names an earlier verified genesis.",
+                        "Remove the duplicate candidate; keep the chain rooted in the durable genesis.", JsonSerializer.Serialize(candidate)),
+                    Permission.MembersAdmit, new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
+                    DateTimeOffset.Parse(candidate.IssuedAtIso, System.Globalization.CultureInfo.InvariantCulture)));
         var current = refusals.GroupBy(
-            refusal => (RosterRecordCrdtState.FromRevocation(refusal.Revocation).RecordId, refusal.Code))
+            refusal => (refusal.RecordId, refusal.Report.Code))
             .ToDictionary(group => group.Key, group => group.First());
         foreach (var (key, refusal) in current)
         {
             if (_reportedRefusals.ContainsKey(key)) continue;
-            var rev = refusal.Revocation;
-            _logger.LogWarning("Roster rebuild refused revocation of {Party}: {Code}", rev.RevokedPartyId, refusal.Code);
-            await audit.RecordAsync(RefusalReport(refusal), Permission.MembersRevoke,
-                new ActorId(rev.Signed.RevokedByPartyId), new TenantId(rev.TeamId),
-                rev.Signed.IssuedAt, decision: null, ct).ConfigureAwait(false);
+            _logger.LogWarning("Roster rebuild refused record {Record}: {Code}", refusal.RecordId, refusal.Report.Code);
+            await audit.RecordAsync(refusal.Report, refusal.Permission, refusal.Actor, refusal.Tenant,
+                refusal.IssuedAt, decision: null, ct).ConfigureAwait(false);
             _reportedRefusals.Add(key, refusal);
         }
         foreach (var (key, refusal) in _reportedRefusals)
         {
             if (current.ContainsKey(key)) continue;
-            var rev = refusal.Revocation;
-            await audit.RecordClearedAsync(RefusalReport(refusal), Permission.MembersRevoke,
-                new ActorId(rev.Signed.RevokedByPartyId), new TenantId(rev.TeamId),
-                rev.Signed.IssuedAt, ct).ConfigureAwait(false);
+            await audit.RecordClearedAsync(refusal.Report, refusal.Permission, refusal.Actor, refusal.Tenant,
+                refusal.IssuedAt, ct).ConfigureAwait(false);
         }
         _reportedRefusals = current;
     }
