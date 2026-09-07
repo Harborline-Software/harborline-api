@@ -281,4 +281,36 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
+  <!--
+    Analyzer baseline. Before this, no CA rule was enabled beyond the SDK's small default set —
+    in particular the entire Globalization category (CA1305 IFormatProvider, CA1307/CA1310
+    StringComparison, CA1309) was off, so culture-correct string and number handling was
+    discipline rather than enforcement.
+
+    AnalysisModeGlobalization=All is the specific lever the shipped-in-many-locales product
+    needs; latest-recommended raises the rest of the categories to the recommended set.
+
+    CodeAnalysisTreatWarningsAsErrors=false is the SAFETY VALVE and is deliberate:
+    TreatWarningsAsErrors=true above would otherwise turn the entire first CA wave into a
+    build failure across every project at once. This setting adds the CA rules to
+    WarningsNotAsErrors ONLY — they are still emitted, still visible, still counted. Burn the
+    wave down, then delete this one line to make the category binding. Do not fix the wave by
+    lowering AnalysisMode or by NoWarn-ing rule IDs without a dated comment.
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <AnalysisModeGlobalization>All</AnalysisModeGlobalization>
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+    <!--
+      CA1707 (no underscores in member names) is suppressed rather than burned down: it was
+      2692 of the 4999 findings in the first wave and not one of them was a defect.
+      2623 are xUnit test method names (Corrupt_Installation_Audit_Aborts_Before_Tenant_Commit),
+      61 are EF Core migration classes whose names the scaffolder generates, and the remaining 8
+      are crypto enum members (ML_KEM_768, and friends in kernel-security/KemSuite.cs) where the
+      underscore IS the standards-body spelling and renaming would make them wrong.
+      The rule's real audience is a public naming surface this repo does not expose.
+    -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
 </Project>
