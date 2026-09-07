@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- ADR 0164 D6 — git-tag-derived versioning. Build-time only, never a consumer dependency. -->
-    <PackageVersion Include="MinVer" Version="6.0.0"/>
+    <PackageVersion Include="MinVer" Version="6.1.0"/>
     <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="11.0.0-preview.7.26381.103"/>
@@ -16,7 +16,7 @@
          via a direct PackageReference in each bunit-consuming test project to lift the transitive
          above the vuln range (clears NU1902 under NuGetAudit + warnings-as-errors — same recipe as
          Scriban.Signed below). Remove once bunit ships a build depending on AngleSharp >= 1.5.0. -->
-    <PackageVersion Include="AngleSharp" Version="1.7.2"/>
+    <PackageVersion Include="AngleSharp" Version="1.8.0"/>
     <PackageVersion Include="xunit" Version="2.9.3"/>
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0"/>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0"/>
@@ -49,13 +49,13 @@
     <PackageVersion Include="FsCheck.Xunit" Version="3.3.3"/>
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0"/>
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0"/>
-    <PackageVersion Include="JsonSchema.Net" Version="9.2.2"/>
+    <PackageVersion Include="JsonSchema.Net" Version="9.4.0"/>
     <PackageVersion Include="MessagePack" Version="3.1.8"/>
-    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-preview.5.26302.115"/>
+    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="11.0.0-preview.5.26302.115"/>
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-preview.5"/>
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-preview.6"/>
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0"/>
     <PackageVersion Include="ClosedXML" Version="0.105.0"/>
     <!-- PDFsharp-MigraDoc (MIT, empira): the Documents pillar (#111) default PDF render adapter. Pure-managed,
@@ -65,7 +65,7 @@
     <PackageVersion Include="Microsoft.Playwright" Version="1.61.0"/>
     <PackageVersion Include="CsvHelper" Version="33.1.0"/>
     <PackageVersion Include="MetadataExtractor" Version="2.9.3"/>
-    <PackageVersion Include="System.Net.Http.Json" Version="11.0.0-preview.5.26302.115"/>
+    <PackageVersion Include="System.Net.Http.Json" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.Extensions.Options" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="11.0.0-preview.7.26381.103"/>
@@ -78,7 +78,7 @@
     <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11"/>
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1"/>
-    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="11.0.0-preview.5.26302.115"/>
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="YamlDotNet" Version="18.1.0"/>
     <PackageVersion Include="Makaretu.Dns.Multicast.New" Version="0.38.0"/>
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85"/>
