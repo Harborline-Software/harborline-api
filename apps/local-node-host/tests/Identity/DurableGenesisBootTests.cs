@@ -43,7 +43,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
             ["--LocalNode:RootSeedHex=" + seed, "--LocalNode:TeamId=" + tenant,
              "--LocalNode:StoreDekHex=" + (recoverable ? Dek : ""),
              "--LocalNode:MultiTeam:Enabled=false", "--LocalNode:Sync:ListenForPeers=true",
-             "--LocalNode:Sync:BindAddress=tcp://127.0.0.1:7299", "--urls=http://127.0.0.1:7298"],
+             "--LocalNode:Sync:BindAddress=tcp://127.0.0.1:7303", "--urls=http://127.0.0.1:7302"],
             sessionTokenOverride: "s296-composition", dataDirectory: _directory,
             installFootprintRootOverride: _directory, genesisAccountName: account,
             finalServiceRegistration: services =>

@@ -5,8 +5,8 @@
   "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3575,
-    "passed": 3557,
+    "total": 3597,
+    "passed": 3579,
     "failed": 0,
     "notExecuted": 18
   },
@@ -71,10 +71,10 @@
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3572 -> 3575; passed 3554 -> 3557; failed unchanged at 0; notExecuted unchanged at 18",
+    "change": "total 3575 -> 3597; passed 3557 -> 3579; failed unchanged at 0; notExecuted unchanged at 18",
     "cause": "ticket 293 slice 1 fix 2: three admin write-route authorization-denial rows, one each for invitations, member revocation and member permissions.",
     "detectedBy": "Source delta from c89d7bdd plus focused test summaries; expected full-suite totals only. No full host suite was run in this lane; the controller must verify this count and reconcile other branches at its gate.",
-    "arithmeticCrossCheck": "3572 + 3 = 3575; passed = 3575 - 18 = 3557."
+    "arithmeticCrossCheck": "3575 + 22 = 3597 (merge of origin/main into the branch; the branch adds 22 tests); passed = total - notExecuted = 3597 - 18 = 3579."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
