@@ -80,6 +80,13 @@
          Tests compose an in-memory event log / in-memory-only host so the full
          host project doesn't have to be executed. -->
     <ProjectReference Include="..\Harborline.LocalNodeHost.csproj" />
+    <!-- Ticket 316: dotnet test builds test-project reference closures, not every
+         solution member. The assembly inventory fence also scans these artifacts;
+         build them before the fence runs without adding them to its runtime closure. -->
+    <ProjectReference Include="../../../src/Harborline.Api.Client/Harborline.Api.Client.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="../../../hosts/Harborline.Api.MockHost/Harborline.Api.MockHost.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="..\..\..\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj" />
     <ProjectReference Include="..\..\node-operator-cli\Harborline.NodeOperatorCli.csproj" />
     <ProjectReference Include="..\..\..\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />

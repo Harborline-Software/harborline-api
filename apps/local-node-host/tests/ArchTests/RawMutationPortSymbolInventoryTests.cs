@@ -317,23 +317,9 @@ public sealed class RawMutationPortSymbolInventoryTests
         Assert.True(selected.HasValue, $"No portable-PDB source point for {method} at IL_{ilOffset:x4}.");
         var pointValue = selected!.Value;
         var documentHandle = pointValue.Document.IsNil ? debug.Document : pointValue.Document;
-        var absolute = Path.GetFullPath(reader.GetString(reader.GetDocument(documentHandle).Name));
-        var relative = Path.GetRelativePath(RepositoryRoot(), absolute).Replace('\\', '/');
+        var relative = Audit.AuditAppendSymbolInventory.NormalizeFile(
+            reader.GetString(reader.GetDocument(documentHandle).Name));
         return (relative, pointValue.StartLine);
-    }
-
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(Path.GetDirectoryName(typeof(RawMutationPortSymbolInventoryTests).Assembly.Location)!);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, ".git"))
-                || Directory.Exists(Path.Combine(directory.FullName, ".git"))
-                || File.Exists(Path.Combine(directory.FullName, "Harborline.Api.slnx")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException("Could not derive the repository root from the test assembly.");
     }
 
     private static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
