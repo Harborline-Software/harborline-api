@@ -238,22 +238,36 @@ internal static class AuditAppendSymbolInventory
         return (pdb.GetString(document.Name), chosen.Value.StartLine);
     }
 
-    private static string NormalizeFile(string path)
+    internal static string NormalizeFile(string path) =>
+        Path.GetRelativePath(RepositoryRoot(), ResolveSourcePath(path)).Replace('\\', '/');
+
+    /// <summary>Resolve metadata paths before either opening source or comparing allow-list rows.</summary>
+    internal static string ResolveSourcePath(string path)
     {
-        var root = RepositoryRoot();
-        return Path.GetRelativePath(root, path).Replace('\\', '/');
+        var normalized = path.Replace('\\', '/');
+        var remainder = normalized;
+        while (remainder.StartsWith("../", StringComparison.Ordinal))
+            remainder = remainder[3..];
+
+        // CI maps the checkout to /_/. Older callers may already have made that path
+        // relative to the checkout, leaving a climb followed by _/ instead.
+        if (remainder.StartsWith("/_/", StringComparison.Ordinal))
+            normalized = remainder[3..];
+        else if (remainder != normalized && remainder.StartsWith("_/", StringComparison.Ordinal))
+            normalized = remainder[2..];
+
+        return Path.GetFullPath(Path.Combine(RepositoryRoot(), normalized));
     }
 
-    private static string RepositoryRoot([System.Runtime.CompilerServices.CallerFilePath] string file = "")
+    internal static string RepositoryRoot()
     {
-        var directory = new DirectoryInfo(Path.GetDirectoryName(file)!);
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (Directory.Exists(Path.Combine(directory.FullName, "apps"))
-                && Directory.Exists(Path.Combine(directory.FullName, "packages")))
+            if (File.Exists(Path.Combine(directory.FullName, "Harborline.Api.slnx")))
                 return directory.FullName;
             directory = directory.Parent;
         }
-        throw new DirectoryNotFoundException();
+        throw new DirectoryNotFoundException("Could not locate Harborline.Api.slnx above the test output.");
     }
 }
