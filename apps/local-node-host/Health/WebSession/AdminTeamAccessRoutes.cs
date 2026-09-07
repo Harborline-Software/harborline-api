@@ -200,14 +200,23 @@ internal static class AdminTeamAccessRoutes
         // path below answers with a usable one. Rationale on IWebAntiforgeryPolicy.RotateSelectedAsync.
         _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
 
-        var result = await authority.IssueInvitationAsync(
-                handle,
-                principal.TenantId.Value,
-                request.RequestedPermissions,
-                request.IdempotencyKey,
-                WriteAuthority(principal, at),
-                context.RequestAborted)
-            .ConfigureAwait(false);
+        AdminIssuedInvitation? result;
+        try
+        {
+            result = await authority.IssueInvitationAsync(
+                    handle,
+                    principal.TenantId.Value,
+                    request.RequestedPermissions,
+                    request.IdempotencyKey,
+                    WriteAuthority(principal, at),
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+        }
+        catch (AuthorizationDeniedException denial)
+        {
+            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted)
+                .ConfigureAwait(false);
+        }
         if (result is null)
         {
             return Refused();
@@ -250,15 +259,24 @@ internal static class AdminTeamAccessRoutes
         // path below answers with a usable one. Rationale on IWebAntiforgeryPolicy.RotateSelectedAsync.
         _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
 
-        var result = await authority
-            .RevokeMemberGrantAsync(
-                handle,
-                principal.TenantId.Value,
-                request.GrantId,
-                WriteAuthority(principal, at),
-                request.SuccessorPrincipalId,
-                context.RequestAborted)
-            .ConfigureAwait(false);
+        AdminRevokeMemberResult? result;
+        try
+        {
+            result = await authority
+                .RevokeMemberGrantAsync(
+                    handle,
+                    principal.TenantId.Value,
+                    request.GrantId,
+                    WriteAuthority(principal, at),
+                    request.SuccessorPrincipalId,
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+        }
+        catch (AuthorizationDeniedException denial)
+        {
+            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted)
+                .ConfigureAwait(false);
+        }
         if (result is null)
         {
             return Refused();
@@ -322,14 +340,23 @@ internal static class AdminTeamAccessRoutes
 
         _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
 
-        var result = await authority.UpdateMemberPermissionsAsync(
-                handle,
-                principal.TenantId.Value,
-                request.GrantId,
-                request.RequestedPermissions,
-                WriteAuthority(principal, at),
-                context.RequestAborted)
-            .ConfigureAwait(false);
+        AdminUpdateMemberPermissionsResult? result;
+        try
+        {
+            result = await authority.UpdateMemberPermissionsAsync(
+                    handle,
+                    principal.TenantId.Value,
+                    request.GrantId,
+                    request.RequestedPermissions,
+                    WriteAuthority(principal, at),
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+        }
+        catch (AuthorizationDeniedException denial)
+        {
+            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted)
+                .ConfigureAwait(false);
+        }
         if (result is null)
         {
             return Refused();
