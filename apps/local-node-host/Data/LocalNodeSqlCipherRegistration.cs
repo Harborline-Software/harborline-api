@@ -26,7 +26,8 @@ public static class LocalNodeSqlCipherRegistration
         this IServiceCollection services,
         ReadOnlySpan<byte> rootSeed,
         string databasePath,
-        ISqlCipherKeyDerivation keyDerivation)
+        ISqlCipherKeyDerivation keyDerivation,
+        bool pooling = true)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
@@ -39,14 +40,15 @@ public static class LocalNodeSqlCipherRegistration
         }
 
         var dek = keyDerivation.DeriveSqlCipherKey(rootSeed, RelationalStoreKeyId);
-        return RegisterWithResolvedDek(services, dek, databasePath);
+        return RegisterWithResolvedDek(services, dek, databasePath, pooling);
     }
 
     /// <summary>Registers the same store graph with a shell-resolved recoverable Store DEK.</summary>
     public static IServiceCollection AddSqlCipherLocalNodeDbContextWithStoreDek(
         this IServiceCollection services,
         ReadOnlySpan<byte> storeDek,
-        string databasePath)
+        string databasePath,
+        bool pooling = true)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
@@ -57,13 +59,14 @@ public static class LocalNodeSqlCipherRegistration
                 nameof(storeDek));
         }
 
-        return RegisterWithResolvedDek(services, storeDek.ToArray(), databasePath);
+        return RegisterWithResolvedDek(services, storeDek.ToArray(), databasePath, pooling);
     }
 
     private static IServiceCollection RegisterWithResolvedDek(
         IServiceCollection services,
         byte[] dek,
-        string databasePath)
+        string databasePath,
+        bool pooling)
     {
         try
         {
@@ -82,7 +85,7 @@ public static class LocalNodeSqlCipherRegistration
 
             var interceptor = new SqlCipherConnectionInterceptor(dek);
 
-            var connectionString = $"Data Source={databasePath};";
+            var connectionString = $"Data Source={databasePath};" + (pooling ? string.Empty : "Pooling=False;");
             services.AddLocalNodeSaveChangesEnlistment();
             services.AddDbContextFactory<LocalNodeDbContext>((provider, options) =>
             {

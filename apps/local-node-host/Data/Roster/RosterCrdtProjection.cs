@@ -1,12 +1,17 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Sync.Application;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Enrollment;
+using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
@@ -66,6 +71,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly NodeTeamRoster? _nodeRoster;
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
     private readonly ILogger<RosterCrdtProjection> _logger;
+    private readonly Func<AuthorizationRefusalAudit?>? _refusalAudit;
+    // Accessed only under the CRDT projection's async reconcile gate.
+    // Replaced wholesale on every reconcile (never mutated in place): the AM-16/G1 fence counts every
+    // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
+    private Dictionary<(string RecordId, string Code), RosterRevocationRefusal> _reportedRefusals = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
 
@@ -114,12 +124,14 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         ILogger<RosterCrdtProjection> logger,
         NodeTeamRoster? nodeRoster = null,
         ICrdtProjectionRegistry? projectionRegistry = null,
-        Func<NodeAdministratorAuthority?>? administrators = null)
+        Func<NodeAdministratorAuthority?>? administrators = null,
+        Func<AuthorizationRefusalAudit?>? refusalAudit = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _nodeRoster = nodeRoster;
         _administrators = administrators;
+        _refusalAudit = refusalAudit;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _schema = new RosterCrdtSchema(ReconcileSchemaAsync);
         _projection = new CrdtProjection<RosterCrdtSchema>(engine, _schema);
@@ -523,7 +535,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 }
 
                 // (2) Live-roster rebuild — THE TRUST ANCHOR. Validate every record to genesis; drop forgeries.
-                RebuildLiveRoster(snapshot);
+                var adopted = TryRebuildLiveRoster(snapshot);
+                if (adopted is not null)
+                    await ReconcileRefusalAuditAsync(adopted.RefusedRevocations, ct).ConfigureAwait(false);
 
                 // (3) Ticket 290 — fold the administrator-authority log back onto the live roster. A revocation
                 //     CONVERGED from a peer never passed through a local revocation authority, so this is its
@@ -617,9 +631,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// (an empty rebuilt roster), the node KEEPS its local genesis-seeded roster — it does not adopt an empty
     /// one (non-bricking).
     /// </summary>
-    public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot)
+    public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot) => TryRebuildLiveRoster(snapshot);
+
+    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot)
     {
-        if (_nodeRoster is null) return; // minimal DI test — no live roster to push into.
+        if (_nodeRoster is null) return null; // minimal DI test — no live roster to push into.
 
         var admissions = new List<MemberAdmissionRecord>();
         var revocations = new List<MemberRevocationRecord>();
@@ -711,12 +727,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         + "local roster (fail-closed; no member adopted).",
                         genesisCandidates.Count);
                 }
-                return;
+                return null;
             }
 
             _logger.LogDebug(
                 "Roster CRDT rebuild produced no trustworthy genesis-rooted membership; keeping the local roster.");
-            return;
+            return null;
         }
 
         // gap #2 — OWN-MEMBERSHIP GUARD (the app/dev-seed cold-start crash, bug-1333). A NON-EMPTY rebuilt roster
@@ -764,7 +780,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 + "roster (fail-safe). If this is a dev instance with a changed HARBORLINE_DEV_SEED_HEX, clear its "
                 + "HARBORLINE_DEV_DATA_DIR.",
                 rebuilt.GenesisPartyId);
-            return;
+            return null;
         }
 
         // INFO-2 (≥3-node mesh) — the transport-trust set is now ROSTER-DERIVED. Filter the carried transport keys
@@ -819,7 +835,39 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             }
         }
         _nodeRoster.AdoptSyncedRoster(rebuilt, transportForLiveMembers, dmForLiveMembers, xwingForLiveMembers);
+        return rebuilt;
     }
+
+    private async Task ReconcileRefusalAuditAsync(IReadOnlyList<RosterRevocationRefusal> refusals, CancellationToken ct)
+    {
+        if (_refusalAudit?.Invoke() is not { } audit) return;
+        var current = refusals.GroupBy(
+            refusal => (RosterRecordCrdtState.FromRevocation(refusal.Revocation).RecordId, refusal.Code))
+            .ToDictionary(group => group.Key, group => group.First());
+        foreach (var (key, refusal) in current)
+        {
+            if (_reportedRefusals.ContainsKey(key)) continue;
+            var rev = refusal.Revocation;
+            _logger.LogWarning("Roster rebuild refused revocation of {Party}: {Code}", rev.RevokedPartyId, refusal.Code);
+            await audit.RecordAsync(RefusalReport(refusal), Permission.MembersRevoke,
+                new ActorId(rev.Signed.RevokedByPartyId), new TenantId(rev.TeamId),
+                rev.Signed.IssuedAt, decision: null, ct).ConfigureAwait(false);
+            _reportedRefusals.Add(key, refusal);
+        }
+        foreach (var (key, refusal) in _reportedRefusals)
+        {
+            if (current.ContainsKey(key)) continue;
+            var rev = refusal.Revocation;
+            await audit.RecordClearedAsync(RefusalReport(refusal), Permission.MembersRevoke,
+                new ActorId(rev.Signed.RevokedByPartyId), new TenantId(rev.TeamId),
+                rev.Signed.IssuedAt, ct).ConfigureAwait(false);
+        }
+        _reportedRefusals = current;
+    }
+
+    private static AuthorizationRefusal RefusalReport(RosterRevocationRefusal refusal) =>
+        new(refusal.Code, "Roster revocation refused", "The signed and live authority floor would be lost.",
+            "Admit a signed successor that holds the floor live.", JsonSerializer.Serialize(refusal));
 
     /// <inheritdoc />
     public ValueTask DisposeAsync() => _projection.DisposeAsync();
