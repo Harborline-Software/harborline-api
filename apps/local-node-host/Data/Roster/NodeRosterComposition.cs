@@ -72,7 +72,8 @@ public static class NodeRosterComposition
             sp.GetRequiredService<ILogger<RosterCrdtProjection>>(),
             nodeRoster: sp.GetService<NodeTeamRoster>(),
             // Resolved lazily (ticket 290): the fold's removal leg, absent in a minimal DI test.
-            administrators: () => sp.GetService<NodeAdministratorAuthority>()));
+            administrators: () => sp.GetService<NodeAdministratorAuthority>(),
+            refusalAudit: () => sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>()));
         services.AddSingleton<IRosterRevocationProjection, RosterRevocationProjection>();
 
         // The install-level id-routed delta plane — idempotent (TryAdd) with the other doctypes.
