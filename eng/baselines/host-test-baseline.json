@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "34ae2aa6535825e6cdc1902d979f4dcaf7bc5aba",
+  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
     "total": 3510,

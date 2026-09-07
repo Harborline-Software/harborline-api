@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "suite": "apps/hull (vitest)",
   "repository": "harborline-api",
-  "sourcePin": "a5036ff8b500e0d857d7e0a698408e7cf7f6cf31",
+  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
   "recordedAt": "2026-08-19 (first hull baseline measured on native Windows, after the winhub relocation)",
   "toolchain": {
     "note": "harborline-api had no TypeScript toolchain; hull brings its own. Step 18a's condition is that tsc and vitest EXECUTE, not that they pass — 'command not found' or 'no test files found' would make any recorded baseline meaningless.",
