@@ -58,6 +58,8 @@ public sealed record AuthorizationCounterfactual(
     public static AuthorizationCounterfactual From(AuthorizationDecisionEvidence evidence)
     {
         ArgumentNullException.ThrowIfNull(evidence);
+        if (evidence.Roster is not null)
+            return None("the verdict also consumes roster membership and ejection inputs");
         if (evidence.Kind is not AuthorizationEvidenceKind.Gate)
         {
             return None(

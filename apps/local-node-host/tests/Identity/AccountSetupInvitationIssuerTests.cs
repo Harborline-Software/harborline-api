@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -17,6 +18,39 @@ public sealed class AccountSetupInvitationIssuerTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 20, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task InvitationSites_RecordTheGateDecisionWithRosterInputs(bool recovery, bool allowed)
+    {
+        using var capture = new RosterDecisionCapture();
+        await using var fixture = await IssueFixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, capture.Audit);
+        if (recovery)
+        {
+            var issuer = new RecoveryInvitationIssuer(fixture.SessionFactory,
+                new WebSelectedSessionStore(fixture.SessionFactory), fixture.IdentityFactory,
+                fixture.GrantFactory, new FixedPartyReader("party-admin"), new FixedRosterReader(fixture.Roster),
+                new RecoveryInvitationStore(fixture.IdentityFactory), TestAuthorization.AllowGate(), capture.Audit);
+            var result = await issuer.IssueAsync(fixture.SelectedHandle,
+                new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
+                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
+            Assert.Equal(allowed, result is not null);
+        }
+        else
+        {
+            var result = await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+                Request(fixture.TenantId, ["records:read"], "roster-evidence"));
+            Assert.Equal(allowed, result is not null);
+        }
+        var evidence = capture.AssertSingle(allowed);
+        Assert.True(evidence.Roster!.Member);
+        Assert.False(evidence.Roster.Ejected);
+        Assert.Equal("party-admin", evidence.Roster.PartyId);
+        await capture.AssertAuditAsync(new TenantId(fixture.TenantId));
+    }
 
     [Fact]
     [Trait("PlanCard", "INV-02")]
@@ -167,7 +201,7 @@ public sealed class AccountSetupInvitationIssuerTests
         public MemberRoster Roster { get; }
         public AccountSetupInvitationIssuer Issuer { get; }
 
-        public static async Task<IssueFixture> CreateAsync(PermissionSet inviterPermissions)
+        public static async Task<IssueFixture> CreateAsync(PermissionSet inviterPermissions, AuthorizationRefusalAudit? refusalAudit = null)
         {
             var tenantId = "11111111-1111-1111-1111-111111111111";
             var identityPath = TempPath("identity");
@@ -276,7 +310,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 new FixedRosterReader(roster),
                 store,
                 TestAuthorization.AllowGate(),
-                new FixedTimeProvider(Now));
+                new FixedTimeProvider(Now), refusalAudit);
             return new IssueFixture(
                 [identityPath, sessionPath, grantPath],
                 identityFactory,

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -40,7 +41,8 @@ internal sealed class AccountSetupInvitationIssuer(
     IVerifiedTenantRosterReader rosterReader,
     AccountSetupInvitationStore store,
     AuthorizationGate gate,
-    TimeProvider timeProvider) : IAccountSetupInvitationIssuer
+    TimeProvider timeProvider,
+    AuthorizationRefusalAudit? refusalAudit = null) : IAccountSetupInvitationIssuer
 {
     internal static readonly TimeSpan InvitationLifetime = TimeSpan.FromHours(24);
 
@@ -77,13 +79,6 @@ internal sealed class AccountSetupInvitationIssuer(
         ArgumentNullException.ThrowIfNull(request);
         if (!string.Equals(request.TenantId, authority.Tenant.Value, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The invitation tenant does not match the write authority.", nameof(request));
-        var decision = await _gate.DecideAsync(
-            authority.Request(
-                AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
-                "members",
-                request.IdempotencyKey),
-            cancellationToken).ConfigureAwait(false);
-        decision.RequireAllowed();
         if (!Guid.TryParse(request.TenantId, out var parsedTenant) ||
             request.RequestedPermissions is null || request.RequestedPermissions.Count == 0 ||
             request.RequestedPermissions.Any(string.IsNullOrWhiteSpace) ||
@@ -139,13 +134,18 @@ internal sealed class AccountSetupInvitationIssuer(
             return null;
         }
 
-        var inviterPermissions = roster.PermissionsOf(party.PartyId.Value);
-        if (inviterPermissions is null ||
-            !inviterPermissions.Contains(TeamRolePermissions.MembersManage) ||
-            !requested.IsSubsetOf(inviterPermissions))
-        {
-            return null;
-        }
+        var decision = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
+                "members", request.IdempotencyKey) with
+            {
+                Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
+                {
+                    RequireMember = true, RequireGrantCoverage = true,
+                    RequiredPermissions = requested,
+                }
+            }, cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
+        if (decision.Verdict == AuthorizationVerdict.Denied) return null;
 
         var grantPin = session.PinnedGrantOwnerVersions.Single();
         var permissions = requested.Permissions.Order(StringComparer.Ordinal).ToArray();

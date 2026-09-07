@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -28,6 +29,27 @@ public sealed class SelectedSessionPepTests
     private readonly ITestOutputHelper _output;
 
     public SelectedSessionPepTests(ITestOutputHelper output) => _output = output;
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs(bool allowed)
+    {
+        using var capture = new RosterDecisionCapture();
+        var fixture = await Fixture.CreateAuditedAsync(capture.Audit, allowed ? PermissionSet.Of("records:read") : PermissionSet.Empty);
+        Assert.Equal(allowed, await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+        Assert.NotEmpty(capture.Evidence);
+        Assert.All(capture.Evidence, evidence =>
+        {
+            Assert.NotNull(evidence.Roster);
+            Assert.Equal("party-member-a", evidence.Roster.PartyId);
+            Assert.True(evidence.Roster.Member);
+            Assert.False(evidence.Roster.Ejected);
+            Assert.Contains(evidence.Project()[1].Facts, fact => fact.StartsWith("roster:party:"));
+        });
+        Assert.Equal(allowed, capture.Evidence.Any(evidence => evidence.Allowed));
+        await capture.AssertAuditAsync(fixture.Tenant);
+    }
 
     [Fact(DisplayName = "records:read follows the signed roster edge, not the grant bundle")]
     public async Task Member_With_Permission_Is_Allowed_And_Member_Without_It_Is_Denied()
@@ -215,7 +237,7 @@ public sealed class SelectedSessionPepTests
                 { ["principal-member-24"] = PermissionSet.Of(Permission.ContactsRead) }),
             new FixedEpochReader(),
             new FixedTimeProvider(Now),
-            NullLogger<SelectedSessionPermissionResolver>.Instance);
+            NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate());
         var principal = new SelectedSessionRequestPrincipal(
             "account-member-24",
             tenant,
@@ -281,7 +303,9 @@ public sealed class SelectedSessionPepTests
         internal TenantId Tenant { get; }
         internal Dictionary<string, GrantId> GrantIds { get; }
 
-        internal static async Task<Fixture> CreateAsync(params PermissionSet[] memberPermissions)
+        internal static Task<Fixture> CreateAsync(params PermissionSet[] memberPermissions) => CreateAuditedAsync(null, memberPermissions);
+
+        internal static async Task<Fixture> CreateAuditedAsync(AuthorizationRefusalAudit? audit, params PermissionSet[] memberPermissions)
         {
             var founder = KeyPair.Generate();
             var memberA = KeyPair.Generate();
@@ -343,7 +367,7 @@ public sealed class SelectedSessionPepTests
                 }),
                 epoch,
                 new FixedTimeProvider(Now),
-                NullLogger<SelectedSessionPermissionResolver>.Instance);
+                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate(), audit);
             return new Fixture(rosterReader, grants, epoch, tenant, grantIds)
             {
                 Resolver = resolver,
@@ -430,7 +454,7 @@ public sealed class SelectedSessionPepTests
                     { ["principal-deferred"] = permissions }),
                 new FixedEpochReader(),
                 new FixedTimeProvider(Now),
-                NullLogger<SelectedSessionPermissionResolver>.Instance),
+                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate()),
             new SelectedSessionRequestPrincipal(
                 "account-deferred",
                 tenant,

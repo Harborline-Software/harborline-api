@@ -98,6 +98,29 @@ public sealed class AuthorizationGateArchTests
         ("apps/local-node-host/Data/Search/Vector/KgVecIndexSubjectErasurePropagator.cs", "NodeVecIndexer", "specialized crypto-erasure coordinator"),
     ];
 
+    [Theory]
+    [InlineData(typeof(AdminTeamAccessAuthority))]
+    [InlineData(typeof(SelectedSessionPermissionResolver))]
+    [InlineData(typeof(AccountSetupInvitationIssuer))]
+    [InlineData(typeof(RecoveryInvitationIssuer))]
+    public void RosterSites_ReachTheGate_WithoutDirectRosterVerdicts(Type site)
+    {
+        var methods = site.Assembly.GetTypes().Where(type =>
+        {
+            while (type.DeclaringType is not null) type = type.DeclaringType;
+            return type == site;
+        }).SelectMany(DeclaredMethods).ToArray();
+        var calls = methods.SelectMany(CalledMethods).ToArray();
+        Assert.Contains(calls, call => call.DeclaringType == typeof(AuthorizationGate)
+            && call.Name == nameof(AuthorizationGate.DecideAsync));
+        Assert.DoesNotContain(calls, call =>
+            call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.MemberRoster)
+                && call.Name is "PermissionsOf" or "HasPermission"
+            || call.DeclaringType == typeof(PermissionSet) && call.Name == nameof(PermissionSet.Contains)
+            || call.DeclaringType == typeof(EffectiveMemberPermissions)
+                && call.Name is not "Read" and not "ReadAsync");
+    }
+
     [Fact]
     public void KernelWritePaths_CannotReadClosureOrComputeVerdictOutsideGate()
     {

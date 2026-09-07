@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -47,6 +48,18 @@ public sealed class AdminTeamAccessAuthorityTests
         await using var grants = fixture.GrantFactory.CreateDbContext();
         var row = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId);
         return DateTimeOffset.FromUnixTimeMilliseconds(row.RevokedAtUnixMs!.Value);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AdminSite_RecordsTheGateDecisionWithRosterInputs(bool allowed)
+    {
+        using var capture = new RosterDecisionCapture();
+        await using var fixture = await Fixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, refusalAudit: capture.Audit);
+        Assert.Equal(allowed, await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId) is not null);
+        Assert.Equal("party-admin", capture.AssertSingle(allowed).Roster!.PartyId);
+        await capture.AssertAuditAsync(new TenantId(TenantId));
     }
 
     [Fact]
@@ -542,10 +555,15 @@ public sealed class AdminTeamAccessAuthorityTests
         await PromoteToAdministratorAsync(fixture, WebGrantId);
         var closure = new GrantDerivedClosure(new NodeEfGrantStore(fixture.GrantFactory));
         var principal = new ActorId("principal-web");
-        Assert.Null(await EffectiveMemberPermissions.ResolveAsync(
-            closure, roster, "party-web", new TenantId(TenantId), principal, Now, CancellationToken.None));
-        Assert.False(EffectiveMemberPermissions.AnAdministratorGrantWouldConferMembersManage(
-            roster, "party-web", principal));
+        var inputs = await EffectiveMemberPermissions.ReadAsync(
+            closure, roster, "party-web", new TenantId(TenantId), principal, Now, CancellationToken.None);
+        var decision = await TestAuthorization.AllowGate().DecideAsync(
+            new AuthorizationWriteContext(principal, new TenantId(TenantId), Now)
+                .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "ejection")
+                with { Roster = inputs });
+        Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
+        Assert.True(decision.Evidence.Roster!.Ejected);
+
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -585,7 +603,8 @@ public sealed class AdminTeamAccessAuthorityTests
             BoundaryCaptures? captures = null,
             bool omitTargetParty = false,
             PermissionSet? successorPermissions = null,
-            bool ejectSuccessor = false)
+            bool ejectSuccessor = false,
+            AuthorizationRefusalAudit? refusalAudit = null)
         {
             var identityPath = TempPath("identity");
             var sessionPath = TempPath("session");
@@ -702,7 +721,7 @@ public sealed class AdminTeamAccessAuthorityTests
                 grantStore, grantWriter, new GrantDerivedClosure(grantStore),
                 TestAuthorization.AllowGate(), timeProvider ?? new FixedTimeProvider(Now),
                 rosterWriter, grantAudit,
-                new Ed25519Signer(KeyPair.Generate()));
+                new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
             return new Fixture(
                 [identityPath, sessionPath, grantPath], identityFactory, sessionFactory, grantFactory,
                 handle, authority);

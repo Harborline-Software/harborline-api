@@ -7,12 +7,15 @@ using Microsoft.Extensions.Options;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.DependencyInjection;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
@@ -111,7 +114,9 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         services.AddSingleton(roster);
         // The desktop plane's closure half of the one reading. A party the roster carries live never reaches
         // it (the roster edge answers), so it stands in for a composition that has one, unstubbed.
-        services.AddSingleton(Substitute.For<IAuthorizationClosureReader>());
+        services.AddDbContextFactory<NodeLocalSearchDbContext>(options =>
+            options.UseSqlite($"Data Source={Path.Combine(_directory, "authorization.db")};Pooling=False"));
+        services.AddNodeAuthorizationModel();
         services.AddSingleton(new NodeAdministratorAuthority(
             _contexts, TimeProvider.System, TestAuthorization.AllowGate()));
         var options = new LocalNodeOptions { TeamId = null, DataDirectory = _directory };
@@ -120,6 +125,8 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         services.AddSingleton<MultiTeamBootstrapHostedService>();
 
         var provider = services.BuildServiceProvider();
+        await using (var search = await provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>().CreateDbContextAsync())
+            await search.Database.EnsureCreatedAsync();
         await provider.GetRequiredService<MultiTeamBootstrapHostedService>()
             .StartAsync(CancellationToken.None);
         return new BootResult(provider, partyId, genesisTeam);
@@ -618,14 +625,16 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<NodeTeamRoster>(),
             provider.GetRequiredService<IOperationSigner>(),
-            provider.GetRequiredService<IAuthorizationClosureReader>());
+            provider.GetRequiredService<IAuthorizationClosureReader>(),
+            provider.GetRequiredService<AuthorizationGate>());
 
         /// <summary>This boot's live roster holder — the plane a converged revocation lands on.</summary>
         public NodeTeamRoster Roster => provider.GetRequiredService<NodeTeamRoster>();
 
         /// <summary>The one reading, asked exactly as the web plane's PEP asks it.</summary>
-        public async Task<PermissionSet?> WebPlaneReadingAsync(string partyId) =>
-            await EffectiveMemberPermissions.ResolveAsync(
+        public async Task<PermissionSet?> WebPlaneReadingAsync(string partyId)
+        {
+            var inputs = await EffectiveMemberPermissions.ReadAsync(
                 provider.GetRequiredService<IAuthorizationClosureReader>(),
                 Roster.Current,
                 partyId,
@@ -633,6 +642,17 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
                 Operator,
                 DateTimeOffset.UnixEpoch,
                 CancellationToken.None);
+            var allowed = new List<string>();
+            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
+            {
+                var operation = AuthorizationOperation.Parse(permission);
+                var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
+                    new AuthorizationWriteContext(Operator, ActiveTeamTenantContext.ProjectTenantId(teamId), DateTimeOffset.UnixEpoch)
+                        .Request(operation, AuthorizationGate.RecordKindFor(operation), "session") with { Roster = inputs });
+                if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
+            }
+            return allowed.Count == 0 ? null : PermissionSet.From(allowed);
+        }
 
         public string PartyId => partyId;
 
