@@ -5,8 +5,8 @@
   "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3553,
-    "passed": 3535,
+    "total": 3572,
+    "passed": 3554,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3539,
-      "passed": 3521,
+      "total": 3553,
+      "passed": 3535,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3539 -> 3553; passed 3521 -> 3535; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3539 + 14 = 3553; passed = total - notExecuted = 3553 - 18 = 3535."
+    "change": "total 3553 -> 3572; passed 3535 -> 3554; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 293 slice 1: 4 symbol-fence rows, 6 gate-decision rows and 8 site-evidence rows; fix 1 adds the team-update denial row. All 19 added rows have recorded reds and focused passes.",
+    "detectedBy": "Source delta from 18d57e8c plus focused test summaries; expected full-suite totals only. No full host suite was run in this lane; the controller must verify this count at its gate.",
+    "arithmeticCrossCheck": "3553 + 4 + 6 + 8 + 1 = 3572; passed = 3572 - 18 = 3554."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

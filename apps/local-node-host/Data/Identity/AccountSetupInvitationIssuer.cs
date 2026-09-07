@@ -79,6 +79,11 @@ internal sealed class AccountSetupInvitationIssuer(
         ArgumentNullException.ThrowIfNull(request);
         if (!string.Equals(request.TenantId, authority.Tenant.Value, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The invitation tenant does not match the write authority.", nameof(request));
+        var coverage = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
+                "members", request.IdempotencyKey), cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
         if (!Guid.TryParse(request.TenantId, out var parsedTenant) ||
             request.RequestedPermissions is null || request.RequestedPermissions.Count == 0 ||
             request.RequestedPermissions.Any(string.IsNullOrWhiteSpace) ||
@@ -145,7 +150,7 @@ internal sealed class AccountSetupInvitationIssuer(
                 }
             }, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
-        if (decision.Verdict == AuthorizationVerdict.Denied) return null;
+        decision.RequireAllowed();
 
         var grantPin = session.PinnedGrantOwnerVersions.Single();
         var permissions = requested.Permissions.Order(StringComparer.Ordinal).ToArray();

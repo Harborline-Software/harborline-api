@@ -38,9 +38,10 @@ public sealed class SelectedSessionPepTests
         using var capture = new RosterDecisionCapture();
         var fixture = await Fixture.CreateAuditedAsync(capture.Audit, allowed ? PermissionSet.Of("records:read") : PermissionSet.Empty);
         Assert.Equal(allowed, await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
-        Assert.NotEmpty(capture.Evidence);
+        Assert.Equal(allowed ? 1 : 0, capture.Evidence.Count);
         Assert.All(capture.Evidence, evidence =>
         {
+            Assert.True(evidence.Allowed);
             Assert.NotNull(evidence.Roster);
             Assert.Equal("party-member-a", evidence.Roster.PartyId);
             Assert.True(evidence.Roster.Member);

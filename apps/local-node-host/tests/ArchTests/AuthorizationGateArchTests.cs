@@ -117,6 +117,10 @@ public sealed class AuthorizationGateArchTests
             call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.MemberRoster)
                 && call.Name is "PermissionsOf" or "HasPermission"
             || call.DeclaringType == typeof(PermissionSet) && call.Name == nameof(PermissionSet.Contains)
+            || call.DeclaringType == typeof(Enumerable) && call.Name == nameof(Enumerable.Contains)
+                && call.IsGenericMethod && call.GetGenericArguments()[0] == typeof(string)
+            || call.Name == "Contains" && call.DeclaringType is { IsGenericType: true } collection
+                && collection.GetGenericArguments().Contains(typeof(string))
             || call.DeclaringType == typeof(EffectiveMemberPermissions)
                 && call.Name is not "Read" and not "ReadAsync");
     }

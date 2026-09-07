@@ -76,6 +76,11 @@ internal sealed class RecoveryInvitationIssuer(
         ArgumentNullException.ThrowIfNull(request);
         if (!string.Equals(request.TenantId, authority.Tenant.Value, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The recovery tenant does not match the write authority.", nameof(request));
+        var coverage = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
+                "members", request.IdempotencyKey), cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
         var normalizedTarget = WebUsernameNormalizer.TryNormalize(request.TargetUsername);
         if (!Guid.TryParse(request.TenantId, out var parsedTenant) ||
             normalizedTarget is null ||
@@ -131,7 +136,7 @@ internal sealed class RecoveryInvitationIssuer(
                 }
             }, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
-        if (decision.Verdict == AuthorizationVerdict.Denied) return null;
+        decision.RequireAllowed();
 
         // Resolve the EXISTING target account. Non-enumerating: any miss returns the same null the
         // authority failures above return.

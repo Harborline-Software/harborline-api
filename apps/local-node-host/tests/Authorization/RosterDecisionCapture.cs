@@ -34,7 +34,7 @@ internal sealed class RosterDecisionCapture : IDisposable
 
     internal AuthorizationDecisionEvidence AssertSingle(bool allowed)
     {
-        var evidence = Assert.Single(Evidence);
+        var evidence = Assert.Single(Evidence, evidence => evidence.Roster is not null);
         Assert.Equal(allowed, evidence.Allowed);
         Assert.NotNull(evidence.Roster);
         Assert.Contains(evidence.Project()[1].Facts, fact => fact.StartsWith("roster:party:"));

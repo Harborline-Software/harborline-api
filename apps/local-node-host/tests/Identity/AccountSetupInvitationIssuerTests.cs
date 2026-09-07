@@ -34,17 +34,21 @@ public sealed class AccountSetupInvitationIssuerTests
                 new WebSelectedSessionStore(fixture.SessionFactory), fixture.IdentityFactory,
                 fixture.GrantFactory, new FixedPartyReader("party-admin"), new FixedRosterReader(fixture.Roster),
                 new RecoveryInvitationStore(fixture.IdentityFactory), TestAuthorization.AllowGate(), capture.Audit);
-            var result = await issuer.IssueAsync(fixture.SelectedHandle,
+            Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
                 new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
                 new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
-            Assert.Equal(allowed, result is not null);
+            if (allowed) Assert.NotNull(await issue());
+            else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }
         else
         {
-            var result = await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+            Func<Task<AccountSetupInvitationIssueResult?>> issue = () => fixture.Issuer.IssueAsync(fixture.SelectedHandle,
                 Request(fixture.TenantId, ["records:read"], "roster-evidence"));
-            Assert.Equal(allowed, result is not null);
+            if (allowed) Assert.NotNull(await issue());
+            else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }
+        Assert.Equal(2, capture.Evidence.Count);
+        Assert.True(Assert.Single(capture.Evidence, item => item.Roster is null).Allowed);
         var evidence = capture.AssertSingle(allowed);
         Assert.True(evidence.Roster!.Member);
         Assert.False(evidence.Roster.Ejected);
@@ -88,7 +92,7 @@ public sealed class AccountSetupInvitationIssuerTests
     {
         await using (var member = await IssueFixture.CreateAsync(PermissionCompositions.Member))
         {
-            Assert.Null(await member.Issuer.IssueAsync(
+            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => member.Issuer.IssueAsync(
                 member.SelectedHandle,
                 Request(member.TenantId, PermissionCompositions.Viewer.Permissions, "unauthorized")));
             await AssertNoInvitationsAsync(member.IdentityFactory);
@@ -96,7 +100,7 @@ public sealed class AccountSetupInvitationIssuerTests
 
         await using (var admin = await IssueFixture.CreateAsync(PermissionCompositions.Admin))
         {
-            Assert.Null(await admin.Issuer.IssueAsync(
+            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => admin.Issuer.IssueAsync(
                 admin.SelectedHandle,
                 Request(admin.TenantId, [Permission.GrantPermissions], "escalated")));
             await AssertNoInvitationsAsync(admin.IdentityFactory);

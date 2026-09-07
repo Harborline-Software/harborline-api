@@ -141,8 +141,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             var allowed = new List<string>();
             var authority = new AuthorizationWriteContext(NodeGatePrincipal.Of(principal), principal.TenantId,
                 _timeProvider.GetUtcNow());
-            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions
-                .Append(TeamRolePermissions.MembersManage).Distinct(StringComparer.Ordinal))
+            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
             {
                 var operation = AuthorizationOperation.Parse(permission);
                 var decision = await _gate.DecideAsync(authority.Request(operation,

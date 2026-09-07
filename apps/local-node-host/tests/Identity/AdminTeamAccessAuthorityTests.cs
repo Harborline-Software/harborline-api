@@ -67,14 +67,14 @@ public sealed class AdminTeamAccessAuthorityTests
     public async Task NonAdmin_Caller_Is_Refused_On_Every_Action_By_The_Server_Gate()
     {
         // The caller's roster permissions lack members:manage — the UI could be bypassed, but the
-        // server gate refuses regardless. Every surface returns a non-enumerating null.
+        // server gate refuses regardless. Write denials throw; list refusals stay non-enumerating.
         await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Member);
 
         Assert.Null(await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId));
         Assert.Null(await fixture.Authority.ListPendingInvitationsAsync(fixture.Handle, TenantId));
-        Assert.Null(await fixture.Authority.IssueInvitationAsync(
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Authority.IssueInvitationAsync(
             fixture.Handle, TenantId, new[] { "records:read" }, "idem-1"));
-        Assert.Null(await fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId));
     }
 
     [Fact]
