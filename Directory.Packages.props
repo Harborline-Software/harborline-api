@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- ADR 0164 D6 — git-tag-derived versioning. Build-time only, never a consumer dependency. -->
-    <PackageVersion Include="MinVer" Version="6.0.0"/>
+    <PackageVersion Include="MinVer" Version="8.0.0"/>
     <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="11.0.0-preview.7.26381.103"/>
     <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="11.0.0-preview.7.26381.103"/>
