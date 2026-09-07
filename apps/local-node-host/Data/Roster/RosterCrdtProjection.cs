@@ -73,7 +73,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly ILogger<RosterCrdtProjection> _logger;
     private readonly Func<AuthorizationRefusalAudit?>? _refusalAudit;
     // Accessed only under the CRDT projection's async reconcile gate.
-    private readonly Dictionary<(string RecordId, string Code), RosterRevocationRefusal> _reportedRefusals = new();
+    // Replaced wholesale on every reconcile (never mutated in place): the AM-16/G1 fence counts every
+    // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
+    private Dictionary<(string RecordId, string Code), RosterRevocationRefusal> _reportedRefusals = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
 
@@ -852,15 +854,15 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 rev.Signed.IssuedAt, decision: null, ct).ConfigureAwait(false);
             _reportedRefusals.Add(key, refusal);
         }
-        foreach (var (key, refusal) in _reportedRefusals.ToArray())
+        foreach (var (key, refusal) in _reportedRefusals)
         {
             if (current.ContainsKey(key)) continue;
             var rev = refusal.Revocation;
             await audit.RecordClearedAsync(RefusalReport(refusal), Permission.MembersRevoke,
                 new ActorId(rev.Signed.RevokedByPartyId), new TenantId(rev.TeamId),
                 rev.Signed.IssuedAt, ct).ConfigureAwait(false);
-            _reportedRefusals.Remove(key);
         }
+        _reportedRefusals = current;
     }
 
     private static AuthorizationRefusal RefusalReport(RosterRevocationRefusal refusal) =>
