@@ -1,0 +1,250 @@
+name: packages
+
+# ---------------------------------------------------------------------------
+# ACTIONS_ENABLED - the switch that decides whether this workflow may run.
+#
+# Every job below is guarded by `if: vars.ACTIONS_ENABLED == 'true'`. The variable is UNSET, so
+# every job reports "skipped" and GitHub allocates no runner and bills no minutes. The condition is
+# evaluated before runner allocation, which is why this keeps working while the account is over its
+# Actions limit - a guarded job never reaches the point where billing refuses it.
+#
+# Why it exists: this org is on the free plan with private repos, and Actions minutes ran out on
+# 2026-08-24. Until the repositories are public (where Actions is free), CI here is a duplicate of
+# work that already happens locally, and a red check that never ran teaches people to ignore checks.
+#
+# Verification does NOT depend on this flag. Run locally instead:
+#     bash eng/verify-packages.sh   # boundaries + pack + clean-consumer smoke
+#     dotnet test                   # the host suite the build-and-test job runs
+#
+# To turn it back on, per repository:
+#     gh variable set ACTIONS_ENABLED --body true
+# and to turn it off again:
+#     gh variable delete ACTIONS_ENABLED
+# ---------------------------------------------------------------------------
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*-preview.*", "v*-alpha.*", "v*-beta.*", "v*-rc.*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish prerelease packages to GitHub Packages
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # The app/Capability protocol is schema-first: one JSON Schema plus manifest generates the
+  # TypeScript, C#, Rust and OpenAPI projections, and a shared 48-case fixture manifest is the
+  # language-neutral proof that every projection implements the same wire contract.
+  #
+  # Until this job existed, CI ran only `dotnet test` and verify-packages.sh -- no Node, no cargo.
+  # So the lane that serves the API was gated but unmeasured against the contract, while the two
+  # lanes that did measure it ran nowhere. A stale regeneration, or one projection drifting from
+  # the schema, shipped green.
+  #
+  # Every step carries `if: ${{ !cancelled() }}` deliberately: when a schema change is only
+  # half-regenerated the useful signal is WHICH lanes disagree, and fail-fast would report just
+  # the first. One red lane reads as a broken projection; three red lanes read as a regeneration
+  # that was never run.
+  protocol-lane-conformance:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v7
+        with:
+          # No engines field or .nvmrc pins this package; 24 is the version the lane is verified
+          # against locally. Rust needs no setup step -- ubuntu-latest ships a stable toolchain
+          # well past the 1.85 that Cargo.toml's edition 2024 requires.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/contracts/package-lock.json
+
+      - name: Generated projections are in sync with the schema
+        if: ${{ !cancelled() }}
+        run: node tooling/harborline-contract-codegen/generate.mjs --check
+
+      - name: Codegen guard suite (boundary inventory, emitter fail-open regressions)
+        # --check above never runs validateInventory; this suite is the only executable gate on
+        # boundary-inventory drift (ticket 081 wave-2 finding contracts-1). The wrapper fails
+        # closed on an empty match and pins the three app-relocation failures by name.
+        if: ${{ !cancelled() }}
+        run: node tooling/harborline-contract-codegen/run-tests.mjs
+
+      - name: TypeScript lane
+        if: ${{ !cancelled() }}
+        working-directory: packages/contracts
+        run: |
+          npm ci
+          npm test
+
+      - name: C# lane
+        if: ${{ !cancelled() }}
+        run: dotnet test packages/contracts/tests/Harborline.Contracts.Tests.csproj -c Release
+
+      - name: Rust lane
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path packages/contracts/rust/Cargo.toml
+
+  operator-cli-headless:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Drive a provisioned node through the operator CLI
+        run: >-
+          dotnet test apps/local-node-host/tests/tests.csproj
+          -c Release
+          --filter FullyQualifiedName~OperatorCliHeadlessEndToEndTests
+
+  # Split out of the former pack-consume-publish job, which serialised three separate concerns into
+  # one: the clean-consumer gate sat behind this test step, so eng/verify-packages.sh had never
+  # executed in CI even once, and the NU1015 it would have caught went undetected until someone ran
+  # it by hand. That reason for the split still holds.
+  #
+  # This comment used to record "2248 tests, 4 failures -- the 3 permitted above". That is no longer
+  # true and had not been for some time: eng/baselines/host-test-baseline.json now pins
+  # total 2371 / passed 2353 / failed 0 / notExecuted 18, and permittedFailures is EMPTY. Someone
+  # drove the suite to genuinely green and re-pinned it, and this comment kept asserting the old
+  # shape -- a stored claim nobody re-derived, which is exactly the kind of thing that misleads a
+  # reader into repeating it.
+  #
+  # Two things to know before trusting a number here. A bare `dotnet test` is NOT the gate: the
+  # baseline-aware runner is eng/run-exact-clone.mjs, which takes its verdict from baseline
+  # comparison rather than exit code and retries the named knownFlaky entries. And the pin describes
+  # NATIVE WINDOWS ONLY -- the baseline says no Linux run has ever been pinned, so do not compare an
+  # ubuntu result to it without re-measuring.
+  build-and-test:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # MinVer derives the version from git history, and repo-wide TreatWarningsAsErrors
+          # would turn its shallow-clone warning into a build failure.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v7
+        with:
+          # Ticket 096: Telemetry.CapabilityInvokeCorrelationTraceTests shells out to
+          # apps/capability-host/node_modules/.bin/vitest to drive the TypeScript loopback fixture,
+          # so this job needs Node and that install or the row cannot run. 24 matches the
+          # protocol-lane-conformance job; nothing in the repo pins a version.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/capability-host/package-lock.json
+      - name: Install the capability-host node toolchain
+        # Nothing here needs `npm run build`: the interop fixture's only api-contracts import is
+        # type-only, so vitest never loads that package's dist at runtime.
+        working-directory: apps/capability-host
+        run: npm ci
+      - name: Build and test
+        run: dotnet test Harborline.Api.slnx -c Release
+
+  # Packs the three shipped projects and restores them into tests/package-consumer the way an
+  # external consumer would. Deliberately does NOT `needs: build-and-test`: proving the packed
+  # nupkgs restore and run is independent evidence from the unit suite, and gating it behind the
+  # suite is precisely what hid a restore-breaking NU1015 in Directory.Build.props. Distribution
+  # still requires both -- see the publish job.
+  pack-consume:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          # The three shipped packages and tests/package-consumer target net10.0, but global.json
+          # pins an 11.0 preview SDK, which carries only the 11.0 runtime. Without a 10.0 runtime
+          # the consumer restores and builds cleanly and then dies at `dotnet run` with "You must
+          # install or update .NET ... version '10.0.0'", exit 150. Invisible on a dev box that
+          # already has the 10.0 runtime installed, which is why it survived until this job first
+          # ran on a clean machine. Verified on ubuntu: without this the job is red, with it green.
+          dotnet-version: '10.0.x'
+          global-json-file: global.json
+      - name: Select immutable prerelease version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            value="${GITHUB_REF_NAME#v}"
+          else
+            value="0.1.0-preview.${GITHUB_RUN_NUMBER}"
+          fi
+          if [[ "$value" != *-* ]]; then
+            echo "Stable package publication is not authorized: $value" >&2
+            exit 1
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+      - name: Pack and verify clean consumer
+        env:
+          HARBORLINE_PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+          HARBORLINE_PACKAGE_OUTPUT: ${{ github.workspace }}/artifacts/packages
+        run: bash eng/verify-packages.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harborline-api-${{ steps.version.outputs.value }}
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+  # Publication keeps BOTH gates. The split unblocked verification, not distribution: nothing is
+  # pushed unless the full suite is green AND the clean consumer restored. The nupkgs come from
+  # pack-consume's artifact rather than being re-packed, so the bytes published are the exact
+  # bytes the consumer gate proved.
+  publish:
+    needs: [build-and-test, pack-consume]
+    if: >-
+      vars.ACTIONS_ENABLED == 'true'
+      && (startsWith(github.ref, 'refs/tags/') || inputs.publish == true)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Required even though nothing is compiled here: global.json pins a preview SDK with
+          # rollForward disabled, so any dotnet command run in the repo fails without it.
+          global-json-file: global.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: harborline-api-${{ needs.pack-consume.outputs.version }}
+          path: artifacts/packages
+      - name: Require explicit distribution authority
+        shell: bash
+        run: |
+          authority="$(jq -r '.packageDistributionAuthority // empty' repository.yaml)"
+          remote_status="$(jq -r '.remote.status // empty' repository.yaml)"
+          if [[ -z "$authority" || "$remote_status" != "active" ]]; then
+            echo "Publication requires an active remote and named packageDistributionAuthority in repository.yaml." >&2
+            exit 1
+          fi
+      - name: Publish to GitHub Packages
+        env:
+          VERSION: ${{ needs.pack-consume.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dotnet nuget add source \
+            --username "${GITHUB_ACTOR}" \
+            --password "${GH_TOKEN}" \
+            --store-password-in-clear-text \
+            --name github \
+            "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json"
+          dotnet nuget push "artifacts/packages/*.nupkg" \
+            --source github \
+            --api-key "${GH_TOKEN}" \
+            --skip-duplicate

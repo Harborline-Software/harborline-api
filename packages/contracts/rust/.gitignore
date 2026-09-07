@@ -1,0 +1,2 @@
+# Rust build artifacts for the generated protocol binding crate
+/target

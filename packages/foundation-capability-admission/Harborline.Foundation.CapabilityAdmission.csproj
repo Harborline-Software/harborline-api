@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.CapabilityAdmission</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.CapabilityAdmission</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.CapabilityAdmission</RootNamespace>
+    <Description>Release-manifest and runtime-admission contracts for ADR 0154. Distinct from feature flags, entitlements, packs, and tenant activation.</Description>
+    <PackageTags>harborline;foundation;capabilities;release-manifest;runtime-admission</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.CapabilityAdmission.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+  </ItemGroup>
+</Project>

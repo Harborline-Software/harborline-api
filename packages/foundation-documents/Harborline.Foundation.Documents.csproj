@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Documents</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Documents</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Documents</RootNamespace>
+    <Description>Documents &amp; Templates pillar engine (#111, design documents-pillar-design-2026-07-06).
+      The library-neutral render substrate: the TemplateDefinition block-tree model, the
+      DocumentMergeContextAdapter (the third ADR 0146 D3 IContextAdapter over primary+related records),
+      the block-tree render walker producing a semantic RenderedDocument, the promoted ADR 0021 §1
+      IPdfExportWriter contract (semantic-document-in, bytes-out — the swappable last mile), and the
+      issued-document provenance mint (ADR 0146 D9: immutable bytes + pinned template version +
+      subject-key-encrypted snapshot, ADR 0142 legal-hold pre-shred gated). Provider-neutral: carries no
+      PDF library — the PDFsharp adapter ships as the non-Foundation Harborline.Api.Documents.PdfSharp package.</Description>
+    <PackageTags>harborline;foundation;documents;templates;pdf;merge;adr-0146;adr-0021;adr-0142;pillar-111</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Documents.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.Documents.PdfSharp.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-forms\Harborline.Foundation.Forms.csproj" />
+    <ProjectReference Include="..\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj" />
+    <ProjectReference Include="..\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
+    <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
+  </ItemGroup>
+</Project>

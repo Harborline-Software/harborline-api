@@ -1,0 +1,159 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(SelectCss)"
+     style="@CombineStyles()"
+     @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="sf-searchableselect__label" id="@_labelId">
+            @Label@if (Required)
+            {<span class="sf-searchableselect__required" aria-hidden="true"> *</span>}
+        </span>
+    }
+    <button type="button"
+            class="sf-searchableselect__trigger"
+            aria-haspopup="listbox"
+            aria-expanded="@_open.ToString().ToLowerInvariant()"
+            aria-controls="@(_open ? _listId : null)"
+            aria-labelledby="@(string.IsNullOrEmpty(Label) ? null : _labelId)"
+            aria-label="@(string.IsNullOrEmpty(Label) ? AriaLabel ?? "Searchable select" : null)"
+            disabled="@(!Enabled)"
+            @onclick="TogglePopup">
+        @(SelectedLabel ?? Placeholder ?? "Select…")
+    </button>
+    @if (_open)
+    {
+        <div class="sf-searchableselect__popup">
+            <input type="search"
+                   class="sf-searchableselect__search"
+                   placeholder="@(SearchPlaceholder ?? "Search…")"
+                   aria-label="@(SearchPlaceholder ?? "Search options")"
+                   aria-controls="@_listId"
+                   value="@_search"
+                   @oninput="HandleSearchInput" />
+            <ul id="@_listId" class="sf-searchableselect__list" role="listbox"
+                aria-label="@(AriaLabel ?? Label ?? "Options")">
+                @foreach (var group in FilteredGroups)
+                {
+                    @if (!string.IsNullOrEmpty(group.Key))
+                    {
+                        <li class="sf-searchableselect__group" role="presentation">@group.Key</li>
+                    }
+                    @foreach (var option in group)
+                    {
+                        var clickOption = option;
+                        var isSelected = option.Value == Value;
+                        var isHighlighted = option.Value == _highlightedValue;
+                        <li class="sf-searchableselect__option @(isSelected ? "mar-searchableselect__option--selected" : "") @(isHighlighted ? "mar-searchableselect__option--highlighted" : "")"
+                            role="option"
+                            aria-selected="@isSelected.ToString().ToLowerInvariant()"
+                            aria-disabled="@(option.Disabled ? "true" : null)"
+                            tabindex="@(option.Disabled ? -1 : 0)"
+                            @onclick="() => SelectOption(clickOption)"
+                            @onkeydown="args => HandleOptionKeyDown(clickOption, args)">
+                            @option.Label
+                        </li>
+                    }
+                }
+                @if (!FilteredOptions.Any())
+                {
+                    <li class="sf-searchableselect__empty" role="presentation">No matches</li>
+                }
+            </ul>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(ErrorCode))
+    {
+        <p class="sf-searchableselect__error" role="alert">@ErrorCode</p>
+    }
+</div>
+
+@code {
+    private readonly string _labelId = $"sf-searchableselect-{Guid.NewGuid():N}";
+    private readonly string _listId = $"sf-searchableselect-list-{Guid.NewGuid():N}";
+    private bool _open;
+    private string _search = string.Empty;
+    private string? _highlightedValue;
+
+    /// <summary>The options to present. Options sharing a Group render under a non-interactive header.</summary>
+    [Parameter] public IEnumerable<SearchableSelectOption>? Options { get; set; }
+
+    /// <summary>The selected option value. Powers <c>@@bind-Value</c>.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Fires when an option is selected.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Fires when an option is selected, matching React's <c>onChange</c> surface.</summary>
+    [Parameter] public EventCallback<string?> OnChange { get; set; }
+
+    /// <summary>Fires as the search query changes.</summary>
+    [Parameter] public EventCallback<string> OnFilterChange { get; set; }
+
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? SearchPlaceholder { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public string? ErrorCode { get; set; }
+
+    private string SelectCss
+    {
+        get
+        {
+            var cls = "mar-searchableselect";
+            if (_open) cls += " mar-searchableselect--open";
+            if (!Enabled) cls += " mar-searchableselect--disabled";
+            if (!string.IsNullOrEmpty(ErrorCode)) cls += " mar-searchableselect--error";
+            return cls;
+        }
+    }
+
+    private string? SelectedLabel =>
+        Options?.FirstOrDefault(option => option.Value == Value)?.Label;
+
+    private IEnumerable<SearchableSelectOption> FilteredOptions =>
+        (Options ?? []).Where(option =>
+            _search.Length == 0
+            || option.Label.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<IGrouping<string?, SearchableSelectOption>> FilteredGroups =>
+        FilteredOptions.GroupBy(option => option.Group);
+
+    private void TogglePopup()
+    {
+        if (!Enabled) return;
+        _open = !_open;
+        if (!_open) _search = string.Empty;
+        _highlightedValue = FilteredOptions.FirstOrDefault(option => !option.Disabled)?.Value;
+    }
+
+    private async Task HandleSearchInput(ChangeEventArgs args)
+    {
+        _search = args.Value?.ToString() ?? string.Empty;
+        _highlightedValue = FilteredOptions.FirstOrDefault(option => !option.Disabled)?.Value;
+        await OnFilterChange.InvokeAsync(_search);
+    }
+
+    private async Task SelectOption(SearchableSelectOption option)
+    {
+        if (!Enabled || option.Disabled) return;
+        Value = option.Value;
+        _open = false;
+        _search = string.Empty;
+        await ValueChanged.InvokeAsync(Value);
+        await OnChange.InvokeAsync(Value);
+    }
+
+    private async Task HandleOptionKeyDown(SearchableSelectOption option, KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ")
+            await SelectOption(option);
+        else if (args.Key == "Escape")
+        {
+            _open = false;
+            _search = string.Empty;
+        }
+    }
+}

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Pinned when the local-node-host build system merged in (ticket 008 step 0.5): the root
+         moved to net11.0 for the incoming closure; this envelope keeps its published net10.0. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Carried from this repository's pre-merge root props (ticket 008 step 0.5). Scoped here
+         rather than at root: a root-level 1591 suppression would silently relax the XML-doc
+         requirement for all 93 incoming projects, which the source deliberately enforces. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Harborline.Api.Contracts/Harborline.Api.Contracts.csproj" />
+    <ProjectReference Include="../../src/Harborline.Api.Testing/Harborline.Api.Testing.csproj" />
+  </ItemGroup>
+</Project>

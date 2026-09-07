@@ -1,0 +1,6 @@
+{
+  "id": "provider-local",
+  "Name": "Local provider",
+  "region": "lab",
+  "metadata": { "priority": 1 }
+}

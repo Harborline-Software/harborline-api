@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Blocks.Calendar</PackageId>
+    <AssemblyName>Harborline.Api.Blocks.Calendar</AssemblyName>
+    <RootNamespace>Harborline.Api.Blocks.Calendar</RootNamespace>
+    <Description>Calendar-event domain block for Harborline (temporal core + participation + availability/free-busy; Slice S3). Provides the
+    CalendarEvent entity (series master / single event), the series/occurrence store with EXDATE
+    (cancelled occurrences) and RECURRENCE-ID overrides (single modified occurrence), and the
+    edit-series-vs-edit-occurrence semantics from capability-and-workflow-architecture.md §7.1.
+    Reuses Harborline.Api.Foundation.Scheduling's IRruleExpansionService (the shipped RFC 5545 expander)
+    and layers EXDATE/RECURRENCE-ID handling LOCALLY per the survey's rule-of-three caution (the
+    shared expander has 3 live consumers; the override layer stays in this block until a 2nd
+    consumer needs it). S1 adds time-of-day (TimeOnly StartTime/EndTime) + real timezone/DST via
+    ExpandInstants (UTC DateTimeOffset occurrences, TimeZoneInfo/IANA, DST applied) scoped to this
+    block only, and closes the §7.1 anchor-move (reject) and UNTIL-split zombie (prune+surface)
+    edges. S2 populates the participation / resource model (Direction A booking only): a
+    ParticipantRef discriminated over Party (PartyId) or Asset (AssetId) by id value (no hard ref on
+    those blocks, party-model-convention §4); CalendarParticipation (participant, role, status) with
+    the role-status invariant (a Resource is reserved, never Declined); and the calendar-as-a-view
+    query EventsFor(participant, window), tenant-scoped and cross-tenant isolated. The clinic
+    appointment shape (doctor-Resource-Party + patient-Attendee-Party + optional room-Resource-Asset)
+    is expressible. S3 adds the bookable supply + free/busy + the coverage-support seam (Direction A
+    booking only): ResourceAvailability (recurring AvailabilityWindows over a Party/Asset, DST-aware,
+    + whole-day exceptions) is the supply; an Occupancy flag (Bookable/Blocking/Tentative) is the
+    COMMON classification (billable/productive are vertical, deferred); IFreeBusyService computes
+    free = availability - ALL occupancy; a generic opaque ScheduledAgainst ContextRef + the
+    EventsForContext by-context query let a future coverage overlay (Pattern C) read what is scheduled
+    against a floor/project without the core knowing about coverage; IBookingService books a free slot
+    + enforces no-double-book in-block (the CP blocks-scheduling reservation coordinator is a noted
+    seam). CALENDAR-LAYERS adds the layered free/busy composition (effective_free =
+    (base_availability - exceptions[shared holidays + per-resource vacations/closures]) - occupancy):
+    SharedCalendar (supply-side org/location holiday calendars, one entry to many resources) +
+    CalendarSubscription (the resource-to-shared-calendar scope edge) + ISharedCalendarResolver;
+    per-resource spanning ExceptionSpans (vacations/closures over a date span, generalizing S3's
+    whole-day ExceptionDates); and demand-side detail-visibility (EventVisibility Public/Private +
+    OwnerActorId + FreeBusyForViewer = busy-to-others/detail-to-owner) via the pluggable
+    IEventDetailVisibilityPolicy seam (fail-closed owner-only default; a host registers a grant-backed
+    policy - this block takes NO ProjectReference on the grant substrate). The UTC invariant is
+    preserved (exception layers are whole-day local-date filters applied before the wall-clock-to-UTC
+    resolution). Padding (the sibling availability-realism follow-on), the grant-backed visibility
+    policy, the Direction-B optimizer, the coverage overlay, the vertical EventType payload,
+    plan-vs-actual analytics, and a durable EF store are later slices.</Description>
+    <PackageTags>scheduling;calendar;events;recurrence;rrule;blocks;domain;harborline</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- NU1510 suppressed: direct PackageReference for
+         Microsoft.Extensions.DependencyInjection.Abstractions is required (IServiceCollection)
+         by CalendarServiceCollectionExtensions. NuGet preview.4 pruning may flag it as
+         transitively available. Per fleet-conventions "NU1510 — keep the PackageRef, suppress
+         the warning". -->
+    <NoWarn>CS1591;NU1510</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.Calendar.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- blocks-calendar composes the shipped scheduling primitives:
+         foundation (TenantId etc.) + foundation-scheduling (IRruleExpansionService).
+         It does NOT edit foundation-scheduling — the EXDATE/RECURRENCE-ID override layer
+         lives here (rule-of-three: don't widen the shared 3-consumer expander). -->
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-scheduling\Harborline.Foundation.Scheduling.csproj" />
+  </ItemGroup>
+</Project>

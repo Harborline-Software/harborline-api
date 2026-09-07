@@ -1,0 +1,103 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses("sf-dropdownbutton", PopupAlignmentClass)"
+     style="@CombineStyles()"
+     @onkeydown="HandleKeyDown"
+     @attributes="AdditionalAttributes">
+    <button @ref="_trigger"
+            class="@CssProvider.ButtonClass(Variant, Size, FillMode, Rounded, !Enabled)"
+            type="button"
+            disabled="@(!Enabled)"
+            aria-haspopup="menu"
+            aria-expanded="@_menuOpen.ToString().ToLowerInvariant()"
+            @onclick="ToggleMenu">
+        @if (Icon != null)
+        {
+            <span class="sf-button__icon">@Icon</span>
+        }
+        @Text
+        <span class="sf-dropdownbutton__indicator" aria-hidden="true">
+            @IconProvider.GetIconMarkup("chevron-down", IconSize.Small)
+        </span>
+    </button>
+    @if (_menuOpen)
+    {
+        <div class="sf-dropdownbutton__overlay" @onclick="CloseMenu"></div>
+        <div class="@CssProvider.MenuClass()" role="menu">
+            @foreach (var item in Items)
+            {
+                <button class="@CssProvider.MenuItemClass(item.Disabled)"
+                        type="button"
+                        role="menuitem"
+                        disabled="@item.Disabled"
+                        aria-disabled="@(item.Disabled ? "true" : null)"
+                        @onclick="() => SelectItemAsync(item)">
+                    @if (item.Icon != null)
+                    {
+                        <span class="sf-menu-item__icon">@item.Icon</span>
+                    }
+                    @item.Text
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _menuOpen;
+    private ElementReference _trigger;
+
+    /// <summary>Visible trigger label.</summary>
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+
+    /// <summary>Actions shown in the dropdown.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<DropDownButtonItem> Items { get; set; } = [];
+
+    [Parameter] public RenderFragment? Icon { get; set; }
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Secondary;
+    [Parameter] public FillMode FillMode { get; set; } = FillMode.Solid;
+    [Parameter] public ButtonSize Size { get; set; } = ButtonSize.Medium;
+    [Parameter] public RoundedMode Rounded { get; set; } = RoundedMode.Medium;
+    [Parameter] public bool Enabled { get; set; } = true;
+
+    /// <summary>Menu edge aligned with the trigger: left or right.</summary>
+    [Parameter] public string PopupAlign { get; set; } = "left";
+
+    [Parameter] public EventCallback<DropDownButtonItem> OnItemClick { get; set; }
+
+    private string? PopupAlignmentClass =>
+        string.Equals(PopupAlign, "right", StringComparison.OrdinalIgnoreCase)
+            ? "sf-dropdownbutton--align-right"
+            : null;
+
+    private void ToggleMenu()
+    {
+        if (Enabled)
+        {
+            _menuOpen = !_menuOpen;
+        }
+    }
+
+    private void CloseMenu() => _menuOpen = false;
+
+    private async Task SelectItemAsync(DropDownButtonItem item)
+    {
+        if (item.Disabled)
+        {
+            return;
+        }
+
+        await OnItemClick.InvokeAsync(item);
+        _menuOpen = false;
+        await _trigger.FocusAsync();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (_menuOpen && args.Key == "Escape")
+        {
+            _menuOpen = false;
+            await _trigger.FocusAsync();
+        }
+    }
+}

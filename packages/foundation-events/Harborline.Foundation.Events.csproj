@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Events</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Events</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Events</RootNamespace>
+    <Description>Canonical cross-cluster domain-event substrate for Harborline: DomainEventEnvelope&lt;T&gt;, IDomainEventPublisher, IDomainEventStore (SQLite append-only), IEventReader (per-handler cursor — PR 4). Per cross-cluster-event-bus-design.md.</Description>
+    <PackageTags>harborline;foundation;events;cross-cluster;domain-events;sqlite;crdt</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Sql\*.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Events.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+  </ItemGroup>
+</Project>

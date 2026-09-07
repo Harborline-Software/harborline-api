@@ -1,0 +1,133 @@
+{
+  "_comment": "SPINE-1 conformance corpus — the five output types (Value | Validity | Visibility | Presentation | Options). Options is the additive fifth (set-options, ADR 0146 D2). Shared byte-identical across the .NET and TS engines.",
+  "cases": [
+    {
+      "name": "output/value-compute",
+      "definitionRules": [
+        { "id": "c.total", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "total", "action": "Compute",
+          "expression": { "+": [ { "var": "qty" }, { "var": "extra" } ] } }
+      ],
+      "instance": { "qty": 3, "extra": 4 },
+      "expectedAst": { "c.total": { "+": [ { "var": "field.qty" }, { "var": "field.extra" } ] } },
+      "expectedOutcomes": {
+        "c.total": { "ruleId": "c.total", "target": "field:total", "outputType": "Value",
+          "value": { "state": "Resolved", "value": 7 } }
+      }
+    },
+    {
+      "name": "output/validity-pass",
+      "definitionRules": [
+        { "id": "v.qtypos", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "qty", "action": "Validate",
+          "expression": { ">": [ { "var": "self" }, 0 ] } }
+      ],
+      "instance": { "qty": 3 },
+      "expectedAst": { "v.qtypos": { ">": [ { "var": "field.qty" }, 0 ] } },
+      "expectedOutcomes": {
+        "v.qtypos": { "ruleId": "v.qtypos", "target": "field:qty", "outputType": "Validity",
+          "validity": { "ok": true } }
+      }
+    },
+    {
+      "name": "output/validity-fail-emits-code",
+      "definitionRules": [
+        { "id": "v.qtypos", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "qty", "action": "Validate",
+          "expression": { ">": [ { "var": "qty" }, 0 ] } }
+      ],
+      "instance": { "qty": -2 },
+      "expectedOutcomes": {
+        "v.qtypos": { "ruleId": "v.qtypos", "target": "field:qty", "outputType": "Validity",
+          "validity": { "ok": false, "error": { "code": "v.qtypos", "params": {} } } }
+      }
+    },
+    {
+      "name": "output/visibility",
+      "definitionRules": [
+        { "id": "vis.details", "tier": "JsonLogic", "scope": "Section", "scopeTarget": "details", "action": "Visibility",
+          "expression": { "==": [ { "var": "showDetails" }, true ] } }
+      ],
+      "instance": { "showDetails": true },
+      "expectedOutcomes": {
+        "vis.details": { "ruleId": "vis.details", "target": "section:details", "outputType": "Visibility",
+          "visibility": { "visible": true, "required": false, "readOnly": false } }
+      }
+    },
+    {
+      "name": "output/required",
+      "definitionRules": [
+        { "id": "req.email", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "email", "action": "Required",
+          "expression": { "==": [ { "var": "contactMe" }, true ] } }
+      ],
+      "instance": { "contactMe": true },
+      "expectedOutcomes": {
+        "req.email": { "ruleId": "req.email", "target": "field:email", "outputType": "Visibility",
+          "visibility": { "visible": true, "required": true, "readOnly": false } }
+      }
+    },
+    {
+      "name": "output/readonly",
+      "definitionRules": [
+        { "id": "ro.notes", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "notes", "action": "ReadOnly",
+          "expression": { "==": [ { "var": "locked" }, true ] } }
+      ],
+      "instance": { "locked": true },
+      "expectedOutcomes": {
+        "ro.notes": { "ruleId": "ro.notes", "target": "field:notes", "outputType": "Visibility",
+          "visibility": { "visible": true, "required": false, "readOnly": true } }
+      }
+    },
+    {
+      "name": "output/presentation",
+      "definitionRules": [
+        { "id": "pres.score", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "score", "action": "Presentation",
+          "expression": { "<": [ { "var": "score" }, 50 ] },
+          "presentation": { "severity": "warn", "styleToken": "low" } }
+      ],
+      "instance": { "score": 30 },
+      "expectedOutcomes": {
+        "pres.score": { "ruleId": "pres.score", "target": "field:score", "outputType": "Presentation",
+          "presentation": { "severity": "warn", "styleToken": "low" } }
+      }
+    },
+    {
+      "name": "output/options-literal",
+      "_comment": "set-options with a static array literal — the expression is a literal array (evaluates to itself), resolving to the field's available options (ADR 0146 D2).",
+      "definitionRules": [
+        { "id": "opt.country", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "country", "action": "Options",
+          "expression": [ "us", "ca", "mx" ] }
+      ],
+      "instance": {},
+      "expectedAst": { "opt.country": [ "us", "ca", "mx" ] },
+      "expectedOutcomes": {
+        "opt.country": { "ruleId": "opt.country", "target": "field:country", "outputType": "Options",
+          "options": { "state": "Resolved", "options": [ "us", "ca", "mx" ] } }
+      }
+    },
+    {
+      "name": "output/options-conditional",
+      "_comment": "set-options choosing among static arrays via `if` — the dependent-dropdown pattern (no per-element evaluation; the closed operator set has no map/filter — a whole array is selected).",
+      "definitionRules": [
+        { "id": "opt.plan", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "plan", "action": "Options",
+          "expression": { "if": [ { "var": "premium" }, [ "gold", "platinum" ], [ "basic" ] ] } }
+      ],
+      "instance": { "premium": true },
+      "expectedAst": { "opt.plan": { "if": [ { "var": "field.premium" }, [ "gold", "platinum" ], [ "basic" ] ] } },
+      "expectedOutcomes": {
+        "opt.plan": { "ruleId": "opt.plan", "target": "field:plan", "outputType": "Options",
+          "options": { "state": "Resolved", "options": [ "gold", "platinum" ] } }
+      }
+    },
+    {
+      "name": "output/options-not-array-fails-closed",
+      "_comment": "a set-options expression that evaluates to a non-array value fails closed with rule.options_not_array (ADR 0146 D2 — options must be a JSON array, never coerced).",
+      "definitionRules": [
+        { "id": "opt.bad", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "choice", "action": "Options",
+          "expression": { "var": "country" } }
+      ],
+      "instance": { "country": "us" },
+      "expectedOutcomes": {
+        "opt.bad": { "ruleId": "opt.bad", "target": "field:choice", "outputType": "Options",
+          "options": { "state": "Error", "error": { "code": "rule.options_not_array", "params": {} } } }
+      }
+    }
+  ]
+}

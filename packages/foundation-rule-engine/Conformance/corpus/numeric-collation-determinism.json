@@ -1,0 +1,170 @@
+{
+  "_comment": "SPINE-1 conformance corpus — D1 ratification fix 2 (2026-07-01): PROVE cross-tier numeric + collation determinism byte-for-byte. General arithmetic uses IEEE-754 double IDENTICALLY on both tiers + a canonical ECMAScript serializer; money.* uses EXACT decimal (BigInteger/BigInt), never IEEE (no rounding — exact-or-fail-closed); all string ops are ORDINAL / code-unit (locale-independent, no Unicode normalization). The no-normalization case uses composed U+00E9 vs decomposed U+0065 U+0301; the substring cases mix composed U+00FC / U+00DF with a decomposed haystack — all BMP (single UTF-16 unit) so the two canonical writers agree code-unit-for-code-unit.",
+  "cases": [
+    {
+      "name": "num/inexact-double-add (IEEE identical on both tiers)",
+      "definitionRules": [
+        { "id": "c.n", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "n", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": 0.1, "b": 0.2 },
+      "expectedOutcomes": {
+        "c.n": { "ruleId": "c.n", "target": "field:n", "outputType": "Value", "value": { "state": "Resolved", "value": 0.30000000000000004 } }
+      }
+    },
+    {
+      "name": "num/division-repeating (1/3)",
+      "definitionRules": [
+        { "id": "c.q", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "q", "action": "Compute",
+          "expression": { "/": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": 1, "b": 3 },
+      "expectedOutcomes": {
+        "c.q": { "ruleId": "c.q", "target": "field:q", "outputType": "Value", "value": { "state": "Resolved", "value": 0.3333333333333333 } }
+      }
+    },
+    {
+      "name": "num/aggregate-avg-repeating (number column, 55/3)",
+      "definitionRules": [
+        { "id": "c.avg", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "avg", "action": "Compute",
+          "expression": { "var": "table.avg(items.amount)" } }
+      ],
+      "instance": { "items": [ { "amount": 10 }, { "amount": 20 }, { "amount": 25 } ] },
+      "expectedOutcomes": {
+        "c.avg": { "ruleId": "c.avg", "target": "field:avg", "outputType": "Value", "value": { "state": "Resolved", "value": 18.333333333333332 } }
+      }
+    },
+    {
+      "name": "num/large-integer-at-2^53-boundary",
+      "definitionRules": [
+        { "id": "c.big", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "big", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": 9007199254740991, "b": 2 },
+      "expectedOutcomes": {
+        "c.big": { "ruleId": "c.big", "target": "field:big", "outputType": "Value", "value": { "state": "Resolved", "value": 9007199254740992 } }
+      }
+    },
+    {
+      "name": "num/negative-modulo-sign (-7 % 3 = -1)",
+      "definitionRules": [
+        { "id": "c.m", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "m", "action": "Compute",
+          "expression": { "%": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": -7, "b": 3 },
+      "expectedOutcomes": {
+        "c.m": { "ruleId": "c.m", "target": "field:m", "outputType": "Value", "value": { "state": "Resolved", "value": -1 } }
+      }
+    },
+    {
+      "name": "num/negative-zero-normalizes-to-0",
+      "definitionRules": [
+        { "id": "c.z", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "nz", "action": "Compute",
+          "expression": { "-": [ { "var": "z" } ] } }
+      ],
+      "instance": { "z": 0 },
+      "expectedOutcomes": {
+        "c.z": { "ruleId": "c.z", "target": "field:nz", "outputType": "Value", "value": { "state": "Resolved", "value": 0 } }
+      }
+    },
+    {
+      "name": "money/mul-exact-decimal-not-double (0.1 * 0.2 = 0.02)",
+      "definitionRules": [
+        { "id": "c.mul", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "mul", "action": "Compute",
+          "expression": { "money.mul": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "0.1", "b": "0.2" },
+      "expectedOutcomes": {
+        "c.mul": { "ruleId": "c.mul", "target": "field:mul", "outputType": "Value", "value": { "state": "Resolved", "value": "0.02" } }
+      }
+    },
+    {
+      "name": "money/add-exact-decimal-not-double (0.1 + 0.2 = 0.3)",
+      "definitionRules": [
+        { "id": "c.add", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "add", "action": "Compute",
+          "expression": { "money.add": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "0.1", "b": "0.2" },
+      "expectedOutcomes": {
+        "c.add": { "ruleId": "c.add", "target": "field:add", "outputType": "Value", "value": { "state": "Resolved", "value": "0.3" } }
+      }
+    },
+    {
+      "name": "money/mul-scale-growth (1.10 * 1.10 = 1.21)",
+      "definitionRules": [
+        { "id": "c.p", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "p", "action": "Compute",
+          "expression": { "money.mul": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "1.10", "b": "1.10" },
+      "expectedOutcomes": {
+        "c.p": { "ruleId": "c.p", "target": "field:p", "outputType": "Value", "value": { "state": "Resolved", "value": "1.21" } }
+      }
+    },
+    {
+      "name": "money/aggregate-sum-exact-decimal (sum of 0.1,0.2 = 0.3)",
+      "definitionRules": [
+        { "id": "c.sum", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "sum", "action": "Compute",
+          "expression": { "var": "table.sum(items.price)" } }
+      ],
+      "instance": { "items": [ { "price": "0.1" }, { "price": "0.2" } ] },
+      "expectedOutcomes": {
+        "c.sum": { "ruleId": "c.sum", "target": "field:sum", "outputType": "Value", "value": { "state": "Resolved", "value": "0.3" } }
+      }
+    },
+    {
+      "name": "collation/ordinal-case-sensitive-equality (Z !== z)",
+      "definitionRules": [
+        { "id": "c.eq", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "eq", "action": "Compute",
+          "expression": { "===": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "Z", "b": "z" },
+      "expectedOutcomes": {
+        "c.eq": { "ruleId": "c.eq", "target": "field:eq", "outputType": "Value", "value": { "state": "Resolved", "value": false } }
+      }
+    },
+    {
+      "name": "collation/no-unicode-normalization (composed e-acute !== decomposed e + combining acute)",
+      "definitionRules": [
+        { "id": "c.norm", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "norm", "action": "Compute",
+          "expression": { "===": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "é", "b": "é" },
+      "expectedOutcomes": {
+        "c.norm": { "ruleId": "c.norm", "target": "field:norm", "outputType": "Value", "value": { "state": "Resolved", "value": false } }
+      }
+    },
+    {
+      "name": "collation/ordinal-substring-in-true (sharp-s U+00DF is within gr-u-umlaut-sharp-s-e)",
+      "definitionRules": [
+        { "id": "c.in", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "in", "action": "Compute",
+          "expression": { "in": [ { "var": "needle" }, { "var": "hay" } ] } }
+      ],
+      "instance": { "needle": "ß", "hay": "grüße" },
+      "expectedOutcomes": {
+        "c.in": { "ruleId": "c.in", "target": "field:in", "outputType": "Value", "value": { "state": "Resolved", "value": true } }
+      }
+    },
+    {
+      "name": "collation/ordinal-substring-no-normalization (composed u-umlaut NOT in decomposed haystack)",
+      "definitionRules": [
+        { "id": "c.in2", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "in2", "action": "Compute",
+          "expression": { "in": [ { "var": "needle" }, { "var": "hay" } ] } }
+      ],
+      "instance": { "needle": "ü", "hay": "grüße" },
+      "expectedOutcomes": {
+        "c.in2": { "ruleId": "c.in2", "target": "field:in2", "outputType": "Value", "value": { "state": "Resolved", "value": false } }
+      }
+    },
+    {
+      "name": "collation/cat-preserves-code-units (cafe-acute + coffee-cup, both BMP)",
+      "definitionRules": [
+        { "id": "c.cat", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "cat", "action": "Compute",
+          "expression": { "cat": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": "café", "b": "☕" },
+      "expectedOutcomes": {
+        "c.cat": { "ruleId": "c.cat", "target": "field:cat", "outputType": "Value", "value": { "state": "Resolved", "value": "café☕" } }
+      }
+    }
+  ]
+}

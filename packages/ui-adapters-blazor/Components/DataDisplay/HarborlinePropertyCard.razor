@@ -1,0 +1,29 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+<article class="@CombineClasses("sf-property-card")"
+         style="@CombineStyles("border:1px solid var(--color-border);border-radius:.375rem;background:var(--color-card);padding:1rem;")"
+         @attributes="AdditionalAttributes">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;">
+        <div>
+            <h3 style="margin:0;">@Name</h3>
+            <div>@Address</div>
+            <div>@City, @State</div>
+        </div>
+        <HarborlineStatusPill Value="@Status" />
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-block-start:.75rem;font-size:.8rem;color:var(--color-muted-foreground);">
+        <span>@Units unit@(Units == 1 ? "" : "s")</span>
+        @Actions
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Address { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string City { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string State { get; set; } = string.Empty;
+    [Parameter] public int Units { get; set; }
+    [Parameter] public string Status { get; set; } = "Active";
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

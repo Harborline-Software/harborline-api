@@ -1,0 +1,26 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Fields
+@inherits HarborlineFieldBase
+
+<HarborlineField Text="@Text" Id="@FieldId" Hint="@Hint" Error="@Error"
+               Required="@EffectiveRequired" Disabled="@EffectiveDisabled"
+               Class="@Class" Style="@Style" AdditionalAttributes="@AdditionalAttributes">
+    <HarborlineMaskedInput Value="@Value" ValueChanged="@ValueChanged"
+                         Mask="@Mask"
+                         Placeholder="@Placeholder"
+                         InputMode="tel"
+                         AutoComplete="tel"
+                         Enabled="@(!EffectiveDisabled)"
+                         IsInvalid="@HasError"
+                         AriaLabel="@EffectiveAriaLabel"
+                         AriaDescribedBy="@DescribedBy" />
+</HarborlineField>
+
+@code {
+    /// <summary>The raw digits (mask literals excluded), mirroring the React PhoneField raw value.</summary>
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>US NANP mask by default; override for other numbering plans.</summary>
+    [Parameter] public string Mask { get; set; } = "(000) 000-0000";
+    [Parameter] public string? Placeholder { get; set; }
+}

@@ -1,0 +1,25 @@
+{
+  "payload": {
+    "feedFormat": 1,
+    "packKey": "harborline.dogfood-welcome",
+    "channelRootKeyId": "ed25519:1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
+    "versions": [
+      {
+        "version": "0.1.0",
+        "manifestUrl": "0.1.0/manifest.json",
+        "manifestCid": "bafkreiakn2e64jovmatvtxwrqeddcxt75k5qyfjddp5quomaabb3odzvue",
+        "artifactUrl": "0.1.0/artifact.bafkreid4u2tuczlujnncp6j6wudrye7jw4lwslrhmcuelhwvfdj5igaxty.pack",
+        "artifactCid": "bafkreid4u2tuczlujnncp6j6wudrye7jw4lwslrhmcuelhwvfdj5igaxty",
+        "publishedAt": "2026-07-16T11:30:00+00:00",
+        "minNodeEpoch": 1,
+        "supersedes": null,
+        "yankedAt": null,
+        "rolloutBucket": null
+      }
+    ]
+  },
+  "issuerId": "1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
+  "issuedAt": "2026-07-16T11:30:00+00:00",
+  "nonce": "9a85ad47-d707-4639-a0fd-5c1793676cbe",
+  "signature": "W_OXxi6xnKtXuxRsMVbIk9nl8RjJKfg2jNtm9zsZE_8iH9TnOYLraOQC5vhCi8ApBYZ8MBiZnzEPu97ToZzGCA"
+}

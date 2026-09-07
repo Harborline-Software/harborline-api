@@ -1,0 +1,20 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+
+<nav class="@CombineClasses("sf-bottom-navigation", $"sf-bottom-navigation--{Fill.ToString().ToLowerInvariant()}")" style="@CombineStyles()" aria-label="@(AriaLabel ?? "Bottom navigation")" @attributes="AdditionalAttributes">
+    <ul>
+        @foreach (var item in Items ?? [])
+        {
+            <li><a href="@item.Href" class="@(item.IsActive ? "active" : null)" aria-current="@(item.IsActive ? "page" : null)">
+                @if (!string.IsNullOrWhiteSpace(item.Icon)) { <span aria-hidden="true">@item.Icon</span> }
+                <span>@item.Label</span>
+            </a></li>
+        }
+    </ul>
+</nav>
+
+@code {
+    [Parameter] public string? AriaLabel { get; set; } = "Bottom navigation";
+    [Parameter] public IReadOnlyList<BottomNavigationItem>? Items { get; set; }
+    [Parameter] public FillMode Fill { get; set; } = FillMode.Solid;
+}

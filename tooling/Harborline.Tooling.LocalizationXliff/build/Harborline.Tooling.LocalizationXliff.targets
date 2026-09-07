@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Harborline Localization XLIFF MSBuild integration.
+  Auto-imported when the NuGet is referenced; registers the two tasks and defines
+  the default HarborlineExportXliff / HarborlineImportXliff targets.
+
+  Source-tree consumption (Harborline.Api.slnx): Directory.Build.props in the repo root
+  overrides _HarborlineLocXliffTaskAssembly with the bin/Debug or bin/Release path so
+  the tasks load from build output instead of the NuGet's tasks/ folder.
+-->
+<Project>
+  <PropertyGroup>
+    <_HarborlineLocXliffTaskAssembly Condition="'$(_HarborlineLocXliffTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\netstandard2.0\Harborline.Api.Tooling.LocalizationXliff.dll</_HarborlineLocXliffTaskAssembly>
+  </PropertyGroup>
+
+  <UsingTask AssemblyFile="$(_HarborlineLocXliffTaskAssembly)"
+             TaskName="HarborlineResxToXliffTask" />
+  <UsingTask AssemblyFile="$(_HarborlineLocXliffTaskAssembly)"
+             TaskName="HarborlineXliffToResxTask" />
+
+  <PropertyGroup>
+    <HarborlineXliffSourceLanguage Condition="'$(HarborlineXliffSourceLanguage)' == ''">en-US</HarborlineXliffSourceLanguage>
+    <HarborlineXliffDirectory Condition="'$(HarborlineXliffDirectory)' == ''">$(MSBuildProjectDirectory)\localization\xliff</HarborlineXliffDirectory>
+    <HarborlineResxSourceDirectory Condition="'$(HarborlineResxSourceDirectory)' == ''">$(MSBuildProjectDirectory)\Resources</HarborlineResxSourceDirectory>
+  </PropertyGroup>
+
+  <!-- Manually invoked: dotnet build -t:HarborlineExportXliff -->
+  <Target Name="HarborlineExportXliff">
+    <ItemGroup>
+      <_HarborlineResxFiles Include="$(HarborlineResxSourceDirectory)\**\*.resx" />
+    </ItemGroup>
+    <HarborlineResxToXliffTask
+      SourceResxFiles="@(_HarborlineResxFiles)"
+      OutputDirectory="$(HarborlineXliffDirectory)"
+      SourceLanguage="$(HarborlineXliffSourceLanguage)"
+      PreserveApprovedTargets="true" />
+  </Target>
+
+  <!-- Auto-runs before Build to regenerate .resx satellites from approved XLIFFs. -->
+  <Target Name="HarborlineImportXliff"
+          BeforeTargets="BeforeBuild"
+          Condition="Exists('$(HarborlineXliffDirectory)')">
+    <ItemGroup>
+      <_HarborlineXliffFiles Include="$(HarborlineXliffDirectory)\**\*.xlf" />
+    </ItemGroup>
+    <HarborlineXliffToResxTask
+      SourceXliffFiles="@(_HarborlineXliffFiles)"
+      OutputDirectory="$(IntermediateOutputPath)generated-resx"
+      Condition="@(_HarborlineXliffFiles->Count()) > 0" />
+  </Target>
+</Project>

@@ -1,0 +1,237 @@
+{
+  "_comment": "ADR 0146 D2 — decision-table authoring skin (compile layer). Each case declares a `skin` (not raw `definitionRules`); the harness compiles it to a RuleDefinition and runs the identical downstream compile+eval. `expectedCompiledExpression` pins the skin compiler's pre-lowering `if` cascade byte-identical across both tiers (board F1: hit policy resolved INSIDE the compiled rule + reified interval bounds + explicit no-match). Shared byte-identical across the .NET and TS engines.",
+  "cases": [
+    {
+      "name": "skin/decision-table/invoice-threshold-priority-reified (migration, over)",
+      "_comment": "The ThresholdDecisionTable migration (board F1): priority/highest-floor-wins, floor-0 catch-all reified as [0,5000.01), the over-5k floor (5000.01 — the strictly-above-$5000 gate) made explicit. Over-threshold routes to RequireApproval.",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "invoice.approval",
+        "scope": "Field",
+        "scopeTarget": "decision",
+        "action": "Compute",
+        "hitPolicy": "priority",
+        "inputs": ["amount"],
+        "rows": [
+          { "priority": 1, "when": [ { "range": { "lo": 5000.01 } } ], "output": "RequireApproval" },
+          { "priority": 0, "when": [ { "range": { "lo": 0, "hi": 5000.01 } } ], "output": "AutoApprove" }
+        ],
+        "noMatch": { "default": "AutoApprove" }
+      },
+      "instance": { "amount": 7500 },
+      "expectedCompiledExpression": {
+        "invoice.approval": { "if": [
+          { ">=": [ { "var": "amount" }, 5000.01 ] }, "RequireApproval",
+          { "and": [ { ">=": [ { "var": "amount" }, 0 ] }, { "<": [ { "var": "amount" }, 5000.01 ] } ] }, "AutoApprove",
+          "AutoApprove"
+        ] }
+      },
+      "expectedAst": {
+        "invoice.approval": { "if": [
+          { ">=": [ { "var": "field.amount" }, 5000.01 ] }, "RequireApproval",
+          { "and": [ { ">=": [ { "var": "field.amount" }, 0 ] }, { "<": [ { "var": "field.amount" }, 5000.01 ] } ] }, "AutoApprove",
+          "AutoApprove"
+        ] }
+      },
+      "expectedOutcomes": {
+        "invoice.approval": { "ruleId": "invoice.approval", "target": "field:decision", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "RequireApproval" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/invoice-threshold-priority-reified (under)",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "invoice.approval",
+        "scope": "Field",
+        "scopeTarget": "decision",
+        "action": "Compute",
+        "hitPolicy": "priority",
+        "inputs": ["amount"],
+        "rows": [
+          { "priority": 1, "when": [ { "range": { "lo": 5000.01 } } ], "output": "RequireApproval" },
+          { "priority": 0, "when": [ { "range": { "lo": 0, "hi": 5000.01 } } ], "output": "AutoApprove" }
+        ],
+        "noMatch": { "default": "AutoApprove" }
+      },
+      "instance": { "amount": 3000 },
+      "expectedOutcomes": {
+        "invoice.approval": { "ruleId": "invoice.approval", "target": "field:decision", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "AutoApprove" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/invoice-threshold-priority-reified (boundary, $5000 exactly is under)",
+      "_comment": "amount == 5000.00 is UNDER the strictly-above-$5000 gate (the over-5k floor is 5000.01) — exactly the ThresholdDecisionTable semantics ('$5000 exactly is under the > $5k gate') → AutoApprove.",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "invoice.approval",
+        "scope": "Field",
+        "scopeTarget": "decision",
+        "action": "Compute",
+        "hitPolicy": "priority",
+        "inputs": ["amount"],
+        "rows": [
+          { "priority": 1, "when": [ { "range": { "lo": 5000.01 } } ], "output": "RequireApproval" },
+          { "priority": 0, "when": [ { "range": { "lo": 0, "hi": 5000.01 } } ], "output": "AutoApprove" }
+        ],
+        "noMatch": { "default": "AutoApprove" }
+      },
+      "instance": { "amount": 5000 },
+      "expectedOutcomes": {
+        "invoice.approval": { "ruleId": "invoice.approval", "target": "field:decision", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "AutoApprove" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/first-match-ordered",
+      "_comment": "first-match hit policy: rows evaluate in DECLARED order; the first matching row wins even where a later row also matches (score 85 matches >=80 before the >=0 catch-all default).",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "grade",
+        "scope": "Field",
+        "scopeTarget": "grade",
+        "action": "Compute",
+        "hitPolicy": "first-match",
+        "inputs": ["score"],
+        "rows": [
+          { "when": [ { "op": ">=", "value": 90 } ], "output": "A" },
+          { "when": [ { "op": ">=", "value": 80 } ], "output": "B" },
+          { "when": [ { "op": ">=", "value": 60 } ], "output": "C" }
+        ],
+        "noMatch": { "default": "F" }
+      },
+      "instance": { "score": 85 },
+      "expectedCompiledExpression": {
+        "grade": { "if": [
+          { ">=": [ { "var": "score" }, 90 ] }, "A",
+          { ">=": [ { "var": "score" }, 80 ] }, "B",
+          { ">=": [ { "var": "score" }, 60 ] }, "C",
+          "F"
+        ] }
+      },
+      "expectedOutcomes": {
+        "grade": { "ruleId": "grade", "target": "field:grade", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "B" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/first-match-no-match-default",
+      "_comment": "no row matches (score 40 < every floor) → the EXPLICIT declared default fires (board F1 — never a silent null).",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "grade",
+        "scope": "Field",
+        "scopeTarget": "grade",
+        "action": "Compute",
+        "hitPolicy": "first-match",
+        "inputs": ["score"],
+        "rows": [
+          { "when": [ { "op": ">=", "value": 90 } ], "output": "A" },
+          { "when": [ { "op": ">=", "value": 80 } ], "output": "B" },
+          { "when": [ { "op": ">=", "value": 60 } ], "output": "C" }
+        ],
+        "noMatch": { "default": "F" }
+      },
+      "instance": { "score": 40 },
+      "expectedOutcomes": {
+        "grade": { "ruleId": "grade", "target": "field:grade", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "F" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/priority-reorders-and-catch-all",
+      "_comment": "priority hit policy resolves overlap by DECLARED PRIORITY, not declared order: the A row (declared 2nd, priority 2) is checked before the B row (declared 1st, priority 1), so score 95 → A even though the B row's >=80 also matches. The all-Any catch-all row (RequireCatchAll no-match) is the terminal else.",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "tier",
+        "scope": "Field",
+        "scopeTarget": "tier",
+        "action": "Compute",
+        "hitPolicy": "priority",
+        "inputs": ["score"],
+        "rows": [
+          { "priority": 1, "when": [ { "op": ">=", "value": 80 } ], "output": "B" },
+          { "priority": 2, "when": [ { "op": ">=", "value": 90 } ], "output": "A" },
+          { "priority": 0, "when": [ { "any": true } ], "output": "F" }
+        ],
+        "noMatch": { "catchAll": true }
+      },
+      "instance": { "score": 95 },
+      "expectedCompiledExpression": {
+        "tier": { "if": [
+          { ">=": [ { "var": "score" }, 90 ] }, "A",
+          { ">=": [ { "var": "score" }, 80 ] }, "B",
+          "F"
+        ] }
+      },
+      "expectedAst": {
+        "tier": { "if": [
+          { ">=": [ { "var": "field.score" }, 90 ] }, "A",
+          { ">=": [ { "var": "field.score" }, 80 ] }, "B",
+          "F"
+        ] }
+      },
+      "expectedOutcomes": {
+        "tier": { "ruleId": "tier", "target": "field:tier", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "A" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/priority-catch-all-fires",
+      "_comment": "same priority table; score 50 matches neither the A nor B row → the catch-all terminal else fires → F.",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "tier",
+        "scope": "Field",
+        "scopeTarget": "tier",
+        "action": "Compute",
+        "hitPolicy": "priority",
+        "inputs": ["score"],
+        "rows": [
+          { "priority": 1, "when": [ { "op": ">=", "value": 80 } ], "output": "B" },
+          { "priority": 2, "when": [ { "op": ">=", "value": 90 } ], "output": "A" },
+          { "priority": 0, "when": [ { "any": true } ], "output": "F" }
+        ],
+        "noMatch": { "catchAll": true }
+      },
+      "instance": { "score": 50 },
+      "expectedOutcomes": {
+        "tier": { "ruleId": "tier", "target": "field:tier", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "F" } }
+      }
+    },
+    {
+      "name": "skin/decision-table/multi-input-and",
+      "_comment": "two input columns → each row is the AND of its per-column cells; a wildcard cell contributes no term. Region=EU AND amount in [0,1000) → 'standard'.",
+      "skin": {
+        "kind": "decision-table",
+        "ruleId": "shipping",
+        "scope": "Field",
+        "scopeTarget": "shipping",
+        "action": "Compute",
+        "hitPolicy": "first-match",
+        "inputs": ["region", "amount"],
+        "rows": [
+          { "when": [ { "op": "==", "value": "EU" }, { "range": { "lo": 1000 } } ], "output": "free" },
+          { "when": [ { "op": "==", "value": "EU" }, { "any": true } ], "output": "standard" },
+          { "when": [ { "any": true }, { "any": true } ], "output": "international" }
+        ],
+        "noMatch": { "default": "international" }
+      },
+      "instance": { "region": "EU", "amount": 250 },
+      "expectedCompiledExpression": {
+        "shipping": { "if": [
+          { "and": [ { "==": [ { "var": "region" }, "EU" ] }, { ">=": [ { "var": "amount" }, 1000 ] } ] }, "free",
+          { "==": [ { "var": "region" }, "EU" ] }, "standard",
+          true, "international",
+          "international"
+        ] }
+      },
+      "expectedOutcomes": {
+        "shipping": { "ruleId": "shipping", "target": "field:shipping", "outputType": "Value",
+          "value": { "state": "Resolved", "value": "standard" } }
+      }
+    }
+  ]
+}

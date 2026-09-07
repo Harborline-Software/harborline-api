@@ -1,0 +1,19 @@
+# Ticket 216 wall-time exemptions. Program.cs is checked separately as the sole root source.
+# Every row names its binding exemption class: (a) dev/demo seed, (b) business calendar/time zone,
+# (c) historic-data read compatibility, or (d) vector/logical/monotonic clock.
+# path	match-count	reason
+apps/local-node-host/CalendarDevSeeder.cs	1	(a) development calendar seeding chooses the demo week
+apps/local-node-host/Data/Comms/NodeMessage.cs	1	(c) deserialization fallback while reading a historic message envelope
+apps/local-node-host/Data/Financial/NodeAccountingSummaryService.cs	1	(b) caller-omitted accounting business date
+apps/local-node-host/Data/Roster/NodeRosterRecord.cs	1	(c) deserialization fallback while reading a historic roster record
+apps/local-node-host/FormsDevSeeder.cs	1	(a) development form seeding
+apps/local-node-host/FormsShowcaseDevSeeder.cs	1	(a) development showcase seeding
+apps/local-node-host/Health/AccountingPeriodRoutes.cs	1	(b) accounting-period business-date default
+apps/local-node-host/LivingStandardCatalogDevSeeder.cs	1	(a) development catalog seeding
+apps/local-node-host/ThreeWayMatchDevSeeder.cs	1	(a) development three-way-match seeding
+packages/blocks-calendar/Models/CalendarEvent.cs	2	(b) calendar event creation and calendar update semantics
+packages/blocks-calendar/Models/OwnedCalendar.cs	3	(b) owned-calendar creation and calendar update semantics
+packages/foundation/Assets/Hierarchy/InMemoryHierarchyService.cs	5	(c) caller-omitted as-of instant for historic hierarchy reads
+packages/kernel-sync/Protocol/TcpSyncDaemonTransport.cs	2	(d) monotonic retry-duration deadline; not wall time
+packages/ui-adapters-blazor/Components/DataDisplay/AllocationScheduler/HarborlineAllocationScheduler.razor.cs	1	(b) allocation calendar visible-date default
+packages/ui-adapters-blazor/Components/Forms/Inputs/HarborlineDateInput.razor.cs	3	(b) calendar input min/max and year-window defaults

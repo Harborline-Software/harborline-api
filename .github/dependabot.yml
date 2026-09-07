@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    # The Microsoft .NET 11 preview package set moves together (EF Core must match the Npgsql provider's pinned
+    # preview: NU1107/NU1608; the preview.7 Blazor analyzers add BL0016/CS0618 under warnings-as-errors). It is
+    # bumped by hand as one reviewed change (ticket 243), never by a Dependabot group.
+    ignore:
+      - dependency-name: "Microsoft.*"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/packages/contracts"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "cargo"
+    directory: "/packages/contracts/rust"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

@@ -1,0 +1,46 @@
+{
+  "announce-duplicate-capability": {
+    "lane": "dotnet",
+    "expectedVariant": { "throws": "DuplicateAnnouncedCapabilityException" },
+    "rationale": "TypeScript Map indexing is last-wins; the .NET lane fails closed rather than route an ambiguous runtime announcement.",
+    "source": "README row: duplicate-announcement fail-closed vs last-wins"
+  },
+  "pack-spaced-range": {
+    "lane": "dotnet",
+    "expectedVariant": { "throws": "CompositionError", "reason": "version-unsatisfiable" },
+    "rationale": "The TypeScript range regex accepts whitespace after >= and <; the .NET parser intentionally requires compact comparison operands.",
+    "source": "README row: spaced range grammar"
+  },
+  "invoke-log-principal": {
+    "lane": "dotnet",
+    "expectedVariant": { "message": "invoke image transport=sync", "correlationId": "corr-principal", "runtimeId": "runtime-log", "capabilityId": "image" },
+    "rationale": "The .NET wire model does not yet carry the TypeScript principal attribution field, so its log omits principal=<id>.",
+    "source": "README row: dropped principal= log field"
+  },
+  "m3-normalize-missing-retryable": {
+    "lane": "dotnet",
+    "expectedVariant": {
+      "jobId": "job-error-2",
+      "status": "failed",
+      "progress": 0,
+      "artifacts": [],
+      "usage": { "unit": "call", "quantity": 1, "costMicros": null, "tier": "local" },
+      "error": { "faultDomain": "provider", "retryable": false, "code": "provider.busy", "message": "try again", "retryAfter": null }
+    },
+    "rationale": "The typed CLR wire model always carries retryable; the supplied bool is retained, while TypeScript defaults a missing bool from the normalized domain.",
+    "source": "README row: error-half narrowing if retained"
+  },
+  "m3-normalize-error-domain-coercion": {
+    "lane": "dotnet",
+    "expectedVariant": {
+      "jobId": "job-error-1",
+      "status": "failed",
+      "progress": 0,
+      "artifacts": [],
+      "usage": { "unit": "call", "quantity": 1, "costMicros": null, "tier": "local" },
+      "error": { "faultDomain": "provider", "retryable": true, "code": "provider.unknown", "message": "unknown error", "retryAfter": null }
+    },
+    "rationale": "The CLR error record has a nullable retryAfter property on the typed wire model; TypeScript omits that optional field when it is absent.",
+    "source": "README row: nullable retryAfter emission"
+  }
+}

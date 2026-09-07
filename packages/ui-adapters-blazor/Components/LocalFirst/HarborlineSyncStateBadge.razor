@@ -1,0 +1,49 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.LocalFirst
+@inherits HarborlineComponentBase
+
+@*
+    HarborlineSyncStateBadge — compact per-record replication badge (dot +
+    label). Parity with ui-react SyncStateBadge.
+*@
+
+<span class="@CombineClasses($"sf-sync-state-badge sf-sync-state-badge--{StateSuffix}")"
+      style="@CombineStyles("display:inline-flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--color-muted-foreground);")"
+      role="status"
+      aria-live="polite"
+      aria-label="@(AriaLabel ?? Label ?? DefaultLabel)"
+      @attributes="AdditionalAttributes">
+    <span class="sf-sync-state-badge__dot" aria-hidden="true"
+          style="width:.5rem;height:.5rem;border-radius:50%;background:@DotColor;"></span>
+    <span class="sf-sync-state-badge__label">@(Label ?? DefaultLabel)</span>
+</span>
+
+@code {
+    /// <summary>Replication state to display.</summary>
+    [Parameter] public SyncBadgeState State { get; set; } = SyncBadgeState.Synced;
+
+    /// <summary>Optional label override; defaults to the canonical state label.</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Accessible label override.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private string StateSuffix => State.ToString().ToLowerInvariant();
+
+    private string DefaultLabel => State switch
+    {
+        SyncBadgeState.Synced => "Local changes exchanged",
+        SyncBadgeState.Syncing => "Syncing…",
+        SyncBadgeState.Pending => "Pending",
+        SyncBadgeState.Error => "Error",
+        _ => "Offline",
+    };
+
+    private string DotColor => State switch
+    {
+        SyncBadgeState.Synced => "#16a34a",
+        SyncBadgeState.Syncing => "#2563eb",
+        SyncBadgeState.Pending => "#d97706",
+        SyncBadgeState.Error => "#dc2626",
+        _ => "#6b7280",
+    };
+}

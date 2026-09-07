@@ -1,0 +1,37 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Containers
+@inherits HarborlineComponentBase
+
+<dl class="@CombineClasses("sf-readonly-field")" style="@CombineStyles()" @attributes="AdditionalAttributes">
+    <dt class="sf-readonly-field__label">@Text</dt>
+    <dd class="sf-readonly-field__value">
+        @if (ChildContent is not null)
+        {
+            @ChildContent
+        }
+        else if (!string.IsNullOrEmpty(Value))
+        {
+            @Value
+        }
+        else
+        {
+            <span class="sf-readonly-field__empty" aria-label="@EmptyLabel">@EmptyPlaceholder</span>
+        }
+    </dd>
+</dl>
+
+@code {
+    /// <summary>The label rendered as the <c>dt</c> term.</summary>
+    [Parameter] public string? Text { get; set; }
+
+    /// <summary>The display value. When null/empty, the placeholder is shown.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Rich value content; wins over <see cref="Value"/> when set.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Visual placeholder for an empty value.</summary>
+    [Parameter] public string EmptyPlaceholder { get; set; } = "—";
+
+    /// <summary>Localizable code (or label) announced for an empty value.</summary>
+    [Parameter] public string EmptyLabel { get; set; } = "forms.readonlyField.empty";
+}

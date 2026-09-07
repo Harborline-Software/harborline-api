@@ -1,0 +1,112 @@
+.sf-team-switcher {
+    --sf-ts-bg: #f4f1e8;
+    --sf-ts-ink: #1a1814;
+    --sf-ts-ink-muted: #5a574e;
+    --sf-ts-ink-dim: #8a867a;
+    --sf-ts-accent: #8b3a3a;
+    --sf-ts-rule: #c9c2ac;
+    --sf-ts-font: ui-monospace, "IBM Plex Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+    width: 240px;
+    padding: 12px;
+    background: var(--sf-ts-bg);
+    color: var(--sf-ts-ink);
+    border-inline-end: 1px solid var(--sf-ts-rule);
+    font-family: var(--sf-ts-font);
+    font-size: 14px;
+    line-height: 1.4;
+    box-sizing: border-box;
+}
+
+.sf-team-switcher *,
+.sf-team-switcher *::before,
+.sf-team-switcher *::after {
+    box-sizing: border-box;
+}
+
+.sf-team-switcher ::deep .sf-dropdownlist {
+    width: 100%;
+}
+
+.sf-team-switcher__option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.sf-team-switcher__name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.sf-team-switcher__tag {
+    color: var(--sf-ts-ink-dim);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+}
+
+.sf-team-switcher__count,
+.sf-team-switcher__aggregate-count {
+    min-width: 24px;
+    color: var(--sf-ts-accent);
+    border-bottom: 1px dotted currentColor;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.sf-team-switcher__footer {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--sf-ts-rule);
+}
+
+.sf-team-switcher__aggregate {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0 10px;
+    color: var(--sf-ts-ink-muted);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.sf-team-switcher__add {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 32px;
+    padding: 4px;
+    border: 0;
+    background: transparent;
+    color: var(--sf-ts-ink-muted);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: color 80ms linear, opacity 80ms linear;
+}
+
+.sf-team-switcher__add:hover {
+    color: var(--sf-ts-ink);
+    opacity: 0.78;
+}
+
+.sf-team-switcher__add:focus-visible {
+    outline: 2px solid var(--sf-ts-accent);
+    outline-offset: 2px;
+}
+
+.sf-team-switcher__add-glyph {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid currentColor;
+    font-size: 18px;
+    line-height: 1;
+}

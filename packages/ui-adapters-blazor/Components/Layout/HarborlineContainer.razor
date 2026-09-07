@@ -1,0 +1,9 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(CssProvider.ContainerClass())" style="@CombineStyles()" @attributes="AdditionalAttributes">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

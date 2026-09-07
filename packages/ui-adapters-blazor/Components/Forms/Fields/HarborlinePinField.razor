@@ -1,0 +1,101 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Fields
+@inherits HarborlineFieldBase
+
+<HarborlineField Text="@Text" Id="@FieldId" Hint="@Hint" Error="@Error"
+               Required="@EffectiveRequired" Disabled="@EffectiveDisabled"
+               Class="@Class" Style="@Style" AdditionalAttributes="@AdditionalAttributes">
+    <div class="sf-pin-field" role="group"
+         aria-label="@EffectiveAriaLabel"
+         aria-describedby="@DescribedBy">
+        @for (var i = 0; i < Length; i++)
+        {
+            var index = i;
+            <input type="@(Masked ? "password" : "text")"
+                   class="@CssProvider.TextBoxClass(HasError, EffectiveDisabled) sf-pin-field__cell"
+                   maxlength="1"
+                   inputmode="@(AllowAlphanumeric ? "text" : "numeric")"
+                   autocomplete="@(index == 0 ? "one-time-code" : "off")"
+                   value="@CellValue(index)"
+                   disabled="@EffectiveDisabled"
+                   aria-label="@($"{CellLabel} {index + 1}")"
+                   aria-invalid="@AriaInvalid"
+                   @ref="_cells[index]"
+                   @oninput="e => HandleInput(index, e)"
+                   @onkeydown="e => HandleKeyDown(index, e)" />
+        }
+    </div>
+</HarborlineField>
+
+@code {
+    /// <summary>The accumulated PIN string (up to <see cref="Length"/> characters).</summary>
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public int Length { get; set; } = 6;
+
+    /// <summary>When false (default) only digits are accepted, mirroring the React PinField.</summary>
+    [Parameter] public bool AllowAlphanumeric { get; set; }
+
+    /// <summary>Render cells as password characters.</summary>
+    [Parameter] public bool Masked { get; set; }
+
+    /// <summary>Localizable code (or label) announced per cell; the 1-based index is appended.</summary>
+    [Parameter] public string CellLabel { get; set; } = "forms.pinField.cell";
+
+    private ElementReference[] _cells = new ElementReference[6];
+
+    protected override void OnParametersSet()
+    {
+        if (_cells.Length != Length)
+        {
+            _cells = new ElementReference[Length];
+        }
+    }
+
+    private string CellValue(int index) => index < Value.Length ? Value[index].ToString() : string.Empty;
+
+    private bool IsAccepted(char c) => AllowAlphanumeric ? char.IsLetterOrDigit(c) : char.IsDigit(c);
+
+    private async Task HandleInput(int index, ChangeEventArgs e)
+    {
+        var incoming = new string((e.Value?.ToString() ?? string.Empty).Where(IsAccepted).ToArray());
+        var chars = Value.PadRight(Length).ToCharArray();
+
+        if (incoming.Length == 0)
+        {
+            chars[index] = ' ';
+        }
+        else
+        {
+            // Multi-character input = paste: fill forward from this cell.
+            for (var offset = 0; offset < incoming.Length && index + offset < Length; offset++)
+            {
+                chars[index + offset] = incoming[offset];
+            }
+        }
+
+        Value = new string(chars).TrimEnd();
+        await ValueChanged.InvokeAsync(Value);
+
+        if (incoming.Length > 0)
+        {
+            var next = Math.Min(index + incoming.Length, Length - 1);
+            await _cells[next].FocusAsync();
+        }
+    }
+
+    private async Task HandleKeyDown(int index, KeyboardEventArgs e)
+    {
+        if (e.Key == "Backspace" && CellValue(index).Length == 0 && index > 0)
+        {
+            await _cells[index - 1].FocusAsync();
+        }
+        else if (e.Key == "ArrowLeft" && index > 0)
+        {
+            await _cells[index - 1].FocusAsync();
+        }
+        else if (e.Key == "ArrowRight" && index < Length - 1)
+        {
+            await _cells[index + 1].FocusAsync();
+        }
+    }
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Lifecycle</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Lifecycle</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Lifecycle</RootNamespace>
+    <Description>Cross-cutting lifecycle-state substrate (IArchivable + ISoftDeletable markers) per ADR 0108. Archival is its own cross-cutting concern, parallel to multitenancy / session / password-hashing. Vertical blocks implement these markers on their aggregates and adapt their existing storage representation at the service boundary. Dependency-free by design (BCL only): the markers expose BCL DateTimeOffset? so the package takes no NodaTime or EF Core dependency — the Instant?↔DateTimeOffset? conversion for NodaTime-backed clusters is an explicit boundary-adapter responsibility (ADR 0108 F1).</Description>
+    <PackageTags>harborline;foundation;lifecycle;archive;soft-delete;substrate;cross-cutting</PackageTags>
+  </PropertyGroup>
+  <!-- ADR 0108 O-1: home is a NEW dependency-free package, NOT foundation-persistence
+       (which references Microsoft.EntityFrameworkCore + foundation-multitenancy and would force
+       every IArchivable/ISoftDeletable implementor to transitively pull in EF Core). The markers
+       are domain-lifecycle SEMANTICS, not persistence MECHANICS. ZERO ProjectReference + ZERO
+       PackageReference is the load-bearing invariant of this package. -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+</Project>

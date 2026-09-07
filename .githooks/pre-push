@@ -1,0 +1,28 @@
+#!/bin/sh
+# Refuses to push commits that local verification has not covered.
+#
+# This repository's GitHub Actions workflows are switched off (ACTIONS_ENABLED, see the block at the
+# top of .github/workflows/packages.yml). Nothing else checks a push. eng/verify.sh is the
+# replacement and this hook is what stops it from being optional.
+#
+# pre-push rather than pre-commit: the expensive step clones HEAD and refuses a dirty tree, so the
+# receipt is keyed to HEAD's tree — and push is what CI triggered on anyway. Committing stays free.
+set -eu
+
+# A deletion carries no commits: git sends the all-zero sha for it, so there is nothing for a
+# receipt to attest to. Without this, deleting an already-merged branch is refused by a check that
+# has no subject -- and the only way past is --no-verify, which teaches the habit of skipping the
+# gate for real pushes too. Skipped only when EVERY ref in the push is a deletion; one ref carrying
+# commits still demands the receipt.
+pushes_content=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  case "$local_sha" in
+    *[!0]*) pushes_content=1 ;;
+  esac
+done
+if [ "$pushes_content" -eq 0 ]; then
+  exit 0
+fi
+
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+node "$hook_dir/../eng/verify-receipt.mjs"

@@ -1,0 +1,180 @@
+@inherits HarborlineComponentBase
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="@CombineClasses(FieldCss)"
+     style="@CombineStyles()"
+     role="group"
+     aria-label="@(AriaLabel ?? DocumentTitle ?? "Electronic signature")"
+     @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(DocumentTitle))
+    {
+        <p class="sf-esignature__title">@DocumentTitle</p>
+    }
+    @if (!string.IsNullOrEmpty(SignerRole))
+    {
+        <p class="sf-esignature__role">Signing as: @SignerRole</p>
+    }
+
+    @if (Methods.Count > 1)
+    {
+        <div class="sf-esignature__methods" role="tablist" aria-label="Signature method">
+            @foreach (var method in Methods)
+            {
+                var selectMethod = method;
+                var isActive = method == _activeMethod;
+                <button type="button"
+                        class="sf-esignature__method @(isActive ? "sf-esignature__method--active" : "")"
+                        role="tab"
+                        aria-selected="@isActive.ToString().ToLowerInvariant()"
+                        aria-controls="@_panelId"
+                        disabled="@(!Enabled)"
+                        @onclick="() => _activeMethod = selectMethod">
+                    @MethodLabel(method)
+                </button>
+            }
+        </div>
+    }
+
+    <div id="@_panelId" role="tabpanel" class="sf-esignature__panel">
+    @if (_activeMethod == ESignatureMethod.Draw)
+    {
+        <HarborlineSignature Width="@Width"
+                           Height="@Height"
+                           ReadOnly="@(!Enabled)"
+                           Value="@Value"
+                           ValueChanged="@HandleDrawnSignature" />
+    }
+    else if (_activeMethod == ESignatureMethod.Type)
+    {
+        <input type="text"
+               class="sf-esignature__typed"
+               placeholder="Type your full name"
+               aria-label="Type your full name to sign"
+               disabled="@(!Enabled)"
+               value="@_typedName"
+               @oninput="HandleTypedInput" />
+        @if (!string.IsNullOrEmpty(_typedName))
+        {
+            <p class="sf-esignature__typed-preview" aria-hidden="true">@_typedName</p>
+        }
+    }
+    else if (_activeMethod == ESignatureMethod.Upload)
+    {
+        <InputFile id="@_uploadId"
+                   class="sf-esignature__upload"
+                   accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                   aria-label="Upload signature image"
+                   disabled="@(!Enabled)"
+                   OnChange="HandleUpload" />
+    }
+    </div>
+
+    @if (ShowSignerName || ShowSignerDate)
+    {
+        <div class="sf-esignature__meta">
+            @if (ShowSignerName)
+            {
+                <label class="sf-esignature__meta-field">
+                    <span>Signer name</span>
+                    <input type="text"
+                           disabled="@(!Enabled)"
+                           value="@_signerName"
+                           @oninput="args => _signerName = args.Value?.ToString() ?? string.Empty" />
+                </label>
+            }
+            @if (ShowSignerDate)
+            {
+                <span class="sf-esignature__meta-date">
+                    Date: @DateTime.Today.ToString("yyyy-MM-dd")
+                </span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private ESignatureMethod _activeMethod;
+    private bool _methodInitialized;
+    private string _typedName = string.Empty;
+    private string _signerName = string.Empty;
+    private readonly string _panelId = $"sf-esignature-panel-{Guid.NewGuid():N}";
+    private readonly string _uploadId = $"sf-esignature-upload-{Guid.NewGuid():N}";
+
+    /// <summary>The captured signature — a base64 PNG data URL when drawn, or the typed
+    /// name prefixed with <c>typed:</c>. Powers <c>@@bind-Value</c>.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Fires whenever the signature changes through any capture method.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Fires whenever the signature changes.</summary>
+    [Parameter] public EventCallback<string?> OnChange { get; set; }
+
+    /// <summary>The capture methods to offer. Defaults to draw and type.</summary>
+    [Parameter] public List<ESignatureMethod> Methods { get; set; } = [ESignatureMethod.Draw, ESignatureMethod.Type];
+
+    [Parameter] public string? DocumentTitle { get; set; }
+    [Parameter] public string? SignerRole { get; set; }
+    [Parameter] public bool ShowSignerName { get; set; }
+    [Parameter] public bool ShowSignerDate { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public int Width { get; set; } = 400;
+    [Parameter] public int Height { get; set; } = 160;
+
+    private string FieldCss
+    {
+        get
+        {
+            var cls = "mar-esignature";
+            if (!Enabled) cls += " mar-esignature--disabled";
+            return cls;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Methods.Count == 0) Methods = [ESignatureMethod.Draw];
+        if (!_methodInitialized || !Methods.Contains(_activeMethod))
+        {
+            _activeMethod = Methods[0];
+            _methodInitialized = true;
+        }
+    }
+
+    private static string MethodLabel(ESignatureMethod method) => method switch
+    {
+        ESignatureMethod.Draw => "Draw",
+        ESignatureMethod.Type => "Type",
+        ESignatureMethod.Upload => "Upload",
+        _ => method.ToString(),
+    };
+
+    private async Task HandleDrawnSignature(string dataUrl)
+    {
+        Value = dataUrl;
+        await ValueChanged.InvokeAsync(Value);
+        await OnChange.InvokeAsync(Value);
+    }
+
+    private async Task HandleTypedInput(ChangeEventArgs args)
+    {
+        _typedName = args.Value?.ToString() ?? string.Empty;
+        Value = _typedName.Length == 0 ? null : $"typed:{_typedName}";
+        await ValueChanged.InvokeAsync(Value);
+        await OnChange.InvokeAsync(Value);
+    }
+
+    private async Task HandleUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        if (file is null) return;
+
+        await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer);
+        Value = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer.ToArray())}";
+        await ValueChanged.InvokeAsync(Value);
+        await OnChange.InvokeAsync(Value);
+    }
+}

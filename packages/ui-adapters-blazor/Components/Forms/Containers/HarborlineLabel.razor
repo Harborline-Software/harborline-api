@@ -1,0 +1,100 @@
+@inherits HarborlineComponentBase
+
+@if (EffectiveVariant == HarborlineLabelVariant.Label)
+{
+    <label class="@CombineClasses(BuildLabelClass())"
+           style="@CombineStyles()"
+           for="@For"
+           id="@Id"
+           @attributes="AdditionalAttributes">
+        @RenderText()
+    </label>
+}
+else
+{
+    <span class="@CombineClasses(BuildVariantClass())"
+          style="@CombineStyles()"
+          id="@Id"
+          @attributes="AdditionalAttributes">
+        @RenderText()
+    </span>
+}
+
+@code {
+    /// <summary>
+    /// The label text. When set, takes precedence over ChildContent.
+    /// </summary>
+    [Parameter] public string? Text { get; set; }
+
+    /// <summary>
+    /// Associates the label with an input element by its id (HTML for attribute).
+    /// </summary>
+    [Parameter] public string? For { get; set; }
+
+    /// <summary>
+    /// The id of the label element (for aria-labelledby associations).
+    /// </summary>
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>The visual semantic variant of this label.</summary>
+    [Parameter] public HarborlineLabelVariant Variant { get; set; } = HarborlineLabelVariant.Label;
+
+    /// <summary>Convenience switch for the hint label variant.</summary>
+    [Parameter] public bool HintLabel { get; set; }
+
+    /// <summary>Convenience switch for the error label variant.</summary>
+    [Parameter] public bool ErrorLabel { get; set; }
+
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [CascadingParameter] private EditContext? EditContext { get; set; }
+
+    private string BuildLabelClass()
+    {
+        var baseClass = CssProvider.LabelClass();
+        var hasValidationErrors = false;
+
+        if (EditContext != null && !string.IsNullOrEmpty(For))
+        {
+            var fieldIdentifier = EditContext.Field(For);
+            hasValidationErrors = EditContext.GetValidationMessages(fieldIdentifier).Any();
+        }
+
+        return new CssClassBuilder()
+            .AddClass(baseClass)
+            .AddClass("mar-label--invalid", hasValidationErrors)
+            .Build();
+    }
+
+    private HarborlineLabelVariant EffectiveVariant => ErrorLabel
+        ? HarborlineLabelVariant.Error
+        : HintLabel ? HarborlineLabelVariant.Hint : Variant;
+
+    private string BuildVariantClass() => CombineClasses(
+        CssProvider.LabelClass(),
+        EffectiveVariant == HarborlineLabelVariant.Hint ? "sf-label--hint" : "sf-label--error",
+        Disabled ? "sf-label--disabled" : null);
+
+    private RenderFragment RenderText() => builder =>
+    {
+        if (!string.IsNullOrEmpty(Text))
+        {
+            builder.AddContent(0, Text);
+        }
+        else
+        {
+            builder.AddContent(1, ChildContent);
+        }
+
+        if (EffectiveVariant == HarborlineLabelVariant.Label && Required)
+        {
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "aria-hidden", "true");
+            builder.AddContent(4, " *");
+            builder.CloseElement();
+        }
+    };
+}

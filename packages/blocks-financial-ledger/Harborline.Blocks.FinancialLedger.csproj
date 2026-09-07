@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Blocks.FinancialLedger</PackageId>
+    <AssemblyName>Harborline.Api.Blocks.FinancialLedger</AssemblyName>
+    <RootNamespace>Harborline.Api.Blocks.FinancialLedger</RootNamespace>
+    <Description>Accounting entities (GL accounts, journal entries, depreciation schedules), in-memory service, and QuickBooks IIF exporter for Harborline — first pass, export-only (Option B). Defers: ledger UI, Xero export, automatic JE generation, depreciation computation.</Description>
+    <PackageTags>accounting;general-ledger;journal-entries;quickbooks;iif;blocks;domain;harborline</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS1591;NU1510;CS1574;CS0419</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.FinancialLedger.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-import\Harborline.Foundation.Import.csproj" />
+    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
+    <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+  </ItemGroup>
+</Project>

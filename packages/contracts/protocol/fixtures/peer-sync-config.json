@@ -1,0 +1,1 @@
+{ "enableMdns": true, "peers": ["tcp://10.0.0.8:7443"], "bindAddress": "0.0.0.0:7443" }

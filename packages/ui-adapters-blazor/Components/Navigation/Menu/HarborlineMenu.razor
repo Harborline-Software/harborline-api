@@ -1,0 +1,23 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+
+@if (IsOpen)
+{
+    <div class="sf-menu-overlay" @onclick="HandleClose"></div>
+    <div class="@CombineClasses(CssProvider.MenuClass())"
+         style="@CombineStyles()"
+         role="@(Orientation.Equals("horizontal", StringComparison.OrdinalIgnoreCase) ? "menubar" : "menu")"
+         aria-orientation="@Orientation.ToLowerInvariant()"
+         tabindex="-1"
+         @onkeydown="HandleKeyDown"
+         @attributes="AdditionalAttributes">
+        @if (Data != null)
+        {
+            @RenderMenuItems(BuildMenuTree())
+        }
+        else
+        {
+            @ChildContent
+        }
+    </div>
+}

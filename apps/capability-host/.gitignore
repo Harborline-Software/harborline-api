@@ -1,0 +1,7 @@
+dist/
+node_modules/
+*.tsbuildinfo
+# Never commit the ~4 GB CPU image-floor model weights — they are digest-pinned +
+# acquired deterministically (scripts/acquire-image-floor-model.mjs), not vendored.
+*.safetensors
+*.ckpt

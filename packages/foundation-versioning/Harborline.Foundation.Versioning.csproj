@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Versioning</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Versioning</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Versioning</RootNamespace>
+    <Description>Foundation-tier substrate for cross-version Harborline federation handshake (ADR 0028-A6+A7). Hosts VersionVector + PluginVersionVectorEntry + VersionVectorVerdict primitives, ICompatibilityRelation 6-rule engine, IVersionVectorExchange two-phase verdict-commit handshake, and IVersionVectorIncompatibility audit-emission with A7.4 dedup. In-memory reference implementations. Audit integrates with kernel-audit per ADR 0049 via 2 new AuditEventType discriminators (VersionVectorIncompatibilityRejected, LegacyDeviceReconnected).</Description>
+    <PackageTags>harborline;foundation;versioning;federation;handshake;adr-0028</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Versioning.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,101 @@
+@inherits HarborlineComponentBase
+
+<CascadingValue Name="@RequiredCascadeName" Value="@Required" IsFixed="true">
+    <CascadingValue Name="@DisabledCascadeName" Value="@Disabled" IsFixed="true">
+        <CascadingValue Name="@ContextCascadeName" Value="@Context" IsFixed="false">
+            <div id="@FieldId"
+                 class="@CombineClasses(BuildFieldClass())"
+                 style="@CombineStyles()"
+                 aria-invalid="@AriaInvalid"
+                 aria-required="@AriaRequired"
+                 aria-disabled="@AriaDisabled"
+                 aria-describedby="@DescribedBy"
+                 @attributes="AdditionalAttributes">
+                @if (!string.IsNullOrEmpty(Text))
+                {
+                    <HarborlineLabel For="@Id" Required="@Required" Disabled="@Disabled">@Text</HarborlineLabel>
+                }
+                @ChildContent
+                @if (Hint is not null)
+                {
+                    <div id="@HintId" class="sf-field__hint">@Hint</div>
+                }
+                @if (Error is not null)
+                {
+                    <div id="@ErrorId" class="sf-field__error" role="alert">@Error</div>
+                }
+            </div>
+        </CascadingValue>
+    </CascadingValue>
+</CascadingValue>
+
+@code {
+    /// <summary>
+    /// The label text displayed for this field. When set, renders a label element.
+    /// </summary>
+    [Parameter] public string? Text { get; set; }
+
+    /// <summary>
+    /// The id for the label's for attribute and child input association.
+    /// </summary>
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>Marks the field as required and cascades the state to composed controls.</summary>
+    [Parameter] public bool Required { get; set; }
+
+    /// <summary>Disables the field and cascades the state to composed controls.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Optional localized hint content associated with the child control.</summary>
+    [Parameter] public RenderFragment? Hint { get; set; }
+
+    /// <summary>Optional localized error content associated with the child control.</summary>
+    [Parameter] public RenderFragment? Error { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [CascadingParameter] private EditContext? EditContext { get; set; }
+
+    public const string RequiredCascadeName = "HarborlineField.Required";
+    public const string DisabledCascadeName = "HarborlineField.Disabled";
+    public const string ContextCascadeName = "HarborlineField.Context";
+
+    private string FieldId => Id ?? string.Empty;
+    private string? HintId => Hint is null || string.IsNullOrEmpty(FieldId) ? null : $"{FieldId}-hint";
+    private string? ErrorId => Error is null || string.IsNullOrEmpty(FieldId) ? null : $"{FieldId}-error";
+    private string? DescribedBy => string.Join(' ', new[] { HintId, ErrorId }.Where(id => !string.IsNullOrEmpty(id)));
+    private string AriaInvalid => HasValidationErrors ? "true" : "false";
+    private string AriaRequired => Required ? "true" : "false";
+    private string AriaDisabled => Disabled ? "true" : "false";
+
+    private HarborlineFieldContext Context => new(Id, Required, Disabled, HasValidationErrors, DescribedBy);
+
+    private string BuildFieldClass()
+    {
+        var baseClass = CssProvider.FieldClass();
+        var hasValidationErrors = HasValidationErrors;
+
+        return new CssClassBuilder()
+            .AddClass(baseClass)
+            .AddClass("mar-field--invalid", hasValidationErrors)
+            .Build();
+    }
+
+    private bool HasValidationErrors
+    {
+        get
+        {
+            if (Error is not null)
+            {
+                return true;
+            }
+
+            if (EditContext is null || string.IsNullOrEmpty(Id))
+            {
+                return false;
+            }
+
+            return EditContext.GetValidationMessages(EditContext.Field(Id)).Any();
+        }
+    }
+}

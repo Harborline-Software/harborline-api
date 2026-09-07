@@ -1,0 +1,960 @@
+namespace Harborline.Api.Kernel.Audit;
+
+/// <summary>
+/// Discriminator for the kind of event captured in an <see cref="AuditRecord"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Strings rather than an enum so blocks (recovery, capabilities, payments)
+/// can introduce new event types without a kernel-tier coordination round.
+/// Per ADR 0049 §"Open questions" — the v0 set focuses on Phase 1 G6 recovery
+/// and the Phase 2 commercial scope (payments, IRS export, bookkeeper /
+/// tax-advisor delegation). The list grows as compliance use cases surface.
+/// </para>
+/// <para>
+/// <b>Naming convention:</b> <c>{Subject}{Verb}</c> in PascalCase.
+/// </para>
+/// </remarks>
+public readonly record struct AuditEventType(string Value)
+{
+    // ===== ADR 0091 / ADR 0092 — service-layer tenant-isolation =====
+
+    /// <summary>
+    /// A read against a tenant-scoped entity was rejected at the service-layer
+    /// tenant guard because the entity's <c>TenantId</c> did not match the
+    /// resolved <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>.
+    /// Emitted by <c>Get*</c> rejection paths (the uniform-404 return shape per
+    /// ADR 0092 §A3 means callers cannot distinguish "id does not exist" from
+    /// "id belongs to another tenant" — this audit event makes the rejection
+    /// observable to the operator without leaking it to the caller). Per ADR
+    /// 0092 §A6, <c>List*</c> rejections are NOT emitted per-entity (too noisy);
+    /// a future aggregate-level emission may surface list-time filtering counts.
+    /// </summary>
+    public static readonly AuditEventType TenantBoundaryViolation = new("TenantBoundaryViolation");
+
+    // ===== ADR 0046 sub-pattern #48f — recovery audit trail =====
+
+    /// <summary>An owner initiated a multi-sig recovery request.</summary>
+    public static readonly AuditEventType KeyRecoveryInitiated = new("KeyRecoveryInitiated");
+
+    /// <summary>A trustee submitted an attestation for a recovery request.</summary>
+    public static readonly AuditEventType KeyRecoveryAttested = new("KeyRecoveryAttested");
+
+    /// <summary>A holder of the original keys filed a dispute against a recovery request during the grace window.</summary>
+    public static readonly AuditEventType KeyRecoveryDisputed = new("KeyRecoveryDisputed");
+
+    /// <summary>A recovery request reached quorum + grace expiry and the new key took effect.</summary>
+    public static readonly AuditEventType KeyRecoveryCompleted = new("KeyRecoveryCompleted");
+
+    /// <summary>A trustee designation or revocation was applied to the trustee set.</summary>
+    public static readonly AuditEventType TrusteeSetChanged = new("TrusteeSetChanged");
+
+    /// <summary>
+    /// W#67 / ADR 0046-A6 — emitted by <c>AnchorRecoveryCompletionHandler</c>
+    /// after the seed-delivery protocol completes (success OR documented
+    /// abort). Payload carries
+    /// <see cref="Payloads.RecoveryRekeyPayload"/> with attestation /
+    /// decryption counts + the SQLCipher rekey outcome.
+    /// </summary>
+    public static readonly AuditEventType RecoveryRekey = new("RecoveryRekey");
+
+    // ===== Phase 2 commercial scope (placeholders; concrete payloads land
+    //       when each subsystem ships) =====
+
+    /// <summary>A capability was delegated from one principal to another.</summary>
+    public static readonly AuditEventType CapabilityDelegated = new("CapabilityDelegated");
+
+    /// <summary>A previously-delegated capability was revoked.</summary>
+    public static readonly AuditEventType CapabilityRevoked = new("CapabilityRevoked");
+
+    /// <summary>A payment was authorized (pre-capture).</summary>
+    public static readonly AuditEventType PaymentAuthorized = new("PaymentAuthorized");
+
+    /// <summary>An authorized payment was captured (funds moved).</summary>
+    public static readonly AuditEventType PaymentCaptured = new("PaymentCaptured");
+
+    /// <summary>A captured payment was refunded.</summary>
+    public static readonly AuditEventType PaymentRefunded = new("PaymentRefunded");
+
+    /// <summary>A bookkeeper delegate accessed financial records.</summary>
+    public static readonly AuditEventType BookkeeperAccess = new("BookkeeperAccess");
+
+    /// <summary>A tax-advisor delegate accessed financial records.</summary>
+    public static readonly AuditEventType TaxAdvisorAccess = new("TaxAdvisorAccess");
+
+    /// <summary>An IRS-format export was generated for a tax period.</summary>
+    public static readonly AuditEventType IrsExportGenerated = new("IrsExportGenerated");
+
+    /// <summary>
+    /// A double-entry journal entry was posted to the general ledger.
+    /// Emitted by the Bridge financial endpoint on
+    /// <c>POST /api/v1/financial/journal-entries</c> (W#60 P4 PR 2;
+    /// pattern-012-financial-write-path 3rd-instance ratification candidate).
+    /// Audit payload shape: entry_id, chart_id, posting_date, memo,
+    /// line_count, total_debits, total_credits, idempotency_key.
+    /// </summary>
+    public static readonly AuditEventType JournalEntryPosted = new("JournalEntryPosted");
+
+    // ===== ADR 0056 — Foundation.Taxonomy substrate =====
+
+    /// <summary>A new taxonomy definition was created (Authoritative or Civilian regime).</summary>
+    public static readonly AuditEventType TaxonomyDefinitionCreated = new("TaxonomyDefinitionCreated");
+
+    /// <summary>A taxonomy version was published.</summary>
+    public static readonly AuditEventType TaxonomyVersionPublished = new("TaxonomyVersionPublished");
+
+    /// <summary>A taxonomy version was retired.</summary>
+    public static readonly AuditEventType TaxonomyVersionRetired = new("TaxonomyVersionRetired");
+
+    /// <summary>A node was added to a taxonomy version.</summary>
+    public static readonly AuditEventType TaxonomyNodeAdded = new("TaxonomyNodeAdded");
+
+    /// <summary>A node's display label / description was revised.</summary>
+    public static readonly AuditEventType TaxonomyNodeDisplayRevised = new("TaxonomyNodeDisplayRevised");
+
+    /// <summary>A node was tombstoned (soft-deleted).</summary>
+    public static readonly AuditEventType TaxonomyNodeTombstoned = new("TaxonomyNodeTombstoned");
+
+    /// <summary>A taxonomy definition was cloned (Civilian-regime derivation).</summary>
+    public static readonly AuditEventType TaxonomyDefinitionCloned = new("TaxonomyDefinitionCloned");
+
+    /// <summary>A taxonomy definition was extended (parent-relationship preserving derivation).</summary>
+    public static readonly AuditEventType TaxonomyDefinitionExtended = new("TaxonomyDefinitionExtended");
+
+    /// <summary>A taxonomy definition was altered (semantic-divergence derivation; requires explicit reason).</summary>
+    public static readonly AuditEventType TaxonomyDefinitionAltered = new("TaxonomyDefinitionAltered");
+
+    // ===== ADR 0053 — Work Orders =====
+
+    /// <summary>A work order was created in the Draft state.</summary>
+    public static readonly AuditEventType WorkOrderCreated = new("WorkOrderCreated");
+
+    /// <summary>A work order transitioned Draft → Sent.</summary>
+    public static readonly AuditEventType WorkOrderSent = new("WorkOrderSent");
+
+    /// <summary>A work order transitioned Sent → Accepted.</summary>
+    public static readonly AuditEventType WorkOrderAccepted = new("WorkOrderAccepted");
+
+    /// <summary>A work order transitioned Accepted → Scheduled.</summary>
+    public static readonly AuditEventType WorkOrderScheduled = new("WorkOrderScheduled");
+
+    /// <summary>A work order transitioned Scheduled → InProgress.</summary>
+    public static readonly AuditEventType WorkOrderStarted = new("WorkOrderStarted");
+
+    /// <summary>A work order transitioned InProgress → OnHold.</summary>
+    public static readonly AuditEventType WorkOrderHeld = new("WorkOrderHeld");
+
+    /// <summary>A work order transitioned OnHold → InProgress.</summary>
+    public static readonly AuditEventType WorkOrderResumed = new("WorkOrderResumed");
+
+    /// <summary>A work order transitioned InProgress → Completed.</summary>
+    public static readonly AuditEventType WorkOrderCompleted = new("WorkOrderCompleted");
+
+    /// <summary>A work order transitioned Completed → AwaitingSignOff (or skipped to Invoiced).</summary>
+    public static readonly AuditEventType WorkOrderSignedOff = new("WorkOrderSignedOff");
+
+    /// <summary>A work order transitioned to the Invoiced state.</summary>
+    public static readonly AuditEventType WorkOrderInvoiced = new("WorkOrderInvoiced");
+
+    /// <summary>A work order transitioned Invoiced → Paid.</summary>
+    public static readonly AuditEventType WorkOrderPaid = new("WorkOrderPaid");
+
+    /// <summary>A work order transitioned to the Disputed state.</summary>
+    public static readonly AuditEventType WorkOrderDisputed = new("WorkOrderDisputed");
+
+    /// <summary>A work order transitioned to the Closed (final terminal) state.</summary>
+    public static readonly AuditEventType WorkOrderClosed = new("WorkOrderClosed");
+
+    /// <summary>A work order was cancelled (terminal-from-anywhere-pre-Closed).</summary>
+    public static readonly AuditEventType WorkOrderCancelled = new("WorkOrderCancelled");
+
+    /// <summary>A right-of-entry notice was recorded against a work order.</summary>
+    public static readonly AuditEventType WorkOrderEntryNoticeRecorded = new("WorkOrderEntryNoticeRecorded");
+
+    /// <summary>An appointment slot was proposed against a work order.</summary>
+    public static readonly AuditEventType WorkOrderAppointmentScheduled = new("WorkOrderAppointmentScheduled");
+
+    /// <summary>A previously-proposed appointment was confirmed.</summary>
+    public static readonly AuditEventType WorkOrderAppointmentConfirmed = new("WorkOrderAppointmentConfirmed");
+
+    /// <summary>A signature-bound completion attestation was captured.</summary>
+    public static readonly AuditEventType WorkOrderCompletionAttestationCaptured = new("WorkOrderCompletionAttestationCaptured");
+
+    // ===== ADR 0028 / ADR 0054 — Leases =====
+
+    /// <summary>A lease was created in the Draft phase.</summary>
+    public static readonly AuditEventType LeaseDrafted = new("LeaseDrafted");
+
+    /// <summary>A new revision of the lease document was appended to the version log.</summary>
+    public static readonly AuditEventType LeaseDocumentVersionAppended = new("LeaseDocumentVersionAppended");
+
+    /// <summary>A party (tenant or co-leaseholder) recorded a signature on the lease.</summary>
+    public static readonly AuditEventType LeasePartySignatureRecorded = new("LeasePartySignatureRecorded");
+
+    /// <summary>The landlord attestation was bound to the lease.</summary>
+    public static readonly AuditEventType LeaseLandlordAttestationSet = new("LeaseLandlordAttestationSet");
+
+    /// <summary>A lease transitioned AwaitingSignature → Executed (all required signatures captured).</summary>
+    public static readonly AuditEventType LeaseExecuted = new("LeaseExecuted");
+
+    /// <summary>A lease transitioned Executed → Active (commencement date reached).</summary>
+    public static readonly AuditEventType LeaseActivated = new("LeaseActivated");
+
+    /// <summary>A lease was renewed (Active → Renewed).</summary>
+    public static readonly AuditEventType LeaseRenewed = new("LeaseRenewed");
+
+    /// <summary>A lease was terminated (terminal).</summary>
+    public static readonly AuditEventType LeaseTerminated = new("LeaseTerminated");
+
+    /// <summary>A lease was cancelled before execution (terminal).</summary>
+    public static readonly AuditEventType LeaseCancelled = new("LeaseCancelled");
+
+    // ===== ADR 0057 — Leasing pipeline =====
+
+    /// <summary>An inquiry passed validation and was persisted at the public-input boundary.</summary>
+    public static readonly AuditEventType InquiryAccepted = new("InquiryAccepted");
+
+    /// <summary>An inquiry was rejected at the public-input boundary (validation failure).</summary>
+    public static readonly AuditEventType InquiryRejected = new("InquiryRejected");
+
+    /// <summary>An inquiry was promoted to a Prospect via the email-verification flow.</summary>
+    public static readonly AuditEventType ProspectPromoted = new("ProspectPromoted");
+
+    /// <summary>A Prospect was promoted to an Applicant after fee + signature confirmation.</summary>
+    public static readonly AuditEventType ApplicantPromoted = new("ApplicantPromoted");
+
+    /// <summary>A rental application was submitted by a Prospect.</summary>
+    public static readonly AuditEventType ApplicationSubmitted = new("ApplicationSubmitted");
+
+    /// <summary>A rental application was accepted by the operator.</summary>
+    public static readonly AuditEventType ApplicationAccepted = new("ApplicationAccepted");
+
+    /// <summary>A rental application was declined by the operator.</summary>
+    public static readonly AuditEventType ApplicationDeclined = new("ApplicationDeclined");
+
+    /// <summary>A rental application was withdrawn before decision.</summary>
+    public static readonly AuditEventType ApplicationWithdrawn = new("ApplicationWithdrawn");
+
+    /// <summary>A background-check provider was asked to begin a report (kickoff).</summary>
+    public static readonly AuditEventType BackgroundCheckRequested = new("BackgroundCheckRequested");
+
+    /// <summary>A background-check provider returned a final report.</summary>
+    public static readonly AuditEventType BackgroundCheckCompleted = new("BackgroundCheckCompleted");
+
+    /// <summary>An FCRA §615-compliant adverse-action notice was issued.</summary>
+    public static readonly AuditEventType AdverseActionNoticeIssued = new("AdverseActionNoticeIssued");
+
+    /// <summary>A leasing-pipeline-tier capability (Anonymous / Prospect / Applicant) was revoked.</summary>
+    public static readonly AuditEventType LeasingPipelineCapabilityRevoked = new("LeasingPipelineCapabilityRevoked");
+
+    // ===== ADR 0054 — Signatures =====
+
+    /// <summary>A new SignatureEvent was captured (after consent + scope validation passed).</summary>
+    public static readonly AuditEventType SignatureCaptured = new("SignatureCaptured");
+
+    /// <summary>An append-only revocation entry was added for a SignatureEvent (per ADR 0054 A4+A5).</summary>
+    public static readonly AuditEventType SignatureRevoked = new("SignatureRevoked");
+
+    /// <summary>A signature-validity projection was re-computed; emitted on each consult of <c>GetCurrentValidityAsync</c>.</summary>
+    public static readonly AuditEventType SignatureValidityProjected = new("SignatureValidityProjected");
+
+    /// <summary>A UETA / E-SIGN consent record was recorded for a principal.</summary>
+    public static readonly AuditEventType ConsentRecorded = new("ConsentRecorded");
+
+    /// <summary>A previously-recorded consent was revoked (subsequent SignatureCaptured calls for that principal will be refused until a new consent is recorded).</summary>
+    public static readonly AuditEventType ConsentRevoked = new("ConsentRevoked");
+
+    // ===== ADR 0058 — Vendor onboarding =====
+
+    /// <summary>A new <c>Vendor</c> record was created in the Pending onboarding state.</summary>
+    public static readonly AuditEventType VendorCreated = new("VendorCreated");
+
+    /// <summary>A magic-link token was issued for vendor onboarding (W#18 Phase 5).</summary>
+    public static readonly AuditEventType VendorMagicLinkIssued = new("VendorMagicLinkIssued");
+
+    /// <summary>A previously-issued vendor magic-link was consumed by the vendor (W#18 Phase 5).</summary>
+    public static readonly AuditEventType VendorMagicLinkConsumed = new("VendorMagicLinkConsumed");
+
+    /// <summary>A vendor's onboarding state transitioned (e.g., Pending → W9Requested).</summary>
+    public static readonly AuditEventType VendorOnboardingStateChanged = new("VendorOnboardingStateChanged");
+
+    /// <summary>A W-9 document was received from the vendor (W#18 Phase 4).</summary>
+    public static readonly AuditEventType W9DocumentReceived = new("W9DocumentReceived");
+
+    /// <summary>An operator verified a previously-received W-9 document.</summary>
+    public static readonly AuditEventType W9DocumentVerified = new("W9DocumentVerified");
+
+    /// <summary>A vendor was activated (operationally usable for work-order assignment).</summary>
+    public static readonly AuditEventType VendorActivated = new("VendorActivated");
+
+    /// <summary>
+    /// A vendor was archived (ADR 0108 <c>IArchivable</c>): the archived state is projected
+    /// onto the existing status, which was set to <c>Inactive</c> (no separate archive
+    /// column). Recoverable — the row stays resolvable for referential history and may be
+    /// restored.
+    /// </summary>
+    public static readonly AuditEventType VendorArchived = new("VendorArchived");
+
+    // ===== ADR 0059 — Public Listings =====
+
+    /// <summary>A <c>PublicListing</c> transitioned to the Published status (visible to anonymous browsers).</summary>
+    public static readonly AuditEventType PublicListingPublished = new("PublicListingPublished");
+
+    /// <summary>A <c>PublicListing</c> transitioned to the Unlisted status (no longer publicly visible).</summary>
+    public static readonly AuditEventType PublicListingUnlisted = new("PublicListingUnlisted");
+
+    // Note: InquiryAccepted + InquiryRejected are reused from the W#22 ADR 0057 set above —
+    // both workstreams deal with the same lifecycle event at the same boundary
+    // (public-listings inquiry-form post → leasing-pipeline IPublicInquiryService.SubmitInquiryAsync).
+
+    /// <summary>An inquiry was submitted via the public-listing surface (after 5-layer defense passes; pre-leasing-pipeline persistence).</summary>
+    public static readonly AuditEventType InquirySubmitted = new("InquirySubmitted");
+
+    /// <summary>A capability was promoted Anonymous → Prospect (per ADR 0043 addendum + ADR 0059).</summary>
+    public static readonly AuditEventType CapabilityPromotedToProspect = new("CapabilityPromotedToProspect");
+
+    /// <summary>A capability was promoted Prospect → Applicant (per ADR 0043 addendum + ADR 0059; downstream of W#22 Phase 2 ConfirmApplicationAndPromote).</summary>
+    public static readonly AuditEventType CapabilityPromotedToApplicant = new("CapabilityPromotedToApplicant");
+
+    // ===== ADR 0046-A4/A5 — Field-encryption substrate (W#32) =====
+
+    /// <summary>An <c>EncryptedField</c> value was decrypted via <c>IFieldDecryptor</c>.</summary>
+    public static readonly AuditEventType FieldDecrypted = new("FieldDecrypted");
+
+    /// <summary>An <c>EncryptedField</c> decrypt was rejected (capability invalid, ciphertext truncated, AES-GCM tag failure, or unsupported key version).</summary>
+    public static readonly AuditEventType FieldDecryptionDenied = new("FieldDecryptionDenied");
+
+    // ===== ADR 0059 — Prospect-capability verifier (W#28 Phase 5c-4) =====
+
+    /// <summary>A Prospect-tier macaroon capability was verified successfully.</summary>
+    public static readonly AuditEventType ProspectCapabilityVerified = new("ProspectCapabilityVerified");
+
+    /// <summary>A Prospect-tier macaroon capability verification was rejected (decode failed / signature mismatch / wrong tenant / listing not allowed / email not verified / expired).</summary>
+    public static readonly AuditEventType ProspectCapabilityDenied = new("ProspectCapabilityDenied");
+
+    /// <summary>A Prospect (with verified capability) submitted a rental application via the public-listing capability-tier route (W#28 P5c-4 Slice C).</summary>
+    public static readonly AuditEventType ProspectStartedApplication = new("ProspectStartedApplication");
+
+    /// <summary>A verified Prospect capability resolved an email that has no matching Prospect entity — capability/data inconsistency (W#28 P5c-4 Slice C).</summary>
+    public static readonly AuditEventType ProspectLookupOrphan = new("ProspectLookupOrphan");
+
+    // ===== ADR 0028-A6/A7 — Foundation.Versioning federation handshake (W#34) =====
+
+    /// <summary>A federation handshake's <c>VersionVector</c> evaluation produced an Incompatible verdict; the peer was rejected. Emission is dedup'd 1-per-(remote_node_id, failed_rule, failed_rule_detail) per 1-hour rolling window per A7.4.</summary>
+    public static readonly AuditEventType VersionVectorIncompatibilityRejected = new("VersionVectorIncompatibilityRejected");
+
+    /// <summary>A legacy device reconnected with kernel-minor-lag exceeding the compatibility window; the up-to-date peer entered one-sided receive-only mode per A6.5. Emission is dedup'd 1-per-(remote_node_id, kernel_minor_lag) per 24-hour rolling window per A7.4.</summary>
+    public static readonly AuditEventType LegacyDeviceReconnected = new("LegacyDeviceReconnected");
+
+    // ===== ADR 0028-A5/A8 — Foundation.Migration cross-form-factor (W#35) =====
+
+    /// <summary>A host's hardware-tier profile changed (storage / network / sensor / power / adapter / manual reprofile) per A5.3.</summary>
+    public static readonly AuditEventType HardwareTierChanged = new("HardwareTierChanged");
+
+    /// <summary>A plaintext-readable record was UI-hidden because the form factor lacks the feature surface to display it (A8.3 rule 5).</summary>
+    public static readonly AuditEventType PlaintextSequestered = new("PlaintextSequestered");
+
+    /// <summary>An encrypted record was held in ciphertext-only state because the form factor lacks the cryptographic capability to decrypt it (A8.3 rule 5).</summary>
+    public static readonly AuditEventType CiphertextSequestered = new("CiphertextSequestered");
+
+    /// <summary>A previously-sequestered record returned to active visibility on derived-surface expansion (A5.4 rule 2).</summary>
+    public static readonly AuditEventType DataReleased = new("DataReleased");
+
+    /// <summary>A CP-class record was sequestered on a host whose form factor cannot read it; the host's vote is ineligible for that record's quorum (A8.3 rule 6).</summary>
+    public static readonly AuditEventType FormFactorQuorumIneligible = new("FormFactorQuorumIneligible");
+
+    /// <summary>A field-level write was rejected at the local CRDT-write boundary because the form factor lacks the per-tenant key for that field (A8.5 rule 6).</summary>
+    public static readonly AuditEventType FieldWriteSequestered = new("FieldWriteSequestered");
+
+    /// <summary>Adapter version was downgraded; A5.6 sequestration applied. Emission is dedup'd 1-per-(node_id, adapter_id, version_pair) per 6-hour rolling window per A8.7.</summary>
+    public static readonly AuditEventType AdapterRollbackDetected = new("AdapterRollbackDetected");
+
+    /// <summary>A new <c>FormFactorProfile</c> (foundation-migration) was provisioned on a host — initial profile detection or A5.7 enrollment.</summary>
+    public static readonly AuditEventType FormFactorProvisioned = new("FormFactorProvisioned");
+
+    /// <summary>A host completed the A5.7 QR-onboarding form-factor enrollment handshake.</summary>
+    public static readonly AuditEventType FormFactorEnrollmentCompleted = new("FormFactorEnrollmentCompleted");
+
+    /// <summary>An event referencing a schema epoch from before the host's compatibility window per A7.5.3.</summary>
+    public static readonly AuditEventType LegacyEpochEvent = new("LegacyEpochEvent");
+
+    // ===== ADR 0031-A1+A1.12 — Bridge → Anchor subscription-event-emitter (W#36) =====
+
+    /// <summary>Bridge emitted a subscription event (one per attempt; pre-delivery).</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventEmitted = new("BridgeSubscriptionEventEmitted");
+
+    /// <summary>Bridge-side delivery succeeded (HTTP 200 from Anchor).</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventDelivered = new("BridgeSubscriptionEventDelivered");
+
+    /// <summary>Bridge-side retryable failure (HTTP non-200 / timeout / network error). Dedup'd 1-per-(tenant_id, event_id) per 1-hour window.</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventDeliveryFailed = new("BridgeSubscriptionEventDeliveryFailed");
+
+    /// <summary>Bridge exhausted all 7 retry attempts; event moved to dead-letter queue. Security-relevant; no dedup.</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventDeliveryFailedTerminal = new("BridgeSubscriptionEventDeliveryFailedTerminal");
+
+    /// <summary>An Anchor registered a webhook URL with Bridge per A1.4.</summary>
+    public static readonly AuditEventType BridgeSubscriptionWebhookRegistered = new("BridgeSubscriptionWebhookRegistered");
+
+    /// <summary>Per A1.12.1 — Bridge staged a 90-day shared-secret rotation (24-hour grace window during which both old + new secrets are accepted).</summary>
+    public static readonly AuditEventType BridgeSubscriptionWebhookRotationStaged = new("BridgeSubscriptionWebhookRotationStaged");
+
+    /// <summary>Per A1.12.3 — Bridge admin enabled per-Anchor self-signed cert allowance for webhook delivery (default is publicly-rooted CA verification).</summary>
+    public static readonly AuditEventType BridgeWebhookSelfSignedCertsConfigured = new("BridgeWebhookSelfSignedCertsConfigured");
+
+    /// <summary>Anchor successfully verified + processed a Bridge subscription event. Dedup'd 1-per-(tenant_id, event_id) per 24-hour window (idempotency boundary).</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventReceived = new("BridgeSubscriptionEventReceived");
+
+    /// <summary>Anchor rejected an event because the HMAC signature didn't verify. Dedup'd 1-per-(tenant_id, source_ip) per 1-hour window (security-relevant; flood guard).</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventSignatureFailed = new("BridgeSubscriptionEventSignatureFailed");
+
+    /// <summary>Anchor rejected an event whose <c>effectiveAt</c> fell outside the ±5-minute clock-skew window per A1.2. Dedup'd 1-per-(tenant_id, event_type) per 1-hour window.</summary>
+    public static readonly AuditEventType BridgeSubscriptionEventStale = new("BridgeSubscriptionEventStale");
+
+    // ===== ADR 0062 + A1 — Foundation.MissionSpace runtime negotiation (W#40) =====
+
+    /// <summary>A dimension probe ran and produced a result (per A1.2 rename — was CapabilityProbed).</summary>
+    public static readonly AuditEventType FeatureProbed = new("FeatureProbed");
+
+    /// <summary>A feature's availability state changed between two consecutive verdicts (per A1.2 rename).</summary>
+    public static readonly AuditEventType FeatureAvailabilityChanged = new("FeatureAvailabilityChanged");
+
+    /// <summary>A dimension probe failed (per A1.2 rename). Drives <c>EnvelopeChangeSeverity.ProbeUnreliable</c> classification per A1.10.</summary>
+    public static readonly AuditEventType FeatureProbeFailed = new("FeatureProbeFailed");
+
+    /// <summary>An operator force-enabled a feature for a specific dimension per A1.2 + A1.9.</summary>
+    public static readonly AuditEventType FeatureForceEnabled = new("FeatureForceEnabled");
+
+    /// <summary>An operator revoked a previously-recorded force-enable per A1.2.</summary>
+    public static readonly AuditEventType FeatureForceRevoked = new("FeatureForceRevoked");
+
+    /// <summary>Per A1.9 — a force-enable request was rejected because the dimension is <c>NotOverridable</c> (Hardware / Runtime).</summary>
+    public static readonly AuditEventType FeatureForceEnableRejected = new("FeatureForceEnableRejected");
+
+    /// <summary>The mission envelope changed and the change was broadcast to all observers per A1.2 + A1.4.</summary>
+    public static readonly AuditEventType MissionEnvelopeChangeBroadcast = new("MissionEnvelopeChangeBroadcast");
+
+    /// <summary>Per A1.4 — the observer fanout queue overflowed (oldest-first eviction; 100-pending bound).</summary>
+    public static readonly AuditEventType MissionEnvelopeObserverOverflow = new("MissionEnvelopeObserverOverflow");
+
+    /// <summary>Per A1.12 — a feature verdict was surfaced to a UX consumer (telemetry for cohort tracking).</summary>
+    public static readonly AuditEventType FeatureVerdictSurfaced = new("FeatureVerdictSurfaced");
+
+    // ===== ADR 0061 — Three-tier peer transport (W#30) =====
+
+    /// <summary>The transport selector picked a tier for a peer (T1 mDNS, T2 mesh-VPN, or T3 managed relay) per ADR 0061 §"Tier selection algorithm".</summary>
+    public static readonly AuditEventType TransportTierSelected = new("TransportTierSelected");
+
+    /// <summary>A Harborline peer was registered with a Tier-2 mesh-VPN control plane (Headscale, Tailscale, NetBird) via <c>IMeshVpnAdapter.RegisterDeviceAsync</c>.</summary>
+    public static readonly AuditEventType MeshDeviceRegistered = new("MeshDeviceRegistered");
+
+    /// <summary>A WireGuard handshake with a peer through a Tier-2 mesh-VPN adapter completed successfully.</summary>
+    public static readonly AuditEventType MeshHandshakeCompleted = new("MeshHandshakeCompleted");
+
+    /// <summary>A Tier-2 mesh-VPN attempt failed (handshake timeout, control-plane miss, etc.); the selector fell through to the next tier.</summary>
+    public static readonly AuditEventType MeshTransportFailed = new("MeshTransportFailed");
+
+    /// <summary>The transport selector exhausted Tier 1 + Tier 2 and fell back to Tier 3 (Bridge managed relay) per ADR 0061 §"Decision".</summary>
+    public static readonly AuditEventType TransportFallbackToRelay = new("TransportFallbackToRelay");
+
+    // ===== ADR 0064 — Foundation.MissionSpace.Regulatory (W#39) =====
+
+    /// <summary>A <c>JurisdictionalPolicyRule</c> was evaluated. Always-on telemetry per A1.7.</summary>
+    public static readonly AuditEventType PolicyEvaluated = new("PolicyEvaluated");
+
+    /// <summary>A policy rule's <c>EnforcementAction</c> blocked the operation per A1.6.</summary>
+    public static readonly AuditEventType PolicyEnforcementBlocked = new("PolicyEnforcementBlocked");
+
+    /// <summary>The composite-confidence <c>JurisdictionProbe</c> resolved with <c>Confidence.Low</c> per A1.5.</summary>
+    public static readonly AuditEventType JurisdictionProbedWithLowConfidence = new("JurisdictionProbedWithLowConfidence");
+
+    /// <summary>A record-class write violated a <c>DataResidencyConstraint</c> per A1.6.</summary>
+    public static readonly AuditEventType DataResidencyViolation = new("DataResidencyViolation");
+
+    /// <summary>The sanctions screener matched a subject against a sanctions list per A1.6.</summary>
+    public static readonly AuditEventType SanctionsScreeningHit = new("SanctionsScreeningHit");
+
+    /// <summary>A <c>RegimeAcknowledgment</c> was surfaced to a UX consumer (e.g., installer, admin panel).</summary>
+    public static readonly AuditEventType RegimeAcknowledgmentSurfaced = new("RegimeAcknowledgmentSurfaced");
+
+    /// <summary>An <c>EuAiActTierClassification</c> was assigned to a feature per A1.6 (Phase 1 carries the type; emission paths are downstream).</summary>
+    public static readonly AuditEventType EuAiActTierClassified = new("EuAiActTierClassified");
+
+    /// <summary>The host configured the sanctions screener with <c>ScreeningPolicy.AdvisoryOnly</c> per A1.3 (operator opt-out emission path).</summary>
+    public static readonly AuditEventType SanctionsAdvisoryOnlyConfigured = new("SanctionsAdvisoryOnlyConfigured");
+
+    /// <summary>Per A1.16 — rule-content (jurisdictional policy rules + sanctions list) was reloaded; surfaces version transitions.</summary>
+    public static readonly AuditEventType RegulatoryRuleContentReloaded = new("RegulatoryRuleContentReloaded");
+
+    /// <summary>Per A1.7 — policy-evaluation cache was invalidated due to a probe-status transition (Healthy → Stale / Failed).</summary>
+    public static readonly AuditEventType RegulatoryPolicyCacheInvalidated = new("RegulatoryPolicyCacheInvalidated");
+
+    // ===== ADR 0063 — Foundation.MissionSpace.Requirements (W#41) =====
+
+    /// <summary>An <c>IMinimumSpecResolver</c> evaluated a <c>MinimumSpec</c> and produced a <c>SystemRequirementsResult</c>. Per A1.12.</summary>
+    public static readonly AuditEventType MinimumSpecEvaluated = new("MinimumSpecEvaluated");
+
+    /// <summary>Install was blocked because at least one Required dimension failed evaluation. Per A1.12.</summary>
+    public static readonly AuditEventType InstallBlocked = new("InstallBlocked");
+
+    /// <summary>Install proceeded with a UX warning because at least one Recommended dimension failed evaluation. Per A1.12.</summary>
+    public static readonly AuditEventType InstallWarned = new("InstallWarned");
+
+    /// <summary>A post-install spec regression was detected (the runtime mission space drifted from the install-time spec). Per A1.12.</summary>
+    public static readonly AuditEventType PostInstallSpecRegression = new("PostInstallSpecRegression");
+
+    /// <summary>An operator force-enabled an install that would otherwise have been blocked by spec evaluation. Per A1.11 council fix.</summary>
+    public static readonly AuditEventType InstallForceEnabled = new("InstallForceEnabled");
+
+    // ===== ADR 0065 — Wayfinder System + Standing Order Contract (W#42) =====
+
+    /// <summary>A new <c>StandingOrder</c> was issued (validation chain passed; the order's <c>State</c> is <c>Issued</c>/<c>Validated</c>/<c>Applied</c>). Per ADR 0065 §4.</summary>
+    public static readonly AuditEventType StandingOrderIssued = new("StandingOrderIssued");
+
+    /// <summary>An existing <c>StandingOrder</c> was amended (e.g., re-issued after the operator addressed a <c>Conflicted</c> tie-break). Per ADR 0065 §4.</summary>
+    public static readonly AuditEventType StandingOrderAmended = new("StandingOrderAmended");
+
+    /// <summary>An existing <c>StandingOrder</c> was rescinded; emits a new audit record without redacting the original issuance record (audit immutability per ADR 0049). Per ADR 0065 §4.</summary>
+    public static readonly AuditEventType StandingOrderRescinded = new("StandingOrderRescinded");
+
+    /// <summary>A <c>StandingOrder</c> issuance was rejected because the validation chain surfaced a <c>Block</c>-severity issue. Per ADR 0065 §3 / §4.</summary>
+    public static readonly AuditEventType StandingOrderRejected = new("StandingOrderRejected");
+
+    /// <summary>A pair of concurrent <c>StandingOrder</c> issuances on the same (<c>Scope</c>, <c>Path</c>) was reconciled via the LWW tie-break; emitted once per pair, citing both <c>StandingOrderId</c> values. Per ADR 0065 §2 / §4.</summary>
+    public static readonly AuditEventType StandingOrderConflictResolved = new("StandingOrderConflictResolved");
+
+    /// <summary>A <c>StandingOrder</c> reached the post-issuance, post-CRDT-merge, post-Atlas-projection state — the projected configuration is now live for downstream consumers (Helm widgets, permission caches, feature-management invalidation). Distinct from <see cref="StandingOrderIssued"/> (validation-passed grain); <c>StandingOrderApplied</c> fires when the in-process apply pipeline completes. <b>v1 deferral (W#57):</b> the v1 substrate does NOT emit this audit constant — <see cref="StandingOrderIssued"/> is the only success-path audit event in single-anchor topologies because <c>Validated</c> and <c>Applied</c> are synchronous in-process, and the in-process <c>Harborline.Api.Foundation.Wayfinder.StandingOrderAppliedEvent</c> covers fanout for in-process consumers. A future Phase 2 dedicated applier service (post async cross-process merge) will emit <c>StandingOrderApplied</c> as the durable audit signal cross-process consumers (Bridge fanout, replay-from-log Helm widgets) observe. Per ADR 0065-A1 §A1.3.</summary>
+    public static readonly AuditEventType StandingOrderApplied = new("StandingOrderApplied");
+
+    // ===== ADR 0028-A2.6 + A9 — W#23 iOS Field-Capture App (P4 + P4.5) =====
+
+    /// <summary>An iOS-paired device successfully posted a field-event envelope to <c>POST /api/v1/field/event</c>; per W#23 P4.5 unblock addendum.</summary>
+    public static readonly AuditEventType FieldEventAccepted = new("FieldEventAccepted");
+
+    /// <summary>An iOS-paired-device <c>POST /api/v1/field/event</c> request was rejected (schema-validation failure, signature drift on duplicate eventId, unsupported schema epoch, or invalid pairing-token); per W#23 P4.5 unblock addendum.</summary>
+    public static readonly AuditEventType FieldEventRejected = new("FieldEventRejected");
+
+    /// <summary>An iOS-paired device successfully posted a content-addressed blob to <c>POST /api/v1/field/blob/{sha256}</c>; per W#23 P4.5 unblock addendum.</summary>
+    public static readonly AuditEventType FieldBlobAccepted = new("FieldBlobAccepted");
+
+    /// <summary>An iOS-paired-device <c>POST /api/v1/field/blob/{sha256}</c> request was rejected (SHA-256 path-param mismatch, payload too large, invalid pairing-token); per W#23 P4.5 unblock addendum.</summary>
+    public static readonly AuditEventType FieldBlobRejected = new("FieldBlobRejected");
+
+    /// <summary>A paired iOS device called <c>POST /api/v1/field/unpair</c>; Bridge revoked the pairing token and cleared the device's sync rights. Per W#23 Phase 6.</summary>
+    public static readonly AuditEventType FieldDeviceRevoked = new("FieldDeviceRevoked");
+
+    // W#23.2 — Equipment Asset Photo
+    /// <summary>An <c>EventType.Asset</c> field-event envelope was accepted and <c>Equipment.PrimaryPhotoBlobRef</c> updated. Per W#23.2 P2.</summary>
+    public static readonly AuditEventType FieldAssetPhotoAccepted = new("FieldAssetPhotoAccepted");
+
+    /// <summary>An <c>EventType.Asset</c> field-event envelope was rejected (missing equipmentId, missing blobRef, equipment not found, or payload schema failure). Per W#23.2 P2.</summary>
+    public static readonly AuditEventType FieldAssetPhotoRejected = new("FieldAssetPhotoRejected");
+
+    // ===== ADR 0075 — extension-field feature-gate hook =====
+
+    /// <summary>Spec has a <c>FeatureKey</c>; gate evaluated ON; field appears in the materialized list. Per ADR 0075.</summary>
+    public static readonly AuditEventType ExtensionFieldGated = new("ExtensionFieldGated");
+
+    /// <summary>Spec is gated OFF; policy is <c>Hide</c>; field excluded from materialized list. Per ADR 0075.</summary>
+    public static readonly AuditEventType ExtensionFieldFiltered = new("ExtensionFieldFiltered");
+
+    /// <summary>Spec is gated OFF; policy is <c>Sequester</c>; field excluded AND <c>ISequestrationStore.SequesterAsync</c> called. Per ADR 0075.</summary>
+    public static readonly AuditEventType ExtensionFieldSequestered = new("ExtensionFieldSequestered");
+
+    /// <summary>Spec is gated OFF; policy is <c>Redact</c>; field excluded AND underlying data tombstoned. Per ADR 0075.</summary>
+    public static readonly AuditEventType ExtensionFieldRedacted = new("ExtensionFieldRedacted");
+
+    /// <summary><c>IFeatureEvaluator.IsEnabledAsync</c> threw; gate treated as OFF (fail-closed); exception captured in payload. Per ADR 0075.</summary>
+    public static readonly AuditEventType ExtensionFieldGateEvaluationFailed = new("ExtensionFieldGateEvaluationFailed");
+
+    // ===== ADR 0078 — OOD watch rotation primitive =====
+
+    /// <summary>A new OOD watch entered <c>Active</c> via <c>IOodWatchService.StartWatchAsync</c>. Per ADR 0078 §1.</summary>
+    public static readonly AuditEventType OodWatchStarted = new("OodWatchStarted");
+
+    /// <summary>An Active OOD watch transitioned to <c>Relieved</c> via <c>IOodWatchService.HandoverWatchAsync</c>. Per ADR 0078 §1.</summary>
+    public static readonly AuditEventType OodWatchRelieved = new("OodWatchRelieved");
+
+    /// <summary>An Active OOD watch transitioned to <c>Expired</c> via the expiry sweep (<c>StartedAt + MaxWatchDuration</c> elapsed). Per ADR 0078 §1.</summary>
+    public static readonly AuditEventType OodWatchExpired = new("OodWatchExpired");
+
+    // ===== ADR 0077 §2 — W#46 Shared Design System =====
+
+    /// <summary>
+    /// A permission request was denied by <c>IPermissionResolver.ResolveAsync</c>.
+    /// Per ADR 0077 §2.4 — every <c>Denied</c> decision audits; <c>Granted</c>
+    /// decisions audit only when the action is in <c>AuditLoudActions</c>.
+    /// </summary>
+    public static readonly AuditEventType PermissionDenied = new("PermissionDenied");
+
+    /// <summary>
+    /// The per-<c>(ActorId, ShipLocation)</c> denial-rate-limit was exceeded
+    /// within the 1-minute sliding window (default N=10). Per ADR 0077 §2.4
+    /// rate-limiting spec — emitted exactly once per window-exceedance; the
+    /// resolver returns <c>Denied(SecurityPolicyBlocked, ...)</c> for
+    /// subsequent calls within the window without invoking resolution steps
+    /// 0–7.
+    /// </summary>
+    public static readonly AuditEventType PermissionDenialRateExceeded = new("PermissionDenialRateExceeded");
+
+    // ===== ADR 0083 §6 — W#55 Ship's Office =====
+
+    /// <summary>
+    /// A Ship's Office document was opened in browse view. Per ADR 0083 §6 — fires on
+    /// FIRST view per document-per-session; implementations track per-session view
+    /// state (the audit is one-event-per-open, NOT one-per-render).
+    /// </summary>
+    public static readonly AuditEventType ShipsOfficeDocumentViewed = new("ShipsOfficeDocumentViewed");
+
+    /// <summary>
+    /// A Ship's Office search returned ≥1 result. Per ADR 0083 §6 — zero-result
+    /// background polls SHOULD suppress the emission to prevent audit-noise.
+    /// </summary>
+    public static readonly AuditEventType ShipsOfficeDocumentSearched = new("ShipsOfficeDocumentSearched");
+
+    /// <summary>A Ship's Office document diff was rendered. Per ADR 0083 §6.</summary>
+    public static readonly AuditEventType ShipsOfficeDocumentDiffViewed = new("ShipsOfficeDocumentDiffViewed");
+
+    /// <summary>
+    /// A Ship's Office document was published via <c>IShipsOfficeCommandService.PublishAsync</c>.
+    /// Per ADR 0083 §6 + §5 audit-emission ordering.
+    /// </summary>
+    public static readonly AuditEventType ShipsOfficeDocumentPublished = new("ShipsOfficeDocumentPublished");
+
+    /// <summary>
+    /// A Ship's Office document was archived via <c>IShipsOfficeCommandService.ArchiveAsync</c>.
+    /// Per ADR 0083 §6.
+    /// </summary>
+    public static readonly AuditEventType ShipsOfficeDocumentArchived = new("ShipsOfficeDocumentArchived");
+
+    /// <summary>
+    /// A <c>PublishAsync</c> attempt was rejected at the permission gate. Per ADR
+    /// 0083 §6 + §5 — distinct from the generic <see cref="PermissionDenied"/>
+    /// event so the Ship's Office surface can render its own audit timeline.
+    /// </summary>
+    public static readonly AuditEventType ShipsOfficePublishRejected = new("ShipsOfficePublishRejected");
+
+    // ===== ADR 0079 §5 — W#50 Engine Room Observability =====
+
+    /// <summary>A quarantine request was filed before the quarantine was applied. Per ADR 0079 §5 audit-emission ordering.</summary>
+    public static readonly AuditEventType DocumentQuarantineRequested = new("DocumentQuarantineRequested");
+
+    /// <summary>A document was successfully quarantined. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType DocumentQuarantined = new("DocumentQuarantined");
+
+    /// <summary>A release-from-quarantine request was filed before the release was applied. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType DocumentQuarantineReleaseRequested = new("DocumentQuarantineReleaseRequested");
+
+    /// <summary>A document was successfully released from quarantine. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType DocumentQuarantineReleased = new("DocumentQuarantineReleased");
+
+    /// <summary>A manual CRDT compaction was initiated. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType ManualCompactionInitiated = new("ManualCompactionInitiated");
+
+    /// <summary>A manual CRDT compaction completed successfully. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType ManualCompactionCompleted = new("ManualCompactionCompleted");
+
+    /// <summary>An Engine Room subsystem transitioned to <c>Warning</c> or <c>Critical</c>. Per ADR 0079 §5.</summary>
+    public static readonly AuditEventType EngineRoomHealthDegraded = new("EngineRoomHealthDegraded");
+
+    /// <summary>
+    /// A Damage Control operation (quarantine / release / compact) was denied at the
+    /// permission gate. Per ADR 0079 §Trust — distinct from the generic <see cref="PermissionDenied"/>
+    /// event so the Engine Room dashboard renders its own §Trust-elevated denial timeline.
+    /// Emitted IN ADDITION TO the generic <see cref="PermissionDenied"/> event (not a
+    /// replacement) per W#50 P1 council Minor m2; the dual emission lets the Engine Room
+    /// dashboard timeline render alongside the standard audit feed.
+    /// </summary>
+    public static readonly AuditEventType DamageControlAuthorizationDenied = new("DamageControlAuthorizationDenied");
+
+    // ===== ADR 0082 §6 — W#54 Sick Bay =====
+    // Wire format is PascalCase per cohort precedent (W#46 / W#49 / W#50 /
+    // W#55 all use PascalCase wire values); the W#54 hand-off cited
+    // kebab-case-with-dots, but cohort consistency wins for replay /
+    // audit-log search ergonomics.
+
+    /// <summary>The Sick Bay Pharmacy tab was opened (one event per open per session, NOT per render). Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayPharmacyViewed = new("SickBayPharmacyViewed");
+
+    /// <summary>A key rotation was triggered via <c>ISickBayCommandService.TriggerKeyRotationAsync</c>. Per ADR 0082 §6 audit-emission ordering.</summary>
+    public static readonly AuditEventType SickBayKeyRotationTriggered = new("SickBayKeyRotationTriggered");
+
+    /// <summary>The Sick Bay Lab tab was opened. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayLabDiagnosticViewed = new("SickBayLabDiagnosticViewed");
+
+    /// <summary>The Sick Bay Atmosphere tab was opened. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayAtmosphereViewed = new("SickBayAtmosphereViewed");
+
+    /// <summary>A medevac request was filed via <c>IMedevacService.RequestAsync</c>. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayMedevacInitiated = new("SickBayMedevacInitiated");
+
+    /// <summary>A medevac was authorized via <c>IMedevacService.AuthorizeAsync</c> (post-four-eyes-check). Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayMedevacAuthorized = new("SickBayMedevacAuthorized");
+
+    /// <summary>A medevac was cancelled via <c>IMedevacService.CancelAsync</c>. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayMedevacCancelled = new("SickBayMedevacCancelled");
+
+    /// <summary>A medevac was marked complete via <c>IMedevacService.CompleteAsync</c>. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayMedevacCompleted = new("SickBayMedevacCompleted");
+
+    /// <summary>
+    /// A medevac authorize request was rejected because the authorizing principal
+    /// equaled the requesting principal. Per ADR 0082 §Trust four-eyes invariant —
+    /// implementations emit this event AND throw <see cref="System.InvalidOperationException"/>;
+    /// the dual emission lets the Sick Bay timeline surface the rejection alongside
+    /// the throw.
+    /// </summary>
+    public static readonly AuditEventType SickBayMedevacSelfApprovalRejected = new("SickBayMedevacSelfApprovalRejected");
+
+    /// <summary>A recovery contact was added / updated / removed via the Sick Bay surface. Per ADR 0082 §6.</summary>
+    public static readonly AuditEventType SickBayRecoveryContactManaged = new("SickBayRecoveryContactManaged");
+
+    // ===== ADR 0080 §5 — W#51 Quarterdeck Entry-Point =====
+
+    /// <summary>Pre-op intent emitted at the Quarterdeck when an operator initiates a watch transfer from the watch banner. Pairs with W#49's <see cref="OodWatchRelieved"/> (post-op success, emitted internally by <c>IOodWatchService.HandoverWatchAsync</c>); absence of <see cref="OodWatchRelieved"/> after <c>WatchHandoverRequested</c> in the audit trail indicates the handover was denied or the optimistic-concurrency check failed. Per ADR 0080 §5 + ADR 0078 §3.</summary>
+    public static readonly AuditEventType WatchHandoverRequested = new("WatchHandoverRequested");
+
+    /// <summary>Pre-op intent for a Quarterdeck alert acknowledgement: emitted BEFORE <c>IQuarterdeckCommandService.AcknowledgeAlertAsync</c> delegates to the underlying alert source, including for denied requests (intent is auditable even when authority refuses). Pairs with <see cref="AlertAcknowledged"/> (post-op success) or absence (post-op failure / denial). Per ADR 0080 §5 two-phase audit.</summary>
+    public static readonly AuditEventType AlertAcknowledgementRequested = new("AlertAcknowledgementRequested");
+
+    /// <summary>Post-op success for a Quarterdeck alert acknowledgement: emitted ONLY after the underlying alert source confirms acknowledgement. Absence of this event after <see cref="AlertAcknowledgementRequested"/> in the audit trail IS the failure signal — there is no separate <c>AlertAcknowledgementFailed</c> constant. Per ADR 0080 §5 two-phase audit.</summary>
+    public static readonly AuditEventType AlertAcknowledged = new("AlertAcknowledged");
+
+    // ===== ADR 0081 §8 — W#52 Tactical Anomaly Detection =====
+
+    /// <summary>An <c>ITacticalRule</c> matched a signal and emitted an alert. First post-route audit event per ADR 0081 §2 order-of-operations.</summary>
+    public static readonly AuditEventType AnomalyDetected = new("AnomalyDetected");
+
+    /// <summary>An alert was routed to its destination (Lookout or Sonar) per <see cref="AnomalyDetected"/>. Emitted after <see cref="AnomalyDetected"/> + before the destination-write call. Per ADR 0081 §2.</summary>
+    public static readonly AuditEventType AlertRouted = new("AlertRouted");
+
+    /// <summary>An active Tactical alert reached <c>AlertTtl</c> without acknowledgement and transitioned to Expired. Per ADR 0081 §1.</summary>
+    public static readonly AuditEventType TacticalAlertExpired = new("TacticalAlertExpired");
+
+    /// <summary>A Lookout alert was evicted (LRU-by-DetectedAt) past <c>MaxActiveAlerts</c>. Distinct from <see cref="TacticalAlertExpired"/> — eviction is capacity-driven, expiry is time-driven. Per ADR 0081 §2.</summary>
+    public static readonly AuditEventType LookoutAlertEvicted = new("LookoutAlertEvicted");
+
+    /// <summary>Pre-op intent for a Tactical alert acknowledgement: emitted as the FIRST observable side-effect of <c>ITacticalCommandService.AcknowledgeAlertAsync</c>, before tenant-binding / alertId resolution / permission resolution. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType TacticalAlertAcknowledgementRequested = new("TacticalAlertAcknowledgementRequested");
+
+    /// <summary>Post-op success for a Tactical alert acknowledgement: emitted ONLY after the alert transitions to <c>AlertStatus.Acknowledged</c>. Absence after <see cref="TacticalAlertAcknowledgementRequested"/> IS the failure signal. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType TacticalAlertAcknowledged = new("TacticalAlertAcknowledged");
+
+    /// <summary>Pre-op intent for opening a Tactical incident: emitted as the FIRST observable side-effect of <c>ITacticalCommandService.OpenIncidentAsync</c>. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType IncidentOpenRequested = new("IncidentOpenRequested");
+
+    /// <summary>Post-op success for opening a Tactical incident. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType IncidentOpened = new("IncidentOpened");
+
+    /// <summary>Pre-op intent for closing a Tactical incident: emitted as the FIRST observable side-effect of <c>ITacticalCommandService.CloseIncidentAsync</c>. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType IncidentCloseRequested = new("IncidentCloseRequested");
+
+    /// <summary>Post-op success for closing a Tactical incident. Per ADR 0081 §8 two-phase audit.</summary>
+    public static readonly AuditEventType IncidentClosed = new("IncidentClosed");
+
+    /// <summary>Post-op success for an emergency Standing Order issued by <c>IThreatTriggerService.TryIssueAsync</c>. The issuing principal is always system-resolved per ADR 0081 §4.1.</summary>
+    public static readonly AuditEventType EmergencyStandingOrderIssued = new("EmergencyStandingOrderIssued");
+
+    /// <summary>Failure record for an emergency Standing Order issuance attempt: rate-limit breach, severity-threshold mismatch, or underlying issuer denial. Carries a <c>denialReason</c> in the payload. Per ADR 0081 §4.1.</summary>
+    public static readonly AuditEventType EmergencyStandingOrderIssuanceFailed = new("EmergencyStandingOrderIssuanceFailed");
+
+    /// <summary>Catch-all denial event emitted by <c>IAlertRouter</c>, <c>ITacticalRuleEngine</c>, and <c>ITacticalCommandService</c> on authority refusal, rate-limit breach, allowlist mismatch, or rule-evaluation-failure-rate breach. Carries a <c>denialReason</c> in the payload. Per ADR 0081 §2 + §8.</summary>
+    public static readonly AuditEventType TacticalAuthorizationDenied = new("TacticalAuthorizationDenied");
+
+    // ===== ADR 0067 §8 — W#48 Atlas integration-config UI surface =====
+
+    /// <summary>The active provider for an <c>IntegrationCategory</c> changed (e.g., payment gateway switched from <c>"stripe"</c> to <c>"square"</c>). Emitted by <c>IIntegrationAtlasProvider.IssueProviderChangeAsync</c> after the activating Standing Order commits. Audit payload MUST NOT carry credential values per ADR 0067 §8 redaction rule.</summary>
+    public static readonly AuditEventType IntegrationProviderChanged = new("IntegrationProviderChanged");
+
+    /// <summary>A credential field on the active provider was updated. Emitted by <c>IIntegrationAtlasProvider.IssueSensitiveCredentialAsync</c> + <c>IssueNonSensitiveCredentialAsync</c> after the storing Standing Order commits. Audit payload MUST NOT carry the credential value (sensitive OR non-sensitive) — only the category + provider + credentialKey + tenant.</summary>
+    public static readonly AuditEventType IntegrationCredentialUpdated = new("IntegrationCredentialUpdated");
+
+    /// <summary>An <c>IIntegrationProviderValidator</c> returned <c>ProviderValidationStatus.Valid</c> for a provider's current credential set. Emitted by <c>IIntegrationAtlasProvider.ValidateProviderAsync</c> on success. Per ADR 0067 §5.3.1.</summary>
+    public static readonly AuditEventType IntegrationValidationSucceeded = new("IntegrationValidationSucceeded");
+
+    /// <summary>An <c>IIntegrationProviderValidator</c> returned a non-<c>Valid</c> status (Invalid / Unreachable / Unknown) for a provider's current credential set. Emitted by <c>IIntegrationAtlasProvider.ValidateProviderAsync</c> on validator failure or capability-acquisition failure. Carries a discriminating <c>errorCode</c> + <c>errorMessage</c> in the payload (e.g., <c>"no-decrypt-capability"</c>, <c>"no-validator-registered"</c>, validator-supplied codes). Per ADR 0067 §5.3.1.</summary>
+    public static readonly AuditEventType IntegrationValidationFailed = new("IntegrationValidationFailed");
+
+    // ===== W#60 Phase 5 — ERPNext reporting surface =====
+
+    /// <summary>A user viewed the rent roll report (all properties × units × payment status). Emitted by the Bridge Reports endpoint on GET /api/v1/reports/rent-roll.</summary>
+    public static readonly AuditEventType RentRollViewed = new("RentRollViewed");
+
+    /// <summary>A user viewed the Profit &amp; Loss report for a property or company. Emitted by the Bridge Reports endpoint on GET /api/v1/reports/profit-loss.</summary>
+    public static readonly AuditEventType PLReportViewed = new("PLReportViewed");
+
+    /// <summary>A user exported the Profit &amp; Loss report as CSV or JSON. Emitted by the Bridge Reports endpoint on GET /api/v1/reports/profit-loss/export.</summary>
+    public static readonly AuditEventType PLReportExported = new("PLReportExported");
+
+    // ===== ADR 0068 §6 — Tenant Security Policy (W#37 Phase 1 PR 3) =====
+    // See §GC.1 in ADR 0068 (docs/adrs/0068-tenant-security-policy.md).
+    // Each enforcement event below feeds the cross-regulatory audit
+    // trail (HIPAA, PCI-DSS, SOC 2, GDPR, EU AI Act).
+
+    /// <summary>Tenant security policy bootstrapped at provisioning time per ADR 0068 §1.1 — emitted ONCE per tenant when the default policy is materialized.</summary>
+    public static readonly AuditEventType SecurityPolicyBootstrapped = new("Sunfish.SecurityPolicy.Bootstrapped");
+
+    /// <summary>A Standing Order proposing a security-policy change was filed per ADR 0068 §3 — emitted before approvals are gathered.</summary>
+    public static readonly AuditEventType SecurityPolicyProposed = new("Sunfish.SecurityPolicy.Proposed");
+
+    /// <summary>An approver attested to a proposed security-policy Standing Order per ADR 0068 §3.1 — one event per approval step.</summary>
+    public static readonly AuditEventType SecurityPolicyApprovalReceived = new("Sunfish.SecurityPolicy.ApprovalReceived");
+
+    /// <summary>A security-policy Standing Order met the approval floor and was applied — the policy projection now reflects the proposed values per ADR 0068 §3.</summary>
+    public static readonly AuditEventType SecurityPolicyApplied = new("Sunfish.SecurityPolicy.Applied");
+
+    /// <summary>A security-policy Standing Order was rejected (validator returned Error findings, or approval floor was not met before timeout) per ADR 0068 §3.</summary>
+    public static readonly AuditEventType SecurityPolicyRejected = new("Sunfish.SecurityPolicy.Rejected");
+
+    /// <summary>A previously-applied security policy was rescinded — the prior policy is reinstated. Subject to the same approval floor as application per ADR 0068 §3.</summary>
+    public static readonly AuditEventType SecurityPolicyRescinded = new("Sunfish.SecurityPolicy.Rescinded");
+
+    /// <summary>An actor's MFA enrollment did not satisfy the tenant's policy at action time per ADR 0068 §4. Emitted by ISecurityPolicyEnforcer.CheckMfaComplianceAsync on a violation.</summary>
+    public static readonly AuditEventType SecurityPolicyMfaViolation = new("Sunfish.SecurityPolicy.MfaViolation");
+
+    /// <summary>Device-attestation evidence did not satisfy the tenant's policy at action time per ADR 0068 §4. Carries the claimed AttestationTier + verifier outcome in the payload.</summary>
+    public static readonly AuditEventType SecurityPolicyAttestationViolation = new("Sunfish.SecurityPolicy.AttestationViolation");
+
+    /// <summary>An actor's key-rotation cadence is past the policy's grace period per ADR 0068 §4. Periodic detection event, NOT a per-action emission.</summary>
+    public static readonly AuditEventType SecurityPolicyKeyRotationOverdue = new("Sunfish.SecurityPolicy.KeyRotationOverdue");
+
+    /// <summary>The tenant's recovery-contact set fell below MinimumContactCount per ADR 0068 §4. Emitted when a recovery contact is removed or expires.</summary>
+    public static readonly AuditEventType SecurityPolicyRecoveryContactViolation = new("Sunfish.SecurityPolicy.RecoveryContactViolation");
+
+    /// <summary>An emergency key rotation was triggered (Captain + 1 officer approval; rate-limited 1/24h per actor) per ADR 0068 §1.4.2. Distinguishes from cadence rotation.</summary>
+    public static readonly AuditEventType SecurityPolicyKeyEmergencyRotation = new("Sunfish.SecurityPolicy.KeyEmergencyRotation");
+
+    // ===== PM-pilot project-governance write surface =====
+
+    /// <summary>Catch-all denial event emitted by the Bridge project-governance write endpoints (<c>ProjectsWriteEndpoints</c>) when an authorization guard refuses a time-entry rate-set, time-approval, or time-rejection action. Carries a <c>denial_reason</c> in the payload (one of <c>"rate-authority-denied"</c>, <c>"approval-authority-denied"</c>, <c>"self-approval-denied"</c>, <c>"self-rejection-denied"</c>) alongside the project, actor-party, and time-entry identifiers. Mirrors the catch-all-plus-<c>denialReason</c> shape of <see cref="TacticalAuthorizationDenied"/>.</summary>
+    public static readonly AuditEventType ProjectGovernanceAuthorizationDenied = new("ProjectGovernanceAuthorizationDenied");
+
+    // ===== Track F — documents intake (manual review path) =====
+
+    /// <summary>
+    /// A file was successfully uploaded through <c>POST /api/v1/documents</c>.
+    /// Emitted after the three-gate <c>IMimeTypeAndSizePolicy</c> passes and the
+    /// attachment row is persisted. Payload: attachment_id, mime_type, size_bytes,
+    /// original_filename, sensitivity, tenant_id, actor, correlation_id.
+    /// </summary>
+    public static readonly AuditEventType DocumentUploaded = new("DocumentUploaded");
+
+    /// <summary>
+    /// An attachment was linked to a parent entity via
+    /// <c>POST /api/v1/documents/{id}/attach</c>. Emitted after
+    /// <c>IDocumentRefService.LinkAsync</c> succeeds. Payload:
+    /// attachment_id, cluster_code, parent_entity_type, parent_entity_id,
+    /// attachment_role, actor, correlation_id.
+    /// </summary>
+    public static readonly AuditEventType DocumentAttached = new("DocumentAttached");
+
+    // ===== SoD compensating controls (enrollment Phase C; project_sod_compensating_controls) =====
+    // The SoD-significant ENROLLMENT operations — the "second set of eyes" the platform provides for a
+    // lone (or too-few-people) operator. These are emitted into the SAME unified IAuditTrail the financial
+    // posts already use (JournalEntryPosted above), NOT a parallel log — the audit log is one queryable
+    // surface gated by `audit:read`. The enrollment roster (MemberRoster) is itself a genesis-rooted signed
+    // log; these events make its SoD-significant mutations land in the kernel audit trail so a reviewer can
+    // see membership + permission changes alongside financial activity. Payloads are in
+    // Payloads/EnrollmentCompensatingControlPayloads.cs.
+
+    /// <summary>
+    /// A member was admitted to the team roster (the enrollment admit-flow — proximity/QR or invite-code).
+    /// SoD-significant: a change to who is trusted. Payload:
+    /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.MemberAdmittedPayload"/>.
+    /// </summary>
+    public static readonly AuditEventType MemberAdmitted = new("MemberAdmitted");
+
+    /// <summary>
+    /// A member was revoked from the team roster's LIVE state (the admission stays in the immutable log per
+    /// genesis-vs-live). SoD-significant: a change to who is trusted. Payload:
+    /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.MemberRevokedPayload"/>.
+    /// </summary>
+    public static readonly AuditEventType MemberRevoked = new("MemberRevoked");
+
+    /// <summary>
+    /// Individual permissions were granted/changed on a member's roster edge (the fine-grained
+    /// <c>grant:permissions</c> primitive — the same grant core the delegation model uses). SoD-significant:
+    /// a change to who can do what. Payload:
+    /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.PermissionsGrantedPayload"/>.
+    /// </summary>
+    public static readonly AuditEventType PermissionsGranted = new("PermissionsGranted");
+
+    /// <summary>
+    /// The genesis/root-grant holdership was transferred to another member (the only way to satisfy the
+    /// no-bricking floor before self-removal — "can't paint yourself out of admin"). SoD-significant: the
+    /// most-privileged authority changed hands. Payload:
+    /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.OwnershipTransferredPayload"/>.
+    /// </summary>
+    public static readonly AuditEventType OwnershipTransferred = new("OwnershipTransferred");
+
+    /// <summary>
+    /// The audit trail was exported to an INDEPENDENT reviewer (the "Direct Bank Delivery" compensating
+    /// control — route records to an outside CPA/reviewer/SIEM, bypassing the sole operator). This is itself
+    /// a SoD-significant, audited act: the export of the audit-stream is recorded in the audit-stream. The
+    /// audit-stream is held TIGHTER than operational telemetry (CIC 2026-06-20) — gated by
+    /// <c>telemetry:export</c>. Payload:
+    /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.AuditExportedPayload"/>.
+    /// </summary>
+    public static readonly AuditEventType AuditExported = new("AuditExported");
+
+    // ===== ADR 0135 GDPR direction — crypto-shredding subject erasure =====
+    // The erasure operation is itself a compliance-significant, audited act:
+    // the destruction of a data subject's per-subject key is recorded in the
+    // append-only audit trail (which itself stays intact and verifiable —
+    // crypto-shred destroys the SUBJECT's data, never the audit hash-chain).
+    // Inherits ADR 0068 §1.3's legal-sign-off + manual-operator discipline.
+
+    /// <summary>
+    /// A data subject was crypto-shredded (ADR 0135 GDPR direction): the
+    /// per-subject key wrapping that subject's <c>EncryptedField</c> ciphertext was
+    /// destroyed, rendering the subject's data permanently undecryptable, and a
+    /// pseudonymized tombstone was written in place of identifying fields. The
+    /// audit hash-chain and ledger sequence are unaffected. Emitted by the manual,
+    /// legal-sign-off-gated erasure service. Payload carries the tenant, the
+    /// (still-pseudonymous) subject reference, the approving actors, and the
+    /// tombstone pseudonym — never the erased plaintext.
+    /// </summary>
+    public static readonly AuditEventType SubjectErased = new("SubjectErased");
+
+    // ===== ADR 0142 — legal-hold registry (fail-closed pre-shred gate) =====
+    // Placing and releasing a legal hold are both compliance-significant acts on
+    // the retention→shred path: a hold is a HARD, fail-closed pre-shred gate
+    // ("hold-wins ABOVE floor-wins", ADR 0137 §M-4) and its release re-exposes the
+    // held subject to crypto-shred, so each transition is mandatorily audited —
+    // mirroring the erasure service's mandatory SubjectErased emission. A shred
+    // attempt BLOCKED by an active hold is also recorded, so the discovery trail
+    // shows the hold did its job.
+
+    /// <summary>
+    /// A legal hold was PLACED against a data subject or a coarser record/class
+    /// scope (ADR 0142). A held subject can never be crypto-shredded until an
+    /// authorized ≥2-approver release. Payload carries the tenant, the held
+    /// reference, the matter the hold serves, the placing actor, and the timestamp
+    /// — placement is conservative and low-privilege (a single authorized actor)
+    /// because over-holding is the safe failure direction.
+    /// </summary>
+    public static readonly AuditEventType LegalHoldPlaced = new("LegalHoldPlaced");
+
+    /// <summary>
+    /// A legal hold was RELEASED (ADR 0142). Release is the dangerous, guarded
+    /// action — it re-exposes the held subject to crypto-shred — so it requires
+    /// ≥2 distinct approvers (ADR 0068 §3.1 floor) plus a reason. Payload carries
+    /// the tenant, the hold id, the approving actors, the reason, and the
+    /// timestamp. The hold record itself is never mutated or deleted (append-only,
+    /// mirroring the erasure registry's no-un-erase discipline); a release is a new
+    /// record that ends the hold.
+    /// </summary>
+    public static readonly AuditEventType LegalHoldReleased = new("LegalHoldReleased");
+
+    /// <summary>
+    /// A crypto-shred attempt was BLOCKED because the target data subject was
+    /// under an active legal hold (ADR 0142 §D6). Recorded so the discovery audit
+    /// trail shows the fail-closed pre-shred gate did its job — the attempt is
+    /// visible, and no key was destroyed. Payload carries the tenant and the
+    /// (still-pseudonymous) subject reference — never any erased plaintext.
+    /// </summary>
+    public static readonly AuditEventType SubjectShredBlockedByLegalHold =
+        new("SubjectShredBlockedByLegalHold");
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+}

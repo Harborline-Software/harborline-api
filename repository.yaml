@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "repository": "harborline-api",
+  "defaultBranch": "main",
+  "remote": {"status": "active", "requiresMaintainerApproval": true},
+  "phase": "consumer-enablement-envelope",
+  "sourceAuthority": "shipyard-retained-until-cutover",
+  "packageIdentityAuthority": "harborline-api-provisional-prerelease",
+  "packageDistributionAuthority": null,
+  "previewRegistry": "github-packages-nuget",
+  "stableDistributionAuthorized": false,
+  "mockPolicy": "development-and-test-only-fail-closed-in-production"
+}

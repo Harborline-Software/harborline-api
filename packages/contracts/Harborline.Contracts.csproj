@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Protocol</PackageId>
+    <AssemblyName>Harborline.Api.Protocol</AssemblyName>
+    <RootNamespace>Harborline.Api.Protocol</RootNamespace>
+    <Description>Generated C# projection of the language-neutral Harborline and Capability protocol.</Description>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="protocol/**/*.json" Pack="true" PackagePath="protocol/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

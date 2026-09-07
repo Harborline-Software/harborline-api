@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Blocks.AccessGrant</PackageId>
+    <AssemblyName>Harborline.Api.Blocks.AccessGrant</AssemblyName>
+    <RootNamespace>Harborline.Api.Blocks.AccessGrant</RootNamespace>
+    <Description>Access-Grant Module v1 (ADR 0117 Phase-2 amendment, A1/A3/A4/A5/A7). The (principal × tenant) access-grant record + its store + the grant-backed IShipRoleAssignmentSource that feeds the ADR 0077 IPermissionResolver, plus the CP-class issuance/revocation handlers on the ADR 0135 durable process engine. Composes existing primitives (0077 / 0102 / 0135; attenuation per 0077 §2.1 step 0(b)) — introduces no new substrate.</Description>
+    <PackageTags>harborline;blocks;access-grant;authorization;identity;membership;adr-0117</PackageTags>
+    <!-- NU1510 suppressed: direct PackageReference for
+         Microsoft.Extensions.DependencyInjection.Abstractions is required
+         (IServiceCollection, TryAdd*) but NuGet preview.4 pruning flags it as
+         unnecessary due to transitive availability via the foundation packages.
+         Per fleet-conventions §"NU1510 — keep the PackageRef, suppress the
+         warning"; reference template shipyard commit b4475df. -->
+    <NoWarn>CS1591;NU1510</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 0077 — ShipRole + the permission tuple + IShipRoleAssignmentSource seam. -->
+    <ProjectReference Include="..\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj" />
+    <!-- ActorId / TenantId / StandingOrderId value types. -->
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <!-- PBAC permission bundles and legacy ShipRole compatibility compositions. -->
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj" />
+    <!-- 0135 — the durable process engine core (handlers + step outcomes + effect). -->
+    <ProjectReference Include="..\blocks-workflow\Harborline.Blocks.Workflow.csproj" />
+    <ProjectReference Include="..\foundation-forms\Harborline.Foundation.Forms.csproj" />
+    <!-- L675 — PackProjectionAuthority: the carried decision a pack's role/binding projection writes
+         under, so the definition writer never re-decides. Already transitive via foundation-forms. -->
+    <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.AccessGrant.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+{
+  "compatible": true,
+  "agreedContractVersion": "1.0.0",
+  "acceptedCapabilities": ["image", "text"],
+  "reason": null
+}

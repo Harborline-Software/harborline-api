@@ -1,0 +1,8 @@
+{
+  "kind": "text",
+  "uri": "memory://artifact-001",
+  "mime": "text/plain",
+  "text": "ready",
+  "Kind": "case-variant extension",
+  "opaque": { "source": "fixture", "trusted": false }
+}

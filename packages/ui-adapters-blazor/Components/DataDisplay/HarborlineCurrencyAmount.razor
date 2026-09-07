@@ -1,0 +1,25 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+@using System.Globalization
+
+<span class="@CombineClasses("sf-currency-amount")"
+      style="@CombineStyles()"
+      dir="ltr"
+      @attributes="AdditionalAttributes">@FormattedAmount</span>
+
+@code {
+    [Parameter] public decimal Amount { get; set; }
+    [Parameter] public string Currency { get; set; } = "USD";
+    [Parameter] public string Culture { get; set; } = "en-US";
+
+    private string FormattedAmount
+    {
+        get
+        {
+            var culture = CultureInfo.GetCultureInfo(Culture);
+            var format = (NumberFormatInfo)culture.NumberFormat.Clone();
+            format.CurrencySymbol = Currency;
+            return Amount.ToString("C", format);
+        }
+    }
+}

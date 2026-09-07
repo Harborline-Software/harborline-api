@@ -1,0 +1,103 @@
+{
+  "_comment": "SPINE-1 conformance corpus — child-table grain: per-row compute, table aggregates (sum/avg/min/max/count/any/all), parent reach-out, cross-section reference, empty aggregate.",
+  "cases": [
+    {
+      "name": "table/aggregate-sum",
+      "definitionRules": [
+        { "id": "c.grandTotal", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "grandTotal", "action": "Compute",
+          "expression": { "var": "table.sum(items.amount)" } }
+      ],
+      "instance": { "items": [ { "amount": 10 }, { "amount": 20 }, { "amount": 30 } ] },
+      "expectedAst": { "c.grandTotal": { "agg": [ "sum", "items", "amount" ] } },
+      "expectedOutcomes": {
+        "c.grandTotal": { "ruleId": "c.grandTotal", "target": "field:grandTotal", "outputType": "Value",
+          "value": { "state": "Resolved", "value": 60 } }
+      }
+    },
+    {
+      "name": "table/aggregate-stats",
+      "definitionRules": [
+        { "id": "c.avg", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "avg", "action": "Compute", "expression": { "var": "table.avg(items.amount)" } },
+        { "id": "c.min", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "lo", "action": "Compute", "expression": { "var": "table.min(items.amount)" } },
+        { "id": "c.max", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "hi", "action": "Compute", "expression": { "var": "table.max(items.amount)" } },
+        { "id": "c.count", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "n", "action": "Compute", "expression": { "var": "table.count(items.amount)" } },
+        { "id": "c.any", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "anyOk", "action": "Compute", "expression": { "var": "table.any(items.ok)" } },
+        { "id": "c.all", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "allOk", "action": "Compute", "expression": { "var": "table.all(items.ok)" } }
+      ],
+      "instance": { "items": [ { "amount": 10, "ok": true }, { "amount": 20, "ok": false }, { "amount": 30, "ok": true } ] },
+      "expectedOutcomes": {
+        "c.avg": { "ruleId": "c.avg", "target": "field:avg", "outputType": "Value", "value": { "state": "Resolved", "value": 20 } },
+        "c.min": { "ruleId": "c.min", "target": "field:lo", "outputType": "Value", "value": { "state": "Resolved", "value": 10 } },
+        "c.max": { "ruleId": "c.max", "target": "field:hi", "outputType": "Value", "value": { "state": "Resolved", "value": 30 } },
+        "c.count": { "ruleId": "c.count", "target": "field:n", "outputType": "Value", "value": { "state": "Resolved", "value": 3 } },
+        "c.any": { "ruleId": "c.any", "target": "field:anyOk", "outputType": "Value", "value": { "state": "Resolved", "value": true } },
+        "c.all": { "ruleId": "c.all", "target": "field:allOk", "outputType": "Value", "value": { "state": "Resolved", "value": false } }
+      }
+    },
+    {
+      "name": "table/per-row-compute",
+      "definitionRules": [
+        { "id": "rc.line", "tier": "JsonLogic", "scope": "Row", "scopeTarget": "items/lineTotal", "action": "Compute",
+          "expression": { "*": [ { "var": "row.qty" }, { "var": "row.price" } ] } }
+      ],
+      "instance": { "items": [ { "_id": "r1", "qty": 2, "price": 5 }, { "_id": "r2", "qty": 3, "price": 10 } ] },
+      "expectedAst": { "rc.line": { "*": [ { "var": "row.qty" }, { "var": "row.price" } ] } },
+      "expectedOutcomes": {
+        "rc.line#r1": { "ruleId": "rc.line", "target": "row:items/r1/lineTotal", "outputType": "Value", "value": { "state": "Resolved", "value": 10 } },
+        "rc.line#r2": { "ruleId": "rc.line", "target": "row:items/r2/lineTotal", "outputType": "Value", "value": { "state": "Resolved", "value": 30 } }
+      }
+    },
+    {
+      "name": "table/per-row-parent-reach-out",
+      "definitionRules": [
+        { "id": "rc.flagged", "tier": "JsonLogic", "scope": "Row", "scopeTarget": "items/flagged", "action": "Compute",
+          "expression": { ">": [ { "var": "row.amount" }, { "var": "parent.threshold" } ] } }
+      ],
+      "instance": { "threshold": 15, "items": [ { "_id": "r1", "amount": 10 }, { "_id": "r2", "amount": 20 } ] },
+      "expectedAst": { "rc.flagged": { ">": [ { "var": "row.amount" }, { "var": "field.threshold" } ] } },
+      "expectedOutcomes": {
+        "rc.flagged#r1": { "ruleId": "rc.flagged", "target": "row:items/r1/flagged", "outputType": "Value", "value": { "state": "Resolved", "value": false } },
+        "rc.flagged#r2": { "ruleId": "rc.flagged", "target": "row:items/r2/flagged", "outputType": "Value", "value": { "state": "Resolved", "value": true } }
+      }
+    },
+    {
+      "name": "table/cross-section-reference",
+      "definitionRules": [
+        { "id": "c.summary", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "summary", "action": "Compute",
+          "expression": { "cat": [ "x=", { "var": "section.main.label" } ] } }
+      ],
+      "instance": { "label": "hi" },
+      "expectedAst": { "c.summary": { "cat": [ "x=", { "var": "field.label" } ] } },
+      "expectedOutcomes": {
+        "c.summary": { "ruleId": "c.summary", "target": "field:summary", "outputType": "Value", "value": { "state": "Resolved", "value": "x=hi" } }
+      }
+    },
+    {
+      "name": "table/empty-aggregate",
+      "definitionRules": [
+        { "id": "c.emptySum", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "emptySum", "action": "Compute", "expression": { "var": "table.sum(empties.amount)" } },
+        { "id": "c.emptyMin", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "emptyMin", "action": "Compute", "expression": { "var": "table.min(empties.amount)" } }
+      ],
+      "instance": { "placeholder": 1 },
+      "expectedOutcomes": {
+        "c.emptySum": { "ruleId": "c.emptySum", "target": "field:emptySum", "outputType": "Value", "value": { "state": "Resolved", "value": 0 } },
+        "c.emptyMin": { "ruleId": "c.emptyMin", "target": "field:emptyMin", "outputType": "Value", "value": { "state": "Resolved", "value": null } }
+      }
+    },
+    {
+      "_comment": "F1 (deep review of #1683): a MONEY column (decimal-STRING cells) folds EXACT-decimal, never IEEE-754. 100.10 + 200.20 = 300.30 whose canonical form drops the trailing zero -> '300.3'; the equal-value credit sum ('0' + '300.30') canonicalizes identically, so the Σdebits == Σcredits balance holds cross-tier. A double fold would diverge (300.29999… != 300.3). Number columns keep the numeric fold (see table/aggregate-sum above), so the result TYPE mirrors the cell type on BOTH tiers.",
+      "name": "table/aggregate-sum-money-exact",
+      "definitionRules": [
+        { "id": "c.debits", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "debits", "action": "Compute", "expression": { "var": "table.sum(lines.debit)" } },
+        { "id": "c.credits", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "credits", "action": "Compute", "expression": { "var": "table.sum(lines.credit)" } },
+        { "id": "c.balanced", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "balanced", "action": "Compute", "expression": { "==": [ { "var": "table.sum(lines.debit)" }, { "var": "table.sum(lines.credit)" } ] } }
+      ],
+      "instance": { "lines": [ { "debit": "100.10", "credit": "0" }, { "debit": "200.20", "credit": "0" }, { "debit": "0", "credit": "300.30" } ] },
+      "expectedOutcomes": {
+        "c.debits": { "ruleId": "c.debits", "target": "field:debits", "outputType": "Value", "value": { "state": "Resolved", "value": "300.3" } },
+        "c.credits": { "ruleId": "c.credits", "target": "field:credits", "outputType": "Value", "value": { "state": "Resolved", "value": "300.3" } },
+        "c.balanced": { "ruleId": "c.balanced", "target": "field:balanced", "outputType": "Value", "value": { "state": "Resolved", "value": true } }
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Tooling.LocalizationXliff</PackageId>
+    <AssemblyName>Harborline.Api.Tooling.LocalizationXliff</AssemblyName>
+    <RootNamespace>Harborline.Api.Tooling.LocalizationXliff</RootNamespace>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- Phase-1 migration accommodation; match Harborline.Api.Foundation pattern. -->
+    <NoWarn>CS1591</NoWarn>
+    <Description>MSBuild tasks for round-tripping .resx &lt;-&gt; XLIFF 2.0 per the Harborline Global-First UX spec Section 3A.</Description>
+    <!-- Package the .targets + DLL into a NuGet build directory. -->
+    <BuildOutputTargetFolder>tasks</BuildOutputTargetFolder>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.Build.* are provided by the host (MSBuild / VS / dotnet CLI); reference-only.
+         VersionOverride pins both at 18.6.3 (CPM-native) to prevent SDK-injected 18.4.0
+         from tripping NU1605 against the transitive Microsoft.Build.Framework >= 18.6.3
+         floor declared by Microsoft.Build.Utilities.Core 18.6.3. Per admiral-directive
+         2026-05-21T23-55Z. -->
+    <PackageReference Include="Microsoft.Build.Framework" PrivateAssets="all" ExcludeAssets="runtime" VersionOverride="18.6.3" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" PrivateAssets="all" ExcludeAssets="runtime" VersionOverride="18.6.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tests live under tests/; never compile them into the tooling DLL. -->
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Include the .targets file in the NuGet's build/ directory. -->
+    <None Include="build/Harborline.Tooling.LocalizationXliff.targets" Pack="true" PackagePath="build/" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,20 @@
+{
+  "name": "sqlite-vec",
+  "version": "0.1.9",
+  "source": "https://github.com/asg017/sqlite-vec/releases/tag/v0.1.9",
+  "license": "MIT",
+  "assets": {
+    "win-x64": {
+      "archive": "sqlite-vec-0.1.9-loadable-windows-x86_64.tar.gz",
+      "archiveSha256": "51581189d52066b4dfc6631f6d7a3eab7dedc2260656ab09ca97ab3fb8165983",
+      "library": "vec0.dll",
+      "librarySha256": "fcf98662a7ad9dce394b96a88f91032047823831b951c76636787c312a6476e6"
+    },
+    "osx-arm64": {
+      "archive": "sqlite-vec-0.1.9-loadable-macos-aarch64.tar.gz",
+      "archiveSha256": "8282126333399ddfe98bbbcc7a1936e7252625aac49df056a98be602e46bfd29",
+      "library": "vec0.dylib",
+      "librarySha256": "193e480c50b59a55977d166f4aaf0e1bc8832d6963516e5950f39e4d2ce0b793"
+    }
+  }
+}

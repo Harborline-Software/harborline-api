@@ -1,0 +1,4 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Inputs
+@inherits HarborlineComponentBase
+<input type="number" class="@CombineClasses("sf-number-field")" style="@CombineStyles()" value="@Value" aria-label="@(AriaLabel ?? Label)" @onchange="Changed" @attributes="AdditionalAttributes" />
+@code { [Parameter] public decimal? Value { get; set; } [Parameter] public EventCallback<decimal?> ValueChanged { get; set; } [Parameter] public string Label { get; set; } = "Number"; [Parameter] public string? AriaLabel { get; set; } private async Task Changed(ChangeEventArgs e) { Value = decimal.TryParse(e.Value?.ToString(), out var v) ? v : null; await ValueChanged.InvokeAsync(Value); } }

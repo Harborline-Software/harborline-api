@@ -1,0 +1,143 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+<div class="@CombineClasses("sf-global-search")" style="@CombineStyles()" @attributes="AdditionalAttributes">
+    <input id="@_inputId"
+           type="search"
+           role="combobox"
+           aria-expanded="@ShowList.ToString().ToLowerInvariant()"
+           aria-autocomplete="list"
+           aria-haspopup="listbox"
+           aria-controls="@(ShowList ? _listId : null)"
+           aria-activedescendant="@ActiveDescendant"
+           aria-label="@(AriaLabel ?? "Search")"
+           autocomplete="off"
+           placeholder="@Placeholder"
+           style="min-width:24px;min-height:24px;"
+           value="@_query"
+           @oninput="HandleInput"
+           @onfocus="() => _focused = true"
+           @onkeydown="HandleKeyDown" />
+    @if (ShowList)
+    {
+        <ul id="@_listId" role="listbox" aria-label="@(ListAriaLabel ?? "Search results")">
+            @if (IsRecentView)
+            {
+                <li role="presentation" class="sf-global-search__group">@RecentHeading</li>
+            }
+            @foreach (var group in GroupedResults)
+            {
+                @if (!string.IsNullOrEmpty(group.Key))
+                {
+                    <li role="presentation" class="sf-global-search__group">@group.Key</li>
+                }
+                @foreach (var item in group)
+                {
+                    var index = VisibleItems.IndexOf(item);
+                    <li role="presentation" @key="item.Id">
+                        <button id="@OptionId(index)"
+                                type="button"
+                                role="option"
+                                aria-selected="@((index == _activeIndex).ToString().ToLowerInvariant())"
+                                class="@(index == _activeIndex ? "sf-global-search__item sf-global-search__item--active" : "sf-global-search__item")"
+                                style="min-width:24px;min-height:24px;"
+                                @onclick="() => SelectAsync(item)">
+                            <span class="sf-global-search__label">@item.Label</span>
+                            @if (!string.IsNullOrEmpty(item.SubLabel))
+                            {
+                                <span class="sf-global-search__sublabel">@item.SubLabel</span>
+                            }
+                        </button>
+                    </li>
+                }
+            }
+        </ul>
+    }
+    else if (_focused && !string.IsNullOrEmpty(_query))
+    {
+        <p role="status">@EmptyText</p>
+    }
+</div>
+@code {
+    private readonly string _inputId = $"sf-global-search-input-{Guid.NewGuid():N}";
+    private readonly string _listId = $"sf-global-search-list-{Guid.NewGuid():N}";
+    private string _query = string.Empty;
+    private bool _focused;
+    private int _activeIndex;
+
+    /// <summary>Results for the current query, supplied by the host after <see cref="QueryChanged"/>.</summary>
+    [Parameter] public IReadOnlyList<GlobalSearchResult> Results { get; set; } = [];
+
+    /// <summary>Items shown while the field is empty and focused (recent history).</summary>
+    [Parameter] public IReadOnlyList<GlobalSearchResult> RecentItems { get; set; } = [];
+
+    /// <summary>Raised whenever the query text changes.</summary>
+    [Parameter] public EventCallback<string> QueryChanged { get; set; }
+
+    /// <summary>Raised with the chosen result.</summary>
+    [Parameter] public EventCallback<GlobalSearchResult> ItemSelected { get; set; }
+
+    /// <summary>Accessible name of the search input. Falls back to "Search".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Accessible name of the result listbox. Falls back to "Search results".</summary>
+    [Parameter] public string? ListAriaLabel { get; set; }
+
+    /// <summary>Placeholder text for the input.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Search…";
+
+    /// <summary>Heading shown above recent items.</summary>
+    [Parameter] public string RecentHeading { get; set; } = "Recent";
+
+    /// <summary>Message shown when a query yields no results.</summary>
+    [Parameter] public string EmptyText { get; set; } = "No results.";
+
+    private bool IsRecentView => string.IsNullOrEmpty(_query) && RecentItems.Count > 0;
+
+    private List<GlobalSearchResult> VisibleItems =>
+        (IsRecentView ? RecentItems : string.IsNullOrEmpty(_query) ? [] : Results).ToList();
+
+    private bool ShowList => _focused && VisibleItems.Count > 0;
+
+    private string? ActiveDescendant => ShowList ? OptionId(_activeIndex) : null;
+
+    private string OptionId(int index) => $"{_listId}-option-{index}";
+
+    private IEnumerable<IGrouping<string, GlobalSearchResult>> GroupedResults =>
+        IsRecentView
+            ? VisibleItems.GroupBy(_ => string.Empty)
+            : VisibleItems.GroupBy(i => i.Category ?? string.Empty);
+
+    private async Task HandleInput(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        _activeIndex = 0;
+        await QueryChanged.InvokeAsync(_query);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        var items = VisibleItems;
+        switch (args.Key)
+        {
+            case "Escape":
+                _focused = false;
+                break;
+            case "ArrowDown" when items.Count > 0:
+                _focused = true;
+                _activeIndex = (_activeIndex + 1) % items.Count;
+                break;
+            case "ArrowUp" when items.Count > 0:
+                _activeIndex = (_activeIndex - 1 + items.Count) % items.Count;
+                break;
+            case "Enter" when ShowList && _activeIndex < items.Count:
+                await SelectAsync(items[_activeIndex]);
+                break;
+        }
+    }
+
+    private async Task SelectAsync(GlobalSearchResult item)
+    {
+        _focused = false;
+        await ItemSelected.InvokeAsync(item);
+    }
+}

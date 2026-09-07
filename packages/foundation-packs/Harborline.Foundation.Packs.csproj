@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Packs</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Packs</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Packs</RootNamespace>
+    <Description>Pack Composer B-1a — the EXPORT + VERIFY half of the domain-pack composer (design note 2026-07-02; ADR 0129 D1 pack manifest, ADR 0007 envelope conventions, ADR 0126 D4 epoch-aware verification). Pack manifest model, canonical serialization (reuses Harborline.Api.Foundation.Crypto.CanonicalJson — S-14 single source), merkle-binding signature envelope carrying {key-id, epoch}, fail-closed validator (single-level deps, value-level PII floor), export to a sneakernet-able signed pack file, and verify-before-effect verification returning a typed verdict (Verified/NotSigned/EpochUnverifiable/VerificationFailed). NO install engine, NO seed-layer writes (that is B-1b).</Description>
+    <PackageTags>packs;pack-composer;domain-pack;canonical-json;ed25519;merkle;epoch;trust-store;harborline;foundation;adr-0129</PackageTags>
+    <!-- CS1591 suppressed at package level (matches sibling foundation-* packages): the public
+         surface is documented, but seed-data / small DTO members need not each carry a doc comment
+         to keep the 0/0 build under the repo-wide GenerateDocumentationFile + TreatWarningsAsErrors. -->
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ADR 0145 D4: the counsel-cleared RegulatoryClass config (single source for the DCP export gate),
+         driven by company/legal/counsel-clearance-register.md. Embedded so DcpCounselRegister reads it
+         without file-path fragility. -->
+    <EmbeddedResource Include="Validation/dcp-counsel-cleared-classes.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every friend in this project is test-only; this is a project-local claim, not a repository-wide one. -->
+    <!-- Own tests exercise the private pack codec, admission evidence, and authority mismatch cases. -->
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Packs.Tests" />
+    <!-- Host integration tests prove one-shot projection, durable admission, and restart reconciliation. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- CanonicalJson (S-14 single canonicalizer), Ed25519Signer/Verifier + SignedOperation +
+         PrincipalId + Signature (signing envelope), Cid (content addressing / merkle leaves). -->
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <!-- B-1b install engine: TemplateMerger three-way re-attach primitive (ADR 0011 follow-up #1 /
+         fold A2). Reused, not re-implemented — no second JSON-merge path (A4-drift avoidance). -->
+    <ProjectReference Include="..\foundation-catalog\Harborline.Foundation.Catalog.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+</Project>

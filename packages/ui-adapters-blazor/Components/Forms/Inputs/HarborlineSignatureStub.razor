@@ -1,0 +1,41 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses("mar-signaturestub")"
+     style="@CombineStyles()"
+     role="group"
+     aria-label="@(AriaLabel ?? Label ?? "Signature")"
+     @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="sf-signaturestub__label">
+            @Label@if (Required)
+            {<span class="sf-signaturestub__required" aria-hidden="true"> *</span>}
+        </span>
+    }
+    <HarborlineSignature Width="@Width"
+                       Height="@Height"
+                       ReadOnly="@(!Enabled)"
+                       Value="@Value"
+                       ValueChanged="@HandleSignatureChanged" />
+</div>
+
+@code {
+    /// <summary>The captured signature as a base64 PNG data URL. Powers <c>@@bind-Value</c>.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Fires when a stroke completes or the pad is cleared.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public int Width { get; set; } = 400;
+    [Parameter] public int Height { get; set; } = 160;
+
+    private async Task HandleSignatureChanged(string dataUrl)
+    {
+        Value = dataUrl;
+        await ValueChanged.InvokeAsync(Value);
+    }
+}

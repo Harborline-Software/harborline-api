@@ -1,0 +1,14 @@
+{
+  "jobId": "job-001",
+  "status": "succeeded",
+  "progress": 1.0,
+  "artifacts": [{ "kind": "text", "text": "ready", "provenance": "fixture" }],
+  "usage": { "unit": "call", "quantity": 1.0, "tier": "local" },
+  "error": {
+    "faultDomain": "provider",
+    "retryable": true,
+    "code": "provider.timeout",
+    "message": "upstream provider timed out",
+    "retryAfter": 9007199254740991
+  }
+}

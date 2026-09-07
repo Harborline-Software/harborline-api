@@ -1,0 +1,13 @@
+{
+  "$comment": "CANONICAL command-authority registry (ADR 0128 / ADR 0134 P1a, F2). The SINGLE source of truth shared by BOTH the SDK `authorityOf` (packages/harborline-sdk/src/authority.ts, which readFileSync-loads this) AND the standalone `.mjs` invoke bridge in the desktop shell, which cannot import harborline-sdk but CAN read this file. Before P1a these two classifiers were hand-parallel and drifted; the rejection path makes a CP/AP disagreement load-bearing (it changes whether an invoke is refused), so they now read ONE file. A parity test (command-authority-parity.test.ts) asserts the two resolved sets agree. Add the real CP ops (post JE, void payment) here as `CP` when that surface inherits this doctrine.",
+  "commands": {
+    "resolve": { "authority": "AP", "summary": "Resolve a Harborline edition from the pack catalog + a seed (read)." },
+    "project": { "authority": "AP", "summary": "Project a resolved edition for a tenant tier (read)." },
+    "invoke": { "authority": "AP", "summary": "Invoke a reversible compute capability (tts/image) through the membrane." },
+    "health": { "authority": "AP", "summary": "Observe tri-state runtime health (read)." },
+    "demo-cp-op": { "authority": "CP", "summary": "SYNTHETIC confirmation-required demo (no real effect) — proves the CP propose-then-confirm gate." },
+    "notify.email": { "authority": "AP", "summary": "Send a notification email (a reversible AP workflow effect)." },
+    "ledger.post-journal-entry": { "authority": "CP", "summary": "Post a balanced journal entry to the general ledger (financial CP)." },
+    "ledger.void-payment": { "authority": "CP", "summary": "Void a recorded payment (financial CP)." }
+  }
+}

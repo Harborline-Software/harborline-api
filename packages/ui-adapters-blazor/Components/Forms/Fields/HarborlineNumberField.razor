@@ -1,0 +1,27 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Fields
+@typeparam TValue where TValue : struct, System.Numerics.INumber<TValue>
+@inherits HarborlineFieldBase
+
+<HarborlineField Text="@Text" Id="@FieldId" Hint="@Hint" Error="@Error"
+               Required="@EffectiveRequired" Disabled="@EffectiveDisabled"
+               Class="@Class" Style="@Style" AdditionalAttributes="@AdditionalAttributes">
+    <HarborlineNumericInput TValue="TValue" Value="@Value" ValueChanged="@ValueChanged"
+                          Min="@Min" Max="@Max" Step="@Step" Format="@Format"
+                          Decimals="@Decimals" Placeholder="@Placeholder"
+                          Disabled="@EffectiveDisabled" IsInvalid="@HasError"
+                          aria-label="@EffectiveAriaLabel"
+                          aria-invalid="@AriaInvalid"
+                          aria-required="@AriaRequired"
+                          aria-describedby="@DescribedBy" />
+</HarborlineField>
+
+@code {
+    [Parameter] public TValue Value { get; set; } = default!;
+    [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
+    [Parameter] public TValue? Min { get; set; }
+    [Parameter] public TValue? Max { get; set; }
+    [Parameter] public TValue Step { get; set; } = TValue.One;
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Format { get; set; }
+    [Parameter] public int? Decimals { get; set; }
+}

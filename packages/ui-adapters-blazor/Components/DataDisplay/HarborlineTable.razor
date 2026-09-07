@@ -1,0 +1,4 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+<table class="@CombineClasses("sf-table")" style="@CombineStyles()" aria-label="@(AriaLabel ?? Caption)" @attributes="AdditionalAttributes"><caption>@Caption</caption>@ChildContent</table>
+@code { [Parameter] public string Caption { get; set; } = "Data table"; [Parameter] public string? AriaLabel { get; set; } [Parameter] public RenderFragment? ChildContent { get; set; } }

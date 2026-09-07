@@ -1,0 +1,33 @@
+# Formatting only. Nothing here is enforced in the build; TreatWarningsAsErrors and the analyzers stay
+# where they are (Directory.Build.props). Editors and `dotnet format` read this.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{cs,csx}]
+indent_size = 4
+dotnet_sort_system_directives_first = true
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_prefer_braces = when_multiline:suggestion
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+max_line_length = 100
+
+[*.{yml,yaml,json,mjs,js,ts,tsx}]
+indent_size = 2
+
+[*.{sh,bash}]
+end_of_line = lf
+
+[*.{bat,cmd,ps1}]
+end_of_line = crlf
+
+[Makefile]
+indent_style = tab

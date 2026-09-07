@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Blocks.Payroll</PackageId>
+    <AssemblyName>Harborline.Api.Blocks.Payroll</AssemblyName>
+    <RootNamespace>Harborline.Api.Blocks.Payroll</RootNamespace>
+    <Description>Payroll ledger interface for Harborline v1 — employee records, pay-run posting (manual-entry
+mode), GL journal mapping (wage/deduction/employer-liability to balanced journal entries), and a
+filing-obligation calendar surface (due-dates only). Jurisdiction calculation and automated payroll
+provider integration are v2 category-providers and are NOT included here.</Description>
+    <PackageTags>payroll;ledger;journal-entries;blocks;domain;harborline</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.Payroll.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
+    <ProjectReference Include="..\blocks-financial-ledger\Harborline.Blocks.FinancialLedger.csproj" />
+    <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
+  </ItemGroup>
+</Project>

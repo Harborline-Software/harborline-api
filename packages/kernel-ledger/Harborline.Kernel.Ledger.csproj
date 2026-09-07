@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Kernel.Ledger</PackageId>
+    <AssemblyName>Harborline.Api.Kernel.Ledger</AssemblyName>
+    <RootNamespace>Harborline.Api.Kernel.Ledger</RootNamespace>
+    <Description>Harborline kernel §12 event-sourced double-entry ledger subsystem. Posting engine with lease-coordinated idempotency, CQRS balance/statement projections, and period closing with adjustment-account routing. The log is the source of truth; projections are rebuilt from the event stream.</Description>
+    <PackageTags>harborline;kernel;ledger;double-entry;event-sourced;cqrs</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Kernel.Ledger.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\ui-core\Harborline.UICore.csproj" />
+    <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
+    <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
+    <ProjectReference Include="..\kernel-lease\Harborline.Kernel.Lease.csproj" />
+  </ItemGroup>
+</Project>

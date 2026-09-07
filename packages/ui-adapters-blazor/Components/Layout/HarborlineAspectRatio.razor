@@ -1,0 +1,9 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Layout
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses("sf-aspect-ratio")" style="@CombineStyles($"aspect-ratio:{Ratio};")" @attributes="AdditionalAttributes">@ChildContent</div>
+
+@code {
+    [Parameter] public string Ratio { get; set; } = "16 / 9";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

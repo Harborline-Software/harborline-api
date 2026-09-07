@@ -1,0 +1,105 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Overlays
+@inherits HarborlineComponentBase
+
+@if (Open && Steps.Count > 0)
+{
+    <div class="sf-tour" style="position:fixed;inset:0;z-index:70;">
+        @if (Mask)
+        {
+            <div class="sf-tour__mask"
+                 style="position:absolute;inset:0;width:100%;height:100%;background:rgba(0,0,0,.48);cursor:default;"
+                 aria-hidden="true"
+                 @onclick="CloseMaskAsync"></div>
+        }
+        <section class="sf-tour__dialog"
+                 style="position:absolute;inset-block-start:50%;inset-inline-start:50%;transform:translate(-50%,-50%);z-index:1;max-width:22rem;border:1px solid var(--color-border);border-radius:.5rem;background:var(--color-card);color:var(--color-foreground);padding:1rem;"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="@_titleId">
+            <h2 id="@_titleId">@CurrentStep.Title</h2>
+            <p>@CurrentStep.Description</p>
+            <div class="sf-tour__footer" style="display:flex;align-items:center;gap:.5rem;">
+                <span aria-live="polite">Step @(_current + 1) of @Steps.Count</span>
+                <span style="flex:1"></span>
+                @if (_current > 0)
+                {
+                    <button type="button" style="min-width:24px;min-height:24px;" @onclick="PreviousAsync">Back</button>
+                }
+                <button type="button" style="min-width:24px;min-height:24px;" @onclick="NextAsync">
+                    @(_current == Steps.Count - 1 ? "Finish" : "Next")
+                </button>
+                <button type="button" style="min-width:24px;min-height:24px;" aria-label="Close tour" @onclick="CloseAsync">Close</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private static int _idCounter;
+    private readonly string _titleId = $"sf-tour-title-{Interlocked.Increment(ref _idCounter)}";
+    private int _current;
+
+    /// <summary>Whether the tour is open.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Two-way binding callback for <see cref="Open"/>.</summary>
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>Tour steps.</summary>
+    [Parameter] public IReadOnlyList<HarborlineTourStep> Steps { get; set; } = Array.Empty<HarborlineTourStep>();
+
+    /// <summary>Controlled current step.</summary>
+    [Parameter] public int? Current { get; set; }
+
+    /// <summary>Two-way binding callback for <see cref="Current"/>.</summary>
+    [Parameter] public EventCallback<int> CurrentChanged { get; set; }
+
+    /// <summary>Whether to render a page mask.</summary>
+    [Parameter] public bool Mask { get; set; } = true;
+
+    /// <summary>Whether clicking the mask closes the tour.</summary>
+    [Parameter] public bool MaskClosable { get; set; } = true;
+
+    /// <summary>Raised after the tour closes.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Raised after the last step is completed.</summary>
+    [Parameter] public EventCallback OnFinish { get; set; }
+
+    private int ActiveStep => Math.Clamp(Current ?? _current, 0, Math.Max(0, Steps.Count - 1));
+    private HarborlineTourStep CurrentStep => Steps[Math.Clamp(ActiveStep, 0, Steps.Count - 1)];
+
+    protected override void OnParametersSet()
+    {
+        if (Current is not null) _current = ActiveStep;
+        else if (Steps.Count > 0) _current = Math.Clamp(_current, 0, Steps.Count - 1);
+    }
+
+    private async Task PreviousAsync() => await SetStepAsync(Math.Max(0, ActiveStep - 1));
+
+    private async Task NextAsync()
+    {
+        if (ActiveStep >= Steps.Count - 1)
+        {
+            await OnFinish.InvokeAsync();
+            await CloseAsync();
+            return;
+        }
+        await SetStepAsync(ActiveStep + 1);
+    }
+
+    private async Task SetStepAsync(int step)
+    {
+        _current = step;
+        await CurrentChanged.InvokeAsync(step);
+    }
+
+    private async Task CloseAsync()
+    {
+        Open = false;
+        await OpenChanged.InvokeAsync(false);
+        await OnClose.InvokeAsync();
+    }
+
+    private Task CloseMaskAsync() => MaskClosable ? CloseAsync() : Task.CompletedTask;
+}

@@ -1,0 +1,232 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(TreeCss)"
+     style="@CombineStyles()"
+     @attributes="AdditionalAttributes">
+    <button type="button"
+            class="sf-multiselecttree__trigger"
+            aria-haspopup="tree"
+            aria-expanded="@_open.ToString().ToLowerInvariant()"
+            aria-controls="@_treeId"
+            aria-label="@(AriaLabel ?? Placeholder ?? "Select items")"
+            disabled="@(!Enabled)"
+            @onclick="ToggleTree">
+        @if (_selectedNodes.Count == 0)
+        {
+            <span class="sf-multiselecttree__placeholder">@(Placeholder ?? "Select items…")</span>
+        }
+        else
+        {
+            <span class="sf-multiselecttree__summary">@SelectedSummary</span>
+        }
+    </button>
+
+    @if (_open)
+    {
+        <div id="@_treeId"
+             class="sf-multiselecttree__popup"
+             role="tree"
+             aria-multiselectable="true"
+             aria-label="@(AriaLabel ?? "Options")">
+            @if (Filterable)
+            {
+                <input type="search"
+                       class="sf-multiselecttree__filter"
+                       aria-label="Filter options"
+                       value="@_filter"
+                       @oninput="HandleFilterInput" />
+            }
+            @if (CheckAll && FilteredNodes.Count > 0)
+            {
+                <button type="button"
+                        class="sf-multiselecttree__check-all"
+                        disabled="@(!Enabled)"
+                        @onclick="ToggleAll">
+                    @(_selectedNodes.Count == AllSelectableValues.Count ? "Clear all" : "Select all")
+                </button>
+            }
+            <div class="sf-multiselecttree__nodes">
+                @RenderNodes(FilteredNodes, 0)
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(ErrorCode))
+    {
+        <p class="sf-multiselecttree__error" role="alert">@ErrorCode</p>
+    }
+</div>
+
+@code {
+    private readonly string _treeId = $"sf-multiselecttree-{Guid.NewGuid():N}";
+    private HashSet<string> _selectedNodes = [];
+    private HashSet<string> _expandedNodes = [];
+    private string _filter = string.Empty;
+    private bool _initialized;
+    private bool _open;
+
+    /// <summary>The tree data. Child nodes are supplied through <see cref="MultiSelectTreeNode.Items"/>.</summary>
+    [Parameter] public IEnumerable<MultiSelectTreeNode>? Data { get; set; }
+
+    /// <summary>The selected node values. Supports two-way binding.</summary>
+    [Parameter] public List<string> Value { get; set; } = [];
+
+    /// <summary>Fires when selected node values change.</summary>
+    [Parameter] public EventCallback<List<string>> ValueChanged { get; set; }
+
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public bool CheckAll { get; set; }
+    [Parameter] public bool Filterable { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public string? ErrorCode { get; set; }
+
+    private List<MultiSelectTreeNode> RootNodes => (Data ?? []).ToList();
+
+    private List<MultiSelectTreeNode> FilteredNodes => FilterNodes(RootNodes, _filter);
+
+    private List<string> AllSelectableValues => Flatten(RootNodes)
+        .Where(node => !node.Disabled)
+        .Select(node => node.Value)
+        .ToList();
+
+    private string SelectedSummary => string.Join(", ", Flatten(RootNodes)
+        .Where(node => _selectedNodes.Contains(node.Value))
+        .Select(node => node.Text));
+
+    private string TreeCss
+    {
+        get
+        {
+            var cls = "mar-multiselecttree";
+            if (_open) cls += " mar-multiselecttree--open";
+            if (!Enabled) cls += " mar-multiselecttree--disabled";
+            if (!string.IsNullOrEmpty(ErrorCode)) cls += " mar-multiselecttree--error";
+            return cls;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        _selectedNodes = (Value ?? []).ToHashSet(StringComparer.Ordinal);
+        if (!_initialized)
+        {
+            _expandedNodes = Flatten(RootNodes)
+                .Where(node => node.Expanded && node.Items is { Count: > 0 })
+                .Select(node => node.Value)
+                .ToHashSet(StringComparer.Ordinal);
+            _initialized = true;
+        }
+    }
+
+    private void ToggleTree()
+    {
+        if (!Enabled) return;
+        _open = !_open;
+        if (!_open) _filter = string.Empty;
+    }
+
+    private void HandleFilterInput(ChangeEventArgs args) =>
+        _filter = args.Value?.ToString() ?? string.Empty;
+
+    private void ToggleExpanded(string value)
+    {
+        if (!_expandedNodes.Add(value)) _expandedNodes.Remove(value);
+    }
+
+    private async Task ToggleNode(MultiSelectTreeNode node)
+    {
+        if (!Enabled || node.Disabled) return;
+        if (!_selectedNodes.Add(node.Value)) _selectedNodes.Remove(node.Value);
+        await PublishSelection();
+    }
+
+    private async Task ToggleAll()
+    {
+        if (!Enabled) return;
+        if (_selectedNodes.Count == AllSelectableValues.Count)
+            _selectedNodes.Clear();
+        else
+            _selectedNodes = AllSelectableValues.ToHashSet(StringComparer.Ordinal);
+        await PublishSelection();
+    }
+
+    private async Task PublishSelection()
+    {
+        Value = AllSelectableValues.Where(value => _selectedNodes.Contains(value)).ToList();
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private RenderFragment RenderNodes(IEnumerable<MultiSelectTreeNode> nodes, int depth) => builder =>
+    {
+        var sequence = 0;
+        foreach (var node in nodes)
+        {
+            var capturedNode = node;
+            var hasChildren = node.Items is { Count: > 0 };
+            var selected = _selectedNodes.Contains(node.Value);
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "sf-multiselecttree__node");
+            builder.AddAttribute(sequence++, "role", "treeitem");
+            builder.AddAttribute(sequence++, "aria-checked", selected ? "true" : "false");
+            if (hasChildren)
+                builder.AddAttribute(sequence++, "aria-expanded", _expandedNodes.Contains(node.Value) ? "true" : "false");
+            if (node.Disabled)
+                builder.AddAttribute(sequence++, "aria-disabled", "true");
+            builder.AddAttribute(sequence++, "style", $"padding-inline-start:{(depth + 1) * 1.25}rem");
+
+            if (hasChildren)
+            {
+                builder.OpenElement(sequence++, "button");
+                builder.AddAttribute(sequence++, "type", "button");
+                builder.AddAttribute(sequence++, "class", "sf-multiselecttree__expand");
+                builder.AddAttribute(sequence++, "tabindex", "-1");
+                builder.AddAttribute(sequence++, "aria-label", $"{(_expandedNodes.Contains(node.Value) ? "Collapse" : "Expand")} {node.Text}");
+                builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => ToggleExpanded(node.Value)));
+                builder.AddContent(sequence++, _expandedNodes.Contains(node.Value) ? "▾" : "▸");
+                builder.CloseElement();
+            }
+            else
+            {
+                builder.OpenElement(sequence++, "span");
+                builder.AddAttribute(sequence++, "class", "sf-multiselecttree__expand-placeholder");
+                builder.AddContent(sequence++, " ");
+                builder.CloseElement();
+            }
+
+            builder.OpenElement(sequence++, "input");
+            builder.AddAttribute(sequence++, "type", "checkbox");
+            builder.AddAttribute(sequence++, "checked", selected);
+            builder.AddAttribute(sequence++, "disabled", node.Disabled || !Enabled);
+            builder.AddAttribute(sequence++, "aria-label", node.Text);
+            builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, _ => ToggleNode(capturedNode)));
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", node.Disabled ? "sf-multiselecttree__text sf-multiselecttree__text--disabled" : "sf-multiselecttree__text");
+            builder.AddContent(sequence++, node.Text);
+            builder.CloseElement();
+            builder.CloseElement();
+
+            if (hasChildren && _expandedNodes.Contains(node.Value))
+                builder.AddContent(sequence++, RenderNodes(node.Items!, depth + 1));
+        }
+    };
+
+    private static List<MultiSelectTreeNode> Flatten(IEnumerable<MultiSelectTreeNode> nodes) =>
+        nodes.SelectMany(node => new[] { node }.Concat(node.Items is null ? [] : Flatten(node.Items))).ToList();
+
+    private static List<MultiSelectTreeNode> FilterNodes(IEnumerable<MultiSelectTreeNode> nodes, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return nodes.ToList();
+        var result = new List<MultiSelectTreeNode>();
+        foreach (var node in nodes)
+        {
+            var children = node.Items is null ? [] : FilterNodes(node.Items, query);
+            if (node.Text.Contains(query, StringComparison.OrdinalIgnoreCase) || children.Count > 0)
+                result.Add(node with { Items = children.Count == 0 ? node.Items : children });
+        }
+        return result;
+    }
+}

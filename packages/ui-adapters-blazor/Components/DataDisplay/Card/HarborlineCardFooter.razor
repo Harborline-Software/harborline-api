@@ -1,0 +1,10 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(CssProvider.CardFooterClass())" style="@CombineStyles()" @attributes="AdditionalAttributes">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

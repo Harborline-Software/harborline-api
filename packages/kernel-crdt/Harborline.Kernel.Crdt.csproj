@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Kernel.Crdt</PackageId>
+    <AssemblyName>Harborline.Api.Kernel.Crdt</AssemblyName>
+    <RootNamespace>Harborline.Api.Kernel.Crdt</RootNamespace>
+    <Description>Harborline CRDT engine abstraction — Wave 1.2 of the paper-alignment plan (paper §2.2, §9; ADR 0008). Wraps the YDotNet/yrs engine of record behind framework-agnostic ICrdtDocument / ICrdtText / ICrdtMap / ICrdtList contracts and includes a test-only in-memory fake.</Description>
+    <PackageTags>harborline;kernel;crdt;local-first</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Kernel.Crdt.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />    <PackageReference Include="YDotNet" />
+    <PackageReference Include="YDotNet.Native" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\ui-core\Harborline.UICore.csproj" />
+    <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
+    <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
+  </ItemGroup>
+</Project>

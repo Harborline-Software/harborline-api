@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Counsel-cleared RegulatoryClass values for the DCP export gate (ADR 0145 D4 / open-Q1).",
+    "SINGLE SOURCE for the gate: a DomainComplianceProfile whose RegulatoryClass is NOT in `cleared`",
+    "HARD-BLOCKS at export (fail-closed, S-13 — no install-anyway path). Read by DcpCounselRegister.",
+    "",
+    "Driven by the counsel register: company/legal/counsel-clearance-register.md rows D-10..D-13.",
+    "Adding a value to `cleared` is gated on that class's counsel row being CLEARED (D4). As of",
+    "2026-07-06 rows D-10/D-11/D-12/D-13 are all OPEN, so only `general` (the grandfather default,",
+    "ADR 0145 compatibility plan) is cleared. Widening this list is a one-line change once the",
+    "matching register row clears — no code change.",
+    "",
+    "Contains NO PII (regulatory-class tokens + register-row pointers only)."
+  ],
+  "cleared": [
+    "general"
+  ],
+  "pending-counsel": {
+    "financial": "register D-11/D-12 (accountable-individual + out-of-scope) — ADR 0145 open-Q1 lean",
+    "employment": "register D-11/D-12 — ADR 0145 open-Q1 lean",
+    "clinical": "register D-11/D-12 + heaviest statutory load — blocks pending counsel (ADR 0145 open-Q1)",
+    "safety-critical": "blocks pending counsel (ADR 0145 open-Q1)"
+  }
+}

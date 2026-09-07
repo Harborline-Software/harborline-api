@@ -1,0 +1,8 @@
+# Ticket 274: every production file that reads a shell/OS account name. Each row's file must also
+# call ActorId.Mint — the derivation is minted where it is read, so every downstream
+# `new ActorId(...)` stays a refusing boundary. A new row here is a new identity derivation.
+# path	match-count	reason
+apps/local-node-host/Data/Identity/AdministratorRecoveryCommand.cs	1	recovery party derivation, minted at :414
+apps/local-node-host/Data/Identity/BootstrapClaimRedemption.cs	7	owner/desktop bootstrap-claim issuer identities, minted at :316 and :370 (plus the owner ACL probe and the evidence seams)
+apps/local-node-host/Health/CurrentPrincipalSignatureRoutes.cs	1	current-principal signature payload id, minted in ResolveCurrentPrincipal
+apps/local-node-host/Program.cs	1	genesis party derivation, minted at :519

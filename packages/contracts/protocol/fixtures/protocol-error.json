@@ -1,0 +1,7 @@
+{
+  "faultDomain": "membrane",
+  "retryable": false,
+  "code": "membrane.invalid_payload",
+  "message": "The provider returned malformed data",
+  "retryAfter": 9007199254740991
+}

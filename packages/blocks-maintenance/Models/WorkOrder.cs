@@ -1,0 +1,103 @@
+using Harborline.Api.Blocks.Properties.Models;
+using Harborline.Api.Blocks.PropertyEquipment.Models;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Integrations.Messaging;
+using Harborline.Api.Foundation.Integrations.Payments;
+using Harborline.Api.Foundation.MultiTenancy;
+
+namespace Harborline.Api.Blocks.Maintenance.Models;
+
+/// <summary>
+/// A formal instruction to a vendor to perform work, optionally tied to a
+/// physical <see cref="EquipmentId"/> and a primary coordination
+/// <c>ThreadId</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>api-change-shape, MAJOR version bump per ADR 0053 A6</b> (W#19 Phase 5):
+/// the previously-positional 10-arg constructor is replaced with init-only
+/// properties; <c>RequestId</c> is dropped (the originating
+/// <c>MaintenanceRequest</c> is recovered from the first
+/// <c>WorkOrderCreated</c> audit record by Phase 5.1 — see
+/// <c>WorkOrderListBlock.razor</c> + <c>MIGRATION.md</c>).
+/// </para>
+/// <para>
+/// New optional fields per the Phase 5 schema migration: <see cref="EstimatedCost"/>
+/// and <see cref="TotalCost"/> migrate to <see cref="Money"/> (per ADR 0051);
+/// <see cref="Equipment"/> + <c>PrimaryThread</c> + <see cref="Appointment"/>
+/// + <see cref="CompletionAttestation"/> + <see cref="EntryNotices"/> ride per
+/// the Phase 3 child-entity surface; <see cref="AuditTrail"/> records the
+/// emitted <c>AuditRecord.AuditId</c> trail per ADR 0049.
+/// </para>
+/// </remarks>
+public sealed record WorkOrder : IMustHaveTenant
+{
+    /// <summary>Unique identifier for this work order.</summary>
+    public required WorkOrderId Id { get; init; }
+
+    /// <summary>
+    /// <see cref="IMustHaveTenant"/> view onto the existing <see cref="Tenant"/> field.
+    /// The PR 0 Option D tenant-isolation retrofit (ADR 0091 §A2 + ADR 0092 §A6) requires
+    /// the marker interface; surfacing <see cref="Tenant"/> through the
+    /// canonical <c>TenantId</c> property keeps existing call-sites (which use
+    /// <c>workOrder.Tenant</c>) unchanged.
+    /// </summary>
+    TenantId ITenantScoped.TenantId => Tenant;
+
+    /// <summary>Owning tenant (per <c>IMustHaveTenant</c>).</summary>
+    public required TenantId Tenant { get; init; }
+
+    /// <summary>
+    /// Property this work order is associated with. W#62 PR 3 addition.
+    /// Nullable: existing call sites compile without modification, and
+    /// tenant-wide administrative work orders (rare) can leave this unset.
+    /// Cockpit aggregation surfaces (W#29 PR 5 dashboard, property-detail
+    /// open-WO count) filter on this field.
+    /// </summary>
+    public PropertyId? PropertyId { get; init; }
+
+    /// <summary>The vendor assigned to perform the work.</summary>
+    public required VendorId AssignedVendorId { get; init; }
+
+    /// <summary>Current lifecycle status of this work order (13 states per ADR 0053 A4).</summary>
+    public required WorkOrderStatus Status { get; init; }
+
+    /// <summary>The date on which the work is scheduled to be performed.</summary>
+    public required DateOnly ScheduledDate { get; init; }
+
+    /// <summary>The date the work was completed, or <see langword="null"/> if not yet complete.</summary>
+    public DateOnly? CompletedDate { get; init; }
+
+    /// <summary>Estimated cost (currency-bound). <see langword="null"/> when not yet estimated. ADR 0051 will extend <see cref="Money"/> with banker's rounding + validation.</summary>
+    public Money? EstimatedCost { get; init; }
+
+    /// <summary>Total cost once invoiced/captured (replaces <c>ActualCost</c>); <see langword="null"/> until billed.</summary>
+    public Money? TotalCost { get; init; }
+
+    /// <summary>FK to the physical equipment this work targets, when applicable (per ADR 0053 A1; renamed from "Asset" per UPF Rule 4).</summary>
+    public EquipmentId? Equipment { get; init; }
+
+    /// <summary>FK to the primary coordination thread (per ADR 0052) when one has been opened. Wired in W#19 Phase 6 cross-package wiring.</summary>
+    public ThreadId? PrimaryThread { get; init; }
+
+    /// <summary>Appointment slot bound to this work order (per W#19 Phase 3 child entity).</summary>
+    public WorkOrderAppointment? Appointment { get; init; }
+
+    /// <summary>Signature-bound completion attestation (per ADR 0054 + W#19 Phase 3).</summary>
+    public WorkOrderCompletionAttestation? CompletionAttestation { get; init; }
+
+    /// <summary>Right-of-entry notices recorded against this work order (per W#19 Phase 3).</summary>
+    public IReadOnlyList<WorkOrderEntryNotice> EntryNotices { get; init; } = Array.Empty<WorkOrderEntryNotice>();
+
+    /// <summary>Audit-record GUIDs (ADR 0049 <c>AuditRecord.AuditId</c>) emitted across this work order's lifecycle. The first id resolves to the originating <c>WorkOrderCreated</c> record whose payload body carries the source reference (replaces the dropped <c>RequestId</c> FK; W#19 Phase 5.1 wires <c>WorkOrderListBlock</c> to surface it).</summary>
+    public IReadOnlyList<Guid> AuditTrail { get; init; } = Array.Empty<Guid>();
+
+    /// <summary>Free-form notes from the vendor or property manager.</summary>
+    public string? Notes { get; init; }
+
+    /// <summary>The instant this record was first persisted.</summary>
+    public required Instant CreatedAtUtc { get; init; }
+
+    /// <summary>Last-update wall-clock time; bumped on every state-mutating operation.</summary>
+    public required DateTimeOffset UpdatedAt { get; init; }
+}

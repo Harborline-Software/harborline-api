@@ -1,0 +1,203 @@
+{
+  "_note": "Ticket 208 slice 1. The Access administration application as ORDINARY pack content: the definitions the composed host can admit TODAY (the grant form and the privileged-review workflow) and NOTHING else. The holdings view and the access-by-person report ship at S6, in an ordinary 1.1.0 upgrade, alongside the Role Grant entity type and the held-by-person report cartridge that admit them. It carries no grant instance - a grant is what a tenant has, not what a package knows. Preloaded on first run by AccessAdministrationPreloadHostedService through the ordinary export/install/activate path; a later pack may replace it whole.",
+  "key": "harborline.access-administration",
+  "version": "1.0.0",
+  "name": "Access administration",
+  "description": "Granting a role and reviewing privileged grants. The holdings view and the access-by-person report arrive at S6.",
+  "scopeTier": "Horizontal",
+  "contents": [
+    {
+      "key": "access.grant-a-role",
+      "kind": "FormDefinition",
+      "version": "1.0.0",
+      "content": {
+        "overlay": {
+          "fields": {
+            "person": {
+              "label": {
+                "kind": "Literal",
+                "value": "Person"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "Direct"
+            },
+            "role": {
+              "label": {
+                "kind": "Literal",
+                "value": "Role"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "scope": {
+              "label": {
+                "kind": "Literal",
+                "value": "Scope"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "effectiveFrom": {
+              "label": {
+                "kind": "Literal",
+                "value": "Effective from"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "effectiveTo": {
+              "label": {
+                "kind": "Literal",
+                "value": "Effective to"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "reason": {
+              "label": {
+                "kind": "Literal",
+                "value": "Reason"
+              },
+              "controlHint": "select",
+              "piiSensitivity": "None"
+            },
+            "residency": {
+              "label": {
+                "kind": "Literal",
+                "value": "Residency"
+              },
+              "controlHint": "select",
+              "piiSensitivity": "None"
+            }
+          },
+          "sections": [
+            {
+              "id": "grant",
+              "title": {
+                "kind": "Literal",
+                "value": "Grant a role"
+              },
+              "fields": [
+                "person",
+                "role",
+                "scope",
+                "residency",
+                "effectiveFrom",
+                "effectiveTo",
+                "reason"
+              ]
+            }
+          ],
+          "rules": [],
+          "title": {
+            "kind": "Literal",
+            "value": "Grant a role"
+          },
+          "description": {
+            "kind": "Literal",
+            "value": "Grant a person a role, in a scope, for a period, with a reason."
+          }
+        },
+        "fieldsMeta": {
+          "person": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "role": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "scope": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "residency": {
+            "type": "select",
+            "required": true,
+            "options": [
+              "cache",
+              "online-only"
+            ]
+          },
+          "effectiveFrom": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "effectiveTo": {
+            "type": "text",
+            "required": false,
+            "options": null
+          },
+          "reason": {
+            "type": "select",
+            "required": true,
+            "options": [
+              "manual",
+              "invitation",
+              "workflow",
+              "ticket"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "key": "access.privileged-grant-review",
+      "kind": "WorkflowDefinition",
+      "version": "1.0.0",
+      "content": {
+        "key": "access.privileged-grant-review",
+        "version": "1.0.0",
+        "tenant": "00000000-0000-0000-0000-000000000000",
+        "initialState": "requested",
+        "states": [
+          {
+            "id": "requested",
+            "kind": "Normal"
+          },
+          {
+            "id": "approved",
+            "kind": "Terminal"
+          },
+          {
+            "id": "declined",
+            "kind": "Terminal"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "approve",
+            "kind": "HumanAction",
+            "task": "approve"
+          },
+          {
+            "id": "decline",
+            "kind": "HumanAction",
+            "task": "decline"
+          }
+        ],
+        "transitions": [
+          {
+            "id": "approve",
+            "from": "requested",
+            "on": "approve",
+            "to": "approved"
+          },
+          {
+            "id": "decline",
+            "from": "requested",
+            "on": "decline",
+            "to": "declined"
+          }
+        ],
+        "actions": []
+      }
+    }
+  ],
+  "dependencies": [],
+  "capabilityRequirements": []
+}

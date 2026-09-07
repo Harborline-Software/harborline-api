@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Scheduling</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Scheduling</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Scheduling</RootNamespace>
+    <Description>RFC 5545 RRULE expansion service for Harborline. Provides IRruleExpansionService
+    (and InMemoryRruleExpansionService implementing the fleet's bounded RRULE subset:
+    FREQ daily/weekly/monthly/yearly, INTERVAL, COUNT/UNTIL, BYDAY with monthly ordinals,
+    BYMONTHDAY 1-28, BYMONTH, 1000-occurrence cap) shared across work-orders maintenance
+    schedules, AR recurring invoices, and future AP recurring bills. Extracted from
+    blocks-work-orders per council-verdict-net-arch-2026-06-12T2213Z (Track C C-4).</Description>
+    <PackageTags>scheduling;rrule;recurrence;foundation;harborline</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- NU1510 suppressed: direct PackageReference for
+         Microsoft.Extensions.DependencyInjection.Abstractions required by DI extension;
+         NuGet preview.4 pruning may flag it as transitively available.
+         Per fleet-conventions "NU1510 — keep the PackageRef, suppress the warning". -->
+    <NoWarn>CS1591;NU1510</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Scheduling.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- NU1510 suppressed: direct PackageReference for
+         Microsoft.Extensions.DependencyInjection.Abstractions is required (IServiceCollection)
+         by SchedulingServiceCollectionExtensions. NuGet preview.4 pruning may flag it as
+         unnecessary via transitive availability through foundation. Per fleet-conventions
+         "NU1510 — keep the PackageRef, suppress the warning". -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- foundation-scheduling is facade-independent: references only foundation (TenantId etc.)
+         + DI abstractions + BCL. Must NOT reference foundation-authorization,
+         blocks-financial-*, or blocks-work-orders. Same acyclic discipline as
+         foundation-authorization.csproj (the landed precedent). -->
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+  </ItemGroup>
+</Project>

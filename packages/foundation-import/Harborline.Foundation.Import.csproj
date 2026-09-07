@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Import</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Import</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Import</RootNamespace>
+    <Description>ERPNext-import primitives (ADR 0100, Workstream A0): the single owning home for the ImportOutcome&lt;T&gt; discriminated union (Inserted/Updated/Skipped/Rejected), the allowlisted ImportFailure reject projection, the ImportCensus record-conservation primitive, the access-mode-agnostic ISourceReader extraction seam, and the v1 read-only MariaDB-dump adapter. Sits below every blocks-* cluster in the DAG so the seven ERPNext upserters converge onto one outcome type (collapses the D7 per-cluster duplication). No domain dependencies; BCL + DI abstractions only.</Description>
+    <PackageTags>harborline;foundation;import;erpnext;migration;discriminated-union;clean-room</PackageTags>
+    <!-- NU1510 suppressed: direct PackageReference for
+         Microsoft.Extensions.DependencyInjection.Abstractions is required
+         (IServiceCollection, TryAdd*) for the DI extension but NuGet
+         preview.4 pruning may flag it as unnecessary. Per fleet-conventions
+         "NU1510 — keep the PackageRef, suppress the warning"; reference
+         template shipyard commit b4475df. -->
+    <NoWarn>CS1591;NU1510</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Import.Tests" />
+  </ItemGroup>
+</Project>

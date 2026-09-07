@@ -1,0 +1,79 @@
+# Harborline line-ending policy: LF in the repo, everywhere.
+# Rationale: matches GitHub's default, Linux CI, JS/TS ecosystem, and
+# modern .NET tooling. Windows contributors who want CRLF locally can
+# set core.autocrlf=true — the repo stays LF either way.
+
+# Default: detect text vs binary, store text as LF in the repo
+* text=auto eol=lf
+
+# Windows-only scripts must have CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Explicit text
+*.cs            text
+*.csproj        text
+*.slnx          text
+*.sln           text
+*.json          text
+*.md            text
+*.yml           text
+*.yaml          text
+*.razor         text
+*.razor.css     text
+*.html          text
+*.css           text
+*.js            text
+*.ts            text
+*.tsx           text
+*.mjs           text
+*.config        text
+*.props         text
+*.targets       text
+*.xml           text
+Directory.Build.props   text
+Directory.Packages.props text
+
+# Binary — never normalize
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.svg   text
+*.pdf   binary
+*.zip   binary
+*.7z    binary
+*.gz    binary
+*.tar   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.pfx   binary
+*.snk   binary
+*.dll   binary
+*.dylib binary
+*.so    binary
+*.exe   binary
+*.bin   binary
+
+# Build outputs — collapse in GitHub diffs and exclude from language stats (ADR 0090 Option B).
+# Generated template literals can contain semantic trailing spaces, so do not
+# report blank-at-EOL errors for this reproducible artifact.
+packages/ui-react/dist/** linguist-generated=true whitespace=-blank-at-eol
+# ...and never text-merge the generated bundle: on a rebase/merge conflict, leave a
+# clean "ours" copy (no <<<<<<< markers corrupting the bundle) so it can just be
+# rebuilt. Kills the dist rebase treadmill. Robust cross-clone (committed, no local
+# git config needed). Reconcile with: pnpm ui-react:rebase-dist
+# See _shared/engineering/ui-react-dist-workflow.md.
+packages/ui-react/dist/** -merge
+
+# Append-only bug-log store: union-merge so concurrent PRs do not conflict (built-in driver, GitHub-honored)
+.wolf/buglog.jsonl merge=union
+
+# Append-only legacy-authority ratchet ledger: disjoint path edits union cleanly, while competing
+# edits to one path retain duplicate keys and make the test parser fail loudly.
+apps/local-node-host/tests/ArchTests/hosted-web-legacy-authority-debt.tsv merge=union

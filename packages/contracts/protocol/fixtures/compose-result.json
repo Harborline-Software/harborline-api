@@ -1,0 +1,5 @@
+{
+  "editionId": "community",
+  "acceptedCapabilityIds": ["text"],
+  "rejectedCapabilityIds": ["image"]
+}

@@ -1,0 +1,22 @@
+bin/
+obj/
+artifacts/
+.DS_Store
+
+# Ticket 008 Phase C — TypeScript build outputs and dependencies
+node_modules/
+apps/capability-host/dist/
+packages/contracts/dist/
+
+# Test-run outputs. TRX files are ~12MB each, embed the runner machine name and
+# absolute paths, and are superseded by the counts and failure names recorded in
+# ticket outcomes and commit messages.
+TestResults/
+**/obj-*/
+.test-results/
+.stryker/
+.claude/land-evidence/
+
+# Python bytecode (245 fix 1 tracked one by mistake)
+__pycache__/
+*.pyc

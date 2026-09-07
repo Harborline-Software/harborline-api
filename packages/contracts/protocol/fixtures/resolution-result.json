@@ -1,0 +1,10 @@
+{
+  "chosenProviderId": null,
+  "tier": "remote",
+  "resolutionState": "degraded",
+  "selectionReason": "fallback-floor",
+  "speedHint": "moderate",
+  "reason": "The local provider is warming up",
+  "isFallback": true,
+  "extensions": { "attempts": 2 }
+}

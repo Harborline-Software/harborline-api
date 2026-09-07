@@ -1,0 +1,41 @@
+# License and SBOM scan. Guarded like the other workflows: it runs only once Actions is switched on
+# for this repository (`gh variable set ACTIONS_ENABLED --body true`). Until then the same checks run
+# locally through the repository gate.
+name: license-sbom
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  sbom:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate SBOM (SPDX JSON, includes detected licenses)
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+      - name: Fail on disallowed licenses in the SBOM
+        run: |
+          node -e '
+            const s = JSON.parse(require("fs").readFileSync("sbom.spdx.json","utf8"));
+            const deny = /GPL-2\.0-only|GPL-3\.0|AGPL|SSPL|BUSL|CC-BY-NC/i;
+            const bad = (s.packages||[]).filter(p => deny.test(p.licenseConcluded||"") || deny.test(p.licenseDeclared||""));
+            for (const p of bad) console.log(`DENY ${p.name}@${p.versionInfo}: ${p.licenseDeclared||p.licenseConcluded}`);
+            if (bad.length) process.exit(1);
+            console.log(`ok: ${(s.packages||[]).length} packages, none on the deny list`);
+          '
+  dependency-review:
+    if: vars.ACTIONS_ENABLED == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          deny-licenses: GPL-2.0-only, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0, BUSL-1.1
