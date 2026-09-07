@@ -94,8 +94,10 @@ owner-count: 7
 
 ## category-3-roster-authority
 scan: apps/local-node-host/Data/Roster/**/*.cs excluding Migrations/, plus Enrollment/NodeTeamRoster.cs
-owner-count: 10
+owner-count: 12
 - apps/local-node-host/Data/Roster/DesignTimeNodeLocalRosterDbContextFactory.cs
+- apps/local-node-host/Data/Roster/DurableGenesisIdentity.cs
+- apps/local-node-host/Data/Roster/GenesisStartupMessages.cs
 - apps/local-node-host/Data/Roster/IOwnTeamRosterSupersession.cs
 - apps/local-node-host/Data/Roster/IVerifiedTenantRosterReader.cs
 - apps/local-node-host/Data/Roster/NodeLocalRosterDbContext.cs
