@@ -246,6 +246,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:AccessHoldersRead.Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "AccessHoldersRead.Route",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}\"",
       "kind": "local-node-http",
       "method": "GET",

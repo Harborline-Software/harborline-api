@@ -144,6 +144,17 @@ public sealed class ComposedHostBootSmokeTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", "composed-host-smoke-token");
 
+        // The ordinary shipping preload now contributes Access navigation alongside installed packs.
+        // Pin the active version independently of the declaration, so a stale preload cannot pass.
+        using var installed = await client.GetAsync(PackInstallRoutes.ListInstalledRoute, host.Deadline);
+        Assert.Equal(HttpStatusCode.OK, installed.StatusCode);
+        using var installedDocument = JsonDocument.Parse(
+            await installed.Content.ReadAsStringAsync(host.Deadline));
+        var accessPack = Assert.Single(installedDocument.RootElement.EnumerateArray(), pack =>
+            pack.GetProperty("packKey").GetString() == "harborline.access-administration");
+        Assert.Equal("1.1.0", accessPack.GetProperty("version").GetString());
+        Assert.Equal("Active", accessPack.GetProperty("lifecycle").GetString());
+
         using var export = await client.PostAsJsonAsync(
             PackComposerRoutes.ExportRoute,
             new
@@ -199,9 +210,25 @@ public sealed class ComposedHostBootSmokeTests
         Assert.Equal(HttpStatusCode.OK, navigation.StatusCode);
         using var document = JsonDocument.Parse(navigationBody);
         Assert.True(document.RootElement.GetProperty("configured").GetBoolean());
-        var workspace = Assert.Single(document.RootElement.GetProperty("pack")
-            .GetProperty("seedWorkspaces").EnumerateArray().ToArray());
-        Assert.Equal("ticket-229-workspace", workspace.GetProperty("id").GetString());
+        var pack = document.RootElement.GetProperty("pack");
+        Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
+        var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
+        Assert.Equal(new[] { "access", "ticket-229-workspace" },
+            workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
+        var access = workspaces[0];
+        Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
+        var group = Assert.Single(access.GetProperty("groups").EnumerateArray());
+        Assert.Equal("access-inspection", group.GetProperty("id").GetString());
+        Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
+        Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
+        var panel = Assert.Single(pack.GetProperty("panelSet").EnumerateArray());
+        Assert.Equal("access-details", panel.GetProperty("id").GetString());
+        Assert.Equal("access.details", panel.GetProperty("labelKey").GetString());
+        Assert.Equal("panels.access-details.toggle", panel.GetProperty("binding").GetString());
+        Assert.Equal("mod+shift+a", panel.GetProperty("shortcut").GetString());
+        Assert.Equal(400, panel.GetProperty("defaultWidth").GetInt32());
+        Assert.Equal(300, panel.GetProperty("minimumHeight").GetInt32());
+        Assert.False(panel.GetProperty("defaultOpen").GetBoolean());
     }
 
     private static async Task GrantPackOperationToHostInstallerAsync(

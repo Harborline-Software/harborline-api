@@ -110,7 +110,7 @@ public sealed class UnattributedGrantCompositionTests
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", TargetGrant.ToString())))
         .Verdict;
 
-    private static async Task SeedAsync(IServiceProvider services, string binding)
+    internal static async Task SeedAsync(IServiceProvider services, string binding)
     {
         await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(Tenant, Now, AuthorizationSeedProfile.Production);
         await SeedPartyAsync(services, Tenant, "party-admin", Admin, "resolved");
@@ -171,7 +171,7 @@ public sealed class UnattributedGrantCompositionTests
         await context.SaveChangesAsync();
     }
 
-    private static async Task<Host> OpenAsync(string directory)
+    internal static async Task<Host> OpenAsync(string directory)
     {
         IServiceProvider? provider = null;
         using var key = KeyPair.Generate();
@@ -210,7 +210,7 @@ public sealed class UnattributedGrantCompositionTests
     {
         public Task<MemberRoster> ReadAsync(TenantId tenant, CancellationToken ct) => Task.FromResult(roster);
     }
-    private sealed class Host(IServiceProvider services) : IAsyncDisposable
+    internal sealed class Host(IServiceProvider services) : IAsyncDisposable
     {
         public IServiceProvider Services => services;
         public async ValueTask DisposeAsync()
