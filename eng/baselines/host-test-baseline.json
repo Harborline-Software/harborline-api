@@ -5,8 +5,8 @@
   "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3575,
-    "passed": 3557,
+    "total": 3581,
+    "passed": 3563,
     "failed": 0,
     "notExecuted": 18
   },
@@ -65,16 +65,11 @@
     "displayNamePrefix": "MTW-00C red: \u00e2\u20ac\u00a6 is missing"
   },
   "deltaFromPrevious": {
-    "previousTotals": {
-      "total": 3566,
-      "passed": 3548,
-      "failed": 0,
-      "notExecuted": 18
-    },
-    "change": "total 3566 -> 3575; passed 3548 -> 3557; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3566 + 9 = 3575; passed = total - notExecuted = 3575 - 18 = 3557."
+    "previousTotals": { "total": 3575, "passed": 3557, "failed": 0, "notExecuted": 18 },
+    "change": "total 3575 -> 3581; passed 3557 -> 3563; failed and notExecuted unchanged",
+    "cause": "ticket 296 slice 3: six genesis diagnostics cases (duplicate and foreign; adopted, refused/clear, restart)",
+    "detectedBy": "focused RosterPartialAdoptionTests; full host suite reserved for controller",
+    "arithmeticCrossCheck": "3575 + 6 = 3581; 3557 + 6 = 3563; 3581 - 18 = 3563."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
