@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -440,7 +440,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // ── IDeltaSink — inbound (merge a peer's delta, then reconcile + rebuild the live roster) ────────────
 
     /// <inheritdoc />
-    public ValueTask ApplyInboundDeltaAsync(
+    public async ValueTask ApplyInboundDeltaAsync(
         string documentId,
         ulong opSequence,
         ReadOnlyMemory<byte> delta,
@@ -453,7 +453,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 "Roster CRDT bridge dropped inbound delta {DocumentId} op {OpSequence}: {Reason}",
                 documentId, opSequence, result.Error?.Message);
         }
-        return ValueTask.CompletedTask;
+        await _projection.DrainPendingReconcilesAsync().WaitAsync(ct).ConfigureAwait(false);
     }
 
     // ── Merge → durable reconcile + live-roster rebuild ─────────────────────────────────────────────────
@@ -480,6 +480,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
             try
             {
+                var inboundRefusals = new List<RebuildRefusal>();
                 // (1) Durable reconcile — insert any record not already present (append-only, idempotent on id);
                 //     REFRESH the unsigned transport field on an already-present row whose carried key changed (the
                 //     INFO-2 backfill replace — same RecordId/signed payload, the transport key was filled in). This
@@ -491,6 +492,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .ConfigureAwait(false);
 
                     var toInsert = new List<NodeRosterRecord>();
+                    var refused = await VerifyBeforeInsertAsync(snapshot, existing, ct).ConfigureAwait(false);
+                    inboundRefusals.AddRange(refused.Values);
                     var changed = false;
                     foreach (var s in snapshot)
                     {
@@ -518,7 +521,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                             }
                             continue;
                         }
-                        toInsert.Add(NodeRosterRecord.FromCrdtState(s));
+                        if (refused.ContainsKey(s.RecordId)) continue;
+                        var inserted = NodeRosterRecord.FromCrdtState(s);
+                        toInsert.Add(inserted);
+                        existing.Add(s.RecordId, inserted);
                     }
                     if (toInsert.Count > 0)
                     {
@@ -537,9 +543,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 // (2) Live-roster rebuild — THE TRUST ANCHOR. Validate every record to genesis; drop forgeries.
                 var anchor = _nodeRoster is null ? null : await VerifiedTenantRosterReader.ReadGenesisAsync(
                     _contextFactory, _nodeRoster.Current.TeamId, _verifier, ct).ConfigureAwait(false);
-                var adopted = TryRebuildLiveRoster(snapshot, anchor);
-                if (adopted is not null)
-                    await ReconcileRefusalAuditAsync(adopted, snapshot, anchor, ct).ConfigureAwait(false);
+                var rejectedIds = inboundRefusals.Select(r => r.RecordId).ToHashSet(StringComparer.Ordinal);
+                var acceptedSnapshot = snapshot.Where(s => !rejectedIds.Contains(s.RecordId)).ToArray();
+                var adopted = TryRebuildLiveRoster(acceptedSnapshot, anchor);
+                await ReconcileRefusalAuditAsync(adopted, acceptedSnapshot, anchor, inboundRefusals, ct).ConfigureAwait(false);
 
                 // (3) Ticket 290 — fold the administrator-authority log back onto the live roster. A revocation
                 //     CONVERGED from a peer never passed through a local revocation authority, so this is its
@@ -851,17 +858,113 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         return rebuilt;
     }
 
+    // Reconstruct authority from durable evidence on every fold, including before cold-start hydration.
+    // Relax new admissions from their signers outward; the CRDT list order is not causal order.
+    private async Task<Dictionary<string, RebuildRefusal>> VerifyBeforeInsertAsync(
+        IReadOnlyList<RosterRecordCrdtState> snapshot, Dictionary<string, NodeRosterRecord> existing,
+        CancellationToken ct)
+    {
+        var refused = new Dictionary<string, RebuildRefusal>(StringComparer.Ordinal);
+        foreach (var tenant in snapshot.Where(s => !existing.ContainsKey(s.RecordId)).GroupBy(s => s.TeamId))
+        {
+            var pending = tenant.DistinctBy(s => s.RecordId).OrderBy(s => s.Kind)
+                .ThenBy(s => s.IssuedAtIso, StringComparer.Ordinal).ThenBy(s => s.NonceGuid, StringComparer.Ordinal).ToList();
+            var evidence = existing.Values.Where(r => r.TeamId == tenant.Key).Select(NodeRosterRecord.ToCrdtState).ToList();
+            var anchor = Guid.TryParse(tenant.Key, out var tenantId)
+                ? await VerifiedTenantRosterReader.ReadGenesisAsync(_contextFactory, tenantId, _verifier, ct).ConfigureAwait(false)
+                : null;
+            // No append precedence exists for simultaneous roots. Keep the existing unique-genesis rule.
+            var competingRoots = anchor is null && pending.Count(s => s.IsGenesis && s.ToAdmissionOrNull() is { } a
+                && MemberRoster.FromSyncedRecords([a], [], _verifier).HasRootGrantHolder()) > 1;
+            bool grew;
+            do
+            {
+                grew = false;
+                var remaining = new List<RosterRecordCrdtState>();
+                foreach (var candidate in pending)
+                {
+                    var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots);
+                    if (code is null)
+                    {
+                        evidence.Add(candidate);
+                        anchor ??= candidate.IsGenesis ? candidate.ToAdmissionOrNull() : null;
+                        grew = true;
+                    }
+                    else remaining.Add(candidate);
+                }
+                pending = remaining;
+            } while (grew && pending.Count > 0);
+            foreach (var candidate in pending)
+            {
+                var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots)!;
+                var report = new AuthorizationRefusal(code, "Roster record refused",
+                    "The record has no valid signature and eligible live signer in the durable genesis chain.",
+                    "Supply a signed record rooted in the durable genesis with the required authority.",
+                    JsonSerializer.Serialize(candidate));
+                refused[candidate.RecordId] = new RebuildRefusal(candidate.RecordId, report,
+                    candidate.Kind == RosterRecordKind.Revocation ? Permission.MembersRevoke : Permission.MembersAdmit,
+                    new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
+                    NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc);
+            }
+        }
+        return refused;
+    }
+
+    private string? VerifyInboundRecord(RosterRecordCrdtState candidate, List<RosterRecordCrdtState> evidence,
+        IEnumerable<RosterRecordCrdtState> incoming, MemberAdmissionRecord? anchor, bool competingRoots)
+    {
+        if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
+            || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
+        var admission = candidate.ToAdmissionOrNull();
+        var revocation = candidate.ToRevocationOrNull();
+        var signatureValid = admission is not null
+            ? RosterSigning.VerifyAdmission(tenant, admission.PartyId, admission.PublicKey, admission.Admission, _verifier)
+            : revocation is not null && RosterSigning.VerifyRevocation(tenant, revocation.RevokedPartyId, revocation.Signed, _verifier);
+        if (!signatureValid) return "roster.record.signature_invalid";
+        var canonicalId = admission is not null ? RosterRecordCrdtState.FromAdmission(admission).RecordId
+            : RosterRecordCrdtState.FromRevocation(revocation!).RecordId;
+        if (candidate.RecordId != canonicalId) return "roster.record.malformed";
+        if (admission?.Admission.IsGenesis == true)
+        {
+            if (anchor is not null || competingRoots) return "roster.genesis.duplicate";
+            return MemberRoster.FromSyncedRecords([admission], [], _verifier).HasRootGrantHolder()
+                ? null : "roster.record.chain_ineligible";
+        }
+        var admissions = evidence.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
+            .Where(a => !a.Admission.IsGenesis || a.Admission.Signature == anchor?.Admission.Signature).ToList();
+        if (admission is not null) admissions.Add(admission);
+        var at = admission?.Admission.IssuedAt ?? revocation!.Signed.IssuedAt;
+        var nonce = admission?.Admission.Nonce ?? revocation!.Signed.Nonce;
+        // Retain the rebuild's signed ordering in this slice; ticket 295 slice 3 owns its time bound.
+        var preceding = evidence.Concat(incoming).DistinctBy(s => s.RecordId)
+            .Select(s => s.ToRevocationOrNull()).OfType<MemberRevocationRecord>()
+            .Where(r => r.Signed.IssuedAt < at || (r.Signed.IssuedAt == at && r.Signed.Nonce.CompareTo(nonce) < 0));
+        var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier);
+        var permission = admission is not null ? Permission.MembersAdmit : Permission.MembersRevoke;
+        if (!chain.Contains(candidate.AdmittedByPartyId)
+            || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
+            || chain.PermissionsOf(candidate.AdmittedByPartyId)?.Contains(permission) != true)
+            return "roster.record.chain_ineligible";
+        if (admission is not null && !chain.EnumerateAdmissions().Any(a =>
+                a.PartyId == admission.PartyId && a.Admission.Signature == admission.Admission.Signature))
+            return "roster.record.chain_ineligible";
+        return null;
+    }
+
     private sealed record RebuildRefusal(string RecordId, AuthorizationRefusal Report, string Permission,
         ActorId Actor, TenantId Tenant, DateTimeOffset IssuedAt);
 
-    private async Task ReconcileRefusalAuditAsync(MemberRoster adopted, IReadOnlyList<RosterRecordCrdtState> snapshot,
-        MemberAdmissionRecord? anchor, CancellationToken ct)
+    private async Task ReconcileRefusalAuditAsync(MemberRoster? adopted, IReadOnlyList<RosterRecordCrdtState> snapshot,
+        MemberAdmissionRecord? anchor, List<RebuildRefusal> inboundRefusals, CancellationToken ct)
     {
         if (_refusalAudit?.Invoke() is not { } audit) return;
-        var refusals = adopted.RefusedRevocations.Select(refusal => new RebuildRefusal(
+        var refusals = (adopted?.RefusedRevocations ?? []).Select(refusal => new RebuildRefusal(
             RosterRecordCrdtState.FromRevocation(refusal.Revocation).RecordId, RefusalReport(refusal), Permission.MembersRevoke,
             new ActorId(refusal.Revocation.Signed.RevokedByPartyId), new TenantId(refusal.Revocation.TeamId),
             refusal.Revocation.Signed.IssuedAt)).ToList();
+        refusals.AddRange(inboundRefusals);
+        if (adopted is null)
+            refusals.AddRange(_reportedRefusals.Values);
         if (anchor is not null)
             foreach (var candidate in snapshot.Where(s => s.Kind == RosterRecordKind.Admission && s.IsGenesis
                          && s.TeamId == anchor.TeamId && s.SignatureB64Url != anchor.Admission.Signature))
