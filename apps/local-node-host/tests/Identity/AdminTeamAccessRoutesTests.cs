@@ -82,6 +82,26 @@ public sealed class AdminTeamAccessRoutesTests
         Assert.Contains("admin_access_denied", response.Body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task List_Members_Exposes_Unattributed_Grant_And_Reason()
+    {
+        var authority = new RecordingAuthority
+        {
+            Members = new AdminTeamMembersResult([
+                new TeamMemberView("UNATTRIBUTED", TeamMemberSource.Unattributed,
+                    ["members:manage"], "grant-unresolved", "No unique live party binding in this tenant.")]),
+        };
+        var response = await InvokeGetAsync(AdminTeamAccessRoutes.MembersPath, authority);
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        using var json = System.Text.Json.JsonDocument.Parse(response.Body);
+        var row = Assert.Single(json.RootElement.GetProperty("members").EnumerateArray());
+        Assert.Equal("UNATTRIBUTED", row.GetProperty("partyId").GetString());
+        Assert.Equal("unattributed", row.GetProperty("source").GetString());
+        Assert.Equal("grant-unresolved", row.GetProperty("grantId").GetString());
+        Assert.Equal("members:manage", Assert.Single(row.GetProperty("capabilities").EnumerateArray()).GetString());
+        Assert.Equal("No unique live party binding in this tenant.", row.GetProperty("attributionFailure").GetString());
+    }
+
     // --- list invitations ---------------------------------------------------------------------
 
     [Fact]

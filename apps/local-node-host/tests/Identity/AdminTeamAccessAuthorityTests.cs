@@ -147,7 +147,7 @@ public sealed class AdminTeamAccessAuthorityTests
     }
 
     [Fact]
-    public async Task Missing_Canonical_Party_Records_Refusal_Before_Act_Writes()
+    public async Task Missing_Canonical_Party_Revokes_Grant_With_The_Same_Audited_Decision()
     {
         var captures = new BoundaryCaptures();
         await using var fixture = await Fixture.CreateAsync(
@@ -155,14 +155,14 @@ public sealed class AdminTeamAccessAuthorityTests
 
         var result = await fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId);
 
-        Assert.Equal(AdminRevokeMemberStatus.NotFound, result?.Status);
-        Assert.Empty(captures.GrantWriterDecisions);
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result?.Status);
+        var decision = Assert.Single(captures.GrantWriterDecisions);
         Assert.Empty(captures.RosterWriterDecisions);
-        Assert.Equal(new AuditEventType("CapabilityRevocationRefused"),
+        Assert.Equal(AuditEventType.CapabilityRevoked,
             Assert.Single(captures.GrantAudit.Records).EventType);
-        Assert.Single(captures.GrantAudit.Decisions);
+        Assert.Same(decision, Assert.Single(captures.GrantAudit.Decisions));
         await using var grants = fixture.GrantFactory.CreateDbContext();
-        Assert.Null((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
+        Assert.NotNull((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
     }
 
     [Fact]
@@ -495,6 +495,57 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.DoesNotContain("inv-consumed", ids);
         Assert.DoesNotContain("inv-revoked", ids);
         Assert.DoesNotContain("inv-expired", ids);
+    }
+
+    [Fact]
+    public async Task Unattributed_Administrator_Can_Hand_Over_Without_A_Roster_Write()
+    {
+        var captures = new BoundaryCaptures();
+        await using var fixture = await Fixture.CreateAsync(
+            PermissionCompositions.Admin, captures: captures, omitTargetParty: true);
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+        var result = await fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, successorPrincipalId: "principal-third");
+        Assert.Equal(AdminRevokeMemberStatus.HandedOver, result?.Status);
+        Assert.Empty(captures.RosterWriterDecisions);
+        var decision = Assert.Single(captures.GrantWriterDecisions);
+        Assert.Equal(2, captures.GrantAudit.Decisions.Count);
+        Assert.All(captures.GrantAudit.Decisions, audit => Assert.Same(decision, audit));
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        Assert.NotNull((await grants.Grants.SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
+        Assert.Equal("principal-third", (await grants.Grants.SingleAsync(g => g.GrantId == result!.SuccessorGrantId)).SubjectId);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Ejection_Refuses_Both_Key_Spaces_Before_Live_Edge_Or_Grant(
+        bool ejectedPrincipal, bool otherKeyHasLiveEdge)
+    {
+        using var founder = KeyPair.Generate();
+        using var removed = KeyPair.Generate();
+        using var other = KeyPair.Generate();
+        var signer = new Ed25519Signer(founder);
+        var verifier = new Ed25519Verifier();
+        var ejected = ejectedPrincipal ? "principal-web" : "party-web";
+        var alternate = ejectedPrincipal ? "party-web" : "principal-web";
+        var roster = MemberRoster.Genesis(Guid.Parse(TenantId), "founder", signer, verifier, Now, Guid.NewGuid())
+            .Admit("founder", signer, ejected, removed.PrincipalId,
+                PermissionCompositions.Admin, verifier, Now, Guid.NewGuid());
+        if (otherKeyHasLiveEdge)
+            roster = roster.Admit("founder", signer, alternate, other.PrincipalId,
+                PermissionCompositions.Admin, verifier, Now, Guid.NewGuid());
+        roster = roster.Revoke("founder", ejected);
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+        var closure = new GrantDerivedClosure(new NodeEfGrantStore(fixture.GrantFactory));
+        var principal = new ActorId("principal-web");
+        Assert.Null(await EffectiveMemberPermissions.ResolveAsync(
+            closure, roster, "party-web", new TenantId(TenantId), principal, Now, CancellationToken.None));
+        Assert.False(EffectiveMemberPermissions.AnAdministratorGrantWouldConferMembersManage(
+            roster, "party-web", principal));
     }
 
     private sealed class Fixture : IAsyncDisposable

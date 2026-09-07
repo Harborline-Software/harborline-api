@@ -49,16 +49,12 @@ internal static class EffectiveMemberPermissions
         ArgumentNullException.ThrowIfNull(authorization);
         ArgumentNullException.ThrowIfNull(roster);
 
+        if (IsEjected(roster, partyId, principal)) return null;
+
         var rosterPermissions = roster.PermissionsOf(partyId);
         if (rosterPermissions is not null)
         {
             return rosterPermissions;
-        }
-
-        if (roster.EnumerateAdmissions().Any(admission =>
-                string.Equals(admission.PartyId, partyId, StringComparison.Ordinal)))
-        {
-            return null;
         }
 
         var atoms = await authorization
@@ -78,9 +74,12 @@ internal static class EffectiveMemberPermissions
     /// members:manage, and a party the roster has ejected, cannot be made an administrator by grant alone.
     /// A roster-ABSENT party reads their permissions from the closure, which the minted grant supplies.
     /// </summary>
-    internal static bool AnAdministratorGrantWouldConferMembersManage(MemberRoster roster, string partyId)
+    internal static bool AnAdministratorGrantWouldConferMembersManage(
+        MemberRoster roster, string partyId, ActorId principal)
     {
         ArgumentNullException.ThrowIfNull(roster);
+
+        if (IsEjected(roster, partyId, principal)) return false;
 
         var rosterPermissions = roster.PermissionsOf(partyId);
         return rosterPermissions is not null
@@ -88,4 +87,12 @@ internal static class EffectiveMemberPermissions
             : !roster.EnumerateAdmissions().Any(admission =>
                 string.Equals(admission.PartyId, partyId, StringComparison.Ordinal));
     }
+
+    // During the identity migration, either existing key can carry the signed removal. Check the
+    // principal the gate reads as well as the canonical party, before accepting any live edge or grant.
+    private static bool IsEjected(MemberRoster roster, string partyId, ActorId principal) =>
+        roster.EnumerateAdmissions().Any(admission =>
+            (string.Equals(admission.PartyId, partyId, StringComparison.Ordinal)
+                || string.Equals(admission.PartyId, principal.Value, StringComparison.Ordinal))
+            && roster.PermissionsOf(admission.PartyId) is null);
 }
