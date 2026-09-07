@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "34ae2aa6535825e6cdc1902d979f4dcaf7bc5aba",
-  "recordedAt": "2026-09-05T00:00:00Z",
+  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
+  "recordedAt": "2026-09-07T00:00:00Z",
   "totals": {
-    "total": 3510,
-    "passed": 3492,
+    "total": 3538,
+    "passed": 3520,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3494,
-      "passed": 3476,
+      "total": 3510,
+      "passed": 3492,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3494 -> 3510; passed 3476 -> 3492; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3494 + 16 = 3510; passed = total - notExecuted = 3510 - 18 = 3492."
+    "change": "total 3526 -> 3538; passed 3508 -> 3520; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "Ticket 296 adds the 12 DurableGenesisBootTests cases on top of the public main that already carries 291 slice 2 (3510 + 16 = 3526). Merge of origin/main into feat/296-genesis-read-back before landing.",
+    "detectedBy": "controller merge: main 3526 (291 s2 landed, #9) + the 12 cases 296 adds = 3538; the exact-clone gate in land.sh verifies the count.",
+    "arithmeticCrossCheck": "3526 + 12 = 3538; passed = total - notExecuted = 3538 - 18 = 3520."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

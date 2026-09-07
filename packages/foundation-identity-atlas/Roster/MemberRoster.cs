@@ -29,9 +29,9 @@ namespace Harborline.Api.Foundation.IdentityAtlas;
 ///   <item><b>No-escalation</b> — an admit/grant may only confer a permission set that is a subset of the
 ///     admitter's currently-held set (<see cref="PermissionSet.IsSubsetOf"/>). Enforced in
 ///     <see cref="Admit"/> / <see cref="Grant"/>.</item>
-///   <item><b>No-bricking floor</b> — the set {<c>grant:permissions</c>, <c>org:transfer-ownership</c>} must
-///     always have ≥1 holder; the last holder cannot be removed without first transferring. Enforced in
-///     <see cref="Revoke"/> / <see cref="Grant"/>.</item>
+///   <item><b>Signed no-bricking floor</b> - at least one member's signed AND live sets must hold
+///     <c>grant:permissions</c>, <c>org:transfer-ownership</c>, and <c>members:admit</c>.
+///     Local grants cannot supply signed evidence; removal requires a successor that still holds it live.</item>
 ///   <item><b>Genesis-immutable vs live-mutable</b> — revoking all of a member's permissions (or removing
 ///     them) does NOT remove their admission from the chain; the genesis member in particular cannot be
 ///     un-genesised. The chain still verifies; the live permission set is what mutates.</item>
@@ -50,6 +50,13 @@ namespace Harborline.Api.Foundation.IdentityAtlas;
 /// </remarks>
 public sealed class MemberRoster
 {
+    /// <summary>Stable code for a roster change refused by the signed and live authority floor.</summary>
+    public const string NoBrickingFloorCode = "roster.revocation.no_bricking_floor";
+
+    /// <summary>Floor refusals from this rebuild, carrying the original signed removal evidence.</summary>
+    public IReadOnlyList<RosterRevocationRefusal> RefusedRevocations { get; private set; } =
+        Array.Empty<RosterRevocationRefusal>();
+
     private readonly Guid _teamId;
 
     // LIVE membership state — the mutable set (admit/revoke/grant). What HasPermission + the trust gate read.
@@ -365,7 +372,7 @@ public sealed class MemberRoster
     /// <summary>
     /// Re-set a member's live permission set (the <c>grant:permissions</c> primitive). Returns a NEW roster.
     /// Enforces NO-ESCALATION (the new set ⊆ the granter's held set) and the NO-BRICKING FLOOR (the change may
-    /// not remove the last holder of {grant:permissions, org:transfer-ownership}). Throws
+    /// not remove the last signed and live holder of {grant:permissions, org:transfer-ownership, members:admit}). Throws
     /// <see cref="RosterGuardException"/> on violation. Does NOT alter the admission chain (the member stays
     /// rooted; only their LIVE permissions change).
     /// </summary>
@@ -410,7 +417,8 @@ public sealed class MemberRoster
         {
             throw new RosterGuardException(
                 "No-bricking floor violated: the change would remove the last holder of the root-grant "
-                + $"({Permission.GrantPermissions} + {Permission.OrgTransferOwnership}).");
+                + $"({Permission.GrantPermissions} + {Permission.OrgTransferOwnership} + {Permission.MembersAdmit}).",
+                NoBrickingFloorCode);
         }
         return candidate;
     }
@@ -452,7 +460,8 @@ public sealed class MemberRoster
         {
             throw new RosterGuardException(
                 "No-bricking floor violated: cannot revoke the last holder of the root-grant "
-                + $"({Permission.GrantPermissions} + {Permission.OrgTransferOwnership}) — transfer ownership first.");
+                + $"({Permission.GrantPermissions} + {Permission.OrgTransferOwnership} + {Permission.MembersAdmit}) "
+                + "- transfer ownership first.", NoBrickingFloorCode);
         }
         return candidate;
     }
@@ -528,12 +537,17 @@ public sealed class MemberRoster
         return reachable.Count == _admissionLog.Count;
     }
 
-    /// <summary>True iff ≥1 current member holds BOTH parts of the root-grant (the no-bricking floor invariant).
-    /// </summary>
+    /// <summary>True iff a member holds all three root-authority atoms in BOTH its signed admission
+    /// and its live permissions. A local grant cannot supply missing signed evidence.</summary>
     public bool HasRootGrantHolder() =>
-        _byParty.Values.Any(m =>
-            m.Permissions.Contains(Permission.GrantPermissions) &&
-            m.Permissions.Contains(Permission.OrgTransferOwnership));
+        _byParty.Values.Any(member => HoldsRootGrant(member.Permissions)
+            && _admissionLog.TryGetValue(member.PartyId, out var entry)
+            && HoldsRootGrant(PermissionSet.From(entry.Admission.Permissions ?? Array.Empty<string>())));
+
+    private static bool HoldsRootGrant(PermissionSet signedPermissions) =>
+        signedPermissions.Contains(Permission.GrantPermissions)
+        && signedPermissions.Contains(Permission.OrgTransferOwnership)
+        && signedPermissions.Contains(Permission.MembersAdmit);
 
     // ── ROSTER-SYNC (gap #1): emit syncable records + reconstruct a validated roster from peer records ────────
 
@@ -830,9 +844,7 @@ public sealed class MemberRoster
         // Require the signed root-authority floor, independent of additions to the Owner composition.
         var signedGenesisPermissions = PermissionSet.From(genesis.Admission.Permissions ?? Array.Empty<string>());
         if (!genesis.Permissions.Equals(signedGenesisPermissions)
-            || !signedGenesisPermissions.Contains(Permission.GrantPermissions)
-            || !signedGenesisPermissions.Contains(Permission.OrgTransferOwnership)
-            || !signedGenesisPermissions.Contains(Permission.MembersAdmit))
+            || !HoldsRootGrant(signedGenesisPermissions))
         {
             return Empty();
         }
@@ -972,6 +984,8 @@ public sealed class MemberRoster
 
         var rebuilt = new MemberRoster(teamId, live, log, genesis.PartyId);
 
+        var refusedRevocations = new List<RosterRevocationRefusal>();
+
         // (4) Apply each VALID, authorized revocation — drop the target from LIVE state (chain untouched).
         // Process in IssuedAt order so a revoke-then-readmit (different nonce/time) converges deterministically.
         foreach (var rev in revocationList
@@ -984,12 +998,13 @@ public sealed class MemberRoster
             {
                 rebuilt = rebuilt.Revoke(rev.Signed.RevokedByPartyId, rev.RevokedPartyId);
             }
-            catch (RosterGuardException)
+            catch (RosterGuardException ex) when (ex.Code == NoBrickingFloorCode)
             {
-                // A revocation that would violate the no-bricking floor is rejected — keep the member.
+                refusedRevocations.Add(new RosterRevocationRefusal(ex.Code, rev));
             }
         }
 
+        rebuilt.RefusedRevocations = refusedRevocations.AsReadOnly();
         return rebuilt;
     }
 
@@ -1126,5 +1141,13 @@ public sealed record MemberRevocationRecord(
 public sealed class RosterGuardException : Exception
 {
     /// <summary>Construct with the guard-violation message.</summary>
-    public RosterGuardException(string message) : base(message) { }
+    public RosterGuardException(string message, string? code = null) : base(message) { Code = code; }
+
+    /// <summary>Stable refusal code where the guard has a classified outcome.</summary>
+    public string? Code { get; }
 }
+
+/// <summary>A floor refusal produced while folding a verified signed revocation.</summary>
+/// <param name="Code">The guard's stable refusal code.</param>
+/// <param name="Revocation">The signed removal that was refused; its target remains live.</param>
+public sealed record RosterRevocationRefusal(string Code, MemberRevocationRecord Revocation);
