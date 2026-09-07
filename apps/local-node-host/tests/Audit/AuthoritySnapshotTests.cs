@@ -752,7 +752,7 @@ public sealed class AuthoritySnapshotTests
 
     private static string ReadSourceMethod(AuditAppendCallSite site)
     {
-        var path = Path.Combine(RepositoryRoot(), site.File.Replace('/', Path.DirectorySeparatorChar));
+        var path = AuditAppendSymbolInventory.ResolveSourcePath(site.File);
         var source = File.ReadAllText(path);
         var lines = source.Split('\n');
         var callOffset = lines.Take(Math.Max(0, site.Line - 1)).Sum(line => line.Length + 1);
@@ -793,19 +793,6 @@ public sealed class AuthoritySnapshotTests
             }
         }
         return arguments;
-    }
-
-    private static string RepositoryRoot([System.Runtime.CompilerServices.CallerFilePath] string file = "")
-    {
-        var directory = new DirectoryInfo(Path.GetDirectoryName(file)!);
-        while (directory is not null)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, "apps"))
-                && Directory.Exists(Path.Combine(directory.FullName, "packages")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException();
     }
 
     internal sealed class MutableDecisionSource(params (string GrantId, long OwnerVersion)[] pins) :

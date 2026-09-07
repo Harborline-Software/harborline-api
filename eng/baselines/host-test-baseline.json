@@ -3,10 +3,15 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
-  "recordedAt": "2026-09-07T00:00:00Z",
+  "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
+<<<<<<< HEAD
     "total": 3551,
     "passed": 3533,
+=======
+    "total": 3539,
+    "passed": 3521,
+>>>>>>> origin/main
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,6 +71,7 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
+<<<<<<< HEAD
       "total": 3546,
       "passed": 3528,
       "failed": 0,
@@ -75,6 +81,17 @@
     "cause": "Ticket 296 slice 2 fix 1 adds three RosterPartialAdoptionTests facts and two RosterAuthorizationBoundaryArchTests formatting theory cases. No existing test is removed or skipped.",
     "detectedBy": "Focused filters discover the five new cases; each has a recorded pre-fix red. Full-suite totals are arithmetic; the controller gate must verify them.",
     "arithmeticCrossCheck": "3546 + 5 = 3551; passed = total - notExecuted = 3551 - 18 = 3533."
+=======
+      "total": 3538,
+      "passed": 3520,
+      "failed": 0,
+      "notExecuted": 18
+    },
+    "change": "total 3538 -> 3539; passed 3520 -> 3521; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
+    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
+    "arithmeticCrossCheck": "3538 + 1 = 3539; passed = total - notExecuted = 3539 - 18 = 3521."
+>>>>>>> origin/main
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

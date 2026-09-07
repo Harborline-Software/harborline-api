@@ -45,10 +45,10 @@
   "devDependencies": {
     "@typescript/native": "npm:typescript@^7.0.2",
     "ajv": "^8.17.1",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.69.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "license": "Apache-2.0",
   "repository": {
