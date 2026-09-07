@@ -43,7 +43,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
             ["--LocalNode:RootSeedHex=" + seed, "--LocalNode:TeamId=" + tenant,
              "--LocalNode:StoreDekHex=" + (recoverable ? Dek : ""),
              "--LocalNode:MultiTeam:Enabled=false", "--LocalNode:Sync:ListenForPeers=true",
-             "--LocalNode:Sync:BindAddress=tcp://127.0.0.1:7309", "--urls=http://127.0.0.1:7308"],
+             "--LocalNode:Sync:BindAddress=tcp://127.0.0.1:7299", "--urls=http://127.0.0.1:7298"],
             sessionTokenOverride: "s296-composition", dataDirectory: _directory,
             installFootprintRootOverride: _directory, genesisAccountName: account,
             finalServiceRegistration: services =>
@@ -263,7 +263,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         }
         var before = JsonSerializer.Serialize(await RowsAsync());
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DurableGenesisIdentity.ReadAsync(
-            factory, Guid.Parse(Tenant), signer.Signer.IssuerId, new VersionTwoAdmissionVerifier(),
+            factory, Guid.Parse(Tenant), signer.Signer.IssuerId, new Ed25519Verifier(),
             CancellationToken.None));
         Assert.StartsWith("genesis_log_legacy_format:", error.Message);
         Assert.Contains("Re-initialise this development install", error.Message);
@@ -271,26 +271,6 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         Assert.Contains("restart to mint a new genesis or re-enrol through a current member", error.Message);
         Assert.Contains("A pre-291 backup has the same version-1 signatures and cannot repair this format break", error.Message);
         Assert.Equal(before, JsonSerializer.Serialize(await RowsAsync()));
-    }
-
-    // This branch predates 291. Apply its version-2 envelope for this diagnostic test only.
-    // This still performs real Ed25519 verification; on post-291 code the envelope is unchanged.
-    private sealed class VersionTwoAdmissionVerifier : IOperationVerifier
-    {
-        public bool Verify<T>(SignedOperation<T> op)
-        {
-            if (op.Payload is not AdmissionRecord admission) return new Ed25519Verifier().Verify(op);
-            var payload = new
-            {
-                admission.TeamId, admission.AdmittedPartyId, admission.AdmittedPublicKey,
-                admission.AdmittedByPartyId, admission.AdmittedByPublicKey, admission.IsGenesis,
-                admission.AdmittedDmPublicKey, admission.AdmittedXWingPublicKey,
-                admission.AdmittedViaTokenId, admission.AdmittedUnderSessionEvidence,
-                AdmittedPermissions = PermissionCompositions.Owner.Permissions, FormatVersion = 2
-            };
-            return new Ed25519Verifier().Verify(new SignedOperation<object>(payload,
-                op.IssuerId, op.IssuedAt, op.Nonce, op.Signature));
-        }
     }
 
     [Fact]

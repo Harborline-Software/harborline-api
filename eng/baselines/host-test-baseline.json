@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
-  "recordedAt": "2026-09-05T00:00:00Z",
+  "recordedAt": "2026-09-07T00:00:00Z",
   "totals": {
-    "total": 3510,
-    "passed": 3492,
+    "total": 3522,
+    "passed": 3504,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3494,
-      "passed": 3476,
+      "total": 3510,
+      "passed": 3492,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3494 -> 3510; passed 3476 -> 3492; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3494 + 16 = 3510; passed = total - notExecuted = 3510 - 18 = 3492."
+    "change": "total 3510 -> 3522; passed 3492 -> 3504; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "Ticket 296 adds the 12 DurableGenesisBootTests cases on public main. This rebase fix adds no tests. Expected total rises by 12; permitted failures remain zero and the 18 existing skips remain unchanged.",
+    "detectedBy": "Controller ss296-suite.log at 964bc4e79d239aae198355d764fbc15ca2e7937a observed 3522 total, 3496 passed, 8 failed, 18 skipped. The eight named failures pass in s296-rebase-eight.log after the pooling fix and MTW-00A regeneration. The expected 3504 passing count is arithmetic, not a claimed fresh full-suite result; exact-clone must verify it.",
+    "arithmeticCrossCheck": "3510 + 12 = 3522; passed = total - notExecuted = 3522 - 18 = 3504."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

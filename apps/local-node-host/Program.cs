@@ -492,12 +492,12 @@ string capturedGenesisTeamId = string.Empty;
 string capturedGenesisPartyId = string.Empty;
 var sqlitePath = Path.Combine(
     localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"), "local-node.db");
-void AddInstallStore(IServiceCollection services)
+void AddInstallStore(IServiceCollection services, bool pooling = true)
 {
     if (!string.IsNullOrWhiteSpace(localNodeOptions.StoreDekHex))
-        services.AddSqlCipherLocalNodeDbContextWithStoreDek(keyHierarchy.AtRestRootKey.Span, sqlitePath);
+        services.AddSqlCipherLocalNodeDbContextWithStoreDek(keyHierarchy.AtRestRootKey.Span, sqlitePath, pooling);
     else
-        services.AddSqlCipherLocalNodeDbContext(rootSeed, sqlitePath, sqlCipherKeyDerivation);
+        services.AddSqlCipherLocalNodeDbContext(rootSeed, sqlitePath, sqlCipherKeyDerivation, pooling);
 }
 {
     var genesisSigner = new Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner(rootSeed);
@@ -521,7 +521,9 @@ void AddInstallStore(IServiceCollection services)
     // A renamed account is not a new principal: only a tenant without a log consults the shell.
     MemberRoster? storedGenesisRoster;
     var genesisStoreServices = new ServiceCollection();
-    AddInstallStore(genesisStoreServices);
+    // This short-lived probe owns its native connections: disposing its contexts must close
+    // the file even when later composition refuses startup, before a host owns the store.
+    AddInstallStore(genesisStoreServices, pooling: false);
     await using (var genesisStore = genesisStoreServices.BuildServiceProvider())
         storedGenesisRoster = await DurableGenesisIdentity.ReadAsync(
             genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
