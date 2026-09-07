@@ -9,6 +9,8 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Crdt.Backends;
 using Harborline.Api.LocalNodeHost.Data.Roster;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 
@@ -21,6 +23,90 @@ public sealed class RosterPartialAdoptionTests
     private static readonly IOperationVerifier Verifier = new Ed25519Verifier();
     private static PermissionSet Floor => PermissionSet.Of(Permission.GrantPermissions,
         Permission.OrgTransferOwnership, Permission.MembersAdmit);
+
+    [Fact]
+    public async Task DuplicateGenesisDoesNotSilenceUnrelatedOrphan()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.PoisonAsync();
+        var outsider = new Ed25519Signer(KeyPair.Generate());
+        var unrelated = MemberRoster.Genesis(Tenant, "missing-root", outsider, Verifier, At, Guid.NewGuid())
+            .Admit("missing-root", outsider, "forged-member", KeyPair.Generate().PrincipalId,
+                Floor, Verifier, At, Guid.NewGuid());
+        await f.PublishAsync(RosterRecordCrdtState.FromAdmission(
+            unrelated.EnumerateAdmissions().Single(a => !a.Admission.IsGenesis)));
+        var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, default));
+        Assert.Equal(VerifiedTenantRosterRefusal.Orphan,
+            Assert.IsType<VerifiedTenantRosterRefusedException>(error.InnerException).Refusal);
+    }
+
+    [Fact]
+    public async Task BootRefusesEarlierHostileGenesisEvenWhenItAdmitsDerivedPrincipal()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var hostile = MemberRoster.Genesis(Tenant, "hostile", f.Attacker, Verifier, At, Guid.NewGuid())
+            .Admit("hostile", f.Attacker, "copied-public-key", f.Founder.IssuerId,
+                Floor, Verifier, At, Guid.NewGuid());
+        var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.RosterRecords.RemoveRange(await db.RosterRecords.ToListAsync());
+            await db.SaveChangesAsync();
+            // Deliberately invert durable append order; the attacker's chain names our PUBLIC key.
+            foreach (var admission in hostile.EnumerateAdmissions().Concat(f.Valid.EnumerateAdmissions()))
+            {
+                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)));
+                await db.SaveChangesAsync();
+            }
+        }
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DurableGenesisIdentity.ReadAsync(factory, Tenant, f.Founder.IssuerId, Verifier, default));
+        Assert.Contains(DurableGenesisIdentity.InvalidLogCode, error.Message);
+        Assert.Equal(VerifiedTenantRosterRefusal.MultipleGenesis,
+            Assert.IsType<VerifiedTenantRosterRefusedException>(error.InnerException).Refusal);
+    }
+
+    [Fact]
+    public async Task MalformedDuplicateIsAuditedOnceAndFoldCompletes()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var poison = MemberRoster.Genesis(Tenant, "poison", f.Attacker, Verifier, At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(poison.EnumerateAdmissions().Single())
+            with { IssuedAtIso = "not-a-date" };
+        var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            foreach (var party in new[] { "founder", "peer" })
+            {
+                var tip = await db.AdministratorAuthority.OrderByDescending(r => r.Sequence).FirstOrDefaultAsync();
+                var record = new AdministratorAuthorityRecord
+                {
+                    Sequence = (tip?.Sequence ?? 0) + 1, TeamId = Tenant.ToString("D"), PartyId = party,
+                    Event = AdministratorAuthorityEvent.Established, Provenance = AdministratorProvenance.Recovery,
+                    MemberPublicKey = "cHVibGljLWtleQ", AdmissionSignature = "c2lnbmF0dXJl",
+                    AdmittedByPublicKey = "cHVibGljLWtleQ", AdmittedByPartyId = party,
+                    OccurredAtUtc = At, Reason = "test-seed", PreviousHash = tip?.Hash ?? AdministratorAuthorityRecord.ZeroHash,
+                    Hash = string.Empty,
+                };
+                record.Hash = AdministratorAuthorityRecord.ComputeHash(record);
+                db.AdministratorAuthority.Add(record);
+                await db.SaveChangesAsync();
+            }
+        }
+        await f.MergeAsync([candidate, RosterRecordCrdtState.FromRevocation(f.Removal("peer"))]);
+        await f.Projection.ReconcileAsync(default);
+        Assert.False(f.Live.Current.Contains("peer"));
+        await using var check = await factory.CreateDbContextAsync();
+        var removal = Assert.Single(await check.AdministratorAuthority.Where(r => r.PartyId == "peer"
+            && r.Event != AdministratorAuthorityEvent.Established).ToListAsync());
+        Assert.Equal(RosterCrdtProjection.RosterRevocationRemovalReason, removal.Reason);
+        var row = Assert.Single(await f.RowsAsync());
+        Assert.Equal("AuthorizationRefused", row.EventType.Value);
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(row.Payload.Payload.Body));
+        Assert.Equal("roster.genesis.duplicate", body.RootElement.GetProperty("code").GetString());
+    }
 
     [Fact]
     public async Task ValidChainRevocationConvergesDespiteBackdatedSecondGenesis()
@@ -182,6 +268,9 @@ public sealed class RosterPartialAdoptionTests
             services.AddSingleton<IOperationSigner>(Founder);
             services.AddSingleton(_trail);
             services.AddAuthorizationRefusalAudit();
+            services.AddSingleton(sp => new NodeAdministratorAuthority(
+                sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
+                TimeProvider.System, TestAuthorization.AllowGate()));
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }

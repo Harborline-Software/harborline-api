@@ -870,7 +870,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         "The durable log already names an earlier verified genesis.",
                         "Remove the duplicate candidate; keep the chain rooted in the durable genesis.", JsonSerializer.Serialize(candidate)),
                     Permission.MembersAdmit, new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
-                    DateTimeOffset.Parse(candidate.IssuedAtIso, System.Globalization.CultureInfo.InvariantCulture)));
+                    NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc));
         var current = refusals.GroupBy(
             refusal => (refusal.RecordId, refusal.Report.Code))
             .ToDictionary(group => group.Key, group => group.First());

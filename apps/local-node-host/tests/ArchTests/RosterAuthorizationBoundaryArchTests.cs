@@ -21,6 +21,18 @@ public sealed class RosterAuthorizationBoundaryArchTests
         @"\.\s*(?:ExecuteSql(?:Raw|Interpolated)?|FromSql(?:Raw|Interpolated)?)(?:Async)?\s*\(",
         RegexOptions.Compiled);
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GenesisReadExemptionIgnoresSourceFormatting(bool moveLine)
+    {
+        var root = NodeHostProjectRoot();
+        var file = Path.Combine(root, "Data", "Roster", "VerifiedTenantRosterReader.cs");
+        var source = File.ReadAllText(file);
+        var formatted = moveLine ? "\n" + source : source.Replace("            $", "\t$");
+        Assert.False(HasRosterRawSql(RosterFenceSource(file, root, formatted)));
+    }
+
     [Fact(DisplayName = "AM-16/G1: NodeRosterRecord deletion has one owner and two scoped predicates")]
     public void NodeRosterRecord_Deletion_Is_Only_Scoped_In_RosterProjection()
     {
@@ -176,22 +188,21 @@ public sealed class RosterAuthorizationBoundaryArchTests
         RawSqlCall.IsMatch(source)
             && source.Contains("roster_records", StringComparison.OrdinalIgnoreCase);
 
-    private static string RosterFenceSource(string file, string root)
+    private static string RosterFenceSource(string file, string root, string? sourceOverride = null)
     {
-        var source = File.ReadAllText(file);
+        var source = sourceOverride ?? File.ReadAllText(file);
         if (Path.GetRelativePath(root, file).Replace('\\', '/') != "Data/Roster/VerifiedTenantRosterReader.cs")
             return CodeOnly(source);
 
-        // Classified read, ticket 296: this exact file/symbol/line reads the existing append order.
+        // Classified read, ticket 296: this exact file/symbol reads the existing append order.
         // Discover the call through Roslyn and require the complete parameterized SELECT, not a SQL prefix.
         // Any changed SQL, extra call, moved owner or deletion still fails the same production fence.
         var tree = CSharpSyntaxTree.ParseText(source);
         var read = Assert.Single(tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>(),
             call => call.Expression.ToString() == "db.RosterRecords.FromSql");
         Assert.Equal("ReadGenesisAsync", read.Ancestors().OfType<MethodDeclarationSyntax>().First().Identifier.ValueText);
-        Assert.Equal(39, tree.GetLineSpan(read.Span).StartLinePosition.Line + 1);
         Assert.Equal("db.RosterRecords.FromSql($\"SELECT * FROM roster_records WHERE team_id = {team} AND kind = 0 AND is_genesis = 1 ORDER BY rowid\")",
-            read.WithoutTrivia().ToString().Replace("\r", "").Replace("\n", "").Replace("            $", "$"));
+            string.Concat(read.DescendantTokens().Select(token => token.Text)));
         return CodeOnly(source.Remove(read.SpanStart, read.Span.Length));
     }
 

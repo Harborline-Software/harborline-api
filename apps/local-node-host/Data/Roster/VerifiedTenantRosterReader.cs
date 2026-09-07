@@ -27,10 +27,10 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
     /// <inheritdoc />
     public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => ReadCoreAsync(team, false, ct);
 
-    internal Task<MemberRoster> ReadPartialAsync(TenantId team, CancellationToken ct) => ReadCoreAsync(team, true, ct);
+    internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal, CancellationToken ct) => ReadCoreAsync(team, true, ct, derivedPrincipal);
 
     // The existing SQLite append log supplies precedence, not a peer-controlled issuance time or a shell value.
-    // Re-read on every fold and restart; no process-local anchor or new durable state is required.
+    // Boot also requires install-signed root evidence below; append order alone cannot authenticate an install.
     internal static async Task<MemberAdmissionRecord?> ReadGenesisAsync(
         IDbContextFactory<NodeLocalRosterDbContext> factory, Guid tenant, IOperationVerifier verifier, CancellationToken ct)
     {
@@ -48,7 +48,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         return null;
     }
 
-    private async Task<MemberRoster> ReadCoreAsync(TenantId team, bool partial, CancellationToken ct)
+    private async Task<MemberRoster> ReadCoreAsync(TenantId team, bool partial, CancellationToken ct, PrincipalId? derivedPrincipal = null)
     {
         if (team.IsSystemSentinel || string.IsNullOrWhiteSpace(team.Value) || !Guid.TryParse(team.Value, out var teamId))
         {
@@ -133,6 +133,12 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         }
 
         var anchor = partial ? await ReadGenesisAsync(_contextFactory, teamId, _verifier, ct).ConfigureAwait(false) : null;
+        // An admission can name our public key without our consent. With competing roots, only an
+        // earlier genesis signed by this install proves its anchor; an enrolled install must refuse.
+        // A unique genesis retains slice 1's enrolled-member read-back contract.
+        if (partial && genesisCount > 1 && (anchor is null || !anchor.PublicKey.Equals(derivedPrincipal)))
+            throw Refuse(VerifiedTenantRosterRefusal.MultipleGenesis,
+                "The durable log cannot name an earlier verified genesis signed by this install.");
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
         var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier);
@@ -147,9 +153,21 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             .Select(static admission =>
                 (admission.PartyId, admission.Admission.Nonce, admission.Admission.Signature))
             .ToHashSet();
-        if (!(partial && genesisCount > 1) && (admissions.Count != acceptedAdmissions.Count || admissions.Any(admission =>
+        var expectedAdmissions = admissions.AsEnumerable();
+        if (partial && genesisCount > 1 && anchor is not null)
+        {
+            // Exempt only records verified as rooted in a discarded genesis. An unrelated orphan
+            // (including one that merely claims a dropped party as its signer) must still alarm.
+            var dropped = admissions.Where(a => a.Admission.IsGenesis && a.Admission.Signature != anchor.Admission.Signature)
+                .SelectMany(root => MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
+                    || a.Admission.Signature == root.Admission.Signature), [], _verifier).EnumerateAdmissions())
+                .Select(a => (a.PartyId, a.Admission.Nonce, a.Admission.Signature)).ToHashSet();
+            expectedAdmissions = admissions.Where(a => !dropped.Contains((a.PartyId, a.Admission.Nonce, a.Admission.Signature))
+                || acceptedAdmissions.Contains((a.PartyId, a.Admission.Nonce, a.Admission.Signature)));
+        }
+        if (expectedAdmissions.Count() != acceptedAdmissions.Count || expectedAdmissions.Any(admission =>
                 !acceptedAdmissions.Contains(
-                    (admission.PartyId, admission.Admission.Nonce, admission.Admission.Signature)))))
+                    (admission.PartyId, admission.Admission.Nonce, admission.Admission.Signature))))
         {
             throw Refuse(VerifiedTenantRosterRefusal.Orphan,
                 "A durable admission is not reachable from the requested tenant's genesis.");

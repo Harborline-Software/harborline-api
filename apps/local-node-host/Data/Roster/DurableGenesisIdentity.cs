@@ -34,7 +34,7 @@ public static class DurableGenesisIdentity
         try
         {
             stored = await new VerifiedTenantRosterReader(factory, verifier)
-                .ReadPartialAsync(new TenantId(canonicalTeam), ct).ConfigureAwait(false);
+                .ReadPartialAsync(new TenantId(canonicalTeam), derivedPrincipal, ct).ConfigureAwait(false);
         }
         catch (VerifiedTenantRosterRefusedException ex)
         {
