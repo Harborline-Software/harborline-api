@@ -48,7 +48,9 @@ internal static class AdminTeamAccessRoutes
         string PartyId,
         string Source,
         IReadOnlyList<string> Capabilities,
-        string? GrantId);
+        string? GrantId,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        string? AttributionFailure);
 
     private sealed record MembersResponse(IReadOnlyList<MemberView> Members);
 
@@ -126,9 +128,15 @@ internal static class AdminTeamAccessRoutes
         return Results.Ok(new MembersResponse(result.Members
             .Select(m => new MemberView(
                 m.PartyId,
-                m.Source == TeamMemberSource.Roster ? "roster" : "grant",
+                m.Source switch
+                {
+                    TeamMemberSource.Roster => "roster",
+                    TeamMemberSource.Unattributed => "unattributed",
+                    _ => "grant",
+                },
                 m.Capabilities,
-                m.GrantId))
+                m.GrantId,
+                m.AttributionFailure))
             .ToArray()));
     }
 

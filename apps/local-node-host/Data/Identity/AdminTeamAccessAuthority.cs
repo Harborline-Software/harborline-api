@@ -28,6 +28,9 @@ public enum TeamMemberSource
     /// roster reader alone under-reports these, so the admin list unions them in.
     /// </summary>
     Grant,
+
+    /// <summary>A live grant without a unique live Party binding in this tenant.</summary>
+    Unattributed,
 }
 
 /// <summary>One member row for the admin Team &amp; access list. Non-secret projection only.</summary>
@@ -35,7 +38,8 @@ public sealed record TeamMemberView(
     string PartyId,
     TeamMemberSource Source,
     IReadOnlyList<string> Capabilities,
-    string? GrantId);
+    string? GrantId,
+    string? AttributionFailure = null);
 
 /// <summary>The tenant's members — signed roster UNIONed with grant-anchored web members.</summary>
 public sealed record AdminTeamMembersResult(IReadOnlyList<TeamMemberView> Members);
@@ -271,7 +275,18 @@ internal sealed class AdminTeamAccessAuthority(
             var party = await _partyReader
                 .ResolveAsync(tenant, new PrincipalUserId(grant.Subject.Value), cancellationToken)
                 .ConfigureAwait(false);
-            if (party is null || !seenParties.Add(party.PartyId.Value))
+            if (party is null)
+            {
+                // The reader deliberately returns no identity for any failed binding. Keep each grant
+                // addressable by its existing id; UNATTRIBUTED is a display label, never a party key.
+                members.Add(new TeamMemberView(
+                    "UNATTRIBUTED", TeamMemberSource.Unattributed,
+                    await ProjectUnattributedGrantCapabilitiesAsync(grant, cancellationToken).ConfigureAwait(false),
+                    grant.GrantId.Value.ToString(),
+                    "No unique live party binding in this tenant: missing, tombstoned, detached, duplicated or wrong-tenant."));
+                continue;
+            }
+            if (!seenParties.Add(party.PartyId.Value))
             {
                 continue;
             }
@@ -285,6 +300,14 @@ internal sealed class AdminTeamAccessAuthority(
 
         return new AdminTeamMembersResult(members);
     }
+
+    // An unattributed row names one grant, so show only that role's atoms within that grant's scope.
+    private async ValueTask<IReadOnlyList<string>> ProjectUnattributedGrantCapabilitiesAsync(
+        AccessGrant grant, CancellationToken ct) =>
+        (await _authorization.RolePermissionsAsync(grant.TenantId, grant.Role, ct).ConfigureAwait(false))
+            .Atoms.Where(atom => atom.Scope.Intersect(grant.Scope) is not null)
+            .Select(atom => atom.Operation.Value).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray();
 
     private async ValueTask<IReadOnlyList<string>> ProjectGrantCapabilitiesAsync(
         AccessGrant grant, DateTimeOffset at, CancellationToken ct) =>
@@ -441,20 +464,14 @@ internal sealed class AdminTeamAccessAuthority(
         var revokedParty = await _partyReader.ResolveAsync(
                 tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
             .ConfigureAwait(false);
-        if (revokedParty is null)
+        // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
+        if (revokedParty is not null)
         {
-            await AppendGrantAuditAsync(
-                    tenant, target, decision, RevocationRefused, "canonical-party-missing", Guid.NewGuid(),
-                    successorGrant: null, cancellationToken)
+            await _memberRevocations.RevokeAsync(
+                    tenant, grantId, revokedParty.PartyId.Value, context.CallerPartyId,
+                    MemberRevocationReasons.Offboarding, correlationId: null, decision, cancellationToken)
                 .ConfigureAwait(false);
-            return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
         }
-
-        await _memberRevocations.RevokeAsync(
-                tenant, grantId, revokedParty.PartyId.Value, context.CallerPartyId,
-                MemberRevocationReasons.Offboarding, correlationId: null, decision, cancellationToken)
-            .ConfigureAwait(false);
-
         if (existing.Status is not GrantStatus.Revoked)
         {
             var revoked = await _grantRevocations.RevokeAsync(tenant, target, revocation,
@@ -560,7 +577,7 @@ internal sealed class AdminTeamAccessAuthority(
         // rather than handed a role that does nothing.
         if (successorParty is null
             || !EffectiveMemberPermissions.AnAdministratorGrantWouldConferMembersManage(
-                context.Roster, successorParty.PartyId.Value)
+                context.Roster, successorParty.PartyId.Value, successorPrincipal)
             || successorPrincipal == existing.Subject
             || !LastAdministratorGuard.Guards(existing)
             || population.Any(grant => grant.Subject == successorPrincipal
@@ -572,15 +589,6 @@ internal sealed class AdminTeamAccessAuthority(
         var revokedParty = await _partyReader
             .ResolveAsync(tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
             .ConfigureAwait(false);
-        if (revokedParty is null)
-        {
-            await AppendGrantAuditAsync(
-                    tenant, target, decision, RevocationRefused, "canonical-party-missing", Guid.NewGuid(),
-                    successorGrant: null, cancellationToken)
-                .ConfigureAwait(false);
-            return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
-        }
-
         var correlationId = Guid.NewGuid();
         var granter = new ActorId(context.Session.TenantPrincipalId);
         var successor = new AccessGrant(
@@ -597,10 +605,13 @@ internal sealed class AdminTeamAccessAuthority(
             .ConfigureAwait(false);
         if (handover is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
 
-        await _memberRevocations.RevokeAsync(
-                tenant, target.ToString(), revokedParty.PartyId.Value, context.CallerPartyId,
-                MemberRevocationReasons.Offboarding, correlationId.ToString("D"), decision, cancellationToken)
-            .ConfigureAwait(false);
+        if (revokedParty is not null)
+        {
+            await _memberRevocations.RevokeAsync(
+                    tenant, target.ToString(), revokedParty.PartyId.Value, context.CallerPartyId,
+                    MemberRevocationReasons.Offboarding, correlationId.ToString("D"), decision, cancellationToken)
+                .ConfigureAwait(false);
+        }
         // Both legs are audited against the act's OWN target -- the grant the decision admitted -- so the
         // carried decision is never re-pointed at a record it did not permit; the successor's grant id
         // travels in the payload.

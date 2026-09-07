@@ -97,6 +97,29 @@ public sealed class SelectedSessionPepTests
             permission: "grant-bundle-must-not-be-used"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(bool liveCanonicalEdge)
+    {
+        var fixture = await Fixture.CreateAsync(PermissionSet.Of("records:read"));
+        using var founder = KeyPair.Generate();
+        using var principalKey = KeyPair.Generate();
+        using var partyKey = KeyPair.Generate();
+        var signer = new Ed25519Signer(founder);
+        var verifier = new Ed25519Verifier();
+        var roster = MemberRoster.Genesis(TeamId, FounderParty, signer, verifier, Now, Guid.NewGuid())
+            .Admit(FounderParty, signer, "principal-member-a", principalKey.PrincipalId,
+                PermissionSet.Of("records:read"), verifier, Now, Guid.NewGuid());
+        if (liveCanonicalEdge)
+            roster = roster.Admit(FounderParty, signer, "party-member-a", partyKey.PrincipalId,
+                PermissionSet.Of("records:read"), verifier, Now, Guid.NewGuid());
+        fixture.Roster.Current = roster;
+        Assert.True(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+        fixture.Roster.Current = roster.Revoke(FounderParty, "principal-member-a");
+        Assert.False(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+    }
+
     [Fact(DisplayName = "a revoked grant denies even while the roster edge still has the permission")]
     public async Task Revoked_Grant_Is_Denied_Despite_Roster_Lag()
     {
