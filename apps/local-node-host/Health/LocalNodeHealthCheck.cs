@@ -72,6 +72,10 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
                 "as a failed boot."));
         }
 
+        if (_roster?.RebuildFailure is { } failure)
+            return Task.FromResult(HealthCheckResult.Unhealthy(
+                $"Roster refused: {failure.Code}. {failure.Detail} {failure.Remediation}"));
+
         if (_roster?.RefusalReports is { Count: > 0 } reports)
             return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
                 reports.Select(r => $"Roster refused: {r.Code}. {r.Remediation}"))));
