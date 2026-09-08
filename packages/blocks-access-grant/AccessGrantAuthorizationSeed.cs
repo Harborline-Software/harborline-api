@@ -72,9 +72,8 @@ internal sealed class AccessGrantAuthorizationSeed(
     /// </para>
     /// <para>
     /// Deliberately NOT offered to it, because no converted route family performs them:
-    /// <c>packages:publish</c> (signs for the world), <c>packages:install</c> (the web-plane registry act),
-    /// <c>members:*</c>, <c>grant:permissions</c>, <c>org:transfer-ownership</c>,
-    /// <c>provider:configure-*</c>, <c>telemetry:export</c> and <c>org:branding-write</c>. Adding an
+    /// <c>members:*</c>, <c>grant:permissions</c>, <c>org:transfer-ownership</c> and
+    /// <c>org:branding-write</c>. Adding an
     /// operation here is a reviewed row in <c>ReviewedOffers</c>, never a consequence of a route growing a
     /// new check.
     /// </para>
@@ -116,28 +115,12 @@ internal sealed class AccessGrantAuthorizationSeed(
             [Permission.ContactsCreate] = Roles(member: true, nodeOperator: true),
             [Permission.ContactsWrite] = Roles(member: true, nodeOperator: true),
             [Permission.ContactsArchive] = Roles(member: true, nodeOperator: true),
-            [Permission.CalendarRead] = Roles(member: true),
-            [Permission.CalendarCreate] = Roles(member: true),
-            [Permission.CalendarWrite] = Roles(member: true),
-            [Permission.CalendarArchive] = Roles(member: true),
-            [Permission.CommsRead] = Roles(member: true),
-            [Permission.CommsAppend] = Roles(member: true),
-            [Permission.GlRead] = Roles(member: true),
-            [Permission.GlPost] = Roles(),
             [Permission.FinancialPeriodOverrideSoftClose] = Roles(),
             [Permission.SpatialRead] = Roles(member: true, nodeOperator: true),
             [Permission.MembersAdmit] = Roles(),
             [Permission.MembersRevoke] = Roles(),
-            [Permission.MembersSetRole] = Roles(),
             [Permission.GrantPermissions] = Roles(),
             [Permission.OrgTransferOwnership] = Roles(),
-            [Permission.ProviderConfigureIdentity] = Roles(),
-            [Permission.ProviderConfigureEmail] = Roles(),
-            [Permission.ProviderConfigureStorage] = Roles(),
-            [Permission.ProviderConfigurePayments] = Roles(),
-            [Permission.ProviderConfigureBankFeed] = Roles(),
-            [Permission.ProviderConfigureTelemetry] = Roles(),
-            [Permission.ProviderReadConfig] = Roles(),
             // Ticket 217 / L628 -- the ONE row that offers the sealed platform Auditor role, and the
             // whole of what Auditor holds. Every other read used to offer it (the read-verb heuristic in
             // AuthorizationDefinitionAdmission), which is why Auditor could read contacts, the calendar,
@@ -154,18 +137,13 @@ internal sealed class AccessGrantAuthorizationSeed(
             // `auditor: true`: the Auditor reads another person's trace through `audit:read`, the one
             // definition that may offer it, so this row does not widen the sealed role.
             [Permission.AuditTraceRead] = Roles(member: true, nodeOperator: true),
-            [Permission.TelemetryExport] = Roles(),
             [Permission.OrgManageSettings] = Roles(nodeOperator: true),
             [Permission.OrgBrandingWrite] = Roles(),
             // The pack and feed route family (ticket 205 slice 3) resolves these two at the gate. On a
             // desktop install the only caller is the solo founder on the desktop plane, so the node
-            // operator must hold them or every pack route is a blanket denial. packages:publish and
-            // packages:install are deliberately NOT offered to it: publishing signs for the world and
-            // install-from-registry is a web-plane act, neither of which the desktop route family performs.
+            // operator must hold them or every pack route is a blanket denial.
             [Permission.PackagesAuthor] = RoleBindingSet.From(
                 [RoleReference.Administrator, NodeOperatorRole]),
-            [Permission.PackagesPublish] = Roles(),
-            [Permission.PackagesInstall] = Roles(),
             [Permission.PackagesOperate] = RoleBindingSet.From(
                 [RoleReference.Administrator, NodeOperatorRole]),
             [Permission.FormsAuthor] = Roles(nodeOperator: true),

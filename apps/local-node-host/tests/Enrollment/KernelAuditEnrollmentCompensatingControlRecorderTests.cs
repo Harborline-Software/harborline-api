@@ -41,7 +41,7 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorderTests
 
         await provider.GetRequiredService<Harborline.Api.Foundation.IdentityAtlas.Enrollment.IEnrollmentCompensatingControlRecorder>()
             .RecordPermissionsGrantedAsync(
-                tenant, "team-1", "approver-party", "member-2", ["gl:post"]);
+                tenant, "team-1", "approver-party", "member-2", ["ledger:post"]);
 
         var page = await provider.GetRequiredService<IAuditEventReader>().ListAsync(
             tenant,
@@ -75,10 +75,10 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorderTests
 
         await sink.RecordMemberAdmittedAsync(
             tenant, "team-1", "admin-1", "joiner-1", "joiner-pubkey-b64",
-            new[] { "contacts:read", "gl:read" }, "invite", correlationId: "corr-1");
+            new[] { "contacts:read", "records:read" }, "invite", correlationId: "corr-1");
         await sink.RecordMemberRevokedAsync(tenant, "team-1", "admin-1", "joiner-1");
         await sink.RecordPermissionsGrantedAsync(
-            tenant, "team-1", "owner-1", "member-1", new[] { "gl:post" });
+            tenant, "team-1", "owner-1", "member-1", new[] { "ledger:post" });
         await sink.RecordOwnershipTransferredAsync(tenant, "team-1", "owner-1", "owner-2");
 
         // All four SoD-significant op classes are queryable in the one trail (the "second set of eyes").

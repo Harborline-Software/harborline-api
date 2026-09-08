@@ -18,13 +18,13 @@ namespace Harborline.Api.Kernel.Audit.Export;
 /// one-product fleet: a <b>capable bundled default</b> behind a <b>provider-swap seam</b>. The bundled default
 /// (<see cref="NullAuditExportSink"/> / a local-file writer at the host) keeps the export sovereign and
 /// dependency-free; an external SIEM / reviewer endpoint is the SWAP — re-pointed by a holder of
-/// <c>provider:configure-telemetry</c>. Triggering an export is gated by <c>telemetry:export</c>.
+/// the audit-export policy. Triggering an export is independently authorized.
 /// </para>
 /// <para>
 /// <b>The audit-stream is held TIGHTER than operational telemetry</b> (CIC 2026-06-20). Operational telemetry
 /// (metrics, traces, logs) can flow to Harborline Toolbox's local OTel collector on a loose default; the AUDIT-stream — who
 /// admitted whom, who posted to the ledger — is the compliance-grade, reviewer-facing record and rides a
-/// separate, tighter-gated path (its own permission <c>telemetry:export</c>, its own export sink, and the
+/// separate, tighter-gated path (its own export sink and the
 /// export act is ITSELF audited via <c>AuditEventType.AuditExported</c>).
 /// </para>
 /// <para>

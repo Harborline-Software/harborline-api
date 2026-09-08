@@ -156,7 +156,7 @@ public static class EnrollmentCompensatingControlPayloads
     /// label + the bounds of what was exported, NOT the exported record bodies themselves.
     /// </summary>
     /// <param name="TenantId">The tenant whose audit-stream was exported.</param>
-    /// <param name="ExporterPartyId">The party that triggered the export (held <c>telemetry:export</c>).</param>
+    /// <param name="ExporterPartyId">The party that triggered the export.</param>
     /// <param name="DestinationLabel">A non-secret label for the reviewer/SIEM destination (e.g. the configured endpoint name — never credentials).</param>
     /// <param name="RecordCount">The number of audit records the destination ACCEPTED (0 when the sink faulted before/after accepting nothing verifiable).</param>
     /// <param name="From">Optional inclusive lower bound on the exported window.</param>

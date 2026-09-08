@@ -18,9 +18,9 @@ namespace Harborline.Api.Kernel.Audit.Export;
 /// <remarks>
 /// <para>
 /// <b>Authorization is the caller's responsibility.</b> Triggering an export is gated by
-/// <c>telemetry:export</c> (the audit-stream held tighter than operational telemetry, CIC 2026-06-20). This
-/// service does NOT check the permission — the route/handler that invokes it does (<c>HasPermission(
-/// Permission.TelemetryExport)</c>), exactly as the financial post path gates on <c>gl:post</c> before
+/// the audit-export policy (held tighter than operational telemetry, CIC 2026-06-20). This
+/// service does NOT check the permission — the route/handler that invokes it applies
+/// its own authorization policy, exactly as the financial post path gates before
 /// reaching the posting service. Keeping the permission check at the boundary keeps this service a pure
 /// orchestrator over the kernel-audit substrate.
 /// </para>
@@ -73,7 +73,7 @@ public sealed class AuditExportService
     /// export act in the trail. Returns the number of records the destination accepted.
     /// </summary>
     /// <param name="tenantId">The tenant whose audit-stream is exported (tenant-scoped read).</param>
-    /// <param name="exporterPartyId">The party triggering the export (held <c>telemetry:export</c>).</param>
+    /// <param name="exporterPartyId">The party triggering the export.</param>
     /// <param name="from">Optional inclusive lower bound on <see cref="AuditRecord.OccurredAt"/>.</param>
     /// <param name="to">Optional inclusive upper bound on <see cref="AuditRecord.OccurredAt"/>.</param>
     /// <param name="correlationId">Optional correlation-id from the originating request.</param>
