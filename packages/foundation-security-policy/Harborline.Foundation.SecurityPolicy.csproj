@@ -26,4 +26,5 @@
     <!-- PR 3b.2 — IAuditRetentionEnforcer contract for DefaultAuditRetentionEnforcer. -->
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

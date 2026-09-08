@@ -33,4 +33,5 @@
     <ProjectReference Include="..\blocks-financial-subledger\Harborline.Blocks.FinancialSubLedger.csproj" />
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

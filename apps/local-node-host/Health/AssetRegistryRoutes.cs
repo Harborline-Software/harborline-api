@@ -15,7 +15,6 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 

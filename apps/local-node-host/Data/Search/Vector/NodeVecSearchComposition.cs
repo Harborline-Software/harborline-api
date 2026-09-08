@@ -118,7 +118,7 @@ public static class NodeVecSearchComposition
 public static class NodeDecryptCapability
 {
     /// <summary>The factory the brute-force engine calls — a tenant-scoped capability valid far in the future.</summary>
-    public static IDecryptCapability Factory(Harborline.Api.Foundation.Assets.Common.TenantId tenant) =>
+    public static IDecryptCapability Factory(Harborline.Foundation.Assets.Common.TenantId tenant) =>
         new FixedDecryptCapability(
             capabilityId: "node-kg-vector-read",
             actor: new Harborline.Api.Foundation.Assets.Common.ActorId("node-local-reader"),

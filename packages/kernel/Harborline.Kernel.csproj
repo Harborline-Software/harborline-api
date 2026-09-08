@@ -18,4 +18,5 @@
     <!-- Exclude the sibling test project from library compilation. -->
     <Compile Remove="tests/**/*.cs" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

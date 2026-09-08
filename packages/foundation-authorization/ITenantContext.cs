@@ -53,7 +53,7 @@ public interface ITenantContext
     /// is null (i.e., unresolved). New code MUST inject
     /// <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/> directly
     /// rather than this facade and read <c>Tenant?.Id</c> as the typed
-    /// <see cref="Harborline.Api.Foundation.Assets.Common.TenantId"/>.
+    /// <see cref="Harborline.Foundation.Assets.Common.TenantId"/>.
     /// </summary>
     string TenantId => Tenant?.Id.ToString() ?? string.Empty;
 }

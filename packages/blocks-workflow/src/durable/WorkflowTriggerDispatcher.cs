@@ -148,7 +148,7 @@ public sealed class WorkflowTriggerDispatcher : IWorkflowTriggerDispatcher
             authority.WorkflowDecision.RequireAllowedReaction(
                 Harborline.Api.Foundation.IdentityAtlas.Permissions.AuthorizationOperation.Parse(
                     Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions.RecordsWrite),
-                new Harborline.Api.Foundation.Assets.Common.TenantId(instance.TenantId),
+                new Harborline.Foundation.Assets.Common.TenantId(instance.TenantId),
                 "record",
                 instance.Id);
             outcome = await _interpreter.DecideAsync(instance, trigger, authority, ct).ConfigureAwait(false);

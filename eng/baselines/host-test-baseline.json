@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3673,
-    "passed": 3655,
+    "total": 3678,
+    "passed": 3660,
     "failed": 0,
     "notExecuted": 18
   },
@@ -71,10 +71,10 @@
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3666 -> 3673; passed 3648 -> 3655; failed and notExecuted unchanged",
-    "cause": "ticket 295 slice 3b first half: seven receive-time ordering, durable restart, seeded replay, cache-capacity and concurrent-publication cases; authenticated wire receipts remain the next half.",
-    "detectedBy": "EXPECTED by arithmetic from origin/main plus 7 cases; focused tests only, controller owns full gate",
-    "arithmeticCrossCheck": "3666 + 7 = 3673; passed = 3673 - 18 = 3655."
+    "change": "total 3666 -> 3678; passed 3648 -> 3660; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
+    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
+    "arithmeticCrossCheck": "3666 + 12 = 3678; passed = total - notExecuted = 3678 - 18 = 3660."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

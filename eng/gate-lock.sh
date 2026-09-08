@@ -41,15 +41,19 @@ _gate_lock_move_dir() {
 
 _gate_lock_may_reuse() {
   local caller_parent_pid=$1
-  [ -n "$caller_parent_pid" ] &&
-    [ -n "${HARBORLINE_GATE_LOCK_OWNER_PID:-}" ] &&
+  # An inherited token admits descendants through any subshell topology. Bind it
+  # to the complete owner record and a live process with the same start time;
+  # stale environments and recycled PIDs must never grant re-entry.
+  [ -n "${HARBORLINE_GATE_LOCK_OWNER_PID:-}" ] &&
     [ -n "${HARBORLINE_GATE_LOCK_OWNER_START:-}" ] &&
     [ -n "${HARBORLINE_GATE_LOCK_OWNER_NONCE:-}" ] &&
-    [ "$caller_parent_pid" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] &&
     [ "$GATE_LOCK_HOLDER_PID" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] &&
     [ "$GATE_LOCK_HOLDER_PROCESS_START" = "$HARBORLINE_GATE_LOCK_OWNER_START" ] &&
     [ "$GATE_LOCK_HOLDER_NONCE" = "$HARBORLINE_GATE_LOCK_OWNER_NONCE" ] &&
-    _gate_lock_is_same_process "$HARBORLINE_GATE_LOCK_OWNER_PID" "$HARBORLINE_GATE_LOCK_OWNER_START"
+    _gate_lock_is_same_process "$HARBORLINE_GATE_LOCK_OWNER_PID" "$HARBORLINE_GATE_LOCK_OWNER_START" || return 1
+  # Keep the original parent-pid path for callers carrying only the older fields.
+  [ "$caller_parent_pid" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] ||
+    [ "${HARBORLINE_GATE_LOCK_REENTRY_TOKEN:-}" = "$GATE_LOCK_HOLDER_PID:$GATE_LOCK_HOLDER_PROCESS_START:$GATE_LOCK_HOLDER_NONCE" ]
 }
 
 _gate_lock_read() {
@@ -146,7 +150,8 @@ gate_lock_acquire() {
   gate_root=$(git rev-parse --show-toplevel) || return 1
   gate_common=$(git rev-parse --git-common-dir) || return 1
   case "$gate_common" in /*|[A-Za-z]:/*) ;; *) gate_common="$gate_root/$gate_common" ;; esac
-  HARBORLINE_GATE_LOCK_PATH="$gate_common/harborline-gate.lock"
+  # Tests override this with a disposable path; normal gates share git's common dir.
+  HARBORLINE_GATE_LOCK_PATH=${HARBORLINE_GATE_LOCK_PATH:-"$gate_common/harborline-gate.lock"}
   self_start=$(_gate_lock_process_start "$$") || return 1
   [ -n "$self_start" ] || return 1
 
@@ -175,6 +180,7 @@ gate_lock_acquire() {
         if _gate_lock_move_dir "$candidate" "$HARBORLINE_GATE_LOCK_PATH"; then
           HARBORLINE_GATE_LOCK_CANDIDATE=""
           HARBORLINE_GATE_LOCK_OWNED=1
+          export HARBORLINE_GATE_LOCK_REENTRY_TOKEN="$$:$self_start:$HARBORLINE_GATE_LOCK_OWNER_NONCE"
           return 0
         fi
       fi
