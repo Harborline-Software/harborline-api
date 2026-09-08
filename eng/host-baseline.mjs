@@ -28,11 +28,28 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   const permitted = baseline.permittedFailures.map(row => row.test)
   const failed = resultNamesIn(output, 'Failed')
   const passed = new Set(resultNamesIn(output, 'Passed'))
+  const skipped = resultNamesIn(output, 'Skipped')
   const burnDown = permitted.filter(name => passed.has(name))
   const missing = permitted.filter(name => !failed.includes(name) && !passed.has(name))
-  const complete = Boolean(counts) && counts.total > 0 && failed.length === counts.failed
-    && new Set(failed).size === failed.length && new Set(permitted).size === permitted.length
-  return {passed: complete && newFailures.length === 0 && burnDown.length === 0 && missing.length === 0,
-    burnDown, missing,
+  const problems = []
+  if (!counts) problems.push('host baseline incomplete: runner summary not parsed; inspect the host test output')
+  else {
+    if (!(counts.total > 0)) problems.push('host baseline incomplete: runner counted no tests; check test discovery')
+    // Each theory case contributes one result, even when its DisplayName repeats.
+    if (failed.length !== counts.failed) problems.push(`host baseline incomplete: parsed ${failed.length} failed result lines but the runner counted ${counts.failed}`)
+  }
+  if (failed.length + passed.size + skipped.length === 0) {
+    problems.push('host baseline incomplete: no per-test result lines parsed; rerun with --logger "console;verbosity=normal"')
+  }
+  const seen = new Set()
+  for (const name of permitted) {
+    if (seen.has(name)) problems.push(`host baseline duplicate permitted row: remove duplicate row: ${name}`)
+    seen.add(name)
+  }
+  for (const name of newFailures) problems.push(`host baseline unlisted failure: investigate: ${name}`)
+  for (const name of burnDown) problems.push(`host baseline burn-down: remove row: ${name}`)
+  for (const name of missing) problems.push(`host baseline missing result: ${name}`)
+  return {passed: problems.length === 0,
+    burnDown, missing, problems, tail: problems.join('\n'),
     note: 'Named comparison: remove every burn-down row from permittedFailures; missing or unlisted failures are red.'}
 }

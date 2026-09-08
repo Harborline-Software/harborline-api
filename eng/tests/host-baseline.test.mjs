@@ -27,11 +27,72 @@ test('named: unlisted failure is red even at the same failure count', () => {
   assert.equal(result.passed, false)
   assert.equal(compare('  Failed Listed test [1 ms]\n  Failed Regression [1 ms]\n', {total: 10, failed: 2}).passed, false)
 })
-test('named: missing, skipped, duplicate or unparsed results cannot pass', () => {
+test('named: missing, skipped, miscounted or unparsed results cannot pass', () => {
   for (const output of ['', '  Skipped Listed test [1 ms]\n', '  Failed Listed test [1 ms]\n  Failed Listed test [2 ms]\n']) {
     assert.equal(compare(output).passed, false)
   }
   assert.equal(compare('  Failed Listed test [1 ms]\n', null).passed, false)
+})
+
+const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
+const macNames = mac.permittedFailures.map(row => row.test)
+const macOutput = macNames.map(name => `  Failed ${name} [12 ms]\n`).join('')
+const macInput = {baseline: mac, counts: {total: 3510, failed: 15}, adjustedFailed: 15, newFailures: [], output: macOutput}
+
+test('named: macOS duplicate permitted cases count individually', () => {
+  const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[6]} [< 1 ms]\n`
+  const result = compareHostBaseline({...macInput, output, counts: {total: 3511, failed: 16}, adjustedFailed: 16})
+  assert.deepEqual(result.burnDown, [])
+  assert.deepEqual(result.missing, [])
+  assert.equal(result.passed, true)
+})
+
+test('result parser preserves real display names across outcomes and duration formats', () => {
+  for (const ending of ['\n', '\r\n']) for (const outcome of ['Passed', 'Failed', 'Skipped']) {
+    const lines = ['12 ms', '1 s', '< 1 ms'].map((duration, index) => `  ${outcome} ${macNames[index + 6]} [${duration}]${ending}`)
+    const output = `[xUnit.net 00:00:01.00] runner diagnostic${ending}` + lines.join('')
+    assert.deepEqual(resultNamesIn(output, outcome), macNames.slice(6, 9))
+    for (const other of ['Passed', 'Failed', 'Skipped'].filter(value => value !== outcome)) {
+      assert.deepEqual(resultNamesIn(output, other), [])
+    }
+  }
+})
+
+test('named: every false verdict supplies actionable console and evidence details', () => {
+  const noLines = 'host baseline incomplete: no per-test result lines parsed; rerun with --logger "console;verbosity=normal"'
+  const cases = [
+    [{counts: {total: 3510, failed: 16}}, 'host baseline incomplete: parsed 15 failed result lines but the runner counted 16'],
+    [{counts: null}, 'host baseline incomplete: runner summary not parsed; inspect the host test output'],
+    [{counts: {total: 0, failed: 15}}, 'host baseline incomplete: runner counted no tests; check test discovery'],
+    [{output: 'Failed: 15, Passed: 3476, Skipped: 19, Total: 3510'}, noLines],
+    [{baseline: {...mac, permittedFailures: [...mac.permittedFailures, mac.permittedFailures[6]]}},
+      `host baseline duplicate permitted row: remove duplicate row: ${macNames[6]}`],
+    [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: 3511, failed: 16}, newFailures: ['Regression']},
+      'host baseline unlisted failure: investigate: Regression'],
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: 3510, failed: 14}},
+      `host baseline burn-down: remove row: ${macNames[6]}`],
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: 3510, failed: 14}},
+      `host baseline missing result: ${macNames[6]}`],
+    [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, noLines],
+  ]
+  const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
+  const failureBlock = runner.slice(runner.indexOf("if (report.status === 'FAIL') {"), runner.lastIndexOf('process.exit('))
+  for (const [overrides, reason] of cases) {
+    const result = compareHostBaseline({...macInput, ...overrides})
+    assert.equal(result.passed, false, reason)
+    assert.ok(result.problems?.includes(reason), `missing diagnostic: ${reason}`)
+    assert.equal(result.tail, result.problems.join('\n'))
+    let printed = ''
+    new Function('report', 'persisted', 'process', failureBlock)(
+      {status: 'FAIL'}, {steps: [{id: 'host-baseline-match', ...result}]},
+      {stdout: {write: text => { printed += text }}})
+    assert.ok(printed.startsWith('host-baseline-match:\n') && printed.includes(`\n  ${reason}\n`), printed)
+  }
+  // This is the gate route: reasons print immediately and survive in the final FAIL block.
+  assert.ok(/for \(const line of hostComparison\.problems \?\? \[\]\) console\.log\(line\)/.test(runner),
+    'exact-clone must print comparison reasons')
+  assert.match(runner, /id: 'host-baseline-match',\s*\.\.\.hostComparison/)
+  assert.match(runner, /\(step\.tail \?\? ''\)\.split\('\\n'\)/)
 })
 test('Windows comparison preserves the original count and identity truth table', () => {
   const windows = JSON.parse(readFileSync(path.join(root, WINDOWS_BASELINE)))

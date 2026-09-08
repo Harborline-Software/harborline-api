@@ -254,8 +254,7 @@ try {
 
   const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
     adjustedFailed, newFailures, output: hostTests.fullOutput})
-  for (const name of hostComparison.burnDown ?? []) console.log(`host baseline burn-down: remove row: ${name}`)
-  for (const name of hostComparison.missing ?? []) console.log(`host baseline missing result: ${name}`)
+  for (const line of hostComparison.problems ?? []) console.log(line)
   steps.push({
     id: 'host-baseline-match',
     ...hostComparison,
