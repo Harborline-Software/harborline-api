@@ -13,7 +13,20 @@ public sealed record AuthorizationGateRequest(
     ActorId Principal,
     TenantId Tenant,
     AuthorizationTarget Target,
-    DateTimeOffset At);
+    DateTimeOffset At)
+{
+    public AuthorizationRosterInputs? Roster { get; init; }
+}
+
+/// <summary>Server-derived membership facts; only the gate turns them into a verdict.</summary>
+public sealed record AuthorizationRosterInputs(
+    string PartyId, bool Member, bool Ejected, PermissionSet? Permissions)
+{
+    public bool ProspectiveAdministratorGrant { get; init; }
+    public bool RequireMember { get; init; }
+    public bool RequireGrantCoverage { get; init; }
+    public PermissionSet RequiredPermissions { get; init; } = PermissionSet.Empty;
+}
 
 public sealed record AuthorizationAtomDerivation(
     PermissionAtom Atom,

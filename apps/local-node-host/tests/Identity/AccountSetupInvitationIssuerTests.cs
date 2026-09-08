@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -17,6 +18,43 @@ public sealed class AccountSetupInvitationIssuerTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 20, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task InvitationSites_RecordTheGateDecisionWithRosterInputs(bool recovery, bool allowed)
+    {
+        using var capture = new RosterDecisionCapture();
+        await using var fixture = await IssueFixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, capture.Audit);
+        if (recovery)
+        {
+            var issuer = new RecoveryInvitationIssuer(fixture.SessionFactory,
+                new WebSelectedSessionStore(fixture.SessionFactory), fixture.IdentityFactory,
+                fixture.GrantFactory, new FixedPartyReader("party-admin"), new FixedRosterReader(fixture.Roster),
+                new RecoveryInvitationStore(fixture.IdentityFactory), TestAuthorization.AllowGate(), capture.Audit);
+            Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
+                new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
+                new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
+            if (allowed) Assert.NotNull(await issue());
+            else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
+        }
+        else
+        {
+            Func<Task<AccountSetupInvitationIssueResult?>> issue = () => fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+                Request(fixture.TenantId, ["records:read"], "roster-evidence"));
+            if (allowed) Assert.NotNull(await issue());
+            else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
+        }
+        Assert.Equal(2, capture.Evidence.Count);
+        Assert.True(Assert.Single(capture.Evidence, item => item.Roster is null).Allowed);
+        var evidence = capture.AssertSingle(allowed);
+        Assert.True(evidence.Roster!.Member);
+        Assert.False(evidence.Roster.Ejected);
+        Assert.Equal("party-admin", evidence.Roster.PartyId);
+        await capture.AssertAuditAsync(new TenantId(fixture.TenantId));
+    }
 
     [Fact]
     [Trait("PlanCard", "INV-02")]
@@ -54,7 +92,7 @@ public sealed class AccountSetupInvitationIssuerTests
     {
         await using (var member = await IssueFixture.CreateAsync(PermissionCompositions.Member))
         {
-            Assert.Null(await member.Issuer.IssueAsync(
+            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => member.Issuer.IssueAsync(
                 member.SelectedHandle,
                 Request(member.TenantId, PermissionCompositions.Viewer.Permissions, "unauthorized")));
             await AssertNoInvitationsAsync(member.IdentityFactory);
@@ -62,7 +100,7 @@ public sealed class AccountSetupInvitationIssuerTests
 
         await using (var admin = await IssueFixture.CreateAsync(PermissionCompositions.Admin))
         {
-            Assert.Null(await admin.Issuer.IssueAsync(
+            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => admin.Issuer.IssueAsync(
                 admin.SelectedHandle,
                 Request(admin.TenantId, [Permission.GrantPermissions], "escalated")));
             await AssertNoInvitationsAsync(admin.IdentityFactory);
@@ -167,7 +205,7 @@ public sealed class AccountSetupInvitationIssuerTests
         public MemberRoster Roster { get; }
         public AccountSetupInvitationIssuer Issuer { get; }
 
-        public static async Task<IssueFixture> CreateAsync(PermissionSet inviterPermissions)
+        public static async Task<IssueFixture> CreateAsync(PermissionSet inviterPermissions, AuthorizationRefusalAudit? refusalAudit = null)
         {
             var tenantId = "11111111-1111-1111-1111-111111111111";
             var identityPath = TempPath("identity");
@@ -276,7 +314,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 new FixedRosterReader(roster),
                 store,
                 TestAuthorization.AllowGate(),
-                new FixedTimeProvider(Now));
+                new FixedTimeProvider(Now), refusalAudit);
             return new IssueFixture(
                 [identityPath, sessionPath, grantPath],
                 identityFactory,

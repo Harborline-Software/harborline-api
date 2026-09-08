@@ -75,6 +75,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     private readonly IOperationSigner? _nodeSigner;
     private readonly IAuthorizationClosureReader? _authorization;
     private readonly TimeProvider _timeProvider;
+    private readonly AuthorizationGate? _gate;
 
     /// <summary>
     /// Construct over the active-team accessor + the membership store, and - where the composition has them -
@@ -87,13 +88,15 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         TimeProvider timeProvider,
         NodeTeamRoster? roster = null,
         IOperationSigner? nodeSigner = null,
-        IAuthorizationClosureReader? authorization = null)
+        IAuthorizationClosureReader? authorization = null,
+        AuthorizationGate? gate = null)
     {
         _activeTeam = activeTeam ?? throw new ArgumentNullException(nameof(activeTeam));
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _roster = roster;
         _nodeSigner = nodeSigner;
         _authorization = authorization;
+        _gate = gate;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
@@ -174,7 +177,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         // ICurrentUser / IAuthorizationContext are synchronous contracts (ADR 0091). For a party the roster
         // carries live, the reading answers off the in-memory roster edge and never awaits the closure, so
         // this completes synchronously; the fallback is kept for the roster-absent branch of the reading.
-        var task = EffectiveMemberPermissions.ResolveAsync(
+        var task = EffectiveMemberPermissions.ReadAsync(
             _authorization,
             roster,
             local.PartyId,
@@ -182,7 +185,20 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
             NodeOperator,
             _timeProvider.GetUtcNow(),
             CancellationToken.None);
-        return task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+        var inputs = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+        if (_gate is null) return null;
+        var authority = new AuthorizationWriteContext(NodeOperator,
+            ActiveTeamTenantContext.ProjectTenantId(active.TeamId), _timeProvider.GetUtcNow());
+        var allowed = new List<string>();
+        foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
+        {
+            var operation = AuthorizationOperation.Parse(permission);
+            var pending = _gate.DecideAsync(authority.Request(operation,
+                AuthorizationGate.RecordKindFor(operation), "desktop") with { Roster = inputs });
+            var decision = pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
+            if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
+        }
+        return allowed.Count == 0 ? null : PermissionSet.From(allowed);
     }
 
     /// <summary>

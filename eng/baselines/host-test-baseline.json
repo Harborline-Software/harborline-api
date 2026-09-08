@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-07T22:45:49Z",
   "totals": {
-    "total": 3589,
-    "passed": 3571,
+    "total": 3611,
+    "passed": 3593,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3566,
-      "passed": 3548,
+      "total": 3572,
+      "passed": 3554,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3575 -> 3584; passed 3557 -> 3566; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "Ticket 329 adds six holders binding theory cases, one gate-refusal fact, one navigation upgrade/restart/retraction fact and one authorized-read fence fact. Fix 1 repairs four existing completeness rows through test expectations and CLI coverage; no tests are added, removed or skipped by the fix.",
-    "detectedBy": "The destination exact-clone gate at sourcePin observed 3575 total, 3553 passed, 4 failed and 18 skipped. Those four unexpected failures remain prohibited; fix 1 verifies them with focused filters. The controller must confirm the resulting zero-failure totals in its next full gate.",
-    "arithmeticCrossCheck": "3575 + 9 = 3584 (merge of origin/main into the branch; the branch adds 9 tests); passed = total - notExecuted = 3584 - 18 = 3566."
+    "change": "total 3584 -> 3606; passed 3566 -> 3588; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 293 slice 1 fix 2: three admin write-route authorization-denial rows, one each for invitations, member revocation and member permissions.",
+    "detectedBy": "Source delta from c89d7bdd plus focused test summaries; expected full-suite totals only. No full host suite was run in this lane; the controller must verify this count and reconcile other branches at its gate.",
+    "arithmeticCrossCheck": "3584 + 22 = 3606 (merge of origin/main into the branch; the branch adds 22 tests); passed = total - notExecuted = 3606 - 18 = 3588."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
