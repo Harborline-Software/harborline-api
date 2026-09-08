@@ -70,6 +70,7 @@ public static class NodeRosterComposition
             sp.GetRequiredService<ICrdtEngine>(),
             sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
             sp.GetRequiredService<IOperationVerifier>(),
+            sp.GetRequiredService<IOperationSigner>(),
             sp.GetRequiredService<ILogger<RosterCrdtProjection>>(),
             nodeRoster: sp.GetService<NodeTeamRoster>(),
             // Resolved lazily (ticket 290): the fold's removal leg, absent in a minimal DI test.

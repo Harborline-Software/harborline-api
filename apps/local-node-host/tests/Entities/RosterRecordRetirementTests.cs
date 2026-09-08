@@ -18,10 +18,11 @@ public sealed class RosterRecordRetirementTests
     public async Task Production_hydration_counts_legacy_rows_once_at_information()
     {
         await using var store = await SearchTestStore.CreateAsync();
+        var localSigner = new Ed25519Signer(KeyPair.Generate());
         await using (var db = store.CreateRosterContext())
         {
             await db.GetService<IMigrator>().MigrateAsync("20260908030000_RosterAddRehostGrantBurns");
-            foreach (var record in Fixture().EnumerateAdmissions())
+            foreach (var record in Fixture(localSigner).EnumerateAdmissions())
             {
                 var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record));
                 row.PermissionsJson = "[\"planted:permission\"]";
@@ -39,6 +40,7 @@ public sealed class RosterRecordRetirementTests
         var logger = new LegacyLogger();
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IOperationSigner>(localSigner);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();
@@ -95,9 +97,9 @@ public sealed class RosterRecordRetirementTests
             record.PublicKey, restored.Admission, new Ed25519Verifier()));
     }
 
-    private static MemberRoster Fixture()
+    private static MemberRoster Fixture(IOperationSigner? localSigner = null)
     {
-        var founder = new Ed25519Signer(KeyPair.Generate());
+        var founder = localSigner ?? new Ed25519Signer(KeyPair.Generate());
         var verifier = new Ed25519Verifier();
         return MemberRoster.Genesis(Guid.NewGuid(), "founder", founder, verifier,
                 DateTimeOffset.UnixEpoch, Guid.NewGuid())

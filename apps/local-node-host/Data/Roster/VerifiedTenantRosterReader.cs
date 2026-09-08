@@ -67,15 +67,23 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
 
         var canonicalTeam = teamId.ToString("D");
         await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var rows = await db.RosterRecords
-            .AsNoTracking()
-            .Where(row => row.TeamId == canonicalTeam)
+        var query = at is { } queryAt
+            ? db.RosterRecords.FromSql($"""
+                SELECT * FROM roster_records WHERE team_id = {canonicalTeam} AND
+                ((received_at IS NULL AND issued_at <= {queryAt.ToUnixTimeMilliseconds()}) OR
+                 (received_at IS NOT NULL AND
+                  ((issued_at < received_at - {(long)NodeRosterRecord.ReceiveTimeWindow.TotalMilliseconds}
+                    AND received_at <= {queryAt.ToUnixTimeMilliseconds()}) OR
+                   (issued_at >= received_at - {(long)NodeRosterRecord.ReceiveTimeWindow.TotalMilliseconds}
+                    AND issued_at <= {queryAt.ToUnixTimeMilliseconds()}))))
+                """)
+            : db.RosterRecords.Where(row => row.TeamId == canonicalTeam);
+        var rows = await query.AsNoTracking()
             .OrderBy(row => row.IssuedAtUtc)
             .ThenBy(row => row.Id)
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
-        if (at is { } instant) rows = rows.Where(r => NodeRosterRecord.BoundedOrderTime(r.IssuedAtUtc, r.ReceivedAtUtc) <= instant).ToList();
         var orderTime = NodeRosterRecord.OrderTimes(rows);
         if (rows.Count == 0)
         {
@@ -107,9 +115,19 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         var anchor = partial ? await ReadGenesisAsync(_contextFactory, teamId, _verifier, ct).ConfigureAwait(false) : null;
         var admissions = new List<MemberAdmissionRecord>();
         var revocations = new List<MemberRevocationRecord>();
+        var attestations = new List<RosterReceiveAttestation>();
         foreach (var row in rows)
         {
             var state = NodeRosterRecord.ToCrdtState(row);
+            RosterReceiveAttestation? attestation = null;
+            if (state.WireFormatVersion == RosterWireFormat.CurrentVersion)
+            {
+                attestation = state.ReceiveAttestationOrNull();
+                if (attestation is null || !Guid.TryParse(state.NonceGuid, out var recordNonce)
+                    || !RosterReceiveAttestationSigning.Verify(state.RecordId, recordNonce, attestation, _verifier))
+                    throw Refuse(VerifiedTenantRosterRefusal.Tampered,
+                        "A durable roster receipt has invalid signed evidence.");
+            }
             switch ((RosterRecordKind)row.Kind)
             {
                 case RosterRecordKind.Admission:
@@ -127,6 +145,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                             "A durable admission row is malformed or has an invalid signature.");
                     }
                     admissions.Add(admission);
+                    if (attestation is not null) attestations.Add(attestation);
                     break;
                 }
                 case RosterRecordKind.Revocation:
@@ -140,6 +159,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                             "A durable revocation row is malformed or has an invalid signature.");
                     }
                     revocations.Add(revocation);
+                    if (attestation is not null) attestations.Add(attestation);
                     break;
                 }
                 default:
@@ -163,6 +183,17 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             throw Refuse(VerifiedTenantRosterRefusal.Tampered,
                 "The durable roster does not rebuild to the requested tenant's verified genesis chain.");
         }
+        var chainAdmissions = rebuilt.EnumerateAdmissions().ToList();
+        if (partial && genesisCount > 1)
+            chainAdmissions.AddRange(admissions.Where(a => a.Admission.IsGenesis).SelectMany(root =>
+                MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
+                    || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime)
+                    .EnumerateAdmissions()));
+        if (attestations.Any(attestation => !chainAdmissions.Any(admission =>
+                admission.PartyId == attestation.NodePartyId
+                && admission.PublicKey.ToBase64Url() == attestation.NodePublicKey)))
+            throw Refuse(VerifiedTenantRosterRefusal.Tampered,
+                "A durable roster receipt was signed by a node outside the verified chain.");
 
         var acceptedAdmissions = rebuilt.EnumerateAdmissions()
             .Select(static admission =>

@@ -54,12 +54,12 @@ public sealed class RosterRebuildFaultTests
         f.Verifier.Calls = 0;
         await f.Projection.HydrateFromStoreAsync(default);
         await f.Projection.DrainPendingReconcilesAsync();
-        Assert.Equal(2, f.Verifier.Calls);
+        Assert.Equal(4, f.Verifier.Calls);
         await f.Projection.ReconcileAsync(default);
-        Assert.Equal(2, f.Verifier.Calls);
+        Assert.Equal(4, f.Verifier.Calls);
         await f.Projection.HydrateFromStoreAsync(default);
         await f.Projection.DrainPendingReconcilesAsync();
-        Assert.Equal(4, f.Verifier.Calls);
+        Assert.Equal(8, f.Verifier.Calls);
         await using (var db = await f.Factory.CreateDbContextAsync())
         {
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");

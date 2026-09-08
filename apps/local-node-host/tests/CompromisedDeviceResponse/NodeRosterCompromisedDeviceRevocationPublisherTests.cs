@@ -59,6 +59,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
                 new YDotNetCrdtEngine(),
                 factory,
                 verifier,
+                founderSigner,
                 NullLogger<RosterCrdtProjection>.Instance,
                 liveRoster);
             var audit = new CapturingAuthorizedAuditTrail();
@@ -130,7 +131,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             await SeedAdministratorAsync(factory, team, "stolen-node");
 
             await using var projection = new RosterCrdtProjection(TimeProvider.System,
-                new YDotNetCrdtEngine(), factory, verifier,
+                new YDotNetCrdtEngine(), factory, verifier, founderSigner,
                 NullLogger<RosterCrdtProjection>.Instance, liveRoster);
             var administrators = new NodeAdministratorAuthority(
                 factory, TimeProvider.System, TestAuthorization.AllowGate());
@@ -205,7 +206,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             await SeedAdministratorAsync(factory, team, "operator-a");
 
             await using var projection = new RosterCrdtProjection(TimeProvider.System,
-                new YDotNetCrdtEngine(), factory, verifier,
+                new YDotNetCrdtEngine(), factory, verifier, founderSigner,
                 NullLogger<RosterCrdtProjection>.Instance, liveRoster);
             var administrators = new NodeAdministratorAuthority(
                 factory, TimeProvider.System, TestAuthorization.AllowGate());

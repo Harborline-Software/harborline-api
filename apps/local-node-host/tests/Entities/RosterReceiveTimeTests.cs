@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -57,17 +58,19 @@ public sealed class RosterReceiveTimeTests
             var backdated = new MemberRevocationRecord(tenant.ToString("D"), firstParty,
                 RosterSigning.SignRevocation(secondSigner, tenant, firstParty, secondParty,
                     At.AddDays(-random.Next(1, 30)), Nonce()));
-            var rows = roster.EnumerateAdmissions().Select(a => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a))).ToList();
-            foreach (var row in rows) row.ReceivedAtUtc = row.IssuedAtUtc;
-            var firstRow = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(first));
-            firstRow.ReceivedAtUtc = received;
-            var secondRow = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(backdated));
-            secondRow.ReceivedAtUtc = received.AddSeconds(random.Next(1, 60));
+            var rows = roster.EnumerateAdmissions().Select(a => NodeRosterRecord.FromCrdtState(
+                RosterRecordCrdtState.FromAdmission(a).AttestReceipt(founder, "founder", a.Admission.IssuedAt))).ToList();
+            var firstRow = NodeRosterRecord.FromCrdtState(
+                RosterRecordCrdtState.FromRevocation(first).AttestReceipt(founder, "founder", received));
+            var secondRow = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(backdated)
+                .AttestReceipt(founder, "founder", received.AddSeconds(random.Next(1, 60))));
             rows.AddRange([firstRow, secondRow]);
             string[] Fold(IEnumerable<NodeRosterRecord> arrivals)
             {
                 var shuffled = arrivals.ToArray();
                 var states = shuffled.Select(NodeRosterRecord.ToCrdtState).ToArray();
+                Assert.All(states, state => Assert.True(RosterReceiveAttestationSigning.Verify(
+                    state.RecordId, Guid.Parse(state.NonceGuid), state.ReceiveAttestationOrNull()!, verifier)));
                 var rebuilt = MemberRoster.FromSyncedRecords(
                     states.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>(),
                     states.Select(s => s.ToRevocationOrNull()).OfType<MemberRevocationRecord>(),
@@ -79,6 +82,21 @@ public sealed class RosterReceiveTimeTests
             }
             Assert.Equal(Fold(rows.OrderBy(_ => random.Next())), Fold(rows.OrderBy(_ => random.Next())));
         }
+    }
+
+    [Fact]
+    public async Task OldShapeSignatureDoesNotVerifyAgainstCurrentCanonicalReceipt()
+    {
+        using var key = KeyPair.Generate();
+        var signer = new Ed25519Signer(key);
+        var nonce = Guid.NewGuid();
+        var old = await signer.SignAsync(new { FormatVersion = 1, RecordId = "record" }, At, nonce);
+        var current = new RosterReceiveAttestationRecord(RosterWireFormat.CurrentVersion, "founder",
+            signer.IssuerId.ToBase64Url(), "record", At.ToString("O"));
+        Assert.Equal(["FormatVersion", "NodePartyId", "NodePublicKey", "ReceivedAtIso", "RecordId"],
+            typeof(RosterReceiveAttestationRecord).GetProperties().Select(p => p.Name).Order().ToArray());
+        Assert.False(new Ed25519Verifier().Verify(new SignedOperation<RosterReceiveAttestationRecord>(
+            current, signer.IssuerId, At, nonce, old.Signature)));
     }
 
     [Fact]
@@ -103,6 +121,19 @@ public sealed class RosterReceiveTimeTests
         var proofs = (System.Collections.IDictionary)typeof(HydrationRosterVerifier)
             .GetField("_verified", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
         Assert.InRange(proofs.Count, 1, HydrationRosterVerifier.Capacity);
+
+        var bounded = new HydrationRosterVerifier(inner);
+        SignedOperation<string>? survivor = null;
+        for (var i = 0; i < HydrationRosterVerifier.Capacity; i++)
+        {
+            var proof = valid with { Payload = $"bounded-{i}" };
+            bounded.Verify(proof);
+            if (i == 1) survivor = proof;
+        }
+        bounded.Verify(valid with { Payload = "one-over-capacity" });
+        var retainedCalls = inner.Calls;
+        bounded.Verify(survivor!);
+        Assert.Equal(retainedCalls, inner.Calls);
     }
 
     [Fact]
@@ -110,6 +141,7 @@ public sealed class RosterReceiveTimeTests
     {
         await using var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(),
             Substitute.For<IDbContextFactory<NodeLocalRosterDbContext>>(), new Ed25519Verifier(),
+            new Ed25519Signer(KeyPair.Generate()),
             NullLogger<RosterCrdtProjection>.Instance);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         Task Failure(int i) => (Task)typeof(RosterCrdtProjection).GetMethod("ReportRebuildFailureAsync", flags)!
@@ -150,8 +182,9 @@ public sealed class RosterReceiveTimeTests
     public async Task NumberedMigrationRetainsReceiptOnDiskAndLeavesLegacyReceiptUnknown()
     {
         var path = Path.Combine(Path.GetTempPath(), $"roster-receipt-{Guid.NewGuid():N}.db");
+        var commands = new List<string>();
         var options = new DbContextOptionsBuilder<NodeLocalRosterDbContext>()
-            .UseSqlite($"Data Source={path};Pooling=False").Options;
+            .UseSqlite($"Data Source={path};Pooling=False").LogTo(commands.Add).Options;
         try
         {
             await using (var db = new NodeLocalRosterDbContext(options))
@@ -161,19 +194,32 @@ public sealed class RosterReceiveTimeTests
                 using var key = KeyPair.Generate();
                 var root = MemberRoster.Genesis(Guid.NewGuid(), "founder", new Ed25519Signer(key),
                     new Ed25519Verifier(), At, Guid.NewGuid());
-                var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(root.EnumerateAdmissions().Single()));
-                Assert.Null(row.ReceivedAtUtc);
-                row.ReceivedAtUtc = At.AddDays(1).AddMilliseconds(123);
+                var signer = new Ed25519Signer(key);
+                var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(root.EnumerateAdmissions().Single())
+                    .AttestReceipt(signer, "founder", At.AddDays(1).AddMilliseconds(123)));
+                Assert.NotNull(row.ReceivedAtUtc);
                 db.RosterRecords.Add(row);
                 await db.SaveChangesAsync();
             }
             await using (var restarted = new NodeLocalRosterDbContext(options))
             {
                 await restarted.Database.MigrateAsync();
+                Assert.Contains("20260908150000_RosterReceiveAttestation", await restarted.Database.GetAppliedMigrationsAsync());
                 var row = await restarted.RosterRecords.SingleAsync();
                 Assert.Equal(At, row.IssuedAtUtc);
                 Assert.Equal(At.AddDays(1).AddMilliseconds(123), row.ReceivedAtUtc);
+                Assert.Equal(RosterWireFormat.CurrentVersion, row.WireFormatVersion);
+                var state = NodeRosterRecord.ToCrdtState(row);
+                Assert.True(RosterReceiveAttestationSigning.Verify(state.RecordId, Guid.Parse(state.NonceGuid),
+                    state.ReceiveAttestationOrNull()!, new Ed25519Verifier()));
                 Assert.Equal(row.ReceivedAtUtc, NodeRosterRecord.BoundedOrderTime(row.IssuedAtUtc, row.ReceivedAtUtc));
+                row.WireFormatVersion = 0;
+                Assert.Equal(row.IssuedAtUtc, NodeRosterRecord.OrderTimes([row])(row.SignatureB64Url, row.IssuedAtUtc));
+                row.WireFormatVersion = RosterWireFormat.CurrentVersion;
+                await new VerifiedTenantRosterReader(new InlineFactory(options), new Ed25519Verifier())
+                    .ReadAtAsync(new TenantId(row.TeamId), At.AddDays(2), default);
+                Assert.Contains(commands, command => command.Contains("WHERE team_id", StringComparison.Ordinal)
+                    && command.Contains("received_at IS NULL", StringComparison.Ordinal));
             }
         }
         finally { File.Delete(path); }
@@ -183,5 +229,11 @@ public sealed class RosterReceiveTimeTests
     {
         public int Calls;
         public bool Verify<T>(SignedOperation<T> op) { Calls++; return new Ed25519Verifier().Verify(op); }
+    }
+
+    private sealed class InlineFactory(DbContextOptions<NodeLocalRosterDbContext> options)
+        : IDbContextFactory<NodeLocalRosterDbContext>
+    {
+        public NodeLocalRosterDbContext CreateDbContext() => new(options);
     }
 }

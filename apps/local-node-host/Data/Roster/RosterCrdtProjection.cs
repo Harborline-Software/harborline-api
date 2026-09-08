@@ -68,6 +68,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly CrdtProjection<RosterCrdtSchema> _projection;
     private readonly IDbContextFactory<NodeLocalRosterDbContext> _contextFactory;
     private readonly HydrationRosterVerifier _verifier;
+    private readonly IOperationSigner _attestationSigner;
+    private readonly string? _attestationPartyId;
     private readonly TimeProvider _clock;
     private readonly Lock _reportsGate = new();
     private int _legacyPermissionFieldsReported;
@@ -143,14 +145,18 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         ICrdtEngine engine,
         IDbContextFactory<NodeLocalRosterDbContext> contextFactory,
         IOperationVerifier verifier,
+        IOperationSigner attestationSigner,
         ILogger<RosterCrdtProjection> logger,
         NodeTeamRoster? nodeRoster = null,
         ICrdtProjectionRegistry? projectionRegistry = null,
         Func<NodeAdministratorAuthority?>? administrators = null,
-        Func<AuthorizationRefusalAudit?>? refusalAudit = null)
+        Func<AuthorizationRefusalAudit?>? refusalAudit = null,
+        string? attestationPartyId = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _verifier = new HydrationRosterVerifier(verifier ?? throw new ArgumentNullException(nameof(verifier)));
+        _attestationSigner = attestationSigner ?? throw new ArgumentNullException(nameof(attestationSigner));
+        _attestationPartyId = attestationPartyId;
         _nodeRoster = nodeRoster;
         _administrators = administrators;
         _refusalAudit = refusalAudit;
@@ -204,10 +210,28 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         {
             await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             var rows = await ctx.Set<NodeRosterRecord>()
-                .AsNoTracking()
                 .OrderBy(r => r.IssuedAtUtc).ThenBy(r => r.Id)
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
+            foreach (var legacy in rows.Where(row => row.WireFormatVersion != RosterWireFormat.CurrentVersion)
+                         .GroupBy(row => row.TeamId, StringComparer.Ordinal))
+            {
+                var key = _attestationSigner.IssuerId.ToBase64Url();
+                var party = rows.FirstOrDefault(row => row.TeamId == legacy.Key
+                    && row.Kind == (int)RosterRecordKind.Admission && row.PublicKeyB64Url == key)?.PartyId
+                    ?? throw new InvalidOperationException("The local signer has no admission in a legacy roster log.");
+                foreach (var row in legacy)
+                {
+                    var state = NodeRosterRecord.ToCrdtState(row).AttestReceipt(
+                        _attestationSigner, party, row.ReceivedAtUtc ?? row.IssuedAtUtc);
+                    row.ReceivedAtUtc = DateTimeOffset.Parse(state.ReceivedAtIso);
+                    row.WireFormatVersion = state.WireFormatVersion;
+                    row.ReceivedByPartyId = state.ReceivedByPartyId;
+                    row.ReceivedByPublicKey = state.ReceivedByPublicKey;
+                    row.ReceiveAttestationSignatureB64Url = state.ReceiveAttestationSignatureB64Url;
+                }
+            }
+            if (ctx.ChangeTracker.HasChanges()) await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
 
             var legacyCount = rows.Count(row => !string.IsNullOrEmpty(row.PermissionsJson));
             if (legacyCount > 0 && Interlocked.Exchange(ref _legacyPermissionFieldsReported, 1) == 0)
@@ -249,6 +273,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     public async Task PublishLocalAsync(RosterRecordCrdtState record, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(record);
+        var issuedAt = NodeRosterRecord.FromCrdtState(record).IssuedAtUtc;
+        record = record.AttestReceipt(_attestationSigner, LocalAttestingParty(record), issuedAt);
 
         // Idempotent on the CRDT list: skip if this record id is already present with the SAME content (a restart
         // re-seed of the genesis self-admission, or a re-publish). The list is append-only — a duplicate push
@@ -553,11 +579,6 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
                     var candidates = snapshot.Where(s => !existing.ContainsKey(s.RecordId)).DistinctBy(s => s.RecordId)
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
-                    if (candidates.Count > 0)
-                    {
-                        var received = _clock.GetUtcNow();
-                        foreach (var candidate in candidates.Values) candidate.ReceivedAtUtc = received;
-                    }
                     orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
                     var toInsert = new List<NodeRosterRecord>();
                     var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, ct).ConfigureAwait(false);
@@ -994,6 +1015,13 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     {
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
+        if (candidate.WireFormatVersion != RosterWireFormat.CurrentVersion)
+            return "roster.record.wire_version_unsupported";
+        var receiveAttestation = candidate.ReceiveAttestationOrNull();
+        if (receiveAttestation is null || !Guid.TryParse(candidate.NonceGuid, out var recordNonce)
+            || !RosterReceiveAttestationSigning.Verify(
+                candidate.RecordId, recordNonce, receiveAttestation, _verifier))
+            return "roster.record.receive_attestation_invalid";
         var admission = candidate.ToAdmissionOrNull();
         var revocation = candidate.ToRevocationOrNull();
         var signatureValid = admission is not null
@@ -1006,7 +1034,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (admission?.Admission.IsGenesis == true)
         {
             if (anchor is not null || competingRoots) return "roster.genesis.duplicate";
-            return MemberRoster.FromSyncedRecords([admission], [], _verifier).HasRootGrantHolder()
+            var roots = incoming.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
+                .Append(admission).DistinctBy(a => a.Admission.Signature);
+            var genesisChain = MemberRoster.FromSyncedRecords(roots, [], _verifier, orderTime);
+            return genesisChain.HasRootGrantHolder() && AttesterIsTrusted(genesisChain, receiveAttestation)
                 ? null : "roster.record.chain_ineligible";
         }
         var admissions = evidence.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()
@@ -1026,11 +1057,30 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
             || chain.PermissionsOf(candidate.AdmittedByPartyId)?.Contains(permission) != true)
             return "roster.record.chain_ineligible";
+        if (!AttesterIsTrusted(chain, receiveAttestation))
+            return "roster.record.receive_attestation_untrusted";
         if (admission is not null && !chain.EnumerateAdmissions().Any(a =>
                 a.PartyId == admission.PartyId && a.Admission.Signature == admission.Admission.Signature))
             return "roster.record.chain_ineligible";
         return null;
     }
+
+    private string LocalAttestingParty(RosterRecordCrdtState record)
+    {
+        if (!string.IsNullOrWhiteSpace(_attestationPartyId)) return _attestationPartyId;
+        var key = _attestationSigner.IssuerId;
+        var party = _nodeRoster?.Current.EnumerateAdmissions()
+            .FirstOrDefault(admission => admission.PublicKey.Equals(key))?.PartyId;
+        if (!string.IsNullOrWhiteSpace(party)) return party;
+        if (string.Equals(record.AdmittedByPublicKey, key.ToBase64Url(), StringComparison.Ordinal))
+            return record.AdmittedByPartyId;
+        throw new InvalidOperationException("The local receive-attestation signer is not in this roster chain.");
+    }
+
+    private static bool AttesterIsTrusted(MemberRoster roster, RosterReceiveAttestation attestation) =>
+        roster.EnumerateAdmissions().Any(admission =>
+            string.Equals(admission.PartyId, attestation.NodePartyId, StringComparison.Ordinal)
+            && string.Equals(admission.PublicKey.ToBase64Url(), attestation.NodePublicKey, StringComparison.Ordinal));
 
     private sealed record RebuildRefusal(string RecordId, AuthorizationRefusal Report, string Permission,
         ActorId Actor, TenantId Tenant, DateTimeOffset IssuedAt);
@@ -1189,7 +1239,8 @@ internal sealed class RosterCrdtSchema : ICrdtProjectionSchema
                 existing.XWingPublicKeyB64Url ?? string.Empty,
                 record.XWingPublicKeyB64Url ?? string.Empty,
                 StringComparison.Ordinal);
-            return transportSame && dmSame && xwingSame ? IdenticalRecord : index;
+            var receiptSame = Equals(existing.ReceiveAttestationOrNull(), record.ReceiveAttestationOrNull());
+            return transportSame && dmSame && xwingSame && receiptSame ? IdenticalRecord : index;
         }
 
         return -1;

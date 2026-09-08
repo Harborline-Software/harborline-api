@@ -51,9 +51,10 @@ public sealed class RosterAdmissionGrantBackfillTests
     public async Task Production_boot_hook_converts_grants_before_hydrating_the_roster()
     {
         await using var store = await SearchTestStore.CreateAsync();
-        await SeedAsync(store, 3);
+        var (_, signer) = await SeedAsync(store, 3);
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IOperationSigner>(signer);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(store.Factory);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
