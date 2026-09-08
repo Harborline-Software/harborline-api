@@ -94,3 +94,14 @@ npm run build       # compile TypeScript
 npm run typecheck   # type-check without emit
 npm test            # run vitest suite (includes bundle fixture-roundtrip)
 ```
+
+## Installing from GitHub Packages
+
+The package publishes to the organisation's npm registry at the same version as the NuGet packages. Add the scope to the consuming project's `.npmrc` and authenticate with a token that has `read:packages`:
+
+```
+@harborline-software:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Then `pnpm add @harborline-software/api-contracts@<version>`.
