@@ -103,6 +103,7 @@ public sealed class AuthorizationRefusalAudit
             {
                 ["code"] = refusal.Code,
                 ["permission"] = permission,
+                ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),

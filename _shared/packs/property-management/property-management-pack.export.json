@@ -20,17 +20,20 @@
               {
                 "id": "portfolio",
                 "labelKey": "workspaceGroups.operations.portfolio",
-                "itemIds": ["asset-tree"]
+                "itemIds": ["asset-tree"],
+                "items": [{ "id": "asset-tree", "labelKey": "navigation.asset-tree" }]
               },
               {
                 "id": "billing",
                 "labelKey": "workspaceGroups.money.billing",
-                "itemIds": ["invoices"]
+                "itemIds": ["invoices"],
+                "items": [{ "id": "invoices", "labelKey": "navigation.invoices" }]
               },
               {
                 "id": "documents",
                 "labelKey": "workspaceGroups.workshop.documents",
-                "itemIds": ["documents"]
+                "itemIds": ["documents"],
+                "items": [{ "id": "documents", "labelKey": "navigation.documents" }]
               }
             ]
           }

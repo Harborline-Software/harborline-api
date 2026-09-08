@@ -192,7 +192,8 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
             builder.Services.AddSingleton(outerClock);
         }
         builder.Services.AddHarborlineEngineRoom();
-        builder.Services.AddTransient<LocalNodeHealthCheck>();
+        builder.Services.AddTransient(_ =>
+            ActivatorUtilities.CreateInstance<LocalNodeHealthCheck>(outerServices));
         builder.Services.AddHealthChecks()
             .AddCheck<LocalNodeHealthCheck>("local-node")
             .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
