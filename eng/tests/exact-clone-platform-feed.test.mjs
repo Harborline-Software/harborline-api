@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {execFileSync, spawnSync} from 'node:child_process'
-import {copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {copyFileSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 
@@ -9,9 +9,11 @@ const root = path.resolve(import.meta.dirname, '../..')
 const publicUrl = 'https://github.com/Harborline-Software/harborline-platform.git'
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
 function fixture(t) {
-  const directory = mkdtempSync(path.join(tmpdir(), 'exact-feed-test-'))
+  // realpath: on macOS tmpdir() is /var/..., a symlink to /private/var, and the builder stub compares
+  // process.argv[1] (resolved through the symlink) with import.meta.url (the real path) (ticket 345).
+  const directory = mkdtempSync(path.join(realpathSync(tmpdir()), 'exact-feed-test-'))
   t.after(() => {
-    assert.equal(path.dirname(directory), path.resolve(tmpdir()))
+    assert.equal(path.dirname(directory), realpathSync(tmpdir()))
     rmSync(directory, {recursive: true, force: true})
   })
   const apiRoot = path.join(directory, 'api')
