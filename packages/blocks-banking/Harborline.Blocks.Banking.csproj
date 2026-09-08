@@ -26,4 +26,5 @@
     <ProjectReference Include="..\blocks-financial-ledger\Harborline.Blocks.FinancialLedger.csproj" />
     <ProjectReference Include="..\blocks-financial-periods\Harborline.Blocks.FinancialPeriods.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

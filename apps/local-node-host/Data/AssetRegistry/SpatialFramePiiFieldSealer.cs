@@ -6,7 +6,6 @@ using System.Text.Json;
 using Harborline.Api.Foundation.Recovery;
 using Harborline.Api.Foundation.Recovery.TenantKey;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 

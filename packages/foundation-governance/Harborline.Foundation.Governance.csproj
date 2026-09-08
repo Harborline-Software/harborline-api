@@ -39,4 +39,5 @@
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

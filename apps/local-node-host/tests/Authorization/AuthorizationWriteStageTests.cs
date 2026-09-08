@@ -1140,9 +1140,10 @@ public sealed class AuthorizationWriteStageTests
         var valid = new PackProjectionAdmission(
             Guid.NewGuid(), "pack-a", "1.0.0", new TenantId("tenant-a"), new ActorId("operator"),
             new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero), ["grant", "definition"], Projected: false);
+        Assert.Throws<ArgumentException>(() => new TenantId(" "));
         PackProjectionAdmission[] incomplete =
         [
-            valid with { Tenant = new TenantId(" ") },
+            valid with { Tenant = default },
             valid with { PackId = " " },
             valid with { PackVersion = " " },
             valid with { Instant = default },

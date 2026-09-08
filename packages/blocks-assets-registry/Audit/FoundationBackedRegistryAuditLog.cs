@@ -5,7 +5,6 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Audit;
 using Harborline.Api.Foundation.Assets.Common;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Audit;

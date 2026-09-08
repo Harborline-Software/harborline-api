@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using Harborline.Api.Blocks.Assets.Registry.Services;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Audit;

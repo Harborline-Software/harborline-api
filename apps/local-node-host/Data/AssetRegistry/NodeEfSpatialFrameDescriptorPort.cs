@@ -11,7 +11,6 @@ using Harborline.Api.LocalNodeHost.Health;
 // NodePersistenceConflict narrows the layer-3 catch to UNIQUE/PK violations only.
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 

@@ -37,4 +37,5 @@
     <ProjectReference Include="..\foundation-integrations\Harborline.Foundation.Integrations.csproj" />
     <ProjectReference Include="..\foundation-forms\Harborline.Foundation.Forms.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

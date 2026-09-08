@@ -2,7 +2,6 @@ using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Model.Spatial;
 using Harborline.Api.Foundation.Crypto;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Services.Spatial;
 

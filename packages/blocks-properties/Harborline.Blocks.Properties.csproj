@@ -25,4 +25,5 @@
     <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
     <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

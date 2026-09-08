@@ -240,7 +240,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         capabilityRequirements = new[] { "workflow.durable" },
     };
 
-    private static Harborline.Api.Foundation.Assets.Common.TenantId NodeTenantFor()
+    private static Harborline.Foundation.Assets.Common.TenantId NodeTenantFor()
         => Harborline.Api.LocalNodeHost.Data.Financial.NodeTenant.Resolve(
             new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A")));
 

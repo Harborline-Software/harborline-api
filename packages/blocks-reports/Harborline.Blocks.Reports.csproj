@@ -28,4 +28,5 @@
     <!-- W#72 PR 6 — Rent Roll v2 cartridge consumes lease service for unit + tenant data. -->
     <ProjectReference Include="..\blocks-leases\Harborline.Blocks.Leases.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

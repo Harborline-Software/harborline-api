@@ -26,7 +26,7 @@ public interface ISignatureCapture
 public sealed record SignatureCaptureRequest
 {
     /// <summary>The owning tenant.</summary>
-    public required Harborline.Api.Foundation.Assets.Common.TenantId Tenant { get; init; }
+    public required Harborline.Foundation.Assets.Common.TenantId Tenant { get; init; }
 
     /// <summary>The signing principal.</summary>
     public required Harborline.Api.Foundation.Assets.Common.ActorId Signer { get; init; }

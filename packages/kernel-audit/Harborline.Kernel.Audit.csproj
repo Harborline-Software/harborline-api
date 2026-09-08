@@ -27,4 +27,5 @@
     <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
     <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

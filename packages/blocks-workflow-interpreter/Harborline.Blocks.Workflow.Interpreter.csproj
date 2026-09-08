@@ -24,4 +24,5 @@
     <!-- IPartyContext (server-derived confirmer party) + IPrincipalKindResolver (server-derived IsHuman). -->
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>
