@@ -60,6 +60,9 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
       - uses: ./.github/actions/platform-feed
       - uses: actions/setup-node@v7
         with:
@@ -67,8 +70,8 @@ jobs:
           # against locally. Rust needs no setup step -- ubuntu-latest ships a stable toolchain
           # well past the 1.85 that Cargo.toml's edition 2024 requires.
           node-version: 24
-          cache: npm
-          cache-dependency-path: packages/contracts/package-lock.json
+          cache: pnpm
+          cache-dependency-path: packages/contracts/pnpm-lock.yaml
 
       - name: Generated projections are in sync with the schema
         if: ${{ !cancelled() }}
@@ -85,8 +88,8 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: packages/contracts
         run: |
-          npm ci
-          npm test
+          pnpm install --frozen-lockfile
+          pnpm test
 
       - name: C# lane
         if: ${{ !cancelled() }}

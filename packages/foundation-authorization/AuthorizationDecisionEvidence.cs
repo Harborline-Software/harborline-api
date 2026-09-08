@@ -132,6 +132,8 @@ public sealed record AuthorizationDecisionEvidence
 
     /// <summary>The exact roster facts consumed by the gate, including both identity ejection keys.</summary>
     public AuthorizationRosterInputs? Roster { get; private init; }
+    /// <summary>The signed grant constraint failure carried by the deciding request.</summary>
+    public string? GrantRefusal { get; private init; }
 
     /// <summary>Which deciding path produced this evidence.</summary>
     public AuthorizationEvidenceKind Kind { get; }
@@ -273,6 +275,7 @@ public sealed record AuthorizationDecisionEvidence
                 [
                     .. bindings.Count == 0 ? ["roles:none"] : bindings,
                     $"deciding:{DecidingBinding}",
+                    .. Roster?.RegistryMember is { } registryMember ? new[] { $"registry:member:{registryMember}" } : Array.Empty<string>(),
                     .. Roster is { } roster ? new[] {
                         $"roster:party:{roster.PartyId};member:{roster.Member};ejected:{roster.Ejected};prospective-administrator-grant:{roster.ProspectiveAdministratorGrant}",
                         $"roster:permissions:{string.Join(",", (roster.Permissions ?? PermissionSet.Empty).Permissions.Order(StringComparer.Ordinal))}",
@@ -286,6 +289,7 @@ public sealed record AuthorizationDecisionEvidence
                     $"verdict:{(Allowed ? "allowed" : "denied")}",
                     $"refusal:{Refusal}",
                     $"version:{Version}",
+                    .. GrantRefusal is { } reason ? new[] { $"grant-refusal:{reason}" } : Array.Empty<string>(),
                 ]),
         ];
     }
@@ -360,7 +364,7 @@ public sealed record AuthorizationDecisionEvidence
             [],
             request.Act,
             [.. derivations],
-            [.. excluded]) { Roster = request.Roster };
+            [.. excluded]) { Roster = request.Roster, GrantRefusal = request.GrantRefusal };
     }
 
     /// <summary>

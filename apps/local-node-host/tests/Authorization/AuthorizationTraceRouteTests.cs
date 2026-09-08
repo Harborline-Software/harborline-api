@@ -21,6 +21,45 @@ public sealed class AuthorizationTraceRouteTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public async Task Desktop_decision_is_readable_through_the_trace_route(bool allowed)
+    {
+        await using var host = await Host.OpenAsync();
+        var desktop = host.Services.GetRequiredService<ActiveTeamAuthorizationContext>();
+        var permission = allowed ? Permission.GrantPermissions : "desktop:unheld";
+        using var capture = new RosterDecisionCapture();
+        var desktopDecision = (await desktop.DecideAsync(permission))!;
+        Assert.Equal(allowed, desktopDecision.Verdict == AuthorizationVerdict.Allowed);
+        var evidence = capture.AssertSingle(allowed);
+        Assert.True(evidence.Roster!.RegistryMember);
+        Guid id;
+        if (allowed)
+        {
+            var decision = desktopDecision;
+            var request = decision.Request;
+            var payload = await host.Services.GetRequiredService<IOperationSigner>().SignAsync(
+                new AuditPayload(new Dictionary<string, object?>()), request.At, Guid.NewGuid());
+            var record = new AuditRecord(Guid.NewGuid(), request.Tenant, new AuditEventType("DesktopDecision"),
+                request.At, payload, [], Actor: request.Principal, Target: request.Target, Act: request.Act);
+            await ((IAuthorizedAuditTrail)host.Services.GetRequiredService<IAuditTrail>()).AppendAuthorizedAsync(record, decision);
+            id = record.AuditId;
+        }
+        else
+        {
+            var rows = new List<AuditRecord>();
+            await foreach (var row in host.Services.GetRequiredService<IAuditTrail>().QueryAsync(new AuditQuery(host.Tenant)))
+                if (row.Act?.Operation.Value == permission) rows.Add(row);
+            var refusal = Assert.Single(rows);
+            Assert.Equal(false, refusal.Payload.Payload.Body["preDecision"]);
+            id = refusal.AuditId;
+        }
+        var trace = await host.ReadAsync(id);
+        Assert.Equal(evidence.Project().SelectMany(step => step.Facts), trace.GetProperty("steps").EnumerateArray()
+            .SelectMany(step => step.GetProperty("facts").EnumerateArray().Select(fact => fact.GetString())));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public async Task Real_route_returns_fixture_shape_and_reports_volatile_history_after_restart(bool allowed)
     {
         await using var host = await Host.OpenAsync();
@@ -149,7 +188,7 @@ public sealed class AuthorizationTraceRouteTests
             foreach (var (key, value) in new Dictionary<string, string>
             {
                 ["DOTNET_ENVIRONMENT"] = "Production", ["ASPNETCORE_ENVIRONMENT"] = "Production",
-                ["ASPNETCORE_URLS"] = "http://127.0.0.1:7316", ["LocalNode__HealthPort"] = "7316",
+                ["ASPNETCORE_URLS"] = "http://127.0.0.1:7309", ["LocalNode__HealthPort"] = "7308",
                 ["LocalNode__RootSeedHex"] = new string('3', 64), ["LocalNode__WebClient__Enabled"] = "false",
                 ["LocalNode__MultiTeam__Enabled"] = "false", ["LocalNode__SchedulingDogfood__Enabled"] = "false",
                 ["Logging__EventLog__LogLevel__Default"] = "None"

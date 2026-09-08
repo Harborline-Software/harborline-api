@@ -80,7 +80,7 @@ public sealed class AuthorizationGate(
             namedRoleUnionAllowed = atomCoverageAllowed;
         }
 
-        var verdict = atomCoverageAllowed ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied;
+        var verdict = atomCoverageAllowed && request.GrantRefusal is null ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied;
         var verdictName = verdict.ToString().ToLowerInvariant();
         resolution.Add(new AuthorizationResolutionStep(
             AuthorizationResolutionStage.NamedRoleUnionVerdict,

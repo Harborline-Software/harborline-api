@@ -19,6 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, readHostTrx} from './host-baseline.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -42,7 +43,7 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // stops the gate rather than silently redefining what passing means. Changing a baseline is a
 // deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
 const BASELINES = {
-  host: 'eng/baselines/host-test-baseline.json',
+  host: baselineArgument(process.argv.slice(2)),
   capability: 'eng/baselines/hull-test-baseline.json',
 }
 const baselineProvenance = {}
@@ -62,6 +63,7 @@ const capabilityBaseline = JSON.parse(readFileSync(path.join(apiRoot, BASELINES.
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
 const clone = path.join(scratch, 'clone')
+let retainScratch = false
 const steps = []
 // The ESC byte is part of the pattern; stripping only the bracket sequence would leave a stray
 // ESC that \s+ cannot match, so a colourised summary would fail to parse for a reason invisible
@@ -84,7 +86,8 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
   const started = Date.now()
   const resolved = resolveCommand(command, args)
   const result = spawnSync(resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
-  const output = stripAnsi(`${result.stdout ?? ''}${result.stderr ?? ''}`)
+  const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  const output = stripAnsi(rawOutput)
   const step = {
     id,
     passed: expectNonZero ? true : result.status === 0,
@@ -97,6 +100,7 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
   // many lines a runner happened to print after its summary: host-baseline-match passed one run
   // and failed the next on identical trees. The tail exists for human reading only.
   step.fullOutput = output
+  if (id === 'dotnet-host-tests') step.rawOutput = rawOutput
   steps.push(step)
   return step
 }
@@ -125,15 +129,17 @@ try {
   // contracts must be built first: its package.json points main/types at dist/, which no clone
   // carries — the exact class of gap this gate exists to surface. Moving these three steps earlier
   // does not weaken that; they still install and build from the clone alone.
-  run('capability-contracts-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'packages/contracts'))
-  run('capability-contracts-build', 'npm', ['run', 'build'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-install', 'pnpm', ['install', '--frozen-lockfile'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-build', 'pnpm', ['run', 'build'], path.join(clone, 'packages/contracts'))
   // 246: the contracts package carries its own tests, including the package-name fence; a clone that
   // only builds it would let a retired-name regression through this route.
-  run('capability-contracts-tests', 'npx', ['vitest', 'run'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-tests', 'pnpm', ['test'], path.join(clone, 'packages/contracts'))
   run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
 
+  const hostResultsDirectory = path.join(clone, 'TestResults', 'host')
   const hostTests = run('dotnet-host-tests', 'dotnet',
-    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build'], clone, {expectNonZero: true})
+    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build',
+      '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
@@ -147,7 +153,8 @@ try {
     if (vitest) return {failed: +(vitest[1] ?? 0), passed: +vitest[2], skipped: +(vitest[3] ?? 0), total: +vitest[4]}
     return null
   }
-  const hostCounts = countsOf(hostTests.fullOutput)
+  const hostTrx = hostBaseline.comparison === 'named' ? readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx')) : null
+  const hostCounts = hostBaseline.comparison === 'named' ? hostTrx.counts : countsOf(hostTests.fullOutput)
   const capabilityCounts = countsOf(capabilityTests.fullOutput)
 
   // Bounded retry for the named flaky tests, exactly as host-test-baseline.json's knownFlaky
@@ -171,7 +178,7 @@ try {
   //      nothing, so a stale registration cannot keep buying retries.
   // The trailing bracket is the duration, and it is NOT always numeric — vstest prints "[< 1 ms]"
   // for a fast test, so anchoring on a digit silently drops those rows. Match the bracket itself.
-  const failedNamesIn = text => [...text.matchAll(/^ {2}Failed (.+?)\s+\[[^\]]*\]\s*$/gm)].map(m => m[1].trim())
+  const failedNamesIn = text => resultNamesIn(text, 'Failed')
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
@@ -187,7 +194,9 @@ try {
     ? new Map((hostBaseline.knownFlaky ?? []).map(row => [row.test, RETRY_LIMIT]))
     : new Map()
 
-  const observedFailures = failedNamesIn(hostTests.fullOutput)
+  const observedFailures = hostBaseline.comparison === 'named'
+    ? hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+    : failedNamesIn(hostTests.fullOutput)
   const unexpected = observedFailures.filter(name => !permittedNames.has(name))
   const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
@@ -250,14 +259,27 @@ try {
       : 'Attempts-to-green is the measurement this step exists to produce; a change in it is signal.',
   })
 
+  const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
+    adjustedFailed, newFailures, trx: hostTrx})
+  if (hostBaseline.comparison === 'named' && !hostComparison.passed) {
+    // Keep the clone on a named failure so the operator can inspect both TRX and raw output.
+    retainScratch = true
+    mkdirSync(hostResultsDirectory, {recursive: true})
+    const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
+    writeFileSync(outputFile, hostTests.rawOutput)
+    hostComparison.problems = hostComparison.problems.map(line => `${line}; host output: ${outputFile}`)
+    hostComparison.tail = hostComparison.problems.join('\n')
+  }
+  for (const line of hostComparison.problems ?? []) console.log(line)
   steps.push({
     id: 'host-baseline-match',
-    passed: Boolean(hostCounts) && hostCounts.total === hostBaseline.totals.total && adjustedFailed === hostBaseline.totals.failed && newFailures.length === 0,
+    ...hostComparison,
+    baseline: BASELINES.host,
     expected: hostBaseline.totals, observed: hostCounts,
     newFailures,
     observedAfterFlakeRetry: adjustedFailed === null ? null : {...hostCounts, failed: adjustedFailed},
     rescuedByRetry: rescued,
-    note: 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
+    note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
   steps.push({
     id: 'capability-baseline-match',
@@ -275,7 +297,7 @@ try {
     steps,
   }
 } finally {
-  rmSync(scratch, {recursive: true, force: true})
+  if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
 }
 
 // Record the report whatever its status. A gate that discards its own evidence on failure forces
@@ -292,7 +314,7 @@ try {
 //
 // Note for the next editor: do not spell that home-directory prefix out here. This comment is
 // itself scanned, and naming the pattern literally fails the very check it describes.
-const persisted = {...report, steps: report.steps.map(({fullOutput, ...rest}) => rest)}
+const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, ...rest}) => rest)}
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
 // then throws ENOENT on its final line, discarding the verdict it just spent that long computing.

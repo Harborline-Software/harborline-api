@@ -14,12 +14,17 @@ using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Search;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Capabilities;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -88,6 +93,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// </para>
 /// </remarks>
 [Trait("PlanCard", "MTW-2-3367")]
+[Collection("Harborline process environment")]
 public sealed class FormsStartupCapturedIdentityFenceTests
 {
     private const string CallerToken = "forms-startup-identity-fence-caller-token";
@@ -99,7 +105,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
 
     [Fact(DisplayName =
         "3367: a member's forms outcome does NOT track the role the operator held at boot — the same " +
-        "fence refusal either way (on unfenced main it was 201 under Admin, 403 capability-denied under Member)")]
+        "fence refusal either way; signed roster evidence replaces the registry-only boot premise")]
     public async Task MemberOutcome_DoesNotTrackTheOperatorsStartupRole()
     {
         await using (var operatorBootedAdmin = await Fixture.CreateAsync(TeamRole.Admin))
@@ -125,13 +131,13 @@ public sealed class FormsStartupCapturedIdentityFenceTests
 
     [Fact(DisplayName =
         "3367: a DESKTOP-plane submit still commits under an Admin operator and is still denied under a " +
-        "Member operator — the fence is not a blanket refusal")]
+        "Member operator; signed roster evidence replaces the registry-only boot premise")]
     public async Task DesktopPlaneSubmit_StillTracksTheOperatorsGrants()
     {
         await using (var operatorBootedAdmin = await Fixture.CreateAsync(TeamRole.Admin))
         {
             using var response = await operatorBootedAdmin.SubmitAsDesktopOperatorAsync();
-            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         }
 
         await using (var operatorBootedMember = await Fixture.CreateAsync(TeamRole.Member))
@@ -201,6 +207,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly ServiceProvider _outerProvider;
+        private readonly SearchTestStore _grantStore;
         private readonly SharedHostedWebApp _app;
         private readonly HttpClient _client;
 
@@ -208,9 +215,11 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             ServiceProvider outerProvider,
             SharedHostedWebApp app,
             HttpClient client,
-            IReadOnlyList<string> capturedOperatorRoles)
+            IReadOnlyList<string> capturedOperatorRoles,
+            SearchTestStore grantStore)
         {
             _outerProvider = outerProvider;
+            _grantStore = grantStore;
             _app = app;
             _client = client;
             CapturedOperatorRoles = capturedOperatorRoles;
@@ -255,8 +264,12 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                 Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
                 Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
-            outer.AddTestAuthorizationGate();
+            var grantStore = await SearchTestStore.CreateAsync();
+            outer.AddSingleton(grantStore.Factory);
+            outer.AddNodeAuthorizationModel();
             outer.AddTestNodeForms();
+            outer.AddSingleton(sp => SignedOperatorRoster(
+                sp.GetRequiredService<IOperationSigner>(), operatorRoleAtStartup));
 
             // Listener prerequisites the shared app resolves from the outer container.
             outer.AddSingleton(new NodeCallerSessionToken(CallerToken));
@@ -264,12 +277,16 @@ public sealed class FormsStartupCapturedIdentityFenceTests
 
             var outerProvider = outer.BuildServiceProvider();
 
+            // Both boot roles can reach the engine's gate; the form capability's Admin
+            // role requirement remains the independent allow/refuse lever under test.
+            await DesktopGrantSourceTests.SeedAsync(outerProvider,
+                ActiveTeamTenantContext.ProjectTenantId(OperatorTeam), TimeProvider.System.GetUtcNow(), Permission.FormsAuthor);
             await SeedFormDefinitionAsync(outerProvider);
 
             // ── The INNER serving app: the real production listener.
             var app = new SharedHostedWebApp(
                 outerProvider,
-                Options.Create(new LocalNodeOptions { HealthPort = 0 }),
+                Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
                 new LocalNodeExecutableEndpointRegistry(),
                 outerProvider.GetRequiredService<ILogger<SharedHostedWebApp>>(),
                 outerProvider.GetRequiredService<TimeProvider>());
@@ -289,12 +306,18 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                 TimeProvider.System);
             await endpoint.StartAsync(CancellationToken.None);
 
+            using var capture = new RosterDecisionCapture();
             var capturedOperatorRoles = outerProvider.GetRequiredService<ICurrentUser>().Roles;
+            var evidence = capture.AssertSingle(true);
+            Assert.True(evidence.Roster!.Member);
+            Assert.True(evidence.Roster.RegistryMember);
+            Assert.Equal(PermissionCompositions.ForRole(operatorRoleAtStartup).Permissions.Order(),
+                evidence.Roster.Permissions!.Permissions.Order());
 
             await app.StartAsync(CancellationToken.None);
             var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };
 
-            return new Fixture(outerProvider, app, client, capturedOperatorRoles);
+            return new Fixture(outerProvider, app, client, capturedOperatorRoles, grantStore);
         }
 
         /// <summary>
@@ -414,6 +437,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             await _app.StopAsync(CancellationToken.None);
             await _app.DisposeAsync();
             await _outerProvider.DisposeAsync();
+            await _grantStore.DisposeAsync();
         }
     }
 
@@ -439,6 +463,17 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                     sessionCorrelationId: "session-forms-startup-fence",
                     coordinationCorrelationId: "coordination-forms-startup-fence")
                 : null);
+    }
+
+    private static NodeTeamRoster SignedOperatorRoster(IOperationSigner signer, TeamRole role)
+    {
+        using var founderKey = KeyPair.Generate();
+        var founder = new Ed25519Signer(founderKey);
+        const string founderParty = "forms-fixture-founder";
+        var roster = MemberRoster.StableGenesis(OperatorTeam.Value, founderParty, founder, new Ed25519Verifier())
+            .Admit(founderParty, founder, ActiveTeamAuthorizationContext.LocalUserId, signer.IssuerId,
+                PermissionCompositions.ForRole(role), new Ed25519Verifier(), DateTimeOffset.UnixEpoch, Guid.NewGuid());
+        return new NodeTeamRoster(roster);
     }
 
     private sealed class FixedActiveTeamAccessor(TeamContext active) : IActiveTeamAccessor

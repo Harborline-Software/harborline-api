@@ -64,7 +64,7 @@ step identity-r3             bash eng/identity-r3-scan.sh
 # protocol-lane-conformance
 step codegen-check           node tooling/harborline-contract-codegen/generate.mjs --check
 step codegen-guard-suite     node tooling/harborline-contract-codegen/run-tests.mjs
-step contracts-typescript    bash -c 'cd packages/contracts && npm ci --silent && npm test'
+step contracts-typescript    bash -c 'cd packages/contracts && pnpm install --frozen-lockfile && pnpm test'
 step contracts-csharp        dotnet test packages/contracts/tests/Harborline.Contracts.Tests.csproj -c Release
 step localfirst-csharp       dotnet test packages/foundation-localfirst/tests/Harborline.Foundation.LocalFirst.Tests.csproj -c Release
 
@@ -84,10 +84,14 @@ step operator-cli-headless   dotnet test apps/local-node-host/tests/tests.csproj
 # run is red by design and a gate built on it would be ignored within a week. run-exact-clone.mjs
 # takes its verdict from baseline comparison, not exit code, and it builds from a clone of HEAD so
 # anything missing from the commit fails instead of being supplied by this working tree.
-step exact-clone             node eng/run-exact-clone.mjs
+case "$(uname -s)" in
+  Darwin) host_baseline=eng/baselines/host-test-baseline.macos.json ;;
+  *) host_baseline=eng/baselines/host-test-baseline.json ;;
+esac
+step exact-clone             node eng/run-exact-clone.mjs --host-baseline "$host_baseline"
 
 # pack-consume
 step packages                bash eng/verify-packages.sh
 
 printf '\n\033[32mAll %d steps passed in %dm%02ds\033[0m\n' "${#passed[@]}" "$(((SECONDS-started)/60))" "$(((SECONDS-started)%60))"
-node eng/verify-receipt.mjs --record "${passed[@]}"
+node eng/verify-receipt.mjs --record "${passed[@]}" --host-baseline "$host_baseline"

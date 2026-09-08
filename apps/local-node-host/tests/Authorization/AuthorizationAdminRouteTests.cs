@@ -32,6 +32,7 @@ using Microsoft.Extensions.Options;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 
+[Collection("Harborline process environment")]
 public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001"));
@@ -42,6 +43,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
     private const string DesktopToken = "authorization-admin-desktop-token-0001";
     private const string SelectedHandle = "authorization-admin-selected-handle-with-enough-entropy-0001";
 
+    private Harborline.Api.LocalNodeHost.Tests.Search.SearchTestStore _grantStore = null!;
     private WebApplication _webApplication = null!;
     private SharedHostedWebApp _app = null!;
     private HttpClient _client = null!;
@@ -59,7 +61,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls("http://[::1]:7308");
         builder.Logging.ClearProviders();
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _memberships = new InMemoryTeamRegistry();
@@ -72,14 +74,14 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<IActiveTeamAccessor>(_activeTeam);
         builder.Services.AddSingleton<IMutableTeamRegistry>(_memberships);
         builder.Services.AddSingleton<ActiveTeamAuthorizationContext>();
-        // Ticket 205 slice 4: org:manage-settings resolves at the gate now. The gate follows the SAME
-        // ActiveTeamAuthorizationContext this fixture narrows by membership role, so the "every route denies
-        // without manage-settings" tooth still moves the verdict.
+        // The gate reads durable grants directly. Calling this context's permission
+        // answer from a grant source would re-enter the gate it is already awaiting.
         builder.Services.AddSingleton<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>(new Harborline.Api.Kernel.Audit.InMemoryAuditTrail());
         builder.Services.AddSingleton<IOperationSigner>(new Ed25519Signer(KeyPair.Generate()));
         builder.Services.AddTestKernelClock();
-        builder.Services.AddSingleton(sp => Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
-            permission => sp.GetRequiredService<ActiveTeamAuthorizationContext>().HasPermission(permission)));
+        _grantStore = await Harborline.Api.LocalNodeHost.Tests.Search.SearchTestStore.CreateAsync();
+        builder.Services.AddSingleton(_grantStore.Factory);
+        RegisterGate(builder.Services);
         builder.Services.AddSingleton(new NodeCallerSessionToken(DesktopToken));
         builder.Services.AddSingleton<IWebSelectedSessionPrincipalAuthority>(new FixedSelectedSessionAuthority());
         builder.Services.AddSingleton<ISelectedSessionPermissionResolver>(new FailClosedSelectedSessionPermissionResolver());
@@ -113,9 +115,11 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         _schemas = new InMemorySchemaRegistry(TimeProvider.System);
         var standings = new StandingCatalogue(_schemas);
         _webApplication = builder.Build();
+        await DesktopGrantSourceTests.SeedAsync(_webApplication.Services, new TenantId(TeamA.Value.ToString("D")), Now);
+        await DesktopGrantSourceTests.SeedAsync(_webApplication.Services, new TenantId(TeamB.Value.ToString("D")), Now);
         _app = new SharedHostedWebApp(
             _webApplication,
-            Options.Create(new LocalNodeOptions { HealthPort = 0 }),
+            Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
             new LocalNodeExecutableEndpointRegistry(),
             _webApplication.Services.GetRequiredService<ILogger<SharedHostedWebApp>>(),
             _webApplication.Services.GetRequiredService<TimeProvider>());
@@ -151,6 +155,8 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Add(NodeCallerSessionToken.HeaderName, "Bearer " + DesktopToken);
     }
 
+    internal static void RegisterGate(IServiceCollection services) => services.AddNodeAuthorizationModel();
+
     public async Task DisposeAsync()
     {
         _client.Dispose();
@@ -158,6 +164,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         await _app.StopAsync(CancellationToken.None);
         await _app.DisposeAsync();
         await _webApplication.DisposeAsync();
+        await _grantStore.DisposeAsync();
     }
 
     [Fact]
@@ -188,7 +195,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
 
     private static readonly Guid _DeniedDefinitionId = Guid.Parse("dddddddd-0000-0000-0000-000000000004");
 
-    [Theory]
+    [Theory(DisplayName = "Admin routes refuse revoked durable grants; registry role changes are not authority")]
     [MemberData(nameof(AuthorizationRoutes))]
     public async Task EveryRoute_DeniesWithoutManageSettingsBeforeAnyReaderOrWriterCall(
         HttpMethod method,
@@ -198,6 +205,13 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
             ActiveTeamAuthorizationContext.NodeOperator,
             TeamA.Value,
             TeamRole.Viewer));
+        var tenant = new TenantId(TeamA.Value.ToString("D"));
+        var grants = _webApplication.Services.GetRequiredService<IGrantStore>();
+        var grant = await grants.FindBySourceReferenceAsync(tenant, "desktop-fixture");
+        Assert.NotNull(grant);
+        await grants.RevokeAsync(tenant, grant.GrantId, new GrantRevocation(
+            ActiveTeamAuthorizationContext.NodeOperator, Now,
+            new GrantReason(GrantReasonCodes.RevocationReview, "remove manage-settings authority")));
         ResetDependencyCounts();
         using var request = new HttpRequestMessage(method, path);
         if (method == HttpMethod.Post)

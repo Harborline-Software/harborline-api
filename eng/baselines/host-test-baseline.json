@@ -5,15 +5,15 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3650,
-    "passed": 3632,
+    "total": 3655,
+    "passed": 3637,
     "failed": 0,
     "notExecuted": 18
   },
   "policy": [
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
-    "green when N different tests fail. This was not hypothetical \u00e2\u20ac\u201d the second run traded two fixed",
+    "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",
     "failures for one new flake and a count-only view would have read 5 -> 4 as pure improvement.",
     "Verdict-(a)/(c) failures stay RED by design. A red test with a recorded verdict is signal;",
     "converting it to a skip is silence."
@@ -21,10 +21,10 @@
   "permittedFailures": [],
   "knownFlaky": [
     {
-      "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts \u00e2\u20ac\u201d no DI cycle",
+      "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts â€” no DI cycle",
       "verdict": "a-pre-existing-at-sha (load-sensitive)",
       "measuredRate": "3 passed / 0 failed in 3 isolated runs; failed once in a full suite run executed CONCURRENTLY with the hull vitest suite",
-      "cause": "OperationCanceledException during real host startup \u00e2\u20ac\u201d a startup timeout under machine load, not a functional failure.",
+      "cause": "OperationCanceledException during real host startup â€” a startup timeout under machine load, not a functional failure.",
       "proof": "Passes 3/3 in isolation immediately after the failing run, on the same tree.",
       "handling": "knownFlaky, not permitted. Root cause is as much operator error as test fragility: a timing-sensitive suite must not be run concurrently with another heavy suite.",
       "registered": "cleanup register C-008",
@@ -60,9 +60,9 @@
   ],
   "skips": {
     "count": 19,
-    "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent \u00e2\u20ac\u201d it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
-    "notSilent": "Mtw00CRedFixtureMetaTests checks both the pending and production states on every run, so the skip set cannot drift unnoticed. This is the good version of a skip: gated, reasoned, and covered by a meta-test \u00e2\u20ac\u201d unlike a missing fixture that skips a test that should have run.",
-    "displayNamePrefix": "MTW-00C red: \u00e2\u20ac\u00a6 is missing"
+    "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent â€” it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
+    "notSilent": "Mtw00CRedFixtureMetaTests checks both the pending and production states on every run, so the skip set cannot drift unnoticed. This is the good version of a skip: gated, reasoned, and covered by a meta-test â€” unlike a missing fixture that skips a test that should have run.",
+    "displayNamePrefix": "MTW-00C red: â€¦ is missing"
   },
   "deltaFromPrevious": {
     "previousTotals": {
@@ -71,10 +71,10 @@
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3638 -> 3650; passed 3620 -> 3632; failed and notExecuted unchanged",
-    "cause": "ticket 314 slice 2: one identity architecture test, nine tenant boundary cases and two grant issuance whitespace cases; expected main plus branch delta, pending controller full gate",
-    "detectedBy": "focused migration tests; full suite reserved for controller",
-    "arithmeticCrossCheck": "3638 + 12 = 3650"
+    "change": "total 3638 -> 3655; passed 3620 -> 3637; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
+    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
+    "arithmeticCrossCheck": "3638 + 17 = 3655; passed = total - notExecuted = 3655 - 18 = 3637."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

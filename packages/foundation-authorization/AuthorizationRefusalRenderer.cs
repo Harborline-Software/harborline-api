@@ -99,7 +99,8 @@ public static class AuthorizationRefusalRenderer
             ? RemediationText
             : RemediationText + " Fields: " + string.Join(", ", readable.Select(item => item.Field)) + ".";
 
-        return new AuthorizationRefusal(PermissionRequiredCode, TitleText, detail, remediation, Diagnostic(decision, disclosures));
+        return new AuthorizationRefusal(decision.Request.GrantRefusal ?? PermissionRequiredCode, TitleText, detail, remediation,
+            Diagnostic(decision, disclosures) + (decision.Request.GrantRefusal is { } reason ? $";grant-refusal:{reason}" : string.Empty));
     }
 
     /// <summary>The classified reading — every field the act touched, readable or not — for the audit row.</summary>
