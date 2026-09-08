@@ -5,7 +5,7 @@
   "sourcePin": "c618a009",
   "recordedAt": "2026-09-07T00:00:00Z",
   "comparison": "named",
-  "totals": {"total": 3512, "passed": 3478, "failed": 15, "notExecuted": 19},
+  "totals": {"total": 3516, "passed": 3482, "failed": 15, "notExecuted": 19},
   "policy": [
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",

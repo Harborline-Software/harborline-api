@@ -35,7 +35,7 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
     private readonly IPackProjectionReconciler _reconciler;
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly ILogger<PackSeedProjectionHostedService> _logger;
-    private readonly Action<CancellationToken>? _restoreActive;
+    private readonly Func<CancellationToken, (int Restored, int Refused)>? _restoreActive;
 
     /// <summary>Constructs the startup projection service.</summary>
     public PackSeedProjectionHostedService(
@@ -54,20 +54,39 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
     {
         _restoreActive = ct =>
         {
-            if (activeTeam.Active is null) return;
+            if (activeTeam.Active is null) return (0, 0);
             var tenant = NodeTenant.Resolve(activeTeam);
+            var restored = 0;
+            var refused = 0;
             foreach (var pack in store.ListInstalled(tenant).Where(pack => pack.Lifecycle == PackLifecycleState.Active))
             {
                 ct.ThrowIfCancellationRequested();
-                // Completed admission does not mean the process-local registries survived restart.
-                // Re-enter ordinary activation with a fresh gate decision and projection authority.
-                var result = installer.Activate(new PackInstallContext(
-                    tenant, trust, revocation, time.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
-                    Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal), pack.PackKey, pack.Version);
-                if (!result.Activated || !result.Projected || result.ProjectionResult is IPackProjectionRefusalReport { ProjectionRefused: true })
-                    logger.LogError("Boot projection of {PackKey} v{Version} failed: {Error} {Detail}",
-                        pack.PackKey, pack.Version, result.Error, result.Detail);
+                try
+                {
+                    // Completed admission does not mean the process-local registries survived restart.
+                    // Re-enter ordinary activation with a fresh gate decision and projection authority.
+                    var result = installer.Activate(new PackInstallContext(
+                        tenant, trust, revocation, time.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+                        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal), pack.PackKey, pack.Version);
+                    if (!result.Activated || !result.Projected || result.ProjectionResult is IPackProjectionRefusalReport { ProjectionRefused: true })
+                    {
+                        refused++;
+                        logger.LogInformation("Boot projection of {PackKey} v{Version} refused: {Error} {Detail}",
+                            pack.PackKey, pack.Version, result.Error ?? "projection refused", result.Detail);
+                    }
+                    else
+                        restored++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    // The installer records its ordinary refusal audit before throwing a gate denial.
+                    // Isolate this pack's failure so the remaining active packs still restore.
+                    refused++;
+                    logger.LogInformation(ex, "Boot projection of {PackKey} v{Version} refused: {Reason}",
+                        pack.PackKey, pack.Version, ex.Message);
+                }
             }
+            return (restored, refused);
         };
     }
 
@@ -95,9 +114,10 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
         try
         {
             _reconciler.ReconcilePending(cancellationToken);
-            _restoreActive?.Invoke(cancellationToken);
+            var (restored, refused) = _restoreActive?.Invoke(cancellationToken) ?? (0, 0);
             _logger.LogInformation(
-                "PackSeedProjectionHostedService: reconciled pending admitted pack transitions for every tenant.");
+                "PackSeedProjectionHostedService: pending admitted pack transitions reconciled for every tenant; "
+                + "{Restored} active packs restored, {Refused} refused.", restored, refused);
             await Task.CompletedTask.ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
