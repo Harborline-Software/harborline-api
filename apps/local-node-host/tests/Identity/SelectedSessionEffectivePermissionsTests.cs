@@ -116,8 +116,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
 
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         // Everyday work, and nothing from the build or admin groups.
-        Assert.Contains("inbox:read", permissions);
-        Assert.Contains("calendar:read", permissions);
+        Assert.Contains("assets:read", permissions);
         Assert.DoesNotContain("members:manage", permissions);
         Assert.DoesNotContain("forms:design", permissions);
     }

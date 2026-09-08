@@ -891,7 +891,7 @@ public readonly record struct AuditEventType(string Value)
     /// control — route records to an outside CPA/reviewer/SIEM, bypassing the sole operator). This is itself
     /// a SoD-significant, audited act: the export of the audit-stream is recorded in the audit-stream. The
     /// audit-stream is held TIGHTER than operational telemetry (CIC 2026-06-20) — gated by
-    /// <c>telemetry:export</c>. Payload:
+    /// the audit-export policy. Payload:
     /// <see cref="Payloads.EnrollmentCompensatingControlPayloads.AuditExportedPayload"/>.
     /// </summary>
     public static readonly AuditEventType AuditExported = new("AuditExported");

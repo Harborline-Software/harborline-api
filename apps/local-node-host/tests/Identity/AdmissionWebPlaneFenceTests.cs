@@ -276,7 +276,7 @@ public sealed class AdmissionWebPlaneFenceTests : IAsyncLifetime
         await using (var ctx = await admissionFactory.CreateDbContextAsync())
             await ctx.Database.EnsureCreatedAsync();
 
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);

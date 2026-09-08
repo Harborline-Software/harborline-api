@@ -352,7 +352,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         var founder = new IdentityFor(founderSigner ?? NewIdentity(FounderPartyId).Signer);
         var genesis = MemberRoster.Genesis(Team, FounderPartyId, founder.Signer, Verifier, Now, Guid.NewGuid());
         var roster = new NodeTeamRoster(genesis);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             crdtSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);

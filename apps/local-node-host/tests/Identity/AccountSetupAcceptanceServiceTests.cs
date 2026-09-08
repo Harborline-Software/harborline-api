@@ -135,7 +135,7 @@ public sealed class AccountSetupAcceptanceServiceTests
     [Trait("PlanCard", "MTW-2-3666")]
     public async Task InvitationAdmission_IssuesTaxRolesMemberWithPersonGranterAndReason()
     {
-        var requested = PermissionCompositions.Member.With(Permission.GlPost);
+        var requested = PermissionCompositions.Member;
         await using var fixture = await AcceptanceFixture.CreateAsync(
             inviterRoles: new[] { ShipRole.Captain },
             requestedPermissions: requested);

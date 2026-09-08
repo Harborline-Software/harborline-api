@@ -438,6 +438,7 @@ public sealed class RosterPartialAdoptionTests
             services.AddSingleton(sp => new NodeAdministratorAuthority(
                 sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
                 TimeProvider.System, TestAuthorization.AllowGate()));
+            services.AddSingleton(TimeProvider.System);
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
@@ -473,7 +474,7 @@ public sealed class RosterPartialAdoptionTests
         public async Task MergeAsync(IEnumerable<RosterRecordCrdtState> records)
         {
             var factory = Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-            await using var sender = new RosterCrdtProjection(new YDotNetCrdtEngine(), factory, Verifier,
+            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
                 NullLogger<RosterCrdtProjection>.Instance);
             foreach (var record in records) await sender.PublishLocalAsync(record, default);
             await sender.DrainPendingReconcilesAsync();

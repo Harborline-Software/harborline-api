@@ -102,9 +102,6 @@ public sealed class AllowListVacuityArchTests
     /// </summary>
     private static readonly Dictionary<string, string> SelfVerifying = new(StringComparer.Ordinal)
     {
-        ["PermissionImplementationArchTests.Ticket332OrphanAllowList"] =
-            "EveryAtom_HasAnImplementation asserts equality with discovered orphan atoms in both directions; "
-            + "a consumed or retired atom requires removing its row, and duplicate rows fail",
         ["JsonProjectionConstraintTests.KnownAllowedRawJsonColumnRefs"] =
             "a per-column skip list held empty by construction, pinned by JsonProjectionConstraintTests."
             + "KnownAllowedRawJsonColumnRefs_IsEmpty; the first real row must be registered above against "
