@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Ticket 333: a nested `bash eng/verify.sh` under a held gate lock must be the LAST command of its subshell.
 # Bash execs the last command of `( ... )` in the subshell process, whose parent is the lock owner, so the
-# lock's parent-pid re-entrancy rule admits it. Any command appended after it forks verify.sh one level
-# deeper and land.sh deadlocks on itself (api #27 hung 70 minutes). Red on 6ee7c98a, green after the split.
+# lock's parent-pid re-entrancy rule admits it. Appending a command forks verify.sh one level deeper
+# (api #27 hung 70 minutes). The topology rule is no longer the only protection: the owner's re-entry
+# token also admits descendants, tested behaviourally in gate-lock-reentry.test.sh. Keep this guard
+# as belt and braces. Red on 6ee7c98a, green after the split.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 bad=$(grep -n 'bash eng/verify.sh &&' "$root/eng/land.sh" || true)
