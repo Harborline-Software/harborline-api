@@ -35,7 +35,8 @@ async function main() {
     console.log('platform producer manifest OK')
     return
   }
-  if (process.argv.length !== 2) throw new Error('usage: node eng/build-local-feed.mjs [--check-manifest file]')
+  const dryRun = process.argv.length === 3 && process.argv[2] === '--dry-run'
+  if (process.argv.length !== 2 && !dryRun) throw new Error('usage: node eng/build-local-feed.mjs [--check-manifest file | --dry-run]')
   assertFeed()
   const platform = process.env.HARBORLINE_PLATFORM_REPO ?? path.resolve(root, '../harborline-platform')
   const git = (...args) => execFileSync('git', ['-C', platform, ...args], {encoding: 'utf8'}).trim()
@@ -53,12 +54,18 @@ async function main() {
   const {computePackageVersion} = await import(pathToFileURL(path.join(platform, 'tooling/package-version.mjs')).href)
   const packedVersion = computePackageVersion(platform)
   const feed = path.join(root, '.feed')
+  // Stop MSBuild's upward targets search at the platform boundary. The API's targets add MinVer;
+  // the pinned platform has no targets file. An explicit path also honors one if a future pin adds it.
+  const commands = manifest.map(({project}) => ['pack', path.join(platform, project), '-c', 'Release', '--output', feed,
+    `-p:DirectoryBuildTargetsPath=${path.resolve(platform, 'Directory.Build.targets')}`,
+    `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6'])
+  if (dryRun) {
+    console.log(JSON.stringify({packedVersion, producers: assertProducers(manifest, pin), commands}, null, 2))
+    return
+  }
   rmSync(feed, {recursive: true, force: true})
   mkdirSync(feed, {recursive: true})
-  for (const {project} of manifest) {
-    execFileSync('dotnet', ['pack', path.join(platform, project), '-c', 'Release', '--output', feed,
-      `-p:HarborlinePackedVersion=${packedVersion}`, '-nodeReuse:false', '-maxcpucount:6'], {cwd: platform, stdio: 'inherit'})
-  }
+  for (const args of commands) execFileSync('dotnet', args, {cwd: platform, stdio: 'inherit'})
   const packed = readdirSync(feed).filter(name => name.endsWith('.nupkg'))
   const packages = packed.map(name => readNuspec(path.join(feed, name)))
   const producers = assertProducers(packages, pin)
