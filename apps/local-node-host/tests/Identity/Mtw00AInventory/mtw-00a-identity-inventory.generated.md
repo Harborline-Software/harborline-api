@@ -100,6 +100,7 @@ owner-count: 13
 - apps/local-node-host/Data/Roster/DesignTimeNodeLocalRosterDbContextFactory.cs
 - apps/local-node-host/Data/Roster/DurableGenesisIdentity.cs
 - apps/local-node-host/Data/Roster/GenesisStartupMessages.cs
+- apps/local-node-host/Data/Roster/HydrationRosterVerifier.cs
 - apps/local-node-host/Data/Roster/IOwnTeamRosterSupersession.cs
 - apps/local-node-host/Data/Roster/IVerifiedTenantRosterReader.cs
 - apps/local-node-host/Data/Roster/NodeLocalRosterDbContext.cs

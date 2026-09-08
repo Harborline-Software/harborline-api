@@ -23,6 +23,149 @@ public sealed class RosterRebuildFaultTests
     private static readonly DateTimeOffset At = DateTimeOffset.UnixEpoch.AddDays(10);
 
     [Fact]
+    public async Task HydrationReturnsOnlyAfterAdoptionAndRefusalAudit()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.StoreFloorRemovalAsync();
+        await f.RestartAsync();
+        f.AuditGate.Hold = true;
+        var hydration = f.Projection.HydrateFromStoreAsync(default);
+        try
+        {
+            await f.AuditGate.Started.Task;
+            Assert.False(hydration.IsCompleted);
+        }
+        finally
+        {
+            f.AuditGate.Release.TrySetResult();
+            await f.Projection.DrainPendingReconcilesAsync();
+        }
+        Assert.Equal(3, await hydration);
+        Assert.Single(f.Live.Current.RefusedRevocations);
+        Assert.Equal(MemberRoster.NoBrickingFloorCode, Assert.Single(f.Projection.RefusalReports).Code);
+        Assert.Single(await f.AuditsAsync());
+    }
+
+    [Fact]
+    public async Task HydrationVerifiesEachEnvelopeOnceAndFoldsReuseOnlyIdenticalEvidence()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.RestartAsync();
+        f.Verifier.Calls = 0;
+        await f.Projection.HydrateFromStoreAsync(default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        Assert.Equal(2, f.Verifier.Calls);
+        await f.Projection.ReconcileAsync(default);
+        Assert.Equal(2, f.Verifier.Calls);
+        await f.Projection.HydrateFromStoreAsync(default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        Assert.Equal(4, f.Verifier.Calls);
+        await using (var db = await f.Factory.CreateDbContextAsync())
+        {
+            var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
+            peer.PermissionsJson = "[\"members:revoke\"]"; // Same id AND signature, different signed payload.
+            await db.SaveChangesAsync();
+        }
+        await f.Projection.ReconcileAsync(default);
+        Assert.Equal("roster.rebuild.durable_verification_failed", f.Projection.RebuildFailure?.Code);
+        var afterCorruption = f.Verifier.Calls;
+        await f.Projection.ReconcileAsync(default);
+        Assert.Equal(afterCorruption, f.Verifier.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RefusalSnapshotsAreImmutableAndAllocateNothingOnRead(bool failed)
+    {
+        await using var f = await Fixture.CreateAsync();
+        if (failed)
+        {
+            f.Fault.Read = true;
+            await f.Projection.ReconcileAsync(default);
+        }
+        else
+        {
+            await f.StoreFloorRemovalAsync();
+            await f.RestartAsync();
+            await f.Projection.HydrateFromStoreAsync(default);
+        }
+        var snapshot = f.Projection.RefusalReports;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++) _ = f.Projection.RefusalReports;
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(0, allocated);
+        Assert.Same(snapshot, f.Projection.RefusalReports);
+        f.Fault.Read = false;
+        if (!failed) await f.PublishSuccessorAsync();
+        await f.Projection.ReconcileAsync(default);
+        Assert.Single(snapshot);
+        Assert.Empty(f.Projection.RefusalReports);
+    }
+
+    [Fact]
+    public async Task FloorDropHasReasonAuditTraceAndDegradedHealthUntilCleared()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.StoreFloorRemovalAsync();
+        await f.RestartAsync();
+        await f.Projection.HydrateFromStoreAsync(default);
+        var refusal = Assert.Single(f.Projection.RefusalReports);
+        Assert.Equal(MemberRoster.NoBrickingFloorCode, refusal.Code);
+        Assert.True(f.Live.Current.Contains("founder"));
+        var health = await f.HealthAsync();
+        Assert.Equal(HealthStatus.Degraded, health.Status);
+        Assert.Contains(refusal.Detail, health.Description!);
+        var row = Assert.Single(await f.AuditsAsync());
+        Assert.True(new Ed25519Verifier().Verify(row.Payload));
+        var reader = new AuthorizationTraceReader(f.Trail, Authorization.TestAuthorization.AllowGate());
+        var read = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), new ActorId("auditor"), row.AuditId, At);
+        Assert.Equal("PreDecisionRefusal", read.Availability.ToString());
+        var json = JsonSerializer.SerializeToElement(read);
+        Assert.Equal(refusal.Code, json.GetProperty("Refusal").GetProperty("Code").GetString());
+        Assert.Equal(refusal.Detail, json.GetProperty("Refusal").GetProperty("Detail").GetString());
+        Assert.Empty(read.Steps); // A floor guard is pre-decision; never fabricate a gate trace.
+        Assert.Null(read.Counterfactual);
+        Assert.DoesNotContain("diagnostic", json.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        await f.Projection.ReconcileAsync(default);
+        Assert.Equal(HealthStatus.Degraded, (await f.HealthAsync()).Status);
+        Assert.Single(await f.AuditsAsync());
+        await f.PublishSuccessorAsync();
+        Assert.Empty(f.Projection.RefusalReports);
+        Assert.Equal(HealthStatus.Healthy, (await f.HealthAsync()).Status);
+        Assert.Single(await f.AuditsAsync(), r => r.EventType.Value == "AuthorizationRefusalCleared");
+    }
+
+    private sealed class CountingVerifier : IOperationVerifier
+    {
+        private readonly Ed25519Verifier _inner = new();
+        public int Calls;
+        public bool Verify<T>(SignedOperation<T> op)
+        {
+            Interlocked.Increment(ref Calls);
+            return _inner.Verify(op);
+        }
+    }
+
+    private sealed class AuditGate(IAuditTrail inner) : IAuditTrail
+    {
+        public bool Hold;
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default)
+        {
+            if (Hold)
+            {
+                Started.TrySetResult();
+                await Release.Task.WaitAsync(ct);
+            }
+            await inner.AppendAsync(record, ct);
+        }
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default) =>
+            inner.QueryAsync(query, ct);
+    }
+
+    [Fact]
     public async Task InsertFaultRefusesWithReasonAndAuditThenRecovers()
     {
         await using var f = await Fixture.CreateAsync();
@@ -134,6 +277,9 @@ public sealed class RosterRebuildFaultTests
         private readonly Ed25519Signer _founder = new(KeyPair.Generate());
         private MemberRoster _roster = null!;
         public Faults Fault { get; } = new();
+        public CountingVerifier Verifier { get; } = new();
+        public IAuditTrail Trail => _trail;
+        public AuditGate AuditGate { get; private set; } = null!;
         public ServiceProvider Provider { get; private set; } = null!;
         public RosterCrdtProjection Projection => Provider.GetRequiredService<RosterCrdtProjection>();
         public NodeTeamRoster Live => Provider.GetRequiredService<NodeTeamRoster>();
@@ -149,7 +295,9 @@ public sealed class RosterRebuildFaultTests
             });
             services.AddSingleton(new NodeTeamRoster(_roster));
             services.AddSingleton<IOperationSigner>(_founder);
-            services.AddSingleton<IAuditTrail>(_trail);
+            services.AddSingleton<IOperationVerifier>(Verifier);
+            AuditGate = new AuditGate(_trail);
+            services.AddSingleton<IAuditTrail>(AuditGate);
             services.AddAuthorizationRefusalAudit();
             services.AddNodeRoster();
             return services.BuildServiceProvider();
@@ -193,6 +341,22 @@ public sealed class RosterRebuildFaultTests
             peer.PermissionsJson = malformed ? "{" : "[]";
             if (!malformed) peer.SignatureB64Url = "AA";
             await db.SaveChangesAsync();
+        }
+        public async Task StoreFloorRemovalAsync()
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(
+                new MemberRevocationRecord(Tenant.ToString("D"), "founder",
+                    RosterSigning.SignRevocation(_founder, Tenant, "founder", "founder", At.AddHours(1), Guid.NewGuid())))));
+            await db.SaveChangesAsync();
+        }
+        public async Task PublishSuccessorAsync()
+        {
+            var successor = _roster.Admit("founder", _founder, "successor", _founder.IssuerId,
+                _roster.PermissionsOf("founder")!, new Ed25519Verifier(), At.AddMinutes(2), Guid.NewGuid());
+            await Projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(
+                successor.EnumerateAdmissions().Single(a => a.PartyId == "successor")), default);
+            await Projection.DrainPendingReconcilesAsync();
         }
         public async Task<HealthCheckResult> HealthAsync(bool active = true)
         {
