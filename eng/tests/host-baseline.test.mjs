@@ -1,4 +1,5 @@
 import {test} from 'node:test'
+import './host-trx.test.mjs'
 import assert from 'node:assert/strict'
 import {readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
@@ -8,16 +9,21 @@ import {compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, M
 
 const root = path.resolve(import.meta.dirname, '../..')
 const baseline = {comparison: 'named', permittedFailures: [{test: 'Listed test'}]}
-function compare(output, counts = {total: 10, failed: 1}) {
+function trxOf(output, counts) {
+  const results = ['Failed', 'Passed', 'Skipped'].flatMap(outcome => resultNamesIn(output, outcome).map(testName =>
+    ({testName, outcome: outcome === 'Skipped' ? 'NotExecuted' : outcome})))
+  return {results, counts: counts && {passed: results.filter(r => r.outcome === 'Passed').length, notExecuted: 0, ...counts}, problems: []}
+}
+function compare(output, counts = {total: 1, failed: 1}) {
   const newFailures = resultNamesIn(output, 'Failed').filter(name => name !== 'Listed test')
-  return compareHostBaseline({baseline, counts, adjustedFailed: counts?.failed, newFailures, output})
+  return compareHostBaseline({baseline, counts, adjustedFailed: counts?.failed, newFailures, trx: trxOf(output, counts)})
 }
 
 test('named: expected failure green regardless of historical total', () => {
   assert.equal(compare('  Failed Listed test [< 1 ms]\r\n').passed, true)
 })
 test('named: listed pass is red burn-down requiring row removal', () => {
-  const result = compare('  Passed Listed test [1 ms]\n', {total: 10, failed: 0})
+  const result = compare('  Passed Listed test [1 ms]\n', {total: 1, failed: 0})
   assert.equal(result.passed, false)
   assert.deepEqual(result.burnDown, ['Listed test'])
   assert.match(result.note, /remove every burn-down row/)
@@ -25,7 +31,7 @@ test('named: listed pass is red burn-down requiring row removal', () => {
 test('named: unlisted failure is red even at the same failure count', () => {
   const result = compare('  Failed Regression [1 ms]\n  Passed Listed test [2 ms]\n')
   assert.equal(result.passed, false)
-  assert.equal(compare('  Failed Listed test [1 ms]\n  Failed Regression [1 ms]\n', {total: 10, failed: 2}).passed, false)
+  assert.equal(compare('  Failed Listed test [1 ms]\n  Failed Regression [1 ms]\n', {total: 2, failed: 2}).passed, false)
 })
 test('named: missing, skipped, miscounted or unparsed results cannot pass', () => {
   for (const output of ['', '  Skipped Listed test [1 ms]\n', '  Failed Listed test [1 ms]\n  Failed Listed test [2 ms]\n']) {
@@ -37,11 +43,11 @@ test('named: missing, skipped, miscounted or unparsed results cannot pass', () =
 const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
 const macNames = mac.permittedFailures.map(row => row.test)
 const macOutput = macNames.map(name => `  Failed ${name} [12 ms]\n`).join('')
-const macInput = {baseline: mac, counts: {total: 3510, failed: 15}, adjustedFailed: 15, newFailures: [], output: macOutput}
+const macInput = {baseline: mac, counts: {total: 15, failed: 15}, adjustedFailed: 15, newFailures: [], trx: trxOf(macOutput, {total: 15, failed: 15})}
 
 test('named: macOS duplicate permitted cases count individually', () => {
   const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[6]} [< 1 ms]\n`
-  const result = compareHostBaseline({...macInput, output, counts: {total: 3511, failed: 16}, adjustedFailed: 16})
+  const result = compareHostBaseline({...macInput, trx: trxOf(output, {total: 16, failed: 16}), adjustedFailed: 16})
   assert.deepEqual(result.burnDown, [])
   assert.deepEqual(result.missing, [])
   assert.equal(result.passed, true)
@@ -59,26 +65,27 @@ test('result parser preserves real display names across outcomes and duration fo
 })
 
 test('named: every false verdict supplies actionable console and evidence details', () => {
-  const noLines = 'host baseline incomplete: no per-test result lines parsed; rerun with --logger "console;verbosity=normal"'
+  const noLines = 'host baseline incomplete: TRX has 0 failed results but its counter is 15'
   const cases = [
-    [{counts: {total: 3510, failed: 16}}, 'host baseline incomplete: parsed 15 failed result lines but the runner counted 16'],
-    [{counts: null}, 'host baseline incomplete: runner summary not parsed; inspect the host test output'],
-    [{counts: {total: 0, failed: 15}}, 'host baseline incomplete: runner counted no tests; check test discovery'],
+    [{counts: {total: 3510, failed: 16}}, 'host baseline incomplete: TRX has 15 failed results but its counter is 16'],
+    [{counts: null}, 'host baseline incomplete: TRX counters unavailable; inspect the host test output'],
+    [{counts: {total: 0, failed: 15}}, 'host baseline incomplete: TRX counted no tests; check test discovery'],
     [{output: 'Failed: 15, Passed: 3476, Skipped: 19, Total: 3510'}, noLines],
     [{baseline: {...mac, permittedFailures: [...mac.permittedFailures, mac.permittedFailures[6]]}},
       `host baseline duplicate permitted row: remove duplicate row: ${macNames[6]}`],
-    [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: 3511, failed: 16}, newFailures: ['Regression']},
+    [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: 16, failed: 16}, newFailures: ['Regression']},
       'host baseline unlisted failure: investigate: Regression'],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: 3510, failed: 14}},
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: 15, failed: 14}},
       `host baseline burn-down: remove row: ${macNames[6]}`],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: 3510, failed: 14}},
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: 15, failed: 14}},
       `host baseline missing result: ${macNames[6]}`],
-    [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, noLines],
+    [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, 'host baseline incomplete: TRX has 0 total results but its counter is 1'],
   ]
   const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
   const failureBlock = runner.slice(runner.indexOf("if (report.status === 'FAIL') {"), runner.lastIndexOf('process.exit('))
   for (const [overrides, reason] of cases) {
-    const result = compareHostBaseline({...macInput, ...overrides})
+    const counts = Object.hasOwn(overrides, 'counts') ? overrides.counts : macInput.counts
+    const result = compareHostBaseline({...macInput, ...overrides, trx: trxOf(overrides.output ?? macOutput, counts)})
     assert.equal(result.passed, false, reason)
     assert.ok(result.problems?.includes(reason), `missing diagnostic: ${reason}`)
     assert.equal(result.tail, result.problems.join('\n'))
@@ -114,15 +121,15 @@ test('all fifteen macOS identities are owned, distinct, and compared exactly', (
     assert.ok(['behavioural', 'environmental'].includes(row.class))
   }
   const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')
-  const input = {baseline: mac, counts: {total: 3510, failed: 15}, adjustedFailed: 15, newFailures: [], output}
+  const input = {baseline: mac, counts: {total: 15, failed: 15}, adjustedFailed: 15, newFailures: [], trx: trxOf(output, {total: 15, failed: 15})}
   assert.equal(compareHostBaseline(input).passed, true)
   for (const row of rows) {
-    const result = compareHostBaseline({...input, counts: {total: 3510, failed: 14},
-      output: output.replace(`Failed ${row.test}`, `Passed ${row.test}`)})
+    const result = compareHostBaseline({...input, counts: {total: 15, failed: 14},
+      trx: trxOf(output.replace(`Failed ${row.test}`, `Passed ${row.test}`), {total: 15, failed: 14})})
     assert.equal(result.passed, false)
     assert.deepEqual(result.burnDown, [row.test])
     const renamed = compareHostBaseline({...input, newFailures: [row.test + ' renamed'],
-      output: output.replace(row.test, row.test + ' renamed')})
+      trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: 15, failed: 15})})
     assert.equal(renamed.passed, false)
     assert.deepEqual(renamed.missing, [row.test])
   }
@@ -137,7 +144,7 @@ test('OS selection and the actual gate and landing routes carry the baseline', (
   const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
   assert.match(runner, /host: baselineArgument\(process\.argv\.slice\(2\)\)/)
   assert.match(runner, /compareHostBaseline\(/)
-  assert.match(runner, /console;verbosity=normal/)
+  assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
   const land = readFileSync(path.join(root, 'eng/land.sh'), 'utf8')
   assert.equal((land.match(/bash eng\/verify\.sh && node eng\/verify-receipt\.mjs --landing/g) ?? []).length, 2)
 })
