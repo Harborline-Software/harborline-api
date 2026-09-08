@@ -69,7 +69,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly IDbContextFactory<NodeLocalRosterDbContext> _contextFactory;
     private readonly HydrationRosterVerifier _verifier;
     private readonly TimeProvider _clock;
-    private readonly object _reportsGate = new();
+    private readonly Lock _reportsGate = new();
     private readonly NodeTeamRoster? _nodeRoster;
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
     private readonly ILogger<RosterCrdtProjection> _logger;
@@ -267,7 +267,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             if (existingRow is null)
             {
                 var row = NodeRosterRecord.FromCrdtState(record);
-                row.ReceivedAtUtc = _clock.GetUtcNow();
+                // This path accepts locally-produced signed records, so their admitted instant is also their first
+                // local receipt. Reuse it instead of taking a second authoritative clock read after admission.
+                row.ReceivedAtUtc = row.IssuedAtUtc;
                 ctx.Set<NodeRosterRecord>().Add(row);
                 await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
             }
@@ -544,10 +546,13 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     foreach (var tenant in existing.Values.Select(r => r.TeamId).Distinct(StringComparer.Ordinal))
                         await reader.ReadForRebuildAsync(new TenantId(tenant), ct).ConfigureAwait(false);
 
-                    var received = _clock.GetUtcNow();
                     var candidates = snapshot.Where(s => !existing.ContainsKey(s.RecordId)).DistinctBy(s => s.RecordId)
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
-                    foreach (var candidate in candidates.Values) candidate.ReceivedAtUtc = received;
+                    if (candidates.Count > 0)
+                    {
+                        var received = _clock.GetUtcNow();
+                        foreach (var candidate in candidates.Values) candidate.ReceivedAtUtc = received;
+                    }
                     orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
                     var toInsert = new List<NodeRosterRecord>();
                     var refused = await VerifyBeforeInsertAsync(snapshot, existing, orderTime, ct).ConfigureAwait(false);
