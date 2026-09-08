@@ -46,10 +46,10 @@ public sealed class ApprovalFactConstructionFenceTests
 
     private const string SeamSymbol =
         "packages/kernel-audit/AuthorityCapturingAuditTrail.cs"
-        + "|Harborline.Api.Kernel.Audit.AuthorizedAuditRecord.CopyFromDecision("
+        + "|Harborline.Api.Kernel.Audit.AuthorizedAuditRecord.CopyCore("
         + "Harborline.Api.Kernel.Audit.AuditRecord,"
         + "Harborline.Api.Foundation.Authorization.AuthorizationDecision,"
-        + "Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision"
+        + "Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision,System.Boolean"
         + "): Harborline.Api.Kernel.Audit.AuditRecord|";
 
     private const string InvoiceThresholdSymbol =

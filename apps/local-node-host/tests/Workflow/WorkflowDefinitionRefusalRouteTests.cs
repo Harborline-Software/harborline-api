@@ -124,7 +124,7 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
 
         // The WHOLE public surface, named. A later change to what a refusal serializes fails here first.
         Assert.Equal(
-            new[] { "code", "detail", "permission", "remediation", "title" },
+            new[] { "auditId", "code", "detail", "permission", "remediation", "title" },
             body.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
         Assert.Equal("scheduling:author", body.GetProperty("permission").GetString());
         Assert.Equal("You do not have permission for this action.", body.GetProperty("title").GetString());
@@ -167,7 +167,8 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         // The decision the guard made is the one recorded — never re-decided, never invented.
         Assert.Equal(false, row.Payload.Payload.Body["preDecision"]);
         Assert.Equal("scheduling", row.Target!.Value.RecordKind);
-        Assert.Null(row.AuthoritySnapshot);
+        Assert.NotNull(row.AuthoritySnapshot);
+        Assert.Equal(4, row.AuthoritySnapshot.Trace!.Count);
     }
 
     private static object Body() => new

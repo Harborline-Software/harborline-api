@@ -43,7 +43,8 @@ public sealed class RouteAudienceGraphTests
         var profiles = LocalNodeHostedComponentCatalog.SupportedEndpointProfiles.ToArray();
         // +5 in every profile since ticket 213 slice 2: the consent-record routes (one read, one
         // request, three transitions), all DesktopPlaneOnly.
-        int[] expectedClassifiedCounts = [217, 234, 235, 228, 245, 246];
+        // Ticket 331 adds one desktop-only authorized trace read in each profile.
+        int[] expectedClassifiedCounts = [218, 235, 236, 229, 246, 247];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)
@@ -57,6 +58,9 @@ public sealed class RouteAudienceGraphTests
                     method.RouteFenceKind,
                 }))
                 .ToArray();
+            var trace = Assert.Single(pairs, pair => pair.HttpMethod == "GET"
+                && pair.RoutePattern == AuthorizationAdminRoutes.RouteBase + "/traces/{auditId:guid}");
+            Assert.Equal(RouteFenceKind.DesktopPlaneOnly, trace.RouteFenceKind);
             var classified = pairs.Count(pair => pair.RouteFenceKind is not null);
             var unclassified = pairs
                 .Where(pair => pair.RouteFenceKind is null)

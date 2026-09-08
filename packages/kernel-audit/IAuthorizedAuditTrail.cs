@@ -22,6 +22,12 @@ public interface IAuthorizedAuditTrail : IAuditTrail
         SeparationOfDutyDecision? approval = null);
 }
 
+/// <summary>Records a refused act with its carried decision; it never authorizes a mutation.</summary>
+public interface IRefusedAuditTrail : IAuditTrail
+{
+    ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default);
+}
+
 /// <summary>Stable refusal codes for malformed carried authorization evidence.</summary>
 public static class AuthorizedAuditRefusalCodes
 {

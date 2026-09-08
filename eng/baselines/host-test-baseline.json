@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
-  "recordedAt": "2026-09-05T00:00:00Z",
+  "sourcePin": "a7eaccb8b0c14f461b6001291303a47672242882",
+  "recordedAt": "2026-09-07T23:48:10Z",
   "totals": {
-    "total": 3566,
-    "passed": 3548,
+    "total": 3571,
+    "passed": 3553,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3546,
-      "passed": 3528,
+      "total": 3566,
+      "passed": 3548,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3553 -> 3566; passed 3535 -> 3548; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "Ticket 296 slice 2 fix 1 adds three RosterPartialAdoptionTests facts and two RosterAuthorizationBoundaryArchTests formatting theory cases. No existing test is removed or skipped.",
-    "detectedBy": "Focused filters discover the five new cases; each has a recorded pre-fix red. Full-suite totals are arithmetic; the controller gate must verify them.",
-    "arithmeticCrossCheck": "3553 + 13 = 3566 (main carries 316 s1 and 294 s1; the branch adds 8 partial-adoption tests and 5 fix-1 tests); passed = total - notExecuted = 3566 - 18 = 3548."
+    "change": "total 3566 -> 3571; passed 3548 -> 3553; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "Ticket 331 adds four AuthorizationTraceRouteTests cases (allowed and denied trace shapes with restart availability, refused-read evidence, binding save/refusal audit ids) and one AuthorizationTraceReadBoundaryTests fact. No case removed or skipped.",
+    "detectedBy": "Focused filters discover the five new cases. Expected full-suite totals are arithmetic, not a measured full-suite run; the controller must verify them. sourcePin is this lane starting HEAD.",
+    "arithmeticCrossCheck": "3566 + 5 = 3571; 3571 - 18 = 3553."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

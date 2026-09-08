@@ -12,6 +12,7 @@ internal enum AuditAppendKind
 {
     Ordinary,
     Authorized,
+    Refused,
     PackOrdinary,
     PackAuthorized,
 }
@@ -211,6 +212,7 @@ internal static class AuditAppendSymbolInventory
         var contract = method.DeclaringType?.FullName;
         return (contract, method.Name) switch
         {
+            ("Harborline.Api.Kernel.Audit.IRefusedAuditTrail", "AppendRefusedAsync") => AuditAppendKind.Refused,
             ("Harborline.Api.Kernel.Audit.IAuditTrail", "AppendAsync") => AuditAppendKind.Ordinary,
             ("Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail", "AppendAuthorizedAsync") => AuditAppendKind.Authorized,
             ("Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit", "Append") => AuditAppendKind.PackOrdinary,

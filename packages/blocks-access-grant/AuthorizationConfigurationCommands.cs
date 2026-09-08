@@ -29,4 +29,7 @@ public sealed record NarrowCapabilityRoleBinding(
 public sealed record AuthorizationConfigurationWriteResult(
     AuthorizationCapabilityDefinition? Definition,
     BindingChangeResult? BindingChange,
-    IReadOnlyList<string> Stages);
+    IReadOnlyList<string> Stages)
+{
+    public Harborline.Api.Foundation.Authorization.AuthorizationDecision? Decision { get; init; }
+}

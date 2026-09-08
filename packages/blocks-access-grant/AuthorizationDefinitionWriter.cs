@@ -166,17 +166,17 @@ public sealed class AuthorizationDefinitionWriter
         ArgumentNullException.ThrowIfNull(command);
         var stages = new List<string>(6);
 
-        await AuthorizeAsync(command, authority, bootstrapDecision, additiveSeedRevision, packAuthority, stages, ct)
+        var decision = await AuthorizeAsync(command, authority, bootstrapDecision, additiveSeedRevision, packAuthority, stages, ct)
             .ConfigureAwait(false);
         var bound = await BindAsync(command, stages, ct).ConfigureAwait(false);
         var mutation = await MutateAsync(command, bound, stages, ct).ConfigureAwait(false);
         var validated = await ValidateAsync(command, bound, mutation, authority.At, packAuthority is not null, stages, ct)
             .ConfigureAwait(false);
         await CommitAsync(validated, authority, bootstrapDecision, stages, ct).ConfigureAwait(false);
-        return await ReactAsync(validated, stages, ct).ConfigureAwait(false);
+        return (await ReactAsync(validated, stages, ct).ConfigureAwait(false)) with { Decision = decision };
     }
 
-    private async ValueTask AuthorizeAsync(
+    private async ValueTask<AuthorizationDecision?> AuthorizeAsync(
         AuthorizationConfigurationCommand command,
         AuthorizationWriteContext authority,
         AuthorizationDecision? bootstrapDecision,
@@ -192,7 +192,7 @@ public sealed class AuthorizationDefinitionWriter
             bootstrapDecision.RequireAllowed();
             if (bootstrapDecision.Resolution.All(step => step.Stage != AuthorizationResolutionStage.Bootstrap))
                 throw new ArgumentException("The carried bootstrap decision lacks bootstrap derivation evidence.", nameof(bootstrapDecision));
-            return;
+            return null;
         }
         if (packAuthority is not null)
         {
@@ -200,14 +200,14 @@ public sealed class AuthorizationDefinitionWriter
             // minted the authority the projector is running under; re-deciding here would be a SECOND
             // decision over the same act. The remaining five stages are the ordinary ones.
             packAuthority.EnsureUsable();
-            return;
+            return null;
         }
         if (additiveSeedRevision)
         {
             // WriteAdditiveSeedRevisionAsync already proved the exact checked-in definition and the
             // server-derived seed principal. The remaining five stages are identical to an ordinary write,
             // including definition admission and the non-bootstrap CommitAsync path.
-            return;
+            return null;
         }
         (TenantId? Tenant, string Id) target = command switch
         {
@@ -222,6 +222,7 @@ public sealed class AuthorizationDefinitionWriter
             authority.Request(AuthorizationOperation.Parse(Permission.GrantPermissions), "grant", target.Id), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        return decision;
     }
 
     private async ValueTask<AuthorizationConfigurationState> BindAsync(
