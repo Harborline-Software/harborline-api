@@ -43,9 +43,9 @@ public static class NodeWorkflowComposition
         services.AddSingleton<AccessGrantFormSubmissionProjection>();
         services.AddSingleton<IFormSubmitProjection>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
         services.AddSingleton<Health.IFormSubmissionGate>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
-        services.AddSingleton<IWorkflowStepHandler>(sp => new GrantIssuanceHandler(
-            new NodeGrantIssuanceContext(sp.GetRequiredService<IGrantStore>()),
-            sp.GetRequiredService<IRoleVocabularyReader>(), sp.GetRequiredService<IAuthorizationClosureReader>()));
+        services.AddSingleton<IGrantIssuanceContext>(sp =>
+            new NodeGrantIssuanceContext(sp.GetRequiredService<IGrantStore>()));
+        services.AddSingleton<IWorkflowStepHandler, GrantIssuanceHandler>();
         return services;
     }
     /// <summary>

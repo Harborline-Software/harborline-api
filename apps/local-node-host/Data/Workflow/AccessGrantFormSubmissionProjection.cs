@@ -15,7 +15,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
 /// <summary>Projects the Access pack's submitted grant form through its typed review workflow.</summary>
 internal sealed class AccessGrantFormSubmissionProjection(
-    IWorkflowStore workflows,
+    NodeWorkflowInstantiationService instances,
     IWorkflowTriggerDispatcher dispatcher) : IFormSubmitProjection, IFormSubmissionGate
 {
     private const string FormId = "access.grant-a-role";
@@ -35,20 +35,9 @@ internal sealed class AccessGrantFormSubmissionProjection(
     {
         if (context.Form.Value != FormId) return [];
         var request = ReadRequest(context);
-        var instanceId = "access-grant-form:" + context.InstanceId;
-        if (await workflows.LoadAsync(instanceId, cancellationToken).ConfigureAwait(false) is null)
-        {
-            await workflows.CreateInstanceAsync(new WorkflowInstanceRecord
-            {
-                Id = instanceId,
-                TenantId = context.Tenant.Value,
-                DefinitionKey = GrantIssuanceSteps.DefinitionKey,
-                DefinitionVersion = "1.0.1",
-                CurrentStep = GrantIssuanceSteps.Approve,
-                Status = WorkflowStatus.Running,
-                StateJson = GrantIssuanceHandler.SerializeRequest(request),
-            }, context.SubmittedAt, cancellationToken).ConfigureAwait(false);
-        }
+        var instanceId = await instances.StartAccessGrantIssuanceAsync(
+            context.Tenant, context.InstanceId.ToString(), request, context.SubmittedAt, cancellationToken)
+            .ConfigureAwait(false);
 
         await dispatcher.DispatchAsync(
             WorkflowTrigger.For(WorkflowTriggerKind.Event, instanceId, GrantIssuanceSteps.Approve,

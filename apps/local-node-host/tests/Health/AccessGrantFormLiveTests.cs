@@ -95,10 +95,10 @@ public sealed partial class ComposedHostBootSmokeTests
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
         await GrantPackOperationToHostInstallerAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        await using var host = StartAccessHost(bootstrap.DataDirectory);
         string issuedGrantId;
-        await using (var host = StartAccessHost(bootstrap.DataDirectory))
+        using (var client = await AccessClientAsync(host))
         {
-            using var client = await AccessClientAsync(host);
             using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
             var existing = before.RootElement.GetProperty("holders").EnumerateArray()
                 .Select(row => row.GetProperty("grantId").GetString()).ToHashSet();
@@ -108,6 +108,7 @@ public sealed partial class ComposedHostBootSmokeTests
             issuedGrantId = Assert.Single(issued.RootElement.GetProperty("holders").EnumerateArray(), row =>
                 !existing.Contains(row.GetProperty("grantId").GetString())).GetProperty("grantId").GetString()!;
         }
+        await host.StopAsync();
         await using var restarted = StartAccessHost(bootstrap.DataDirectory);
         using var afterRestart = await AccessClientAsync(restarted);
         using var holders = JsonDocument.Parse(await afterRestart.GetStringAsync(AccessHoldersRead.Route));
