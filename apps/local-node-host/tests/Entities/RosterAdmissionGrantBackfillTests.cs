@@ -54,6 +54,7 @@ public sealed class RosterAdmissionGrantBackfillTests
         await SeedAsync(store, 3);
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton(store.Factory);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();

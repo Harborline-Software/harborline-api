@@ -70,12 +70,13 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         var rows = await db.RosterRecords
             .AsNoTracking()
             .Where(row => row.TeamId == canonicalTeam)
-            .Where(row => at == null || row.IssuedAtUtc <= at)
             .OrderBy(row => row.IssuedAtUtc)
             .ThenBy(row => row.Id)
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
+        if (at is { } instant) rows = rows.Where(r => NodeRosterRecord.BoundedOrderTime(r.IssuedAtUtc, r.ReceivedAtUtc) <= instant).ToList();
+        var orderTime = NodeRosterRecord.OrderTimes(rows);
         if (rows.Count == 0)
         {
             var hasAnotherTenant = await db.RosterRecords.AsNoTracking()
@@ -155,7 +156,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                 "The durable log cannot name an earlier verified genesis signed by this install.");
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier);
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime);
         if (rebuilt.TeamId != teamId || string.IsNullOrEmpty(rebuilt.GenesisPartyId) ||
             !rebuilt.ValidatesToGenesis(_verifier))
         {

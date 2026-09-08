@@ -38,6 +38,7 @@ public sealed class CompromisedDeviceResponseCompositionTests
             sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
             TimeProvider.System,
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
+        services.AddSingleton(TimeProvider.System);
         services.AddNodeRoster();
 
         await using var provider = services.BuildServiceProvider();

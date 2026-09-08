@@ -199,6 +199,10 @@ partial class NodeLocalRosterDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER")
                     .HasColumnName("issued_at");
 
+                b.Property<long?>("ReceivedAtUtc")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("received_at");
+
                 b.Property<int>("Kind")
                     .HasColumnType("INTEGER")
                     .HasColumnName("kind");

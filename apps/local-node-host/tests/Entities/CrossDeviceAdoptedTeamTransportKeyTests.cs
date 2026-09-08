@@ -148,7 +148,7 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
             await ctx.Database.EnsureCreatedAsync();
 
         var nodeRoster = new NodeTeamRoster(seedRoster);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 

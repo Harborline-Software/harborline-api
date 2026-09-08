@@ -65,7 +65,7 @@ Directory.Packages.props text
 # report blank-at-EOL errors for this reproducible artifact.
 packages/ui-react/dist/** linguist-generated=true whitespace=-blank-at-eol
 # ...and never text-merge the generated bundle: on a rebase/merge conflict, leave a
-# clean "ours" copy (no <<<<<<< markers corrupting the bundle) so it can just be
+# clean "ours" copy (with no conflict markers corrupting the bundle) so it can just be
 # rebuilt. Kills the dist rebase treadmill. Robust cross-clone (committed, no local
 # git config needed). Reconcile with: pnpm ui-react:rebase-dist
 # See _shared/engineering/ui-react-dist-workflow.md.
