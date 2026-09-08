@@ -1,3 +1,7 @@
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.Kernel.Sync.Identity;
 using Harborline.Api.Kernel.Sync.Restore;
@@ -15,16 +19,15 @@ public sealed class NodeRehostServiceTests
         var restoredKeys = new RecordingRootSeedRestorer(calls);
         var epochs = new RecordingHomeEpochStore(calls);
         var service = new NodeRehostService(
-            new StubTrusteeKeyRecovery(calls),
             restoredKeys,
-            new FixedIdentityFactory(new NodeIdentity("replacement-node", new byte[32], new byte[32])),
             new StubRosterRehostGrantProvider(calls),
-            new StubCanonicalRehostSource(calls),
-            new StubHomeEpochPromotionAuthority(calls),
             epochs);
 
         var result = await service.RestoreAsync(
-            new NodeRehostRequest("tenant-a", "old-node"),
+            new NodeRehostRequest("tenant-a", "old-node", new ActorId("operator"), new("roster-signed-grant")),
+            new NodeRehostSession(new NodeIdentity("replacement-node", new byte[32], new byte[32]),
+                new StubTrusteeKeyRecovery(calls), new StubCanonicalRehostSource(calls),
+                new StubHomeEpochPromotionAuthority(calls)),
             CancellationToken.None);
 
         var document = Assert.Single(result.Documents);
@@ -37,7 +40,7 @@ public sealed class NodeRehostServiceTests
         Assert.Equal(2, result.HomeEpochNumber);
         Assert.Equal(new byte[32], restoredKeys.RestoredSeed);
         Assert.Equal(
-            ["recover-keys", "restore-root-seed", "obtain-grant", "re-converge", "authorize-epoch", "advance-epoch"],
+            ["redeem-grant", "recover-keys", "restore-root-seed", "re-converge", "authorize-epoch", "advance-epoch"],
             calls);
     }
 
@@ -47,17 +50,16 @@ public sealed class NodeRehostServiceTests
         var calls = new List<string>();
         var epochs = new RecordingHomeEpochStore(calls);
         var service = new NodeRehostService(
-            new StubTrusteeKeyRecovery(calls),
             new RecordingRootSeedRestorer(calls),
-            new FixedIdentityFactory(new NodeIdentity("replacement-node", new byte[32], new byte[32])),
             new StubRosterRehostGrantProvider(calls),
-            new StubCanonicalRehostSource(calls),
-            new WrongHomeEpochPromotionAuthority(),
             epochs);
 
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
             await service.RestoreAsync(
-                new NodeRehostRequest("tenant-a", "old-node"),
+                new NodeRehostRequest("tenant-a", "old-node", new ActorId("operator"), new("roster-signed-grant")),
+                new NodeRehostSession(new NodeIdentity("replacement-node", new byte[32], new byte[32]),
+                    new StubTrusteeKeyRecovery(calls), new StubCanonicalRehostSource(calls),
+                    new WrongHomeEpochPromotionAuthority()),
                 CancellationToken.None));
 
         Assert.Equal(0, epochs.AdvanceCount);
@@ -94,6 +96,17 @@ public sealed class NodeRehostServiceTests
     private sealed class StubRosterRehostGrantProvider(List<string> calls)
         : IRosterRehostGrantProvider
     {
+        public ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant? grant, string tenantId,
+            string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
+            CancellationToken ct = default)
+        {
+            calls.Add("redeem-grant");
+            Assert.Equal(new[] { SignedRosterRehostGrantProvider.ReadCanonical, SignedRosterRehostGrantProvider.PromoteHome }, requiredActs);
+            return TestAuthorization.AllowGate().DecideAsync(new AuthorizationWriteContext(caller,
+                new TenantId(tenantId), TestAuthorization.At).Request(
+                    AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId), ct);
+        }
+
         public ValueTask<RosterSignedRehostGrant> ObtainAsync(
             string tenantId,
             string replacedNodeId,
