@@ -4,11 +4,17 @@ import {execFileSync} from 'node:child_process'
 import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 
-const rootArgument = process.argv.slice(2)
-const root = path.resolve(rootArgument[0] === '--root' ? rootArgument[1] : process.cwd())
+const cliArguments = process.argv.slice(2)
+const optionValue = option => {
+  const index = cliArguments.indexOf(option)
+  return index === -1 ? undefined : cliArguments[index + 1]
+}
+const root = path.resolve(optionValue('--root') ?? process.cwd())
+const baselineOutput = optionValue('--write-baseline')
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()
-const refuse = reason => { console.error(`quality: HARBORLINE_QUALITY_REPO ${reason}; refusing to skip the quality gate.`); process.exit(1) }
+const refuse = (variable, reason) => { console.error(`quality: ${variable} ${reason}; refusing to skip the quality gate.`); process.exit(1) }
 
 export function readQualityPin(file = path.join(root, 'eng', 'quality-pin.json')) {
   const pin = JSON.parse(readFileSync(file, 'utf8'))
@@ -34,6 +40,14 @@ export function resolveQualityCheckout({apiRoot = root, pin = readQualityPin(), 
   return {quality: candidate}
 }
 
+export function resolveControlPolicy({apiRoot = root, env = process.env} = {}) {
+  const common = execFileSync('git', ['-C', apiRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {encoding: 'utf8'}).trim()
+  const candidate = path.resolve(apiRoot, env.HARBORLINE_CONTROL_REPO ?? path.join(path.dirname(common), '..', 'harborline-control'))
+  const policyDefaults = path.join(candidate, 'policy', 'quality-defaults.yaml')
+  if (!existsSync(policyDefaults)) return {reason: `does not contain the expected file (${policyDefaults})`}
+  return {policyDefaults}
+}
+
 const walk = directory => existsSync(directory) ? readdirSync(directory, {withFileTypes: true}).flatMap(entry => {
   const file = path.join(directory, entry.name)
   return entry.isDirectory() ? walk(file) : entry.isFile() ? [file] : []
@@ -55,7 +69,9 @@ export function receiptDirectory(apiRoot = root) {
 export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const pin = readQualityPin(path.join(apiRoot, 'eng', 'quality-pin.json'))
   const checkout = resolveQualityCheckout({apiRoot, pin, env})
-  if (!checkout.quality) refuse(checkout.reason)
+  if (!checkout.quality) refuse('HARBORLINE_QUALITY_REPO', checkout.reason)
+  const control = resolveControlPolicy({apiRoot, env})
+  if (!control.policyDefaults) refuse('HARBORLINE_CONTROL_REPO', control.reason)
   const artifacts = qualityArtifacts(apiRoot)
   const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-quality-'))
   const receipt = receiptDirectory(apiRoot)
@@ -66,17 +82,19 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
     writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8'}))
     const args = ['bin/cqg.mjs', 'analyze', ...artifacts.sarif.flatMap(file => ['--sarif', file]), ...artifacts.cobertura.flatMap(file => ['--cobertura', file]),
       '--diff', diff, '--baseline', path.join(apiRoot, 'eng', 'baselines', 'quality-baseline.json'),
-      '--policy-defaults', path.join(env.HARBORLINE_CONTROL_REPO ?? path.join(path.dirname(git('rev-parse', '--path-format=absolute', '--git-common-dir')), '..', 'harborline-control'), 'policy', 'quality-defaults.yaml'),
+      '--policy-defaults', control.policyDefaults,
       '--policy', path.join(apiRoot, 'eng', 'quality-policy.yaml'), '--repo-root', apiRoot, '--out', decision]
+    if (baselineOutput) args.push('--write-baseline', path.resolve(apiRoot, baselineOutput))
     execFileSync(process.execPath, args, {cwd: checkout.quality, env, stdio: 'inherit'})
     const record = JSON.parse(readFileSync(decision, 'utf8'))
     if (!/^sha256:[a-f0-9]{64}$/.test(record.decisionId) || !/^sha256:[a-f0-9]{64}$/.test(record.policyDigest)) throw new Error('quality decision is missing its decision or policy digest')
     console.log(`quality: recorded ${record.decisionId} with policy ${record.policyDigest}`)
+    return record
   } finally {
     rmSync(scratch, {recursive: true, force: true})
   }
 }
 
-if (import.meta.main) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { runQualityStep() } catch (error) { console.error(`quality: ${error.message}`); process.exitCode = 1 }
 }
