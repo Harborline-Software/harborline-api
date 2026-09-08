@@ -110,6 +110,10 @@ public sealed class AccessNavigationUpgradeCompositionTests
         Assert.Equal("access-inspection", group.GetProperty("id").GetString());
         Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
         Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
+        var item = Assert.Single(group.GetProperty("items").EnumerateArray());
+        Assert.Equal("access.holders", item.GetProperty("id").GetString());
+        Assert.Equal("access.holders", item.GetProperty("labelKey").GetString());
+        Assert.Equal("Holders", item.GetProperty("label").GetString());
         var panel = Assert.Single(pack.GetProperty("panelSet").EnumerateArray());
         Assert.Equal("access-details", panel.GetProperty("id").GetString());
         Assert.Equal("access.details", panel.GetProperty("labelKey").GetString());

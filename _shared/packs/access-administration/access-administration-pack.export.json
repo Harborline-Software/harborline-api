@@ -212,7 +212,8 @@
                 "labelKey": "access.holders",
                 "itemIds": [
                   "access.holders"
-                ]
+                ],
+                "items": [{ "id": "access.holders", "labelKey": "access.holders" }]
               }
             ]
           }

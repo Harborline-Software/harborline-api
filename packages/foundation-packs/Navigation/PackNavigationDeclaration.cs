@@ -11,6 +11,7 @@ public static class PackNavigationAdmissionCodes
     public const string BoundsExceeded = "pack.nav.bounds_exceeded";
     public const string DuplicateWorkspace = "pack.nav.duplicate_workspace";
     public const string DuplicateGroup = "pack.nav.duplicate_group";
+    public const string ItemLabelKeyRequired = "pack.nav.item_label_key_required";
     public const string DuplicateItem = "pack.nav.duplicate_item";
     public const string DuplicatePanel = "pack.nav.duplicate_panel";
     public const string DuplicateModeSwitch = "pack.nav.duplicate_mode_switch";
@@ -69,7 +70,10 @@ public sealed record PackNavigationGroup(
     string? DestinationQueryRef,
     string? CountQueryRef,
     IReadOnlyList<string> ItemIds,
-    PackNavigationAction? AddAction);
+    PackNavigationAction? AddAction,
+    IReadOnlyList<PackNavigationItem> Items);
+
+public sealed record PackNavigationItem(string Id, string LabelKey);
 
 public sealed record PackNavigationAction(
     string Id,
@@ -385,7 +389,7 @@ public static class PackNavigationDeclarationParser
     private static Parsed<PackNavigationGroup> ParseGroup(JsonElement element)
     {
         if (!HasExactProperties(element, ["id", "labelKey", "itemIds"],
-                ["destinationQueryRef", "countQueryRef", "addAction"])
+                ["destinationQueryRef", "countQueryRef", "addAction", "items"])
             || !TryStableId(element, "id", out var id)
             || !TryLabelKey(element, "labelKey", out var labelKey)
             || !TryStableIdArray(element.GetProperty("itemIds"), 1, MaxItemsPerGroup, out var itemIds)
@@ -396,6 +400,28 @@ public static class PackNavigationDeclarationParser
             return Parsed<PackNavigationGroup>.Fail(Refused(PackNavigationAdmissionCodes.DishonestCount,
                 $"Group '{id}' countQueryRef must be its destinationQueryRef or be absent."));
 
+        if (!element.TryGetProperty("items", out var itemsElement))
+            return Parsed<PackNavigationGroup>.Fail(Refused(PackNavigationAdmissionCodes.ItemLabelKeyRequired,
+                "Every navigation item must declare a labelKey."));
+        if (!TryArray(itemsElement, 1, MaxItemsPerGroup, out var itemElements))
+            return Parsed<PackNavigationGroup>.Fail(Malformed("items must contain 1..64 labeled entries."));
+        var items = new List<PackNavigationItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in itemElements!)
+        {
+            if (item.ValueKind != JsonValueKind.Object || !TryLabelKey(item, "labelKey", out var itemLabel))
+                return Parsed<PackNavigationGroup>.Fail(Refused(PackNavigationAdmissionCodes.ItemLabelKeyRequired,
+                    "Every navigation item must declare a valid dotted labelKey."));
+            if (!HasExactProperties(item, ["id", "labelKey"], []) || !TryStableId(item, "id", out var itemId))
+                return Parsed<PackNavigationGroup>.Fail(Malformed("A navigation item has an invalid shape."));
+            if (!seen.Add(itemId!))
+                return Parsed<PackNavigationGroup>.Fail(Refused(PackNavigationAdmissionCodes.DuplicateItem,
+                    $"Navigation item '{itemId}' is declared twice."));
+            items.Add(new(itemId!, itemLabel!));
+        }
+        if (!itemIds!.SequenceEqual(items.Select(item => item.Id), StringComparer.Ordinal))
+            return Parsed<PackNavigationGroup>.Fail(Malformed("items must label every itemId in the same order."));
+
         PackNavigationAction? add = null;
         if (element.TryGetProperty("addAction", out var addElement))
         {
@@ -404,7 +430,7 @@ public static class PackNavigationDeclarationParser
                 return Parsed<PackNavigationGroup>.Fail(parsed.Result);
             add = parsed.Value;
         }
-        return Parsed<PackNavigationGroup>.Pass(new(id!, labelKey!, destination, count, itemIds!, add));
+        return Parsed<PackNavigationGroup>.Pass(new(id!, labelKey!, destination, count, itemIds!, add, items));
     }
 
     private static Parsed<PackNavigationAction> ParseAction(JsonElement element)

@@ -204,7 +204,8 @@ public static class PackNavigationRoutes
                     group.ItemIds,
                     group.DestinationQueryRef,
                     group.CountQueryRef,
-                    group.AddAction)).ToArray(),
+                    group.AddAction, group.Items.Select(item => new PackNavigationItemDto(
+                        item.Id, item.LabelKey, PackNavigationLabels.Resolve(item.LabelKey))).ToArray())).ToArray(),
                 workspace.DefaultForPersonas,
                 workspace.Icon,
                 workspace.DestinationQueryRef,
@@ -268,7 +269,11 @@ public sealed record PackNavigationGroupDto(
     IReadOnlyList<string> ItemIds,
     string? DestinationQueryRef = null,
     string? CountQueryRef = null,
-    PackNavigationAction? AddAction = null);
+    PackNavigationAction? AddAction = null,
+    IReadOnlyList<PackNavigationItemDto>? Items = null);
+
+/// <summary>A declared rail item with its resource key and localized display text.</summary>
+public sealed record PackNavigationItemDto(string Id, string LabelKey, string Label);
 
 /// <summary>Stable localizable refusal code plus non-sensitive conflict targets.</summary>
 public sealed record PackNavigationErrorDto(string Code, IReadOnlyList<string> Targets);

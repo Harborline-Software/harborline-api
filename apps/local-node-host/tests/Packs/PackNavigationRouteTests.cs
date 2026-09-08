@@ -254,7 +254,7 @@ public sealed class PackNavigationRouteTests
     private static async Task<HttpResponseMessage> GetAsync(FakeStore store)
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_NAVIGATION_TEST_URL") ?? "http://127.0.0.1:0");
         var app = builder.Build();
         var team = new TeamId(Guid.Parse(Tenant.Value));
         var activeTeam = new FixedActiveTeamAccessor(new TeamContext(
@@ -293,7 +293,7 @@ public sealed class PackNavigationRouteTests
         labelKey,
         groups = new[]
         {
-            new { id = "primary", labelKey = "workspaceGroups.front-desk.today", itemIds = new[] { itemId } },
+            new { id = "primary", labelKey = "workspaceGroups.front-desk.today", itemIds = new[] { itemId }, items = new[] { new { id = itemId, labelKey = "navigation." + itemId } } },
         },
     };
 
