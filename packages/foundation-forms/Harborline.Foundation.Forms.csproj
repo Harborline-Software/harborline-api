@@ -30,4 +30,5 @@
     <!-- NSubstitute's test-only proxy assembly must implement internal lifecycle doubles. -->
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

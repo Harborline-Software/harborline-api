@@ -16,7 +16,7 @@ public sealed class AccessHoldersAuthorizedReadFenceTests
             type => type.Namespace == typeof(AuthorizationAdminRoutes).Namespace);
         var read = Assert.Single(reads);
         Assert.Equal("apps/local-node-host/Health/AccessHoldersRead.cs", read.Path);
-        Assert.Equal("Harborline.Api.LocalNodeHost.Health.AccessHoldersRead.ReadAsync(Microsoft.AspNetCore.Http.HttpContext,Harborline.Api.Foundation.Assets.Common.TenantId,System.TimeProvider,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Microsoft.AspNetCore.Http.IResult]", read.Symbol);
+        Assert.Equal("Harborline.Api.LocalNodeHost.Health.AccessHoldersRead.ReadAsync(Microsoft.AspNetCore.Http.HttpContext,Harborline.Foundation.Assets.Common.TenantId,System.TimeProvider,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[Microsoft.AspNetCore.Http.IResult]", read.Symbol);
         Assert.Equal(33, read.Line);
         var guards = RawMutationPortSymbolInventoryTests.DiscoverCalls(
             [typeof(AuthorizationAdminRoutes).Assembly],

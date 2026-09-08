@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Foundation.Forms.Models;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Services;
 

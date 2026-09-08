@@ -617,7 +617,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Empty(replay.Refusals);
 
         var revisions = new List<WorkflowDefinitionRecord>();
-        await foreach (var definition in _workflows.ListByTenantAsync(tenant.Value))
+        await foreach (var definition in _workflows.ListByTenantAsync(tenant))
         {
             if (definition.Key == workflowKey)
             {

@@ -81,7 +81,7 @@ public interface ISessionEstablisher
 /// </param>
 /// <param name="TenantId">
 /// The bound tenant (strong-typed per ADR 0091 <c>TenantId.FromString</c> centralization).
-/// MUST NOT be a system sentinel (ADR 0084 / <see cref="Harborline.Api.Foundation.Assets.Common.TenantId.IsSystemSentinel"/>).
+/// MUST NOT be a system sentinel (ADR 0084 / <see cref="Harborline.Foundation.Assets.Common.TenantId.IsSystemSentinel"/>).
 /// </param>
 /// <param name="Reason">Why the session is being established (drives the audit label).</param>
 public sealed record SessionEstablishmentRequest(

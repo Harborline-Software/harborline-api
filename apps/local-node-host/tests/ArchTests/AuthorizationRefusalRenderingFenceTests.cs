@@ -38,7 +38,7 @@ public sealed class AuthorizationRefusalRenderingFenceTests
     {
         ["packages/foundation-ship-common/DefaultPermissionResolver.cs"
             + "|Harborline.Api.Foundation.Ship.Common.DefaultPermissionResolver.EmitDenialAsync("
-            + "Harborline.Api.Foundation.Assets.Common.TenantId,"
+            + "Harborline.Foundation.Assets.Common.TenantId,"
             + "Harborline.Api.Foundation.Assets.Common.ActorId,"
             + "Harborline.Api.Foundation.Ship.Common.ShipLocation,"
             + "Harborline.Api.Foundation.Ship.Common.PermissionDecision+Denied,"

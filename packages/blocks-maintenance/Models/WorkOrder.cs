@@ -42,7 +42,7 @@ public sealed record WorkOrder : IMustHaveTenant
     /// canonical <c>TenantId</c> property keeps existing call-sites (which use
     /// <c>workOrder.Tenant</c>) unchanged.
     /// </summary>
-    TenantId ITenantScoped.TenantId => Tenant;
+    TenantId Harborline.Foundation.MultiTenancy.ITenantScoped.TenantId => Tenant;
 
     /// <summary>Owning tenant (per <c>IMustHaveTenant</c>).</summary>
     public required TenantId Tenant { get; init; }

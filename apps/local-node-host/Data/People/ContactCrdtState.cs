@@ -79,7 +79,7 @@ public sealed record ContactCrdtState(
         return new Party
         {
             Id            = new PartyId(ContactId),
-            TenantId      = new Harborline.Api.Foundation.Assets.Common.TenantId(TenantId),
+            TenantId      = new Harborline.Foundation.Assets.Common.TenantId(TenantId),
             Kind          = kind,
             DisplayName   = DisplayName,
             LegalName     = LegalName,

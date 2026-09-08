@@ -1,6 +1,5 @@
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.MultiTenancy;
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Model;
 

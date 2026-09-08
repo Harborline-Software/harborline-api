@@ -34,7 +34,6 @@ using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Health;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 using SchemaId = Harborline.Api.Foundation.Assets.Common.SchemaId;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;

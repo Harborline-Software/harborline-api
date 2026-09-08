@@ -31,4 +31,5 @@
     <ProjectReference Include="..\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
     <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

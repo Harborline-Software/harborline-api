@@ -36,4 +36,5 @@
          this at build time. blocks-financial-subledger depends only on blocks-financial-ledger (no AR/AP). -->
     <ProjectReference Include="..\blocks-financial-subledger\Harborline.Blocks.FinancialSubLedger.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

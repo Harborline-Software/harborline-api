@@ -17,7 +17,6 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Tests.AssetRegistry;
 
