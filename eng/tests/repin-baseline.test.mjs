@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
-import {mkdtempSync, writeFileSync, readFileSync, copyFileSync} from 'node:fs'
+import {mkdtempSync, writeFileSync, readFileSync, copyFileSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -126,7 +126,7 @@ test('capability accepts unchanged exact failure identities and splices counts',
   const r = run(vitestLog(capabilityFailures), capabilitySrc)
   assert.equal(r.status, 0, r.out)
   assert.deepEqual(r.after, {total: capabilityTotal, passed: capabilityPassed, failed: capabilityCurrent.failed, pending: capabilityPending})
-  assert.match(JSON.parse(r.afterText).deltaFromPrevious, new RegExp(`^Previous: ${capabilityCurrent.total}/${capabilityCurrent.passed}/4/${capabilityCurrent.pending}\\. Now: ${capabilityTotal}/${capabilityPassed}/4/${capabilityPending}\\. test `))
+  assert.match(JSON.parse(r.afterText).deltaFromPrevious, new RegExp(`^Previous: ${capabilityCurrent.total}/${capabilityCurrent.passed}/${capabilityCurrent.failed}/${capabilityCurrent.pending}\\. Now: ${capabilityTotal}/${capabilityPassed}/${capabilityCurrent.failed}/${capabilityPending}\\. test `))
 })
 
 test('capability refuses a failed-count change without a write', () => {
@@ -139,14 +139,20 @@ test('capability refuses a failed-count change without a write', () => {
 })
 
 test('capability refuses a renamed permitted failure and names both sides of the difference', () => {
-  const renamed = [...capabilityFailures]
-  const original = renamed[0]
-  renamed[0] = original + ' renamed'
-  const r = run(vitestLog(renamed), capabilitySrc)
+  // The shipping baseline has burned down to zero; use a nonempty fixture to exercise rename refusal.
+  const dir = mkdtempSync(path.join(tmpdir(), 'repin-named-'))
+  const source = path.join(dir, 'baseline.json')
+  const original = 'known.test.ts :: permitted failure'
+  writeFileSync(source, JSON.stringify({...capabilityJson,
+    totals: {...capabilityCurrent, failed: 1, passed: capabilityCurrent.passed - 1},
+    permittedFailures: [{test: original}]}))
+  let r
+  try { r = run(vitestLog([original + ' renamed'], {passed: capabilityPassed - 1}), source) }
+  finally { rmSync(dir, {recursive: true, force: true}) }
   assert.equal(r.status, 1, r.out)
   assert.ok(r.unchanged)
   const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  assert.match(r.out, new RegExp(`unexpected: ${escapeRegex(renamed[0])}`))
+  assert.match(r.out, new RegExp(`unexpected: ${escapeRegex(original + ' renamed')}`))
   assert.match(r.out, new RegExp(`missing: ${escapeRegex(original)}`))
 })
 
