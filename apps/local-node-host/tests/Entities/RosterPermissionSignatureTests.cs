@@ -36,7 +36,7 @@ public sealed class RosterPermissionSignatureTests
             Permissions = replacement.Permissions.ToArray(),
         };
         var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(member));
-        row.PermissionsJson = System.Text.Json.JsonSerializer.Serialize(replacement.Permissions);
+        row.SignedPermissionsJson = System.Text.Json.JsonSerializer.Serialize(replacement.Permissions);
         foreach (var forged in new[] { carriedOnly, wireOnly.ToAdmissionOrNull()!,
                      NodeRosterRecord.ToCrdtState(row).ToAdmissionOrNull()! })
         {
