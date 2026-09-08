@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
-  "recordedAt": "2026-09-07T22:45:49Z",
+  "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3613,
-    "passed": 3595,
+    "total": 3616,
+    "passed": 3598,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3572,
-      "passed": 3554,
+      "total": 3613,
+      "passed": 3595,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3584 -> 3606; passed 3566 -> 3588; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "ticket 293 slice 1 fix 2: three admin write-route authorization-denial rows, one each for invitations, member revocation and member permissions.",
-    "detectedBy": "Source delta from c89d7bdd plus focused test summaries; expected full-suite totals only. No full host suite was run in this lane; the controller must verify this count and reconcile other branches at its gate.",
-    "arithmeticCrossCheck": "3584 + 22 = 3606 (merge of origin/main into the branch; the branch adds 22 tests); passed = total - notExecuted = 3606 - 18 = 3588."
+    "change": "total 3613 -> 3616; passed 3595 -> 3598; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
+    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
+    "arithmeticCrossCheck": "3613 + 3 = 3616; passed = total - notExecuted = 3616 - 18 = 3598."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
