@@ -19,6 +19,7 @@
 import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
+import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
 
 const REPOSITORY = 'harborline-api'
 const SCHEMA_VERSION = 1
@@ -49,6 +50,8 @@ const head = git('rev-parse', 'HEAD')
 const tree = git('rev-parse', 'HEAD^{tree}')
 
 if (process.argv.includes('--record')) {
+  const recordArgs = process.argv.slice(2)
+  const hostBaseline = baselineArgument(recordArgs)
   // The receipt attests to HEAD's TREE, but eng/verify.sh runs against the WORKING tree. On a dirty
   // tree those are different things, and the receipt would vouch for code the run never saw. Refuse,
   // rather than record a claim that is quietly false.
@@ -59,7 +62,7 @@ if (process.argv.includes('--record')) {
     console.error(dirty.split(String.fromCharCode(10)).slice(0, 10).map(line => '  ' + line).join(String.fromCharCode(10)))
     process.exit(1)
   }
-  const passed = process.argv.slice(process.argv.indexOf('--record') + 1).filter(id => !id.startsWith('-'))
+  const passed = recordArgs.slice(recordArgs.indexOf('--record') + 1).filter(id => !id.startsWith('-'))
   const missing = requiredStepIds.filter(id => !passed.includes(id))
   if (missing.length > 0) {
     console.error(`refusing to record a receipt missing: ${missing.join(', ')}`)
@@ -68,6 +71,7 @@ if (process.argv.includes('--record')) {
   writeFileSync(receiptPath, JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     repository: REPOSITORY,
+    hostBaseline,
     baseHead: head,
     testedTree: tree,
     steps: passed,
@@ -97,6 +101,9 @@ try {
 
 if (receipt.schemaVersion !== SCHEMA_VERSION) refuse(`receipt schemaVersion ${receipt.schemaVersion}, expected ${SCHEMA_VERSION}`)
 if (receipt.repository !== REPOSITORY) refuse(`receipt is for ${receipt.repository}, not ${REPOSITORY}`)
+// Default verification is landing-safe; --slice is explicit and cannot override --landing.
+const baselineProblem = receiptBaselineProblem(receipt, process.argv.includes('--slice') && !process.argv.includes('--landing'))
+if (baselineProblem) refuse(baselineProblem)
 if (receipt.testedTree !== tree) {
   refuse(`the receipt attests to tree ${String(receipt.testedTree).slice(0, 12)}, but HEAD's tree is ${tree.slice(0, 12)}`)
 }
