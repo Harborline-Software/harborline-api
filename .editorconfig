@@ -16,6 +16,15 @@ dotnet_sort_system_directives_first = true
 csharp_style_namespace_declarations = file_scoped:suggestion
 csharp_prefer_braces = when_multiline:suggestion
 
+# ADR 0085 D4 Preview-mode Roslyn evidence. The normalized CQG identities are
+# intentionally comments: SARIF carries upstream engine IDs, and CQG maps them.
+# HLQ.CS.1000 sync-over-async
+dotnet_diagnostic.VSTHRD002.severity = warning
+# HLQ.CS.1020 async void
+dotnet_diagnostic.VSTHRD100.severity = error
+# HLQ.CS.1100 empty catch (partial evidence)
+dotnet_diagnostic.CA1031.severity = warning
+
 [*.{md,markdown}]
 trim_trailing_whitespace = false
 max_line_length = 100

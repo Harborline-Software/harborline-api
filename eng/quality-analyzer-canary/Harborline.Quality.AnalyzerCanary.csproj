@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Ticket 340 planted Roslyn violations. This project is intentionally excluded
+    from Harborline.Api.slnx and is built only by eng/verify-analyzer-canary.sh,
+    so it adds no rows to the host suite baseline. IsPackable=true selects the
+    production analyzer attachment path exercised by the gate build.
+  -->
+  <PropertyGroup>
+    <AssemblyName>Harborline.Quality.AnalyzerCanary</AssemblyName>
+    <RootNamespace>Harborline.Quality.AnalyzerCanary</RootNamespace>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>
