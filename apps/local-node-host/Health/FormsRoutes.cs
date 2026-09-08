@@ -542,7 +542,9 @@ public sealed record FormViewFieldDto(
     [property: JsonPropertyName("isSensitive")] bool IsSensitive,
     [property: JsonPropertyName("isReadable")] bool IsReadable,
     [property: JsonPropertyName("value")] JsonElement? Value,
-    [property: JsonPropertyName("rules")] FormViewFieldRulesDto? Rules = null)
+    [property: JsonPropertyName("rules")] FormViewFieldRulesDto? Rules = null,
+    [property: JsonPropertyName("options")] IReadOnlyList<string>? Options = null,
+    [property: JsonPropertyName("required")] bool Required = false)
 {
     /// <summary>Projects an engine <see cref="FormViewField"/> onto the wire DTO.</summary>
     public static FormViewFieldDto From(FormViewField f) => new(
@@ -553,7 +555,7 @@ public sealed record FormViewFieldDto(
         f.IsSensitive,
         f.IsReadable,
         f.Value,
-        FormViewFieldRulesDto.From(f.Rules));
+        FormViewFieldRulesDto.From(f.Rules), f.Options, f.Required);
 }
 
 /// <summary>

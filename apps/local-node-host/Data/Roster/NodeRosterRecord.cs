@@ -88,8 +88,11 @@ public sealed class NodeRosterRecord
     /// </summary>
     public string MintingSessionEvidence { get; set; } = string.Empty;
 
-    /// <summary>The admitted member's permission set as a JSON string array (admission only; empty for revocation).</summary>
+    /// <summary>Legacy carried permission field. Retained for storage compatibility and ignored on read.</summary>
     public required string PermissionsJson { get; set; }
+
+    /// <summary>Historical signed atoms, needed by the unchanged admission verifier until the wire half lands.</summary>
+    public string SignedPermissionsJson { get; set; } = string.Empty;
 
     /// <summary>base64url of the admitter/revoker public key (the signer).</summary>
     public required string AdmittedByPublicKey { get; set; }
@@ -143,7 +146,8 @@ public sealed class NodeRosterRecord
             XWingPublicKeyB64Url = s.XWingPublicKeyB64Url ?? string.Empty,
             AdmittedViaTokenId = s.AdmittedViaTokenId ?? string.Empty,
             MintingSessionEvidence = s.MintingSessionEvidence ?? string.Empty,
-            PermissionsJson = System.Text.Json.JsonSerializer.Serialize(s.Permissions),
+            PermissionsJson = string.Empty,
+            SignedPermissionsJson = System.Text.Json.JsonSerializer.Serialize(s.Permissions),
             AdmittedByPublicKey = s.AdmittedByPublicKey,
             AdmittedByPartyId = s.AdmittedByPartyId,
             NonceGuid = s.NonceGuid,
@@ -157,9 +161,9 @@ public sealed class NodeRosterRecord
     public static RosterRecordCrdtState ToCrdtState(NodeRosterRecord row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        var permissions = string.IsNullOrWhiteSpace(row.PermissionsJson)
+        var permissions = string.IsNullOrWhiteSpace(row.SignedPermissionsJson)
             ? System.Array.Empty<string>()
-            : System.Text.Json.JsonSerializer.Deserialize<string[]>(row.PermissionsJson)
+            : System.Text.Json.JsonSerializer.Deserialize<string[]>(row.SignedPermissionsJson)
                 ?? System.Array.Empty<string>();
         return new RosterRecordCrdtState(
             RecordId: row.Id,

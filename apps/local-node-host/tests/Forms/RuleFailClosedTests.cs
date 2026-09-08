@@ -187,6 +187,24 @@ public sealed class RuleFailClosedTests
     // ── Render is projection (advisory): the degrade may stand, but never silently ──
 
     [Fact]
+    public async Task Render_refuses_a_published_form_whose_schema_is_gone_because_its_fields_cannot_be_rendered_or_validated()
+    {
+        var schemas = NSubstitute.Substitute.For<ISchemaRegistry>();
+        var schema = await new InMemorySchemaRegistry(TimeProvider.System).RegisterAsync(DefaultSchemaJson);
+        NSubstitute.SubstituteExtensions.Returns(schemas.RegisterAsync(DefaultSchemaJson),
+            ValueTask.FromResult(schema));
+        var context = await CreateServicesAsync(HarborlineOverlay.Empty, DefaultSchemaJson,
+            configure: services => services.AddSingleton(schemas));
+        await using var services = context.Services;
+        var token = await IssueReadWriteTokenAsync(services);
+
+        var exception = await Assert.ThrowsAsync<SchemaNotFoundException>(() =>
+            services.GetRequiredService<IFormEngine>().RenderAsync(FormId, null, token, CancellationToken.None));
+
+        Assert.Contains(schema.Id.Value, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Render_compile_fault_degrades_but_logs_the_responsible_definition()
     {
         var logger = new CollectingLogger();

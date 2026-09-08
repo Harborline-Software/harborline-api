@@ -265,7 +265,47 @@ public sealed class FormEngine : IFormEngine
 
         // F-12: project the SPINE-1 rule outcomes (visibility / required / read-only / compute /
         // presentation) onto the view SERVER-side so a runtime form matches the builder preview.
-        return ApplyRuleProjection(view, formDef, entity, ct);
+        var schema = await _schemaRegistry.GetAsync(formDef.SchemaRef, ct).ConfigureAwait(false)
+            ?? throw new SchemaNotFoundException(formDef.SchemaRef);
+        using var schemaDocument = JsonDocument.Parse(schema.JsonSchemaText);
+        return ApplyRuleProjection(ProjectSchemaMetadata(view, schemaDocument.RootElement), formDef, entity, ct);
+    }
+
+    // fieldsMeta is compiled into the immutable schema at admission. Read that same authority for
+    // both rendering paths and both the flat field list and nested item tree.
+    private static FormView ProjectSchemaMetadata(FormView view, JsonElement schema)
+    {
+        var fields = new Dictionary<string, (string[]? Options, bool Required)>(StringComparer.Ordinal);
+        void Visit(JsonElement node)
+        {
+            if (node.ValueKind != JsonValueKind.Object) return;
+            var required = node.TryGetProperty("required", out var names)
+                ? names.EnumerateArray().Select(name => name.GetString()).ToHashSet(StringComparer.Ordinal) : [];
+            if (node.TryGetProperty("properties", out var properties))
+                foreach (var property in properties.EnumerateObject())
+                {
+                    var options = property.Value.ValueKind == JsonValueKind.Object
+                        && property.Value.TryGetProperty("enum", out var choices)
+                        && choices.EnumerateArray().All(choice => choice.ValueKind == JsonValueKind.String)
+                        ? choices.EnumerateArray().Select(choice => choice.GetString()!).ToArray() : null;
+                    fields[property.Name] = (options, required.Contains(property.Name));
+                    Visit(property.Value);
+                }
+            if (node.TryGetProperty("items", out var items)) Visit(items);
+        }
+        Visit(schema);
+        FormViewField Field(FormViewField field) => fields.TryGetValue(field.Name, out var metadata)
+            ? field with { Options = metadata.Options, Required = metadata.Required } : field;
+        FormViewItem Item(FormViewItem item) => item with
+        {
+            Field = item.Field is null ? null : Field(item.Field),
+            Items = item.Items?.Select(Item).ToArray(),
+        };
+        return view with { Sections = view.Sections.Select(section => section with
+        {
+            Fields = section.Fields.Select(Field).ToArray(),
+            Items = section.Items?.Select(Item).ToArray(),
+        }).ToArray() };
     }
 
     /// <inheritdoc />

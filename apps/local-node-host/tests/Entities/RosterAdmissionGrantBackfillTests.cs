@@ -22,6 +22,32 @@ public sealed class RosterAdmissionGrantBackfillTests
     private static readonly DateTimeOffset At = DateTimeOffset.UnixEpoch.AddDays(1);
 
     [Fact]
+    public async Task Effective_permissions_equal_backfilled_grants_before_and_after_durable_restart()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var (before, _) = await SeedAsync(store, 7);
+        Assert.Equal(7, await Backfill(store).RunAsync());
+        await using var reopened = SearchTestStore.Reopen(store);
+        await using var provider = GateProvider(reopened);
+        var closure = provider.GetRequiredService<IAuthorizationClosureReader>();
+        var after = await new VerifiedTenantRosterReader(new RosterFactory(reopened), new Ed25519Verifier())
+            .ReadAsync(Tenant, default);
+        foreach (var member in before.Members)
+        {
+            var principal = new ActorId(member.PartyId);
+            var expected = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
+                closure, before, member.PartyId, Tenant, principal, At.AddDays(1), default);
+            var actual = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
+                closure, after, member.PartyId, Tenant, principal, At.AddDays(1), default);
+            var grants = await closure.UserPermissionsAsync(Tenant, principal, At.AddDays(1), default);
+            var grantPermissions = PermissionSet.From(grants.Atoms.Where(a => a.Scope.Value == "/")
+                .Select(a => a.Operation.Value));
+            Assert.Equal(expected, actual);
+            Assert.Equal(expected.Permissions, grantPermissions);
+        }
+    }
+
+    [Fact]
     public async Task Production_boot_hook_converts_grants_before_hydrating_the_roster()
     {
         await using var store = await SearchTestStore.CreateAsync();
@@ -100,7 +126,7 @@ public sealed class RosterAdmissionGrantBackfillTests
             new GrantReason(GrantReasonCodes.RevocationReview)));
         await using (var roster = store.CreateRosterContext())
         {
-            (await roster.RosterRecords.SingleAsync(row => row.PartyId == "member-1")).PermissionsJson = "[\"records:write\"]";
+            (await roster.RosterRecords.SingleAsync(row => row.PartyId == "member-1")).SignedPermissionsJson = "[\"records:write\"]";
             await roster.SaveChangesAsync();
         }
         await using var reopened = SearchTestStore.Reopen(store);
@@ -137,7 +163,7 @@ public sealed class RosterAdmissionGrantBackfillTests
         await SeedAsync(store, 2);
         await using (var db = store.CreateRosterContext())
         {
-            (await db.RosterRecords.SingleAsync(row => row.PartyId == "member-1")).PermissionsJson = "[\"records:write\"]";
+            (await db.RosterRecords.SingleAsync(row => row.PartyId == "member-1")).SignedPermissionsJson = "[\"records:write\"]";
             await db.SaveChangesAsync();
         }
         await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(() => Backfill(store).RunAsync());

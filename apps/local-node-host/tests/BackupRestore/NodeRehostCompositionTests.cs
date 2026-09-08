@@ -150,8 +150,16 @@ public sealed class NodeRehostCompositionTests
                 new Ed25519Verifier(), DateTimeOffset.UnixEpoch, Guid.NewGuid());
             var admission = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(
                 Assert.Single(roster.EnumerateAdmissions())));
-            // Seed the historical schema explicitly; the current EF model includes later columns.
-            await db.Database.ExecuteSqlAsync($"INSERT INTO roster_records (id, kind, team_id, party_id, public_key, permissions, admitted_by_key, admitted_by_party, nonce, signature, is_genesis, issued_at) VALUES ({admission.Id}, {admission.Kind}, {admission.TeamId}, {admission.PartyId}, {admission.PublicKeyB64Url}, {admission.PermissionsJson}, {admission.AdmittedByPublicKey}, {admission.AdmittedByPartyId}, {admission.NonceGuid}, {admission.SignatureB64Url}, {admission.IsGenesis}, {admission.IssuedAtUtc.ToUnixTimeMilliseconds()})");
+            // Seed the historical schema with its actual columns, before applying later roster migrations.
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO roster_records
+                    (id, kind, team_id, party_id, public_key, permissions, admitted_by_key,
+                     admitted_by_party, nonce, signature, is_genesis, issued_at)
+                VALUES ({admission.Id}, {admission.Kind}, {admission.TeamId}, {admission.PartyId},
+                    {admission.PublicKeyB64Url}, {admission.SignedPermissionsJson}, {admission.AdmittedByPublicKey},
+                    {admission.AdmittedByPartyId}, {admission.NonceGuid}, {admission.SignatureB64Url},
+                    {admission.IsGenesis}, {admission.IssuedAtUtc.ToUnixTimeMilliseconds()})
+                """);
             await db.Database.MigrateAsync();
             Assert.Contains("20260908030000_RosterAddRehostGrantBurns", await db.Database.GetAppliedMigrationsAsync());
             Assert.Equal("nonce", await db.Database.SqlQueryRaw<string>("SELECT nonce AS Value FROM rehost_grant_burns").SingleAsync());

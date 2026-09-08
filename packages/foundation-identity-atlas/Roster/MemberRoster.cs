@@ -57,10 +57,18 @@ public sealed class MemberRoster
     public IReadOnlyList<RosterRevocationRefusal> RefusedRevocations { get; private set; } =
         Array.Empty<RosterRevocationRefusal>();
 
+    // Transitional live permission state for the 291 guards; slice 3c replaces this with grant derivation.
+    // It is deliberately outside the membership record and is never serialized as membership evidence.
+    private sealed record MemberState(string PartyId, PrincipalId PublicKey,
+        PermissionSet Permissions, AdmissionSignature Admission)
+    {
+        public RosterMember Member { get; } = new(PartyId, PublicKey, Admission);
+    }
+
     private readonly Guid _teamId;
 
     // LIVE membership state — the mutable set (admit/revoke/grant). What HasPermission + the trust gate read.
-    private readonly IReadOnlyDictionary<string, RosterMember> _byParty;
+    private readonly IReadOnlyDictionary<string, MemberState> _byParty;
 
     // The IMMUTABLE, append-only ADMISSION LOG — every admission ever signed, keyed by admitted party. This is
     // SEPARATE from live state (genesis-vs-live, taxonomy §3 guard 4): revoking a member drops them from
@@ -72,7 +80,7 @@ public sealed class MemberRoster
 
     private MemberRoster(
         Guid teamId,
-        IReadOnlyDictionary<string, RosterMember> byParty,
+        IReadOnlyDictionary<string, MemberState> byParty,
         IReadOnlyDictionary<string, AdmissionEntry> admissionLog,
         string genesisPartyId)
     {
@@ -89,7 +97,7 @@ public sealed class MemberRoster
     public Guid TeamId => _teamId;
 
     /// <summary>All current members (live state).</summary>
-    public IReadOnlyCollection<RosterMember> Members => _byParty.Values.ToArray();
+    public IReadOnlyCollection<RosterMember> Members => _byParty.Values.Select(m => m.Member).ToArray();
 
     /// <summary>One entry in the immutable admission log — the (party, key, admission) tuple, retained even
     /// after the member is revoked from live state so the genesis chain still verifies through them.</summary>
@@ -141,8 +149,8 @@ public sealed class MemberRoster
             throw new InvalidOperationException("Genesis admission signature did not verify.");
         }
 
-        var founder = new RosterMember(founderPartyId, founderKey, PermissionCompositions.Owner, admission);
-        var map = new Dictionary<string, RosterMember>(StringComparer.Ordinal) { [founderPartyId] = founder };
+        var founder = new MemberState(founderPartyId, founderKey, PermissionCompositions.Owner, admission);
+        var map = new Dictionary<string, MemberState>(StringComparer.Ordinal) { [founderPartyId] = founder };
         var log = new Dictionary<string, AdmissionEntry>(StringComparer.Ordinal)
         {
             [founderPartyId] = new AdmissionEntry(founderPartyId, founderKey, admission),
@@ -239,7 +247,7 @@ public sealed class MemberRoster
     public RosterMember? Find(string partyId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(partyId);
-        return _byParty.TryGetValue(partyId, out var m) ? m : null;
+        return _byParty.TryGetValue(partyId, out var m) ? m.Member : null;
     }
 
     /// <summary>
@@ -356,9 +364,9 @@ public sealed class MemberRoster
             throw new RosterGuardException("Produced admission signature did not verify.");
         }
 
-        var next = new Dictionary<string, RosterMember>(_byParty, StringComparer.Ordinal)
+        var next = new Dictionary<string, MemberState>(_byParty, StringComparer.Ordinal)
         {
-            [newPartyId] = new RosterMember(newPartyId, newPublicKey, grantedPermissions, admission),
+            [newPartyId] = new MemberState(newPartyId, newPublicKey, grantedPermissions, admission),
         };
         // Append to the immutable admission log (a re-admission of a previously-revoked party records the NEW
         // admission — the latest signed admission for that party).
@@ -405,7 +413,7 @@ public sealed class MemberRoster
                 "No-escalation violated: the granted set exceeds the granter's held set.");
         }
 
-        var next = new Dictionary<string, RosterMember>(_byParty, StringComparer.Ordinal)
+        var next = new Dictionary<string, MemberState>(_byParty, StringComparer.Ordinal)
         {
             [targetPartyId] = target with { Permissions = newPermissions },
         };
@@ -448,7 +456,7 @@ public sealed class MemberRoster
             throw new RosterGuardException($"Target '{targetPartyId}' is not a member.");
         }
 
-        var next = new Dictionary<string, RosterMember>(_byParty, StringComparer.Ordinal);
+        var next = new Dictionary<string, MemberState>(_byParty, StringComparer.Ordinal);
         next.Remove(targetPartyId);
         // Revoke drops the member from LIVE state but KEEPS their admission in the immutable log (genesis-vs-
         // live): the chain still verifies through them — the canonical revoke-the-genesis-support-after-handoff
@@ -851,9 +859,9 @@ public sealed class MemberRoster
         }
 
         // Only the verified signed set seeds live authority; newer code cannot add unsigned permissions.
-        var live = new Dictionary<string, RosterMember>(StringComparer.Ordinal)
+        var live = new Dictionary<string, MemberState>(StringComparer.Ordinal)
         {
-            [genesis.PartyId] = new RosterMember(
+            [genesis.PartyId] = new MemberState(
                 genesis.PartyId, genesis.PublicKey, signedGenesisPermissions, genesis.Admission),
         };
         var log = new Dictionary<string, AdmissionEntry>(StringComparer.Ordinal)
@@ -976,7 +984,7 @@ public sealed class MemberRoster
             {
                 if (live.ContainsKey(party)) continue; // defensive — should not happen (party was not-yet-bound)
                 var winner = InDeterministicOrder(candidates).First();
-                live[party] = new RosterMember(winner.PartyId, winner.PublicKey, winner.Permissions, winner.Admission);
+                live[party] = new MemberState(winner.PartyId, winner.PublicKey, winner.Permissions, winner.Admission);
                 log[party] = new AdmissionEntry(winner.PartyId, winner.PublicKey, winner.Admission);
                 grew = true;
             }
@@ -1034,7 +1042,7 @@ public sealed class MemberRoster
     /// roster keeps its own local genesis-seeded roster rather than adopting this — see the projection.)</summary>
     public static MemberRoster Empty() => new(
         Guid.Empty,
-        new Dictionary<string, RosterMember>(StringComparer.Ordinal),
+        new Dictionary<string, MemberState>(StringComparer.Ordinal),
         new Dictionary<string, AdmissionEntry>(StringComparer.Ordinal),
         string.Empty);
 }

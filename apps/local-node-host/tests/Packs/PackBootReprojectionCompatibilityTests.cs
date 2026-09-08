@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
@@ -8,7 +9,12 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Admission;
+using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
+using Harborline.Api.Foundation.Packs.Serialization;
+using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -43,6 +49,64 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
     }
 
     private IEntityTypeRegistry Types => _services.GetRequiredService<IEntityTypeRegistry>();
+
+    [Theory]
+    [InlineData("gate", "The authorization gate denied the requested act.")]
+    [InlineData("exception", "restore storage unavailable")]
+    [InlineData("platform", PackInstallCodes.ActivateUnmetPlatformRequirement)]
+    public async Task Startup_restores_both_siblings_when_the_middle_active_pack_is_refused(
+        string failure, string reason)
+    {
+        var store = new InMemoryPackInstallStore();
+        CommitActivePack(store, "pack.a", AssetSeed("restore.a", "First"));
+        CommitActivePack(store, "pack.b", [AssetSeed("restore.b", "Refused")],
+            failure == "platform" ? ["packs.pillar.future"] : null);
+        CommitActivePack(store, "pack.c", AssetSeed("restore.c", "Last"));
+        Assert.Equal(3, store.ListInstalled(Tenant).Count(p => p.Lifecycle == PackLifecycleState.Active));
+        var audit = new InMemoryPackInstallAudit();
+        var gate = Authorization.TestAuthorization.Gate(request =>
+        {
+            if (request.Target.RecordId != "pack.b") return true;
+            if (failure == "exception") throw new IOException(reason);
+            return failure != "gate";
+        });
+        var installer = new PackInstaller(
+            new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
+            new WorkflowRefusingPackContentAdmission(), audit, gate);
+        ((IPackProjectionReconciler)installer).AttachProjector(new PackSeedProjector(
+            store, Types, NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System));
+        var logger = new RestoreLogger();
+        var hosted = new PackSeedProjectionHostedService(
+            installer, new FixedActiveTeam(new TeamId(Guid.Parse(Tenant.Value))), logger,
+            store, new InMemoryPackTrustStore([]), PackRevocationList.Empty, TimeProvider.System);
+
+        await hosted.StartAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { "restore.a", "restore.c" },
+            Types.ListSeeds().Select(seed => seed.Id.Value).OrderBy(id => id));
+        if (failure != "exception")
+        {
+            var refusal = Assert.Single(audit.Query(Tenant), row => row.Action == PackInstallAuditAction.Refused);
+            Assert.Equal("pack.b", refusal.PackKey);
+            Assert.StartsWith(failure == "gate" ? PackInstallCodes.RefusedAuthorizationDenied : reason, refusal.Detail);
+        }
+        Assert.Contains(logger.Messages, entry => entry.Level == LogLevel.Information
+            && entry.Message.Contains("pack.b", StringComparison.Ordinal)
+            && entry.Message.Contains(reason, StringComparison.Ordinal));
+        Assert.Contains(logger.Messages, entry => entry.Level == LogLevel.Information
+            && entry.Message.Contains("pending", StringComparison.Ordinal)
+            && entry.Message.Contains("2 active packs restored, 1 refused", StringComparison.Ordinal));
+    }
+
+    private sealed class RestoreLogger : ILogger<PackSeedProjectionHostedService>
+    {
+        public List<(LogLevel Level, string Message)> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add((logLevel, formatter(state, exception)));
+    }
 
     [Fact(DisplayName = "ticket 160: boot re-projection refuses an out-of-window ACTIVE pack, structurally")]
     public async Task Boot_Reprojection_Refuses_Out_Of_Window_Pack()
@@ -268,10 +332,10 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
         return store;
     }
 
-    private sealed class FixedActiveTeam : IActiveTeamAccessor
+    private sealed class FixedActiveTeam(TeamId? teamId = null) : IActiveTeamAccessor
     {
         public TeamContext? Active { get; } = new(
-            new TeamId(Guid.Parse("7e570000-0000-0000-0000-000000000160")),
+            teamId ?? new TeamId(Guid.Parse("7e570000-0000-0000-0000-000000000160")),
             "Boot Compat Team",
             new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
 

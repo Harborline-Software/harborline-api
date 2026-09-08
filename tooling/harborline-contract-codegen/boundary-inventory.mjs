@@ -93,6 +93,10 @@ export function validateInventory(inventory, discovered, manifest) {
   }
   const discoveredIds = new Set(discovered.map((entry) => entry.id))
   for (const boundary of discovered) if (!byId.has(boundary.id)) errors.push(`unlisted runtime boundary: ${boundary.id}`)
+  for (const boundary of discovered) {
+    if (JSON.stringify(byId.get(boundary.id)?.responseFieldDtos) !== JSON.stringify(boundary.responseFieldDtos))
+      errors.push(`response field DTO drift: ${boundary.id}`)
+  }
   for (const entry of entries) if (!discoveredIds.has(entry.id)) errors.push(`stale boundary inventory entry: ${entry.id}`)
   if (manifest) {
     const manifestIds = manifest.ports.flatMap((port) => port.operations).map((operation) => operation.id).sort()
@@ -193,7 +197,15 @@ export function parseLocalNodeRoutes(text, source, qualifiedNonBoundaryCalls = n
       const structural = `${source}:${method}:${routeExpression}`
       const ordinal = (seen.get(structural) ?? 0) + 1
       seen.set(structural, ordinal)
-      boundaries.push({ id: `${kind}:${method}:${source}:${routeExpression}${ordinal > 1 ? `:${ordinal}` : ''}`, kind, method, routeExpression, source })
+      const boundary = { id: `${kind}:${method}:${source}:${routeExpression}${ordinal > 1 ? `:${ordinal}` : ''}`, kind, method, routeExpression, source }
+      if (method === 'GET' && source.endsWith('/FormsRoutes.cs')) {
+        const declaration = text.match(/public sealed record FormViewFieldDto\(([\s\S]*?)\)\s*\{/)
+        if (!declaration) throw new Error(`cannot find FormViewFieldDto in ${source}`)
+        const fields = [...declaration[1].matchAll(/JsonPropertyName\("([^"]+)"\)/g)].map(match => match[1])
+        if (fields.length === 0) throw new Error(`no wire fields discovered for FormViewFieldDto in ${source}`)
+        boundary.responseFieldDtos = { FormViewFieldDto: fields }
+      }
+      boundaries.push(boundary)
     }
     for (const match of text.matchAll(/\.(Map[A-Z]\w*)\s*\(/g)) {
       const call = match[1]
