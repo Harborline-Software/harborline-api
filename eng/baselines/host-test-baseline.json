@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3653,
-    "passed": 3635,
+    "total": 3650,
+    "passed": 3632,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3641,
-      "passed": 3623,
+      "total": 3638,
+      "passed": 3620,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3641 -> 3653; passed 3623 -> 3635; failed and notExecuted unchanged",
+    "change": "total 3638 -> 3650; passed 3620 -> 3632; failed and notExecuted unchanged",
     "cause": "ticket 314 slice 2: one identity architecture test, nine tenant boundary cases and two grant issuance whitespace cases; expected main plus branch delta, pending controller full gate",
     "detectedBy": "focused migration tests; full suite reserved for controller",
-    "arithmeticCrossCheck": "3641 + 12 = 3653"
+    "arithmeticCrossCheck": "3638 + 12 = 3650"
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
