@@ -26,4 +26,5 @@
     <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
     <ProjectReference Include="..\blocks-financial-ledger\Harborline.Blocks.FinancialLedger.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

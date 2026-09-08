@@ -187,6 +187,21 @@ public sealed class AccessGrantContractTests
         Assert.Equal(Now, closure.LastAt);
     }
 
+    [Theory]
+    [InlineData(GrantIssuanceSteps.Decide)]
+    [InlineData(GrantIssuanceSteps.Approve)]
+    public async Task Issuance_Refuses_Whitespace_Tenant(string step)
+    {
+        var request = Request(AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/north"))
+            with { TenantId = " " };
+        var handler = new GrantIssuanceHandler(new NoWriteContext(),
+            new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]),
+            new IssuanceClosure(PermissionAtom.Parse("records:read@/")));
+        var trigger = WorkflowTrigger.For(WorkflowTriggerKind.Event, "grant-workflow", step)
+            with { At = Now, PayloadJson = "{\"decision\":\"approve\"}" };
+        await Assert.ThrowsAsync<ArgumentException>(() => handler.DecideAsync(Instance(request), trigger).AsTask());
+    }
+
     private static AccessGrant Grant() => new(
         new GrantId(Guid.Parse("10000000-0000-0000-0000-000000000001")),
         new TenantId("tenant-a"), new ActorId("subject-a"), AccessGrantAuthorizationSeed.MemberRole,

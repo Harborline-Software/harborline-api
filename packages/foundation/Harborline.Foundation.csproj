@@ -38,4 +38,5 @@
          encode/decode of bearer credentials across HTTP (spec §10.4, Issue #11). -->
     <InternalsVisibleTo Include="Harborline.Federation.PatternC.Tests" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

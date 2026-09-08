@@ -107,7 +107,7 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Assets.Common.VersionId))]
 [assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Assets.Common.Instant))]
 [assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Assets.Common.ActorId))]
-[assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Assets.Common.TenantId))]
+[assembly: TypeForwardedTo(typeof(Harborline.Foundation.Assets.Common.TenantId))]
 [assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Assets.Common.SchemaId))]
 
 [assembly: TypeForwardedTo(typeof(Harborline.Api.Foundation.Crypto.PrincipalId))]

@@ -30,4 +30,5 @@
     <!-- Payments cluster — Payment + PaymentApplication + IPaymentRepository + IPaymentApplicationRepository. -->
     <ProjectReference Include="..\blocks-financial-payments\Harborline.Blocks.FinancialPayments.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

@@ -44,6 +44,7 @@ public sealed class RosterSyncBootstrapHostedService : IHostedService
     private readonly NodeOwnTransportKey? _ownTransportKey;
     private readonly NodeOwnDmKey? _ownDmKey;
     private readonly ILogger<RosterSyncBootstrapHostedService> _logger;
+    private readonly RosterAdmissionGrantBackfill? _grantBackfill;
 
     public RosterSyncBootstrapHostedService(
         IDeltaRouter router,
@@ -51,7 +52,8 @@ public sealed class RosterSyncBootstrapHostedService : IHostedService
         ILogger<RosterSyncBootstrapHostedService> logger,
         NodeTeamRoster? nodeRoster = null,
         NodeOwnTransportKey? ownTransportKey = null,
-        NodeOwnDmKey? ownDmKey = null)
+        NodeOwnDmKey? ownDmKey = null,
+        RosterAdmissionGrantBackfill? grantBackfill = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _projection = projection ?? throw new ArgumentNullException(nameof(projection));
@@ -59,11 +61,14 @@ public sealed class RosterSyncBootstrapHostedService : IHostedService
         _nodeRoster = nodeRoster;
         _ownTransportKey = ownTransportKey;
         _ownDmKey = ownDmKey;
+        _grantBackfill = grantBackfill;
     }
 
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (_grantBackfill is not null)
+            await _grantBackfill.RunAsync(cancellationToken).ConfigureAwait(false);
         // Register roster as a synced doctype on the install-level router (routed by the "roster" id).
         _router.Register(RosterCrdtProjection.DocumentId, _projection, _projection);
         _logger.LogInformation(

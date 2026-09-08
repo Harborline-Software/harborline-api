@@ -30,4 +30,5 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Harborline.Api.Foundation.Ship.Common.Tests" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>
