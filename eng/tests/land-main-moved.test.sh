@@ -168,7 +168,7 @@ EOF
     local branch_total
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
     [ "$branch_total" = 102 ] || { echo "FAIL $name: refused branch moved to $branch_total"; return 1; }
-    grep -Fq 'main moved by 3, measured differs by 2!=3: regression (main 103, branch delta +2, measured 104)' "$case_dir/output.log" || { echo "FAIL $name: missing numeric regression reason"; return 1; }
+    grep -Fq 'main moved by 3, measured differs by 2!=3: regression (main 103, branch delta +2, measured 104; verify log:' "$case_dir/output.log" || { echo "FAIL $name: missing numeric regression reason"; return 1; }
     grep -Fq 'abc123 landing adds three cases' "$case_dir/output.log" || { echo "FAIL $name: missing intervening landing"; return 1; }
   else
     ! grep -Fq 'measured differs by' "$case_dir/output.log" || { echo "FAIL $name: invented regression from a non-host Total line"; return 1; }

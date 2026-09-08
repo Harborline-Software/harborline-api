@@ -4,15 +4,38 @@ set -uo pipefail
 set +e
 
 source_root=$(cd "$(dirname "$0")/../.." && pwd)
-scratch=$(mktemp -d)
+cd "$source_root"
+scratch=$(mktemp -d ".claude/land-dirty-tree.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 real_node=$(command -v node)
+real_git=$(command -v git)
 
 write_baseline() {
   local path=$1 total=$2
   mkdir -p "$(dirname "$path")"
   cat > "$path" <<EOF
-{"totals":{"total":$total,"passed":$((total - 2)),"failed":0,"notExecuted":2},"permittedFailures":[],"knownFlaky":[]}
+{
+  "schemaVersion": 1,
+  "suite": "test",
+  "repository": "test",
+  "sourcePin": "test",
+  "recordedAt": "2026-09-08T00:00:00Z",
+  "totals": {
+    "total": $total,
+    "passed": $((total - 2)),
+    "failed": 0,
+    "notExecuted": 2
+  },
+  "permittedFailures": [],
+  "knownFlaky": [],
+  "deltaFromPrevious": {
+    "previousTotals": { "total": $total, "passed": $((total - 2)), "failed": 0, "notExecuted": 2 },
+    "change": "fixture",
+    "cause": "fixture",
+    "detectedBy": "fixture",
+    "arithmeticCrossCheck": "fixture"
+  }
+}
 EOF
 }
 
@@ -32,13 +55,25 @@ gate_lock_release() { :; }
 EOF
 cat > "$seed/eng/test-clean-tree-gate.sh" <<'EOF'
 #!/usr/bin/env bash
-test -z "$(git status --porcelain)"
+land_worktree=$(git rev-parse --show-toplevel)
+worktree_parent=$(dirname "$land_worktree")
+land_scratch=''
+for candidate in "$worktree_parent"/land-scratch-*; do
+  if [ -d "$candidate" ]; then land_scratch=$candidate; break; fi
+done
+porcelain=$(git status --porcelain)
+{
+  printf '%s\n' "$land_worktree"
+  printf '%s\n' "$land_scratch"
+  printf '%s\n' "$porcelain"
+} > "$LAND_CLEAN_EVIDENCE"
+[ -z "$porcelain" ] && [ -n "$land_scratch" ] && [ "$(dirname "$land_scratch")" = "$worktree_parent" ]
 EOF
 chmod +x "$seed/eng/test-clean-tree-gate.sh"
 write_baseline "$seed/eng/baselines/host-test-baseline.json" 100
 git -C "$seed" add .
 git -C "$seed" commit -q -m seed
-git -C "$seed" remote add origin "$remote"
+git -C "$seed" remote add origin "../remote.git"
 git -C "$seed" push -q -u origin main
 git --git-dir="$remote" symbolic-ref HEAD refs/heads/main
 
@@ -69,16 +104,40 @@ cat > "$shim/dotnet" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-chmod +x "$shim/node" "$shim/dotnet"
+cat > "$shim/git" <<'EOF'
+#!/usr/bin/env bash
+if [ "$*" = "rev-parse --show-toplevel" ] && [ "$(basename "$PWD")" = runner ]; then echo .; else exec "$REAL_GIT" "$@"; fi
+EOF
+chmod +x "$shim/node" "$shim/dotnet" "$shim/git"
+shim_path=$(cd "$shim" && pwd)
 
 out="$scratch/output.log"
-REAL_NODE="$real_node" HARBORLINE_LAND_VERIFY_CMD='bash eng/test-clean-tree-gate.sh' \
-  HARBORLINE_GATE_LOCK_PATH="$scratch/gate.lock" PATH="$shim:$PATH" \
+evidence="$scratch/clean-tree.evidence"
+REAL_NODE="$real_node" REAL_GIT="$real_git" HARBORLINE_LAND_VERIFY_CMD='bash eng/test-clean-tree-gate.sh' \
+  HARBORLINE_GATE_LOCK_PATH="$scratch/gate.lock" LAND_CLEAN_EVIDENCE='../../../../clean-tree.evidence' PATH="$shim_path:$PATH" \
   bash -c 'cd "$1" && bash eng/land.sh feature --dry-run' -- "$runner" > "$out" 2>&1
 rc=$?
 if [ "$rc" -ne 0 ]; then
-  echo 'FAIL clean-tree gate: landing verifier found land-owned scratch in the merge worktree'
+  echo "FAIL clean-tree gate: land.sh rc=$rc; recorded evidence:"
+  if [ -f "$evidence" ]; then sed -n '1,20p' "$evidence"; else echo '(no evidence recorded)'; fi
   tail -20 "$out"
+  exit 1
+fi
+if [ ! -f "$evidence" ]; then
+  echo 'FAIL clean-tree gate: verifier recorded no evidence'
+  tail -20 "$out"
+  exit 1
+fi
+land_worktree=$(sed -n '1p' "$evidence")
+land_scratch=$(sed -n '2p' "$evidence")
+porcelain=$(sed -n '3,$p' "$evidence")
+if [ -n "$porcelain" ]; then
+  echo "FAIL clean-tree gate: git -C $land_worktree status --porcelain returned:"
+  printf '%s\n' "$porcelain"
+  exit 1
+fi
+if [ -z "$land_scratch" ] || [ "$(dirname "$land_scratch")" != "$(dirname "$land_worktree")" ]; then
+  echo "FAIL clean-tree gate: worktree=$land_worktree scratch=${land_scratch:-'(not found)'}"
   exit 1
 fi
 echo 'ok   land verifier sees a clean merge worktree'
