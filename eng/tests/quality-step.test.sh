@@ -8,7 +8,7 @@ export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$quality_root"
 fixture=$(mktemp -d)
 old_control=$(mktemp -d)
-control_root=${HARBORLINE_CONTROL_REPO:-$root/../harborline-control}
+control_root=${HARBORLINE_CONTROL_REPO:-$(cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../harborline-control" && pwd -W)}
 cleanup() { rm -rf "$fixture" "$old_control"; }
 trap cleanup EXIT
 
