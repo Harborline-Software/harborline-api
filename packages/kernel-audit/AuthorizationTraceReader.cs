@@ -1,6 +1,8 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Harborline.Api.Kernel.Audit;
 
@@ -16,7 +18,13 @@ public enum AuthorizationTraceAvailability
 
     /// <summary>The gate refused the read. Nothing about the entry is disclosed, its existence included.</summary>
     Refused = 2,
+
+    /// <summary>A recorded guard refusal before a gate decision; no four-step decision was made.</summary>
+    PreDecisionRefusal = 3,
 }
+
+/// <summary>The public reason recorded by a pre-decision guard, without its classified diagnostic.</summary>
+public sealed record AuthorizationPreDecisionRefusal(string Code, string Detail, string Remediation);
 
 /// <summary>
 /// The answer to "why was this decided that way?" for ONE recorded decision: the four ordered public steps
@@ -26,7 +34,9 @@ public sealed record AuthorizationTraceRead(
     AuthorizationTraceAvailability Availability,
     int? Version,
     IReadOnlyList<AuthorityTraceStepSnapshot> Steps,
-    AuthorityCounterfactualSnapshot? Counterfactual);
+    AuthorityCounterfactualSnapshot? Counterfactual,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    AuthorizationPreDecisionRefusal? Refusal = null);
 
 /// <summary>
 /// The authorized first-class production read of ticket 212's four-step trace (ledger L651/L652), and the
@@ -91,6 +101,20 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         if (decision.Verdict is not AuthorizationVerdict.Allowed)
             return (new AuthorizationTraceRead(AuthorizationTraceAvailability.Refused, null, [], null), decision);
 
+        // Read the signed guard report only after audit:read succeeds. It is pre-decision evidence,
+        // so preserve that distinction instead of inventing a four-step authorization decision.
+        if (entry?.EventType.Value == "AuthorizationRefused"
+            && entry.Payload.Payload.Body.TryGetValue("preDecisionRefusal", out var stored) && stored is not null)
+        {
+            var value = JsonSerializer.SerializeToElement(stored);
+            if (value.ValueKind == JsonValueKind.Object
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Code), out var code)
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Detail), out var detail)
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Remediation), out var remedy))
+                return (new AuthorizationTraceRead(AuthorizationTraceAvailability.PreDecisionRefusal,
+                    null, [], null, new(code, detail, remedy)), decision);
+        }
+
         // Keyed by ORDINAL, not by stage: an entry whose act also went through the separation-of-duty
         // engine stores that decision's four steps under ordinals 5..8 with the same four stage names, and
         // this read answers for the gate decision the entry records.
@@ -105,6 +129,23 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
                 steps,
                 snapshot.Counterfactual)
             : new AuthorizationTraceRead(AuthorizationTraceAvailability.NotAvailable, null, [], null), decision);
+    }
+
+    // These single-word fields differ only in case under the audit writers' default, camelCase,
+    // and snake_case policies. Read the stored spelling without changing the signed payload.
+    private static bool TryReadReportString(JsonElement value, string name, out string text)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.String)
+            {
+                text = property.Value.GetString()!;
+                return true;
+            }
+        }
+        text = string.Empty;
+        return false;
     }
 
     // ponytail: a linear scan of the tenant's trail — IAuditTrail has no by-id query and the node-local

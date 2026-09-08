@@ -8,6 +8,8 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.LocalNodeHost.Health;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -24,6 +26,62 @@ public sealed class AuthorizationTraceReadTests
     private static readonly DateTimeOffset At = DateTimeOffset.Parse("2026-09-07T12:00:00Z");
     private static readonly ActorId Auditor = new("auditor-212c");
     private static readonly ActorId Stranger = new("stranger-212c");
+
+    [Fact]
+    public async Task PreDecisionFloorRefusalIsStoredAndReadableOnlyByAuditor()
+    {
+        await using var h = await Harness.CreateAsync();
+        var audit = new AuthorizationRefusalAudit(h.Trail, new Ed25519Signer(KeyPair.Generate()),
+            NullLogger<AuthorizationRefusalAudit>.Instance);
+        var refusal = new AuthorizationRefusal(MemberRoster.NoBrickingFloorCode, "Roster revocation refused",
+            "Revoking founder would remove the last signed and live authority floor holder.",
+            "Admit a signed successor that holds the floor live.", "classified-record-evidence");
+        var id = await audit.RecordAsync(refusal, Permission.MembersRevoke, h.Subject, Tenant, At, null);
+        Assert.NotNull(id);
+        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, At);
+        Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, read.Availability);
+        Assert.Equal(new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation), read.Refusal);
+        Assert.Empty(read.Steps);
+        Assert.Null(read.Counterfactual);
+        Assert.DoesNotContain("classified-record-evidence", System.Text.Json.JsonSerializer.Serialize(read));
+        var denied = await h.Reader.ReadAsync(Tenant, Stranger, id.Value, At);
+        Assert.Equal(AuthorizationTraceAvailability.Refused, denied.Availability);
+        Assert.Null(denied.Refusal);
+        var missing = await h.Reader.ReadAsync(Tenant, Stranger, Guid.NewGuid(), At);
+        Assert.Equal(denied, missing);
+
+        // The durable audit reader rematerializes object values as JsonElement, not CLR records.
+        var rows = new List<AuditRecord>();
+        await foreach (var row in h.Trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
+        var original = Assert.Single(rows);
+        foreach (var policy in new System.Text.Json.JsonNamingPolicy?[]
+                 { null, System.Text.Json.JsonNamingPolicy.CamelCase, System.Text.Json.JsonNamingPolicy.SnakeCaseLower })
+        {
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = policy };
+            var body = new AuditPayload(original.Payload.Payload.Body.ToDictionary(p => p.Key,
+                p => (object?)System.Text.Json.JsonSerializer.SerializeToElement(p.Value, options)));
+            // A naming policy changes the signed bytes: sign the stored representation itself.
+            using var keys = KeyPair.Generate();
+            var reloaded = original with
+            {
+                AuditId = Guid.NewGuid(),
+                Payload = await new Ed25519Signer(keys).SignAsync(body, At, Guid.NewGuid())
+            };
+            Assert.True(new Ed25519Verifier().Verify(reloaded.Payload));
+            await h.Trail.AppendAsync(reloaded);
+            var restored = await h.Reader.ReadAsync(Tenant, Auditor, reloaded.AuditId, At);
+            Assert.Equal(read.Refusal, restored.Refusal);
+            var rendered = System.Text.Json.JsonSerializer.SerializeToElement(restored,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            Assert.Equal((int)AuthorizationTraceAvailability.PreDecisionRefusal,
+                rendered.GetProperty("availability").GetInt32());
+            Assert.Empty(rendered.GetProperty("steps").EnumerateArray());
+            Assert.Equal(refusal.Code, rendered.GetProperty("refusal").GetProperty("code").GetString());
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, rendered.GetProperty("counterfactual").ValueKind);
+            Assert.DoesNotContain("classified-record-evidence", rendered.GetRawText());
+            Assert.Equal(denied, await h.Reader.ReadAsync(Tenant, Stranger, reloaded.AuditId, At));
+        }
+    }
 
     /// <summary>The subject of the decision reads their own trace: ticket 163's question, in the first
     /// person. What comes back is exactly what was stored — steps and counterfactual — and nothing else.</summary>
