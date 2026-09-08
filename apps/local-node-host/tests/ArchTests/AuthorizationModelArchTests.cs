@@ -250,7 +250,7 @@ public sealed class AuthorizationModelArchTests
             .ToArray();
         var compositionLeaks = compositionUses
             .Where(source => !source.RelativePath.EndsWith(
-                    Path.Combine("Permissions", "PermissionCompositions.cs"),
+                    "Permissions/PermissionCompositions.cs",
                     StringComparison.OrdinalIgnoreCase)
                 && (!Regex.IsMatch(source.Code,
                         @"\b(?:MemberRoster|RosterMember|RosterRecord|TeamMembership|grantedPermissions|founderPermissions|selectedSession)\b")
