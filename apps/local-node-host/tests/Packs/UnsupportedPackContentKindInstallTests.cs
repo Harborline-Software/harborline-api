@@ -70,7 +70,8 @@ public sealed class UnsupportedPackContentKindInstallTests
                     {
                       "id": "primary",
                       "labelKey": "workspaceGroups.operations.primary",
-                      "itemIds": ["assets"]
+                      "itemIds": ["assets"],
+                      "items": [{ "id": "assets", "labelKey": "navigation.assets" }]
                     }
                   ]
                 }
@@ -95,6 +96,31 @@ public sealed class UnsupportedPackContentKindInstallTests
             Assert.Equal(
                 "operations",
                 json["pack"]!["seedWorkspaces"]![0]!["id"]!.GetValue<string>());
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"id\":\"holders\"}")]
+    [InlineData("{\"id\":\"holders\",\"labelKey\":\"Holders\"}")]
+    [InlineData("null")]
+    public async Task Install_refuses_an_item_without_a_label_key_before_seed_commit(string item)
+    {
+        var navContent = JsonNode.Parse($$"""
+            {"seedWorkspaces":[{"id":"access","labelKey":"access.workspace","groups":[{
+              "id":"primary","labelKey":"access.holders","itemIds":["holders"]
+            }]}]}
+            """)!;
+        if (item != "null")
+            navContent["seedWorkspaces"]![0]!["groups"]![0]!["items"] = new JsonArray(JsonNode.Parse(item));
+        var (installer, context, store, packBytes, keyPair) =
+            await CreateFixtureAsync(PackContentKind.NavWorkspaceConfig, navContent);
+        using (keyPair)
+        {
+            var outcome = installer.Install(packBytes, context);
+            Assert.False(outcome.Installed);
+            Assert.Contains(PackInstallCodes.RefusedAdmission, outcome.RefusalCodes);
+            Assert.Equal("pack.nav.item_label_key_required", Assert.Single(outcome.Preview.AdmissionRefusals).Code);
+            Assert.Empty(store.ListInstalled(Tenant));
         }
     }
 
@@ -452,7 +478,7 @@ public sealed class UnsupportedPackContentKindInstallTests
     private static async Task<HttpResponseMessage> GetNavigationAsync(IPackInstallStore store)
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_INSTALL_TEST_URL") ?? "http://127.0.0.1:0");
         var app = builder.Build();
         var activeTeam = new FixedActiveTeamAccessor(new TeamContext(
             new TeamId(Guid.Parse(Tenant.Value)),

@@ -84,7 +84,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         {
             EnvironmentName = "Development",
         });
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_PROJECTION_TEST_URL") ?? "http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
         // The SAME in-memory Asset-Type-System the node composes — the projector seeds it, the asset-registry
