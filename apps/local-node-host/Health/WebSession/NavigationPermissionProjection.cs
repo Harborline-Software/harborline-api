@@ -94,6 +94,9 @@ internal static class NavigationPermissionProjection
             ["audit:read"] = [Permission.AuditRead],
             ["members:manage"] = [TeamRolePermissions.MembersManage],
             ["org:manage-settings"] = [Permission.OrgManageSettings],
+            // telemetry:read is a navigation destination (Run report rail item, Settings system health), not
+            // one of the retired atoms: with telemetry:export gone (332) it derives from org:manage-settings alone.
+            ["telemetry:read"] = [Permission.OrgManageSettings],
             ["packages:author"] = [Permission.PackagesAuthor],
             ["packages:operate"] = [Permission.PackagesOperate],
             // Settings-only: gates the Settings > Organization section and has NO rail entry, so it

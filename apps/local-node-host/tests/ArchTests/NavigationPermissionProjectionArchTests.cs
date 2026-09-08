@@ -157,10 +157,10 @@ public sealed class NavigationPermissionProjectionArchTests
                 .. everydayWork, "audit:read", "asset-types:design", "documents:design",
                 "forms:design", "members:manage", "org:branding:write", "org:manage-settings",
                 "packages:author", "packages:operate", "rules:design", "scheduling:design",
-                "studio:use", "workflows:design",
+                "studio:use", "telemetry:read", "workflows:design",
             ],
             ["Member"] = everydayWork,
-            ["Support"] = ["audit:read", "org:manage-settings", "packages:operate"],
+            ["Support"] = ["audit:read", "org:manage-settings", "packages:operate", "telemetry:read"],
             ["Viewer"] = everydayWork,
         };
 
