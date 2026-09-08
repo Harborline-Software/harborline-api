@@ -90,10 +90,14 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     /// <inheritdoc />
     public bool HasPermission(string permission)
     {
-        ArgumentNullException.ThrowIfNull(permission);
-        return Decide(permission)?.Verdict == AuthorizationVerdict.Allowed;
+        return TryParsePermission(permission, out _)
+            && Decide(permission)?.Verdict == AuthorizationVerdict.Allowed;
     }
 
+    // The synchronous IAuthorizationContext.HasPermission contract (called by
+    // SelectedSessionTenantContext.HasPermission) and ICurrentUser.Roles (read by
+    // HostedFormsApiEndpoint.StartAsync) force this single bridge. Async callers use
+    // DecideAsync directly; all awaited gate/audit work below avoids capturing a context.
     private AuthorizationDecision? Decide(string? permission)
     {
         var pending = DecideAsync(permission);
@@ -127,17 +131,31 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
             : [permission];
         foreach (var candidate in candidates)
         {
-            var operation = AuthorizationOperation.Parse(candidate);
+            if (!TryParsePermission(candidate, out var operation)) continue;
             decision = await _gate.DecideAsync(new AuthorizationWriteContext(NodeOperator, tenant, at)
                 .Request(operation, AuthorizationGate.RecordKindFor(operation), "desktop") with
                 {
                     Roster = inputs with { RegistryMember = membership is not null }
                 }).ConfigureAwait(false);
-            if (_refusalAudit is not null)
+            if (permission is not null && _refusalAudit is not null)
                 await _refusalAudit.RecordAsync(decision, CancellationToken.None).ConfigureAwait(false);
             if (decision.Verdict == AuthorizationVerdict.Allowed) break;
         }
         return decision;
+    }
+
+    private static bool TryParsePermission(string? permission, out AuthorizationOperation operation)
+    {
+        try
+        {
+            operation = AuthorizationOperation.Parse(permission!);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            operation = default;
+            return false;
+        }
     }
 
     /// <summary>

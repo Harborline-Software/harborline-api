@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3626,
-    "passed": 3608,
+    "total": 3633,
+    "passed": 3615,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3616,
-      "passed": 3598,
+      "total": 3621,
+      "passed": 3603,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3616 -> 3621; passed 3598 -> 3603; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3616 + 5 = 3621; passed = total - notExecuted = 3621 - 18 = 3603."
+    "change": "total 3621 -> 3633; passed 3603 -> 3615; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 293 slice 2 and fix 1: original slice +5 rows; invalid-permission theory +5, Roles audit regression +1, durable grant-source recursion regression +1; existing fence expectations retain their row counts",
+    "detectedBy": "Focused Release --no-build affected inventory: 33 classes, 248 total, 230 passed, 0 failed, 18 skipped. Includes every ActiveTeamAuthorizationContext reference, the original filter, the three reported fence classes and all six trace route tests. Full host suite remains the controller gate; this is expected-count arithmetic, not a new full-suite measurement.",
+    "arithmeticCrossCheck": "3621 + 5 + 7 = 3633; 3603 + 5 + 7 = 3615; 3633 - 18 = 3615. Affected set: 248 - 18 = 230 passed, failed 0."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

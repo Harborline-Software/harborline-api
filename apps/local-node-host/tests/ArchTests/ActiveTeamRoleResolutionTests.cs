@@ -64,6 +64,42 @@ public sealed class ActiveTeamRoleResolutionTests
         Assert.Contains("registry:member:True", evidence.Project()[1].Facts);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("records")]
+    [InlineData("Records:read")]
+    [InlineData(" records:read")]
+    [InlineData("records:read@/")]
+    public async Task Noncanonical_permission_returns_false(string permission)
+    {
+        var (accessor, sut) = await BuildAsync();
+        accessor.Set(Materialize(AdminOrg));
+        Assert.False(sut.HasPermission(permission));
+    }
+
+    [Fact]
+    public async Task Roles_enumeration_appends_no_refusal_but_an_act_does()
+    {
+        var (accessor, _) = await BuildAsync();
+        accessor.Set(Materialize(AdminOrg));
+        using var key = Harborline.Api.Foundation.Crypto.KeyPair.Generate();
+        var trail = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
+        var audit = new Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit(trail,
+            new Harborline.Api.Foundation.Crypto.Ed25519Signer(key),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>.Instance);
+        var sut = new ActiveTeamAuthorizationContext(accessor, new InMemoryTeamRegistry(), TimeProvider.System,
+            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), refusalAudit: audit);
+        var query = new Harborline.Api.Kernel.Audit.AuditQuery(ActiveTeamTenantContext.ProjectTenantId(AdminOrg));
+        Assert.Empty(sut.Roles);
+        Assert.Empty(sut.Roles);
+        var rows = new System.Collections.Generic.List<Harborline.Api.Kernel.Audit.AuditRecord>();
+        await foreach (var row in trail.QueryAsync(query)) rows.Add(row);
+        Assert.Empty(rows);
+        Assert.False(sut.HasPermission(TeamRolePermissions.RecordsRead));
+        await foreach (var row in trail.QueryAsync(query)) rows.Add(row);
+        Assert.Single(rows);
+    }
+
     [Fact(DisplayName = "ADR0032: no active team => no role, no permissions")]
     public async Task NoActiveTeam_NoPermissions()
     {
