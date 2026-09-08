@@ -42,6 +42,10 @@ head_tree=$(git rev-parse "$head_sha^{tree}")
 [ "$tested_tree" = "$head_tree" ] || { echo "land: internal: merge tree != head tree although head is a descendant of main"; exit 1; }
 echo "land: gating tree ${tested_tree:0:12} (base $(git rev-parse --short "$base_sha"), head $(git rev-parse --short "$head_sha"))"
 ( cd "$land_dir" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && bash eng/verify.sh ) && ( cd "$land_dir" && node eng/verify-receipt.mjs --landing ) || { preserve_land_evidence "$root" "$land_dir" "$head_sha" || echo "land: WARNING could not preserve exact-clone evidence" >&2; echo "land: gate RED on the merge commit; nothing landed"; exit 1; }
+# Ticket 335 has not landed on origin/main, so this lane deliberately refuses rather than let a
+# landing carry a stale quality baseline.  Its re-pin path will replace this refusal.
+echo "land: quality baseline moved; refusing to land until ticket 335's baseline re-pin path is available." >&2
+exit 1
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ -z "$pr" ]; then
   pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')

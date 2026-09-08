@@ -58,5 +58,6 @@ bash "$repo_root/eng/tests/land-verify-last-in-subshell.test.sh" || exit 1
 node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
+bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
 
 echo "Harborline API consumer-neutral boundary: PASS"

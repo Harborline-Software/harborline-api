@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import './host-trx.test.mjs'
 import assert from 'node:assert/strict'
-import {readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs'
+import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -164,12 +164,18 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
     const source = readFileSync(path.join(dir, 'eng/verify-receipt.mjs'), 'utf8')
     const steps = [...source.match(/export const requiredStepIds = \[([^\]]+)\]/)[1].matchAll(/'([^']+)'/g)].map(m => m[1])
     const cli = args => run(process.execPath, ['eng/verify-receipt.mjs', ...args])
+    writeFileSync(path.join(dir, '.git', 'harborline-api-quality-decision.json'), JSON.stringify({
+      decisionId: 'sha256:' + 'a'.repeat(64), policyDigest: 'sha256:' + 'b'.repeat(64),
+    }))
     for (const file of [MACOS_BASELINE, WINDOWS_BASELINE]) {
       const recorded = cli(['--record', ...steps, '--host-baseline', file])
       assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr)
       const receipt = JSON.parse(readFileSync(path.join(dir, '.git/harborline-api-verify-receipt.json')))
       assert.equal(receipt.hostBaseline, file)
-      assert.deepEqual(receipt.steps, steps)
+      assert.deepEqual(receipt.steps.map(step => typeof step === 'string' ? step : step.id), steps)
+      assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').decisionDigest, /^sha256:[a-f0-9]{64}$/)
+      assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, /^sha256:[a-f0-9]{64}$/)
+      assert.equal(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, 'sha256:' + 'b'.repeat(64))
       assert.equal(cli(['--slice']).status, 0)
       for (const args of [[], ['--landing'], ['--landing', '--slice']]) {
         const checked = cli(args)
