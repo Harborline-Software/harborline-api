@@ -148,7 +148,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         await using (var ctx = await factory.CreateDbContextAsync())
             await ctx.Database.EnsureCreatedAsync();
 
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);
@@ -629,7 +629,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         var factory = sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var ctx = await factory.CreateDbContextAsync()) await ctx.Database.EnsureCreatedAsync();
 
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);

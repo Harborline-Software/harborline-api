@@ -802,7 +802,8 @@ public sealed class MemberRoster
     public static MemberRoster FromSyncedRecords(
         IEnumerable<MemberAdmissionRecord> admissions,
         IEnumerable<MemberRevocationRecord> revocations,
-        IOperationVerifier verifier)
+        IOperationVerifier verifier,
+        Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null)
     {
         ArgumentNullException.ThrowIfNull(admissions);
         ArgumentNullException.ThrowIfNull(revocations);
@@ -883,8 +884,8 @@ public sealed class MemberRoster
             .ToList();
         // The deterministic total order over admissions — earliest-wins for first-write-wins; stable across snapshot
         // orderings. Identical comparator to the revocation pass below (IssuedAt → Nonce → … stable tiebreaks).
-        static IOrderedEnumerable<MemberAdmissionRecord> InDeterministicOrder(IEnumerable<MemberAdmissionRecord> xs) =>
-            xs.OrderBy(a => a.Admission.IssuedAt)
+        IOrderedEnumerable<MemberAdmissionRecord> InDeterministicOrder(IEnumerable<MemberAdmissionRecord> xs) =>
+            xs.OrderBy(a => orderTime?.Invoke(a.Admission.Signature, a.Admission.IssuedAt) ?? a.Admission.IssuedAt)
               .ThenBy(a => a.Admission.Nonce)
               .ThenBy(a => a.PartyId, StringComparer.Ordinal)
               .ThenBy(a => a.Admission.AdmittedByPublicKey, StringComparer.Ordinal)
@@ -990,7 +991,8 @@ public sealed class MemberRoster
         // Process in IssuedAt order so a revoke-then-readmit (different nonce/time) converges deterministically.
         foreach (var rev in revocationList
                      .Where(r => string.Equals(r.TeamId, genesis.TeamId, StringComparison.Ordinal))
-                     .OrderBy(r => r.Signed.IssuedAt).ThenBy(r => r.Signed.Nonce))
+                     .OrderBy(r => orderTime?.Invoke(r.Signed.Signature, r.Signed.IssuedAt) ?? r.Signed.IssuedAt)
+                     .ThenBy(r => r.Signed.Nonce).ThenBy(r => r.Signed.Signature, StringComparer.Ordinal))
         {
             if (!rebuilt.TryAuthorizeRevocation(rev, verifier)) continue; // forged/unauthorized → DROPPED
             if (!rebuilt._byParty.ContainsKey(rev.RevokedPartyId)) continue; // already gone / never a member

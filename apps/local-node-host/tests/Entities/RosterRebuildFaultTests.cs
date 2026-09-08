@@ -299,6 +299,7 @@ public sealed class RosterRebuildFaultTests
             AuditGate = new AuditGate(_trail);
             services.AddSingleton<IAuditTrail>(AuditGate);
             services.AddAuthorizationRefusalAudit();
+            services.AddSingleton(TimeProvider.System);
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }

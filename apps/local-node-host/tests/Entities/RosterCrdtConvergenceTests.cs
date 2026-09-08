@@ -105,7 +105,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             Team, founder.PartyId, founder.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
         var nodeRoster = new NodeTeamRoster(genesisRoster);
 
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(),
             factory,
             Verifier,
@@ -144,7 +144,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         // PRODUCTION boot path: a deterministic, restart-stable genesis (the F1 fix).
         var genesisRoster = MemberRoster.StableGenesis(Team, founder.PartyId, founder.Signer, Verifier);
         var nodeRoster = new NodeTeamRoster(genesisRoster);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
@@ -167,7 +167,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
     {
         var genesisRoster = MemberRoster.StableGenesis(Team, founder.PartyId, founder.Signer, Verifier);
         var nodeRoster = new NodeTeamRoster(genesisRoster);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             prior.Sp.GetRequiredService<ICrdtEngine>(), prior.Factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
@@ -214,7 +214,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var administrators = withAdministratorAuthority
             ? new NodeAdministratorAuthority(factory, TimeProvider.System, TestAuthorization.AllowGate())
             : null;
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster,
             administrators: administrators is null ? null : () => administrators);
@@ -643,7 +643,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         Assert.Equal(2, a.Projection.Count); // genesis + alice persisted to the durable store
 
         // Simulate a restart: a fresh projection over the SAME store hydrates both records from disk.
-        var freshProjection = new RosterCrdtProjection(
+        var freshProjection = new RosterCrdtProjection(TimeProvider.System,
             a.Sp.GetRequiredService<ICrdtEngine>(),
             a.Factory,
             Verifier,
@@ -748,7 +748,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         // and under the publish-races-the-hydration-reconcile window the boot-2 (un-rebuilt) genesis is what gets
         // shipped. Reading the captured record makes the pre-fix race-failure deterministic in the test.
         var boot2GenesisWire = RosterRecordCrdtState.FromAdmission(boot2Genesis.EnumerateAdmissions().Single());
-        var boot2Projection = new RosterCrdtProjection(
+        var boot2Projection = new RosterCrdtProjection(TimeProvider.System,
             a.Sp.GetRequiredService<ICrdtEngine>(), a.Factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, boot2Roster);
 

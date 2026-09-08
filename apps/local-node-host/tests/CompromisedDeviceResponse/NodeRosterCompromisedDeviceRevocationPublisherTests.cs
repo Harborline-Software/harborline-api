@@ -55,7 +55,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
                 DateTimeOffset.UnixEpoch.AddMinutes(1),
                 Guid.NewGuid());
             var liveRoster = new NodeTeamRoster(roster);
-            await using var projection = new RosterCrdtProjection(
+            await using var projection = new RosterCrdtProjection(TimeProvider.System,
                 new YDotNetCrdtEngine(),
                 factory,
                 verifier,
@@ -129,7 +129,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             await SeedAdministratorAsync(factory, team, "operator-a");
             await SeedAdministratorAsync(factory, team, "stolen-node");
 
-            await using var projection = new RosterCrdtProjection(
+            await using var projection = new RosterCrdtProjection(TimeProvider.System,
                 new YDotNetCrdtEngine(), factory, verifier,
                 NullLogger<RosterCrdtProjection>.Instance, liveRoster);
             var administrators = new NodeAdministratorAuthority(
@@ -204,7 +204,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             // establishes only the genesis party. Revoking that party on the roster must refuse WHOLE.
             await SeedAdministratorAsync(factory, team, "operator-a");
 
-            await using var projection = new RosterCrdtProjection(
+            await using var projection = new RosterCrdtProjection(TimeProvider.System,
                 new YDotNetCrdtEngine(), factory, verifier,
                 NullLogger<RosterCrdtProjection>.Instance, liveRoster);
             var administrators = new NodeAdministratorAuthority(
