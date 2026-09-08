@@ -68,6 +68,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly CrdtProjection<RosterCrdtSchema> _projection;
     private readonly IDbContextFactory<NodeLocalRosterDbContext> _contextFactory;
     private readonly HydrationRosterVerifier _verifier;
+    private int _legacyPermissionFieldsReported;
     private readonly NodeTeamRoster? _nodeRoster;
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
     private readonly ILogger<RosterCrdtProjection> _logger;
@@ -199,6 +200,10 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 .OrderBy(r => r.IssuedAtUtc).ThenBy(r => r.Id)
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
+
+            var legacyCount = rows.Count(row => !string.IsNullOrEmpty(row.PermissionsJson));
+            if (legacyCount > 0 && Interlocked.Exchange(ref _legacyPermissionFieldsReported, 1) == 0)
+                _logger.LogInformation("Ignored legacy roster permission fields on {Count} record(s).", legacyCount);
 
             // Decode the whole batch before changing the document: a bad row must not hydrate half a log.
             var states = rows.Select(NodeRosterRecord.ToCrdtState).ToArray();

@@ -63,7 +63,7 @@ public sealed class RosterRebuildFaultTests
         await using (var db = await f.Factory.CreateDbContextAsync())
         {
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-            peer.PermissionsJson = "[\"members:revoke\"]"; // Same id AND signature, different signed payload.
+            peer.SignedPermissionsJson = "[\"members:revoke\"]"; // Same id AND signature, different signed payload.
             await db.SaveChangesAsync();
         }
         await f.Projection.ReconcileAsync(default);
@@ -215,7 +215,7 @@ public sealed class RosterRebuildFaultTests
         await using var db = await f.Factory.CreateDbContextAsync();
         Assert.Equal(2, await db.RosterRecords.CountAsync());
         var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-        Assert.Equal(malformed ? "{" : "[]", peer.PermissionsJson);
+        Assert.Equal(malformed ? "{" : "[]", peer.SignedPermissionsJson);
         Assert.DoesNotContain(f.Projection.RefusalReports, r => r.Code.StartsWith("roster.record.", StringComparison.Ordinal));
     }
 
@@ -338,7 +338,7 @@ public sealed class RosterRebuildFaultTests
         {
             await using var db = await Factory.CreateDbContextAsync();
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-            peer.PermissionsJson = malformed ? "{" : "[]";
+            peer.SignedPermissionsJson = malformed ? "{" : "[]";
             if (!malformed) peer.SignatureB64Url = "AA";
             await db.SaveChangesAsync();
         }

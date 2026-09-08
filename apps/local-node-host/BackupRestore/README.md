@@ -44,6 +44,5 @@ rolls back a receipt when the gate denies; committed receipts survive restart an
 Receipts are not roster CRDT events. Refusals carry the same decision into the existing renderer,
 audit row and stored trace, retaining the renderer's five public properties.
 
-The separate `kernel-sync` detected-rollback coordinator is not wired to this manual session entry
-point. Its holder-source contract still carries an opaque grant string; this directory does not
-claim verified redemption for that separate path.
+All re-host restoration runs through `NodeRehostService.RestoreAsync`. The kernel-sync rollback
+detector only classifies a returning position; it does not restore a replica or accept a grant.
