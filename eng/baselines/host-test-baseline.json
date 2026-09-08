@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3666,
-    "passed": 3648,
+    "total": 3680,
+    "passed": 3662,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3660,
-      "passed": 3642,
+      "total": 3678,
+      "passed": 3660,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3660 -> 3666; passed 3642 -> 3648; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "ticket 295 slice 3a: six floor-reporting and hydration cases; fix 1 strengthens the existing trace case without adding rows. Revocation ordering remains open for slice 3b.",
-    "detectedBy": "EXPECTED by arithmetic from origin/main 68dc3fa2 plus 6 cases; focused tests only, controller owns full gate",
-    "arithmeticCrossCheck": "3660 + 6 = 3666; passed = 3666 - 18 = 3648."
+    "change": "total 3678 -> 3680; passed 3660 -> 3662; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 208 slice 7 publication/metadata half: two live host cases; grant issuance and standard submission refusal remain unimplemented.",
+    "detectedBy": "EXPECTED by arithmetic from origin/main dbaec5ef950d7b2cf3bceb81c832df2dd1c6f7d3 plus 2 cases; focused tests only, controller owns full gate",
+    "arithmeticCrossCheck": "3678 + 2 = 3680; passed = 3680 - 18 = 3662."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

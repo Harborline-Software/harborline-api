@@ -103,6 +103,8 @@ public sealed record FormViewItem(
 /// builder's live preview. <see langword="null"/> when no rule targets this field (a
 /// rule-free form is byte-identical to the pre-F-12 view).
 /// </param>
+/// <param name="Options">String select choices from the admitted schema, or null for other fields.</param>
+/// <param name="Required">Whether the admitted schema requires this field.</param>
 public sealed record FormViewField(
     string Name,
     InternationalizedText Label,
@@ -111,7 +113,9 @@ public sealed record FormViewField(
     bool IsSensitive,
     bool IsReadable,
     JsonElement? Value,
-    FormViewFieldRules? Rules = null);
+    FormViewFieldRules? Rules = null,
+    IReadOnlyList<string>? Options = null,
+    bool Required = false);
 
 /// <summary>
 /// The SPINE-1 rule outcomes for a <see cref="FormViewField"/>, projected server-side by
