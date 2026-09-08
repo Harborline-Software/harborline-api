@@ -38,7 +38,7 @@
       "class": "behavioural", "owner": "302"
     },
     {
-      "test": "260 S-I: the node reads its data directory from the same variable name this harness sets",
+      "test": "",
       "class": "behavioural", "owner": "302"
     },
     {
