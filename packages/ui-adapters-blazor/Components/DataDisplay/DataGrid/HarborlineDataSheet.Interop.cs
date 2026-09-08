@@ -85,6 +85,5 @@ public partial class HarborlineDataSheet<TItem> : IAsyncDisposable
         }
         _dotNetRef?.Dispose();
         GC.SuppressFinalize(this);
-        GC.SuppressFinalize(this);
     }
 }

@@ -545,8 +545,8 @@ public partial class HarborlineTreeView : HarborlineComponentBase
             builder.AddAttribute(2, "role", "treeitem");
             builder.AddAttribute(3, "id", $"tree-node-{node.Id}");
             if (hasKids)
-                builder.AddAttribute(4, "aria-expanded", isExpanded.ToString().ToLower(System.Globalization.CultureInfo.CurrentCulture));
-            builder.AddAttribute(5, "aria-selected", isSelected.ToString().ToLower(System.Globalization.CultureInfo.CurrentCulture));
+                builder.AddAttribute(4, "aria-expanded", isExpanded.ToString().ToLowerInvariant());
+            builder.AddAttribute(5, "aria-selected", isSelected.ToString().ToLowerInvariant());
 
             // Header
             builder.OpenElement(10, "div");

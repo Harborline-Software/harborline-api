@@ -512,7 +512,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         _editMode = true;
         _editResourceKey = cell.resourceKey;
         _editBucket = bucket;
-        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) ?? "0";
+        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "0";
         _activeCell = (cell.resourceKey, bucket.Start);
         await InvokeAsync(StateHasChanged);
     }
@@ -1265,7 +1265,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         _editResourceKey = resourceKey;
         _editBucket = bucket;
         var record = GetRecord(resourceKey, bucket);
-        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) ?? "0";
+        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "0";
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1753,7 +1753,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         if (set.Type == AllocationSetType.Baseline && set.IsLocked && set.FinalizedDate.HasValue)
         {
             var fmt = BaselineDateFormat ?? "MMM d, yyyy";
-        return $"Baseline As of {set.FinalizedDate.Value.ToString(fmt, System.Globalization.CultureInfo.CurrentCulture)}";
+            return $"Baseline As of {set.FinalizedDate.Value.ToString(fmt, System.Globalization.CultureInfo.CurrentCulture)}";
         }
         return set.Name;
     }
