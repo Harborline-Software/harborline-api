@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.Kernel.Sync.Identity;
@@ -8,7 +10,12 @@ using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 namespace Harborline.Api.LocalNodeHost.BackupRestore;
 
 /// <summary>The operator-supplied coordinates for replacing a node from canonical holders.</summary>
-public sealed record NodeRehostRequest(string TenantId, string ReplacedNodeId);
+public sealed record NodeRehostRequest(string TenantId, string ReplacedNodeId,
+    ActorId Caller, RosterSignedRehostGrant? Grant);
+
+/// <summary>Operator-selected identity and ceremony/holder connections for one manual restore.</summary>
+public sealed record NodeRehostSession(NodeIdentity ReplacementIdentity, ITrusteeKeyRecovery KeyRecovery,
+    ICanonicalRehostSource CanonicalSource, IHomeEpochPromotionAuthority PromotionAuthority);
 
 /// <summary>A root seed recovered through the trustee quorum and the trustees that attested it.</summary>
 public sealed record RecoveredNodeKeys(byte[] RootSeed, IReadOnlyList<string> AttestingTrusteeNodeIds);
@@ -28,6 +35,11 @@ public sealed record RosterSignedRehostGrant(string SerializedGrant);
 /// <summary>Obtains roster authorization for a trustee-attested replacement identity.</summary>
 public interface IRosterRehostGrantProvider
 {
+    /// <summary>Verifies and burns through the gate before any restore writes or holder reads.</summary>
+    ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant? grant, string tenantId,
+        string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
+        CancellationToken ct = default);
+
     /// <summary>Obtains the signed grant that authorizes the replacement for the tenant.</summary>
     ValueTask<RosterSignedRehostGrant> ObtainAsync(
         string tenantId,
@@ -60,7 +72,8 @@ public interface IHomeEpochPromotionAuthority
 public sealed record NodeRehostResult(
     NodeIdentity Identity,
     IReadOnlyList<CanonicalReplicaDocument> Documents,
-    PendingHomeEpochAssertion HomeAssertion)
+    PendingHomeEpochAssertion HomeAssertion,
+    AuthorizationDecision Decision)
 {
     /// <summary>The durable home epoch established for the replacement node.</summary>
     public long HomeEpochNumber => HomeAssertion.AssertedEpoch;
@@ -71,71 +84,55 @@ public sealed record NodeRehostResult(
 /// </summary>
 public sealed class NodeRehostService
 {
-    private readonly ITrusteeKeyRecovery _keyRecovery;
     private readonly IRootSeedRestorer _rootSeedRestorer;
-    private readonly INodeIdentityFactory _identityFactory;
     private readonly IRosterRehostGrantProvider _grantProvider;
-    private readonly ICanonicalRehostSource _canonicalSource;
-    private readonly IHomeEpochPromotionAuthority _promotionAuthority;
     private readonly IHomeEpochStore _epochs;
 
     /// <summary>Creates the manual re-host path over the existing recovery, sync, and fencing authorities.</summary>
     public NodeRehostService(
-        ITrusteeKeyRecovery keyRecovery,
         IRootSeedRestorer rootSeedRestorer,
-        INodeIdentityFactory identityFactory,
         IRosterRehostGrantProvider grantProvider,
-        ICanonicalRehostSource canonicalSource,
-        IHomeEpochPromotionAuthority promotionAuthority,
         IHomeEpochStore epochs)
     {
-        _keyRecovery = keyRecovery ?? throw new ArgumentNullException(nameof(keyRecovery));
         _rootSeedRestorer = rootSeedRestorer ?? throw new ArgumentNullException(nameof(rootSeedRestorer));
-        _identityFactory = identityFactory ?? throw new ArgumentNullException(nameof(identityFactory));
         _grantProvider = grantProvider ?? throw new ArgumentNullException(nameof(grantProvider));
-        _canonicalSource = canonicalSource ?? throw new ArgumentNullException(nameof(canonicalSource));
-        _promotionAuthority = promotionAuthority ?? throw new ArgumentNullException(nameof(promotionAuthority));
         _epochs = epochs ?? throw new ArgumentNullException(nameof(epochs));
     }
 
     /// <summary>
-    /// Recovers keys, obtains a roster grant, verifies holder content, then lands the home-epoch cutover.
+    /// Redeems the grant, recovers keys, verifies holder content, then lands the home-epoch cutover.
     /// </summary>
     public async ValueTask<NodeRehostResult> RestoreAsync(
         NodeRehostRequest request,
+        NodeRehostSession session,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TenantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ReplacedNodeId);
 
-        var replacementIdentity = _identityFactory.CreateFresh();
+        ArgumentNullException.ThrowIfNull(session);
+        var replacementIdentity = session.ReplacementIdentity;
         if (string.Equals(replacementIdentity.NodeId, request.ReplacedNodeId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("A re-host must use a fresh node identity.");
         }
 
-        var recovered = await _keyRecovery.RecoverAsync(replacementIdentity.NodeId, ct)
+        var decision = await _grantProvider.RedeemAsync(request.Grant, request.TenantId,
+            request.ReplacedNodeId, replacementIdentity,
+            [SignedRosterRehostGrantProvider.ReadCanonical, SignedRosterRehostGrantProvider.PromoteHome],
+            request.Caller, ct).ConfigureAwait(false);
+
+        var recovered = await session.KeyRecovery.RecoverAsync(replacementIdentity.NodeId, ct)
             .ConfigureAwait(false);
         ArgumentNullException.ThrowIfNull(recovered);
         await _rootSeedRestorer.RestoreRootSeedAsync(recovered.RootSeed, ct).ConfigureAwait(false);
 
-        var grant = await _grantProvider.ObtainAsync(
-            request.TenantId,
-            request.ReplacedNodeId,
-            replacementIdentity,
-            recovered.AttestingTrusteeNodeIds,
-            ct).ConfigureAwait(false);
-        if (grant is null || string.IsNullOrWhiteSpace(grant.SerializedGrant))
-        {
-            throw new InvalidDataException("A re-host requires a roster-signed grant.");
-        }
-
-        var documents = await _canonicalSource.ReConvergeFromHoldersAsync(grant, ct)
+        var documents = await session.CanonicalSource.ReConvergeFromHoldersAsync(request.Grant!, ct)
             .ConfigureAwait(false);
         VerifyContentHashes(documents);
 
-        var promotion = await _promotionAuthority.AuthorizeRecoveryFailoverAsync(
+        var promotion = await session.PromotionAuthority.AuthorizeRecoveryFailoverAsync(
             request.TenantId,
             replacementIdentity.NodeId,
             ct).ConfigureAwait(false);
@@ -156,7 +153,8 @@ public sealed class NodeRehostService
             new PendingHomeEpochAssertion(
                 promotion.TenantId,
                 promotion.EpochNumber,
-                promotion.HomeDeviceId));
+                promotion.HomeDeviceId),
+            decision);
     }
 
     private static void VerifyContentHashes(IReadOnlyList<CanonicalReplicaDocument> documents)

@@ -1,11 +1,20 @@
 # Backup and restore boundary
 
-Backup is continuous selective sync to canonical holders. Restore is the manual `NodeRehostService`
-path from those holders: recover the install root seed through trustees, mint a fresh node identity,
-obtain a roster-signed re-host grant, re-converge the granted documents, verify every holder-published
-SHA-256 digest, and only then land the signed home-epoch promotion. This directory contains no
-point-in-time snapshot writer, archive store, or second durability authority. Portability exports are
-also not backups.
+Backup is continuous selective sync to canonical holders. The host registers `NodeRehostService`
+and `IRosterRehostGrantProvider` as `SignedRosterRehostGrantProvider`. The manual in-process entry
+point is `NodeRehostService.RestoreAsync(request, session)`. The operator supplies the tenant,
+replaced node, authenticated caller and signed grant in `NodeRehostRequest`; `NodeRehostSession`
+carries the fresh replacement identity and the trustee, holder and promotion connections for that
+operation. These ceremony connections are per-operation inputs, not host singleton services.
+There is no HTTP restore route or archive importer in this directory.
+
+Before trustee recovery, root-seed storage, holder reads or epoch writes, restore redeems the grant
+for both `rehost:read-canonical` and `rehost:promote-home`. A missing, malformed, invalid or replayed
+grant reaches the authorization gate and refuses with its classified reason. After redemption,
+restore recovers and stores the seed, re-converges holder documents, verifies every holder-published
+SHA-256 digest, obtains the signed recovery-failover promotion and advances the home-epoch store.
+The result carries the exact redemption decision. A later restore failure does not unburn the grant;
+the operator must obtain another grant. This path creates no point-in-time snapshots or archive store.
 
 The recoverable set is exactly the canonical documents returned through `ICanonicalRehostSource`.
 Continuous sync does not cover state that was never projected into that set. In the current host that
@@ -22,24 +31,19 @@ explicitly excludes:
 Any new node-local store is outside the backup claim until it has an explicit projection into the
 canonical selective-sync set or a separately documented recovery procedure.
 
-Ticket 292 slice 2 supplies `SignedRosterRehostGrantProvider`; slice 3 must register it and
-connect both manual and detected-rollback restore to its redemption boundary. Its existing
-`SignedOperation<RehostGrantPayload>` envelope binds the tenant, old node, new node and public
-key, named acts (`rehost:read-canonical`, `rehost:promote-home`), expiry, issuer, issue instant
-and nonce. `ObtainAsync` signs a five-minute envelope with the configured roster member's
-operation signer and redeems it. A supplied envelope enters through `RedeemAsync`, with the
-server's caller identity and the exact acts the ensuing restore will perform. The ordinary
-`members:admit` authorization gate remains required in addition to the signed grant checks.
+The existing `SignedOperation<RehostGrantPayload>` envelope binds tenant, old node, new node and public
+key, named acts, expiry, issuer, issue instant and nonce. `ObtainAsync` signs a five-minute envelope
+without redeeming or burning it. `RedeemAsync` checks the durable roster chain at issuance and
+redemption, then puts all grant constraints through the ordinary `members:admit` gate for the explicit
+caller. Trustee node IDs are inputs to key recovery; they are not signatures or roster authority.
 
-Redemption verifies the durable chain at issuance and redemption under the roster database's
-SQLite write transaction. Its local `rehost_grant_burns` receipt table shares that database
-and is initialized idempotently by the provider; receipts are not membership CRDT events.
-The transaction rolls back the receipt when the gate refuses. A committed receipt survives
-provider/process restart and prevents concurrent replay. Refusals carry the same gate decision
-into the existing renderer, audit row and four-step stored trace.
+Migration `20260908030000_RosterAddRehostGrantBurns` registers local `rehost_grant_burns` receipts in
+the existing roster database and preserves receipts written by the earlier provider. Redemption does
+not create schema. Single use rests on the `(tenant, issuer, nonce)` primary key. The transaction
+rolls back a receipt when the gate denies; committed receipts survive restart and concurrent replay.
+Receipts are not roster CRDT events. Refusals carry the same decision into the existing renderer,
+audit row and stored trace, retaining the renderer's five public properties.
 
-Slice 3 must limit holder reads and home promotion to the redeemed acts, carry the returned
-decision through restore/audit, and render the existing refusal body. It must not redeem an
-`ObtainAsync` result twice: obtaining already consumes the grant for that restore. Trustee
-attestations remain inputs to the separate key-recovery ceremony; their node IDs are not
-signatures or roster authority. No host registration or restore-path wiring is added here.
+The separate `kernel-sync` detected-rollback coordinator is not wired to this manual session entry
+point. Its holder-source contract still carries an opaque grant string; this directory does not
+claim verified redemption for that separate path.

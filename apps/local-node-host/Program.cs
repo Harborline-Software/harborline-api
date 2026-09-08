@@ -452,6 +452,10 @@ builder.Services.AddSingleton(new Harborline.Api.LocalNodeHost.Health.NodePrinci
 builder.Services.AddSingleton<Harborline.Api.Foundation.Crypto.IOperationSigner>(
     sp => sp.GetRequiredService<Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner>().Signer);
 
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.BackupRestore.IRosterRehostGrantProvider,
+    Harborline.Api.LocalNodeHost.BackupRestore.SignedRosterRehostGrantProvider>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.BackupRestore.NodeRehostService>();
+
 // ── Enrollment Phase B — PRODUCTION trust roster (closes #1277-B1 end-to-end). ───────────────────────
 //
 // The install-level NodeTeamRoster, seeded HERE with the GENESIS self-admission: the single-office
