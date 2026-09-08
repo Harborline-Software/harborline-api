@@ -1,0 +1,28 @@
+is_global = true
+
+# The rest of the threading analyzer package is outside the ADR 0085 preview set.
+# It stays advisory so TreatWarningsAsErrors cannot promote an unadopted rule.
+# A global config, not .editorconfig: razor-generated sources carry no path the
+# editorconfig sections match, so per-path severities do not reach them.
+dotnet_diagnostic.VSTHRD001.severity = suggestion
+dotnet_diagnostic.VSTHRD003.severity = suggestion
+dotnet_diagnostic.VSTHRD004.severity = suggestion
+dotnet_diagnostic.VSTHRD010.severity = suggestion
+dotnet_diagnostic.VSTHRD011.severity = suggestion
+dotnet_diagnostic.VSTHRD012.severity = suggestion
+dotnet_diagnostic.VSTHRD101.severity = suggestion
+dotnet_diagnostic.VSTHRD102.severity = suggestion
+dotnet_diagnostic.VSTHRD103.severity = suggestion
+dotnet_diagnostic.VSTHRD104.severity = suggestion
+dotnet_diagnostic.VSTHRD105.severity = suggestion
+dotnet_diagnostic.VSTHRD106.severity = suggestion
+dotnet_diagnostic.VSTHRD107.severity = suggestion
+dotnet_diagnostic.VSTHRD108.severity = suggestion
+dotnet_diagnostic.VSTHRD109.severity = suggestion
+dotnet_diagnostic.VSTHRD110.severity = suggestion
+dotnet_diagnostic.VSTHRD111.severity = suggestion
+dotnet_diagnostic.VSTHRD112.severity = suggestion
+dotnet_diagnostic.VSTHRD113.severity = suggestion
+dotnet_diagnostic.VSTHRD114.severity = suggestion
+dotnet_diagnostic.VSTHRD115.severity = suggestion
+dotnet_diagnostic.VSTHRD200.severity = suggestion
