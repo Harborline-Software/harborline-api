@@ -11,7 +11,7 @@ using FinancialAuthorizationOperations = Harborline.Api.Foundation.Authorization
 /// <b>The atom is a permission string</b> resolved against <c>IAuthorizationContext.HasPermission(string)</c>
 /// (ADR 0091 deliberately left that surface vocabulary-empty so a later design — this one — could define the
 /// strings). Convention (taxonomy Q4, accepted): <c>&lt;resource&gt;:&lt;verb&gt;</c>, lowercase, hyphenated
-/// multiword (<c>members:set-role</c>, <c>grant:permissions</c>, <c>provider:configure-identity</c>).
+/// multiword (<c>grant:permissions</c>, <c>org:transfer-ownership</c>).
 /// </para>
 /// <para>
 /// <b>Four families</b> (taxonomy §1): (A) per-doctype DATA permissions — doctype-level granularity, Q1;
@@ -55,29 +55,6 @@ public static class Permission
     /// <summary>Soft-remove a contact (no hard-DELETE).</summary>
     public const string ContactsArchive = "contacts:archive";
 
-    /// <summary>Observe / query the calendar doctype (register-CRDT).</summary>
-    public const string CalendarRead = "calendar:read";
-    /// <summary>Create a calendar entry.</summary>
-    public const string CalendarCreate = "calendar:create";
-    /// <summary>Edit an existing calendar entry.</summary>
-    public const string CalendarWrite = "calendar:write";
-    /// <summary>Soft-remove a calendar entry.</summary>
-    public const string CalendarArchive = "calendar:archive";
-
-    /// <summary>Read the comms log (append-log doctype — no write/archive of sent messages).</summary>
-    public const string CommsRead = "comms:read";
-    /// <summary>Append (send) a message to the comms log.</summary>
-    public const string CommsAppend = "comms:append";
-
-    /// <summary>Read the general ledger (append-log doctype).</summary>
-    public const string GlRead = "gl:read";
-    /// <summary>
-    /// Post to the general ledger (append-only — corrections are reversing entries, not edits; ADR 0122). Gates
-    /// the <c>IJournalPostingService</c> seam (the GL-of-record), NOT a raw row write. The privileged
-    /// accountant-grade action: withheld from the default <c>member</c> (multi-org goal SC-2 "GL gated").
-    /// </summary>
-    public const string GlPost = "gl:post";
-
     /// <summary>Override a soft-closed financial period for a posting or reversal.</summary>
     public const string FinancialPeriodOverrideSoftClose =
         FinancialAuthorizationOperations.FinancialPeriodOverrideSoftClose;
@@ -89,7 +66,7 @@ public static class Permission
     /// [2026-08-06], card 3777 — Viewer loses site-coordinate access; partner field crews are Members).
     /// <para><c>spatial:write</c> is deliberately NOT minted: minting frames stays a substrate act
     /// (<c>ISpatialFrameDescriptorStore.MintAsync</c>) with no route surface, and this vocabulary does not
-    /// require verb pairs (cf. <c>comms:read</c>/<c>comms:append</c>). Mint the write verb when the mint
+    /// require verb pairs. Mint the write verb when the mint
     /// surface ships — an unused constant is a grant nobody can audit.</para>
     /// </summary>
     public const string SpatialRead = "spatial:read";
@@ -103,8 +80,6 @@ public static class Permission
     /// <summary>Remove a member from the roster. Subject to the no-bricking floor when the target holds the
     /// last root-grant.</summary>
     public const string MembersRevoke = "members:revoke";
-    /// <summary>Change a member's role/composition (re-template). Bounded by no-escalation.</summary>
-    public const string MembersSetRole = "members:set-role";
     /// <summary>
     /// Grant/revoke INDIVIDUAL permissions on a member's edge — the fine-grained primitive under set-role, and
     /// the SAME grant core the delegation model uses. THE ROOT-GRANT capability the no-bricking floor protects;
@@ -117,26 +92,7 @@ public static class Permission
     /// </summary>
     public const string OrgTransferOwnership = "org:transfer-ownership";
 
-    // ── Family C — per-part PROVIDER-CONFIG permissions (one-product provider-swap; per-part, Q2) ─────────
-    // Per-part (taxonomy Q2 accepted): "the IT person can re-point identity but not touch payments." Each
-    // parts-catalog entry mints its own provider:configure-<part>. ReadConfig is the diagnostic (no mutate).
-
-    /// <summary>Re-point the IDENTITY/SSO provider (bundled identity → Okta/Entra).</summary>
-    public const string ProviderConfigureIdentity = "provider:configure-identity";
-    /// <summary>Re-point the EMAIL provider (bundled → Postmark).</summary>
-    public const string ProviderConfigureEmail = "provider:configure-email";
-    /// <summary>Re-point the STORAGE provider.</summary>
-    public const string ProviderConfigureStorage = "provider:configure-storage";
-    /// <summary>Re-point the PAYMENTS provider.</summary>
-    public const string ProviderConfigurePayments = "provider:configure-payments";
-    /// <summary>Re-point the BANK-FEED provider.</summary>
-    public const string ProviderConfigureBankFeed = "provider:configure-bank-feed";
-    /// <summary>Re-point the TELEMETRY/observability export provider (bundled Harborline Toolbox → external SIEM/Datadog).</summary>
-    public const string ProviderConfigureTelemetry = "provider:configure-telemetry";
-    /// <summary>View current provider configuration (diagnostic — no mutate).</summary>
-    public const string ProviderReadConfig = "provider:read-config";
-
-    // ── Family D — CROSS-CUTTING permissions ─────────────────────────────────────────────────────────────
+    // ── Family C — CROSS-CUTTING permissions ─────────────────────────────────────────────────────────────
 
     /// <summary>
     /// View the audit log / inspect another member's permission CONFIGURATION as data — the ALLOWED half of the
@@ -154,11 +110,7 @@ public static class Permission
     /// NOT install-wide: every read addresses the one audit entry it names.
     /// </summary>
     public const string AuditTraceRead = "audit:trace-read";
-    /// <summary>Export telemetry / usage data (the telemetry-export catalog category — held tighter than
-    /// operational telemetry per CIC 2026-06-20).</summary>
-    public const string TelemetryExport = "telemetry:export";
-    /// <summary>Change org-level settings (display name, defaults, policy templates) — distinct from the
-    /// part-level <see cref="ProviderConfigureIdentity"/> family.</summary>
+    /// <summary>Change org-level settings (display name, defaults, policy templates).</summary>
     public const string OrgManageSettings = "org:manage-settings";
     /// <summary>
     /// Change the org's BRANDING — the display name, logo (light/dark), and single accent color that carry the
@@ -182,18 +134,6 @@ public static class Permission
     /// named follow-up).
     /// </summary>
     public const string PackagesAuthor = "packages:author";
-
-    /// <summary>
-    /// PUBLISH a domain pack for distribution. No package-publish code operation exists yet; tickets 199/225
-    /// own routing that future write through the kernel authorization gate.
-    /// </summary>
-    public const string PackagesPublish = "packages:publish";
-
-    /// <summary>
-    /// INSTALL a domain pack. The current <c>/packs/install</c> route remains authorized as
-    /// <see cref="PackagesOperate"/>; tickets 199/225 own moving that write to this operation.
-    /// </summary>
-    public const string PackagesInstall = "packages:install";
 
     /// <summary>
     /// OPERATE the instance's packs — preview/install/activate/deactivate/list (Settings › System ›

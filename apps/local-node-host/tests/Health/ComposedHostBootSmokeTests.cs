@@ -359,8 +359,7 @@ public sealed partial class ComposedHostBootSmokeTests
             // NOT NotEmpty. The raw roster set satisfied NotEmpty while 13 of 20
             // destinations were invisible, so that assertion could not see the defect it
             // was positioned to catch. Name destinations the desktop rail depends on.
-            Assert.Contains("inbox:read", served);
-            Assert.Contains("calendar:read", served);
+            Assert.Contains("assets:read", served);
             Assert.Contains("members:manage", served);
             Assert.Contains("org:manage-settings", served);
         }
