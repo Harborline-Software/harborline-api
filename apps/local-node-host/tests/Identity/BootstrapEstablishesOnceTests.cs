@@ -297,7 +297,11 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
 
         Assert.Empty(await second.Memberships.GetMembershipsAsync(BootResult.Operator));
         // Acceptance 2, read through the desktop plane's own surface — the one that answers from the registry.
+        using var capture = new Harborline.Api.LocalNodeHost.Tests.Authorization.RosterDecisionCapture();
         Assert.False(second.DesktopPlane.HasPermission(Permission.GrantPermissions));
+        var evidence = capture.AssertSingle(false);
+        Assert.True(evidence.Roster!.Ejected);
+        Assert.False(evidence.Roster.RegistryMember);
         // And the log still folds the founder usable: it is LIVE MEMBERSHIP that refused, nothing else.
         var authority = new NodeAdministratorAuthority(
             _contexts, TimeProvider.System, TestAuthorization.AllowGate());
@@ -510,7 +514,10 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         // revoked mid-process kept full desktop authority until somebody restarted the node. The plane now
         // answers from live roster membership on every call, so the revocation lands on the same request.
         await using var boot = await BootAsync();
+        using var capture = new Harborline.Api.LocalNodeHost.Tests.Authorization.RosterDecisionCapture();
         Assert.True(boot.DesktopPlane.HasPermission(Permission.GrantPermissions));
+        Assert.True(capture.AssertSingle(true).Roster!.RegistryMember);
+        capture.Evidence.Clear();
 
         var successor = ForeignSigner();
         const string SuccessorParty = "os:successor#dddd";
@@ -529,7 +536,10 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         // The cache is deliberately left stale: this is the boot's projection, and nothing re-ran it.
         Assert.Single(await boot.Memberships.GetMembershipsAsync(BootResult.Operator));
         Assert.False(boot.DesktopPlane.HasPermission(Permission.GrantPermissions));
+        Assert.True(capture.AssertSingle(false).Roster!.Ejected);
+        capture.Evidence.Clear();
         Assert.Empty(boot.DesktopPlane.Roles);
+        Assert.True(capture.AssertSingle(false).Roster!.RegistryMember);
     }
 
     [Fact]
@@ -571,7 +581,16 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         var desktopPlane = boot.DesktopPlane;
         foreach (var act in acts)
         {
-            Assert.Equal(webPlane!.Contains(act), desktopPlane.HasPermission(act));
+            using var capture = new Harborline.Api.LocalNodeHost.Tests.Authorization.RosterDecisionCapture();
+            var expected = webPlane!.Contains(act);
+            Assert.Equal(expected, desktopPlane.HasPermission(act));
+            Assert.True(capture.AssertSingle(expected).Roster!.RegistryMember);
+        }
+
+        using (var capture = new Harborline.Api.LocalNodeHost.Tests.Authorization.RosterDecisionCapture())
+        {
+            Assert.Contains("Admin", desktopPlane.Roles);
+            Assert.True(capture.AssertSingle(true).Roster!.RegistryMember);
         }
 
         // Not vacuous: the cache the boot wrote still says Admin, so at least one act would answer
