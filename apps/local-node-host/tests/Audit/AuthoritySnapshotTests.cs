@@ -392,7 +392,7 @@ public sealed class AuthoritySnapshotTests
         var emittedAuditCalls = AuditAppendSymbolInventory.Discover();
         Assert.NotEmpty(emittedAuditCalls);
         Assert.Empty(FindDecisionIdentityOffenders(emittedAuditCalls.Where(site =>
-            site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized)));
+            site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized or AuditAppendKind.Refused)));
         AssertAuthorizedAppendInventory(emittedAuditCalls);
         AssertNoForbiddenAuthorityReconstructionDependencies(emittedAuditCalls);
         AssertTicket205OrdinaryDomainAppendInventory(emittedAuditCalls);
@@ -534,7 +534,7 @@ public sealed class AuthoritySnapshotTests
             // records is DENIED, and AppendAuthorizedAsync refuses a denied decision
             // (AuthorizedAuditRefusalCodes.DecisionDenied). It carries the very decision the guard made
             // (or preDecision=true when the act never reached one) and re-decides nothing.
-            "apps/local-node-host/Health/AuthorizationRefusalAudit.cs|Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit.RecordCoreAsync(Harborline.Api.Foundation.Authorization.AuthorizationRefusal,System.String,Harborline.Api.Foundation.Assets.Common.ActorId,Harborline.Api.Foundation.Assets.Common.TenantId,System.DateTimeOffset,Harborline.Api.Foundation.Authorization.AuthorizationDecision,Harborline.Api.Kernel.Audit.AuditEventType,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "apps/local-node-host/Health/AuthorizationRefusalAudit.cs|Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit.RecordCoreAsync(Harborline.Api.Foundation.Authorization.AuthorizationRefusal,System.String,Harborline.Api.Foundation.Assets.Common.ActorId,Harborline.Api.Foundation.Assets.Common.TenantId,System.DateTimeOffset,Harborline.Api.Foundation.Authorization.AuthorizationDecision,Harborline.Api.Kernel.Audit.AuditEventType,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[System.Nullable`1[System.Guid]]|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "apps/local-node-host/Health/KernelAuditPackInstallAudit.cs|Harborline.Api.LocalNodeHost.Health.KernelAuditPackInstallAudit.AppendCore(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/blocks-financial-ap/Services/InMemoryBillRepository.cs|Harborline.Api.Blocks.FinancialAp.Services.InMemoryBillRepository.EmitTenantBoundaryViolationAsync(System.String,Harborline.Api.Foundation.Assets.Common.TenantId,Harborline.Api.Foundation.Assets.Common.TenantId,System.Nullable`1[System.DateTimeOffset],System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/blocks-financial-ar/Services/InMemoryInvoiceRepository.cs|Harborline.Api.Blocks.FinancialAr.Services.InMemoryInvoiceRepository.EmitTenantBoundaryViolationAsync(System.String,Harborline.Api.Foundation.Assets.Common.TenantId,Harborline.Api.Foundation.Assets.Common.TenantId,System.Nullable`1[System.DateTimeOffset],System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
@@ -592,6 +592,10 @@ public sealed class AuthoritySnapshotTests
     {
         string[] allowed =
         {
+            // Ticket 331: append the exact decision returned by the binding writer.
+            "apps/local-node-host/Health/AuthorizationAdminRoutes.cs|Harborline.Api.LocalNodeHost.Health.AuthorizationAdminRoutes.RecordBindingAsync(Microsoft.AspNetCore.Http.HttpContext,System.Guid,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[System.Guid]|Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail.AppendAuthorizedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision): System.Threading.Tasks.ValueTask|0",
+            // Ticket 331: a decided refusal stores the denied evidence, with no new gate decision.
+            "apps/local-node-host/Health/AuthorizationRefusalAudit.cs|Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit.RecordCoreAsync(Harborline.Api.Foundation.Authorization.AuthorizationRefusal,System.String,Harborline.Api.Foundation.Assets.Common.ActorId,Harborline.Api.Foundation.Assets.Common.TenantId,System.DateTimeOffset,Harborline.Api.Foundation.Authorization.AuthorizationDecision,Harborline.Api.Kernel.Audit.AuditEventType,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[System.Nullable`1[System.Guid]]|Harborline.Api.Kernel.Audit.IRefusedAuditTrail.AppendRefusedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             // Ticket 208 slice 4: Post-admission narrowing refusals carry the same caller guard decision; no second decision.
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditNarrowingRefusal(Harborline.Api.Foundation.Assets.Common.TenantId,System.String,System.String,System.DateTimeOffset,System.String,System.String,System.String,Harborline.Api.Foundation.Authorization.AuthorizationDecision): Harborline.Api.Foundation.Packs.Install.PackNarrowingOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             // Ticket 208 slice 4: Admitted narrowing persists the ordinary override and audits with the caller guard decision.
@@ -611,14 +615,14 @@ public sealed class AuthoritySnapshotTests
             "apps/local-node-host/Data/Workflow/NodeInvoiceApprovalCutover.cs|Harborline.Api.LocalNodeHost.Data.Workflow.NodeInvoiceApprovalCutover.RecordApprovalAsync(Harborline.Api.Foundation.Authorization.AuthorizationDecision,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision,System.String,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail.AppendAuthorizedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision): System.Threading.Tasks.ValueTask|0",
 };
         var actual = discovered
-            .Where(site => site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized)
+            .Where(site => site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized or AuditAppendKind.Refused)
             .Select(SiteKey)
             .Order(StringComparer.Ordinal)
             .ToArray();
         var expected = allowed.Order(StringComparer.Ordinal).ToArray();
         Assert.True(expected.SequenceEqual(actual, StringComparer.Ordinal),
             string.Join(Environment.NewLine, discovered
-                .Where(site => site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized)
+                .Where(site => site.Kind is AuditAppendKind.Authorized or AuditAppendKind.PackAuthorized or AuditAppendKind.Refused)
                 .Select(DescribeSite)));
     }
 
@@ -720,8 +724,11 @@ public sealed class AuthoritySnapshotTests
             }
 
             var position = 0;
-            while ((position = source.IndexOf(".AppendAuthorized", position, StringComparison.Ordinal)) >= 0)
+            while ((position = source.IndexOf(".Append", position, StringComparison.Ordinal)) >= 0)
             {
+                if (!source.AsSpan(position).StartsWith(".AppendAuthorized", StringComparison.Ordinal)
+                    && !source.AsSpan(position).StartsWith(".AppendRefused", StringComparison.Ordinal))
+                { position++; continue; }
                 var open = source.IndexOf('(', position);
                 if (open < 0) { offenders.Add(path); break; }
                 var arguments = SplitArguments(source, open);

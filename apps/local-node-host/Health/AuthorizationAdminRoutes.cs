@@ -5,11 +5,14 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.RuleEngine.Standings;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Harborline.Api.Foundation.Crypto;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -36,6 +39,20 @@ public static class AuthorizationAdminRoutes
         ArgumentNullException.ThrowIfNull(standings);
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(timeProvider);
+
+        TenantId RequestTenant() => NodeTenant.Resolve(activeTeam);
+
+        app.MapGet($"{RouteBase}/traces/{{auditId:guid}}",
+            async (Guid auditId, HttpContext http, [Microsoft.AspNetCore.Mvc.FromServices] AuthorizationTraceReader reader, CancellationToken ct) =>
+            {
+                http.Response.Headers.CacheControl = "no-store";
+                var authority = RequestAuthorization.Authority(http, RequestTenant(), timeProvider);
+                var (read, decision) = await reader.ReadWithDecisionAsync(
+                    authority.Tenant, authority.Principal, auditId, authority.At, ct).ConfigureAwait(false);
+                return read.Availability == AuthorizationTraceAvailability.Refused
+                    ? await RequestAuthorization.RefusedAsync(http, decision, ct).ConfigureAwait(false)
+                    : Results.Ok(read);
+            });
 
         // Ticket 205 slice 4: the closure-backed gate, resolved at the point of use. Every route on this
         // surface administers the INSTALL's own authorization configuration — the role vocabulary, the
@@ -122,6 +139,9 @@ public static class AuthorizationAdminRoutes
                         ct).ConfigureAwait(false);
                     var change = result.BindingChange
                         ?? throw new InvalidOperationException("The writer returned no binding result.");
+                    var decision = result.Decision
+                        ?? throw new InvalidOperationException("The writer returned no decision.");
+                    var auditId = await RecordBindingAsync(http, definitionId, decision, ct).ConfigureAwait(false);
                     return Results.Ok(new NarrowAuthorizationBindingResponse(
                         definitionId,
                         change.Revision.Revision,
@@ -129,7 +149,11 @@ public static class AuthorizationAdminRoutes
                         change.Warning?.ToString(),
                         change.Revision.ChangedBy.Value,
                         change.Revision.ChangedAt,
-                        change.Revision.Reason.Value));
+                        change.Revision.Reason.Value, auditId));
+                }
+                catch (AuthorizationDeniedException denial)
+                {
+                    return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
                 }
                 catch (ArgumentException)
                 {
@@ -172,9 +196,22 @@ public static class AuthorizationAdminRoutes
                 .ThenBy(row => row.RuleVersion, StringComparer.Ordinal)
                 .ToArray());
         });
-        TenantId RequestTenant() => NodeTenant.Resolve(activeTeam);
         app.MapGet(AccessHoldersRead.Route, (HttpContext http, CancellationToken ct) =>
             AccessHoldersRead.ReadAsync(http, RequestTenant(), timeProvider, ct));
+    }
+
+    private static async ValueTask<Guid> RecordBindingAsync(
+        HttpContext http, Guid definitionId, AuthorizationDecision decision, CancellationToken ct)
+    {
+        var payload = await http.RequestServices.GetRequiredService<IOperationSigner>().SignAsync(
+            new AuditPayload(new Dictionary<string, object?> { ["definitionId"] = definitionId }),
+            decision.Request.At, Guid.NewGuid()).ConfigureAwait(false);
+        var auditRecord = new AuditRecord(Guid.NewGuid(), decision.Request.Tenant, new AuditEventType("AuthorizationBindingNarrowed"),
+            decision.Request.At, payload, [], Actor: decision.Request.Principal,
+            Target: decision.Request.Target, Act: decision.Request.Act);
+        await http.RequestServices.GetRequiredService<IAuthorizedAuditTrail>()
+            .AppendAuthorizedAsync(auditRecord, decision, ct).ConfigureAwait(false);
+        return auditRecord.AuditId;
     }
 
     private static RoleDefinitionDto ToDto(RoleDefinition role) => new(

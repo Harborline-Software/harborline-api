@@ -54,6 +54,8 @@ public sealed class AuthorizationRefusalRenderingFenceTests
     /// </summary>
     private static readonly Dictionary<string, string> AllowedCatchers = new(StringComparer.Ordinal)
     {
+        ["Harborline.Api.LocalNodeHost.Health.AuthorizationAdminRoutes"] =
+            "Binding writes render and audit the writer decision through RequestAuthorization.RefusedAsync",
         ["Harborline.Api.LocalNodeHost.FormsDevSeeder"] =
             "a development seeder: it logs and skips, and serves no request",
         ["Harborline.Api.LocalNodeHost.FormsShowcaseDevSeeder"] =

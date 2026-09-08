@@ -16,7 +16,7 @@ public sealed record NarrowAuthorizationBindingRequest(
     IReadOnlyList<RoleReferenceDto> SelectedRoles, string Reason);
 public sealed record NarrowAuthorizationBindingResponse(
     Guid DefinitionId, long Revision, IReadOnlyList<RoleReferenceDto> EffectiveRoles,
-    string? Warning, string ChangedBy, DateTimeOffset ChangedAt, string Reason);
+    string? Warning, string ChangedBy, DateTimeOffset ChangedAt, string Reason, Guid? AuditId = null);
 
 public sealed record StandingFieldCatalogueDto(
     string Field, IReadOnlyList<string> CarryingRecordTypes);
