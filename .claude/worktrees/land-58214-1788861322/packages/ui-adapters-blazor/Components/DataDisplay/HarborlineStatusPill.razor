@@ -1,0 +1,30 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+<span class="@CombineClasses($"sf-status-pill sf-status-pill--{Kind.ToString().ToLowerInvariant()}")"
+      style="@CombineStyles($"display:inline-flex;align-items:center;border-radius:9999px;padding:.15rem .65rem;font-size:.8rem;background:{Background};color:{Foreground};")"
+      title="@Tooltip"
+      @attributes="AdditionalAttributes">@Value</span>
+
+@code {
+    [Parameter] public StatusPillKind Kind { get; set; }
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Tooltip { get; set; }
+    [Parameter] public bool Outlined { get; set; }
+
+    private string Background => Value.Trim().ToLowerInvariant() switch
+    {
+        "active" or "occupied" or "balanced" or "completed" => "var(--color-success-soft)",
+        "warning" or "vacant" or "pending" or "scheduled" => "var(--color-warning-soft)",
+        "error" or "cancelled" or "outofbalance" or "days90plus" => "var(--color-danger-soft)",
+        _ => "var(--color-muted)",
+    };
+
+    private string Foreground => Value.Trim().ToLowerInvariant() switch
+    {
+        "active" or "occupied" or "balanced" or "completed" => "var(--color-success)",
+        "warning" or "vacant" or "pending" or "scheduled" => "var(--color-warning)",
+        "error" or "cancelled" or "outofbalance" or "days90plus" => "var(--color-danger)",
+        _ => "var(--color-muted-foreground)",
+    };
+}

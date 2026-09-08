@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Blocks.People.Foundation</PackageId>
+    <AssemblyName>Harborline.Api.Blocks.People.Foundation</AssemblyName>
+    <RootNamespace>Harborline.Api.Blocks.People.Foundation</RootNamespace>
+    <Description>Canonical Party substrate for Harborline — Party + EmailAddress + PhoneNumber + PartyAddress entities and validators. First pass: domain entities + validation only; role registry, read/write services, and ERPNext importer arrive in PRs 2–4 of the people-foundation hand-off.</Description>
+    <PackageTags>people;party;contact;email;phone;address;blocks;domain;harborline</PackageTags>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS1591;NU1510;CS1574;CS0419</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.People.Foundation.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-events\Harborline.Foundation.Events.csproj" />
+    <ProjectReference Include="..\foundation-import\Harborline.Foundation.Import.csproj" />
+    <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,23 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Containers
+@typeparam TItem
+@inherits HarborlineComponentBase
+
+@if (ChildContent is not null)
+{
+    @ChildContent(Context)
+}
+
+@code {
+    /// <summary>The backing row list. Mutated in place; <see cref="ItemsChanged"/> fires after each op.</summary>
+    [Parameter] public IList<TItem> Items { get; set; } = new List<TItem>();
+    [Parameter] public EventCallback<IList<TItem>> ItemsChanged { get; set; }
+
+    /// <summary>Factory for <c>Append()</c> without an explicit item. Defaults to <c>default(TItem)!</c>.</summary>
+    [Parameter] public Func<TItem>? ItemFactory { get; set; }
+
+    /// <summary>Headless render surface receiving the rows plus append/insert/remove/move/replace ops.</summary>
+    [Parameter] public RenderFragment<HarborlineFieldArrayContext<TItem>>? ChildContent { get; set; }
+
+    private HarborlineFieldArrayContext<TItem> Context =>
+        new(Items, ItemFactory ?? (() => default!), () => ItemsChanged.InvokeAsync(Items));
+}

@@ -1,0 +1,49 @@
+{
+  "_comment": "Ticket 162 — the unavailable-aggregate refusal, shared across tiers. An agg node the compiler cannot statically register is a PUBLISH-TIME refusal (150-family direction: rule.compile.bad_grammar, both tiers); a WELL-FORMED agg whose evaluation context carries no tables (the guard tier's flat bag) refuses at runtime with rule.bad_reference and the address params {agg: 'section/fn/col'} — this file pins that params SHAPE byte-identically so a param-order swap in one tier splits the corpus, not just a unit test.",
+  "cases": [
+    {
+      "_comment": "CONTRACT FORK (absent-vs-empty, report-only): the instance model cannot distinguish a section that is ABSENT from one that is EMPTY — RuleInstance.fromJson routes both to zero rows, so a well-formed arity-3 aggregate over an absent section folds over nothing and computes count 0 through its registered fold cell. This case makes that boundary VISIBLE and deliberate, not accidental; changing the instance-model contract to refuse absent sections is a separate decision (the real fabrication chokepoint is the instance model, not this fold).",
+      "name": "agg/absent-section-count-zero",
+      "definitionRules": [
+        { "id": "c.count", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "n", "action": "Compute",
+          "expression": { "var": "table.count(items.amount)" } }
+      ],
+      "instance": { "placeholder": 1 },
+      "expectedAst": { "c.count": { "agg": [ "count", "items", "amount" ] } },
+      "expectedOutcomes": {
+        "c.count": { "ruleId": "c.count", "target": "field:n", "outputType": "Value", "value": { "state": "Resolved", "value": 0 } }
+      }
+    },
+    {
+      "_comment": "Arity-4 agg node: reference extraction cannot statically register it, so the compiler refuses at publish (it previously skipped registration and refused per-keystroke at runtime with no authoring-time signal).",
+      "name": "agg/unregistrable-arity-refuses-at-compile",
+      "definitionRules": [
+        { "id": "c.dyn", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "dyn", "action": "Compute",
+          "expression": { "agg": [ "sum", "items", "amount", "extra" ] } }
+      ],
+      "instance": {},
+      "expectedCompileError": { "code": "rule.compile.bad_grammar" }
+    },
+    {
+      "_comment": "Expression-valued agg arg: it previously registered a phantom String()-coerced cell in the TS tier and threw an untyped exception in the .NET tier — now one identical compile refusal.",
+      "name": "agg/unregistrable-dynamic-arg-refuses-at-compile",
+      "definitionRules": [
+        { "id": "c.dyn", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "dyn", "action": "Compute",
+          "expression": { "agg": [ "sum", { "var": "field.section" }, "amount" ] } }
+      ],
+      "instance": {},
+      "expectedCompileError": { "code": "rule.compile.bad_grammar" }
+    },
+    {
+      "_comment": "A compiled, well-formed aggregate reference evaluated where no tables exist (the guard tier's flat context bag) is unavailable data: rule.bad_reference with params {agg: 'section/fn/col'} — section first, then fn, then col. Both tiers construct this through ONE shared factory (RefValue.UnavailableAggregate / unavailableAggregate); this case pins the shape across tiers.",
+      "name": "agg/unavailable-refuses-in-guard-context",
+      "guardValue": "g.total",
+      "definitionRules": [
+        { "id": "g.total", "tier": "JsonLogic", "scope": "Schema", "scopeTarget": "", "action": "Compute",
+          "expression": { "var": "table.sum(items.amount)" } }
+      ],
+      "instance": {},
+      "expectedGuardValue": { "state": "Error", "error": { "code": "rule.bad_reference", "params": { "agg": "items/sum/amount" } } }
+    }
+  ]
+}

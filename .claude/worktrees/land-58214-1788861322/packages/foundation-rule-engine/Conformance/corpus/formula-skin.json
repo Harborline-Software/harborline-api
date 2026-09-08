@@ -1,0 +1,67 @@
+{
+  "_comment": "ADR 0146 D2 — formula authoring skin (compile layer). A formula is a named, typed-input expression compiling to the SAME AST as a hand-authored rule (one expression language). The compiler enforces every referenced var is a declared input; the produced RuleDefinition evaluates identically on both tiers. `expectedCompiledExpression` pins the (unchanged) expression byte-identical. Shared byte-identical across the .NET and TS engines.",
+  "cases": [
+    {
+      "name": "skin/formula/line-total",
+      "skin": {
+        "kind": "formula",
+        "ruleId": "line.total",
+        "scope": "Field",
+        "scopeTarget": "total",
+        "action": "Compute",
+        "inputs": [ { "ref": "qty", "type": "number" }, { "ref": "price", "type": "number" } ],
+        "expression": { "*": [ { "var": "qty" }, { "var": "price" } ] }
+      },
+      "instance": { "qty": 3, "price": 4 },
+      "expectedCompiledExpression": {
+        "line.total": { "*": [ { "var": "qty" }, { "var": "price" } ] }
+      },
+      "expectedAst": {
+        "line.total": { "*": [ { "var": "field.qty" }, { "var": "field.price" } ] }
+      },
+      "expectedOutcomes": {
+        "line.total": { "ruleId": "line.total", "target": "field:total", "outputType": "Value",
+          "value": { "state": "Resolved", "value": 12 } }
+      }
+    },
+    {
+      "name": "skin/formula/member-discount-conditional",
+      "_comment": "a formula over a boolean + a numeric input; member → amount - 10, else amount. Integer arithmetic keeps the outcome byte-identical across tiers.",
+      "skin": {
+        "kind": "formula",
+        "ruleId": "net.amount",
+        "scope": "Field",
+        "scopeTarget": "net",
+        "action": "Compute",
+        "inputs": [ { "ref": "amount", "type": "number" }, { "ref": "isMember", "type": "boolean" } ],
+        "expression": { "if": [ { "var": "isMember" }, { "-": [ { "var": "amount" }, 10 ] }, { "var": "amount" } ] }
+      },
+      "instance": { "amount": 100, "isMember": true },
+      "expectedAst": {
+        "net.amount": { "if": [ { "var": "field.isMember" }, { "-": [ { "var": "field.amount" }, 10 ] }, { "var": "field.amount" } ] }
+      },
+      "expectedOutcomes": {
+        "net.amount": { "ruleId": "net.amount", "target": "field:net", "outputType": "Value",
+          "value": { "state": "Resolved", "value": 90 } }
+      }
+    },
+    {
+      "name": "skin/formula/validate-action",
+      "_comment": "a formula skin can target any action — here Validate (the expression is the validity predicate). qty within [1, 100] passes.",
+      "skin": {
+        "kind": "formula",
+        "ruleId": "qty.inrange",
+        "scope": "Field",
+        "scopeTarget": "qty",
+        "action": "Validate",
+        "inputs": [ { "ref": "qty", "type": "number" } ],
+        "expression": { "and": [ { ">=": [ { "var": "qty" }, 1 ] }, { "<=": [ { "var": "qty" }, 100 ] } ] }
+      },
+      "instance": { "qty": 42 },
+      "expectedOutcomes": {
+        "qty.inrange": { "ruleId": "qty.inrange", "target": "field:qty", "outputType": "Validity",
+          "validity": { "ok": true } }
+      }
+    }
+  ]
+}

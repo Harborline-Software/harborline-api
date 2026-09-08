@@ -1,0 +1,59 @@
+{
+  "name": "@harborline-software/api-contracts",
+  "version": "0.1.0-alpha.1",
+  "description": "Polyglot schema-first contracts for Harborline, including generated Harborline and Capability protocol bindings.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./capability": {
+      "types": "./dist/capability.d.ts",
+      "import": "./dist/capability.js"
+    },
+    "./principal": {
+      "types": "./dist/principal.d.ts",
+      "import": "./dist/principal.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "files": [
+    "dist",
+    "Generated",
+    "protocol",
+    "rust",
+    "Harborline.Contracts.csproj",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --report-unused-disable-directives --max-warnings 0",
+    "codegen": "node ../../tooling/harborline-contract-codegen/generate.mjs",
+    "codegen:check": "node ../../tooling/harborline-contract-codegen/generate.mjs --check",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "ajv": "^8.17.1",
+    "eslint": "^10.10.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Harborline-Software/shipyard.git",
+    "directory": "packages/contracts"
+  }
+}

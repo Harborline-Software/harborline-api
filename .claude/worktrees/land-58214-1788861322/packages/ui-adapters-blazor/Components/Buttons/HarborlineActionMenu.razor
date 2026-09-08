@@ -1,0 +1,29 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Buttons
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses("sf-action-menu")" style="@CombineStyles()" @attributes="AdditionalAttributes">
+    <button type="button" style="min-width:24px;min-height:24px;" aria-haspopup="menu" aria-expanded="@Open.ToString().ToLowerInvariant()" aria-controls="@_menuId" aria-label="@AriaLabel" @onclick="Toggle" @onkeydown="HandleKeyDown">@TriggerText</button>
+    @if (Open)
+    {
+        <div id="@_menuId" role="menu">@ChildContent</div>
+    }
+</div>
+
+@code {
+    private readonly string _menuId = $"sf-action-menu-{Guid.NewGuid():N}";
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter] public string TriggerText { get; set; } = "More actions";
+    [Parameter] public string AriaLabel { get; set; } = "More actions";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private async Task Toggle() { Open = !Open; await OpenChanged.InvokeAsync(Open); }
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape" && Open)
+        {
+            Open = false;
+            await OpenChanged.InvokeAsync(false);
+        }
+    }
+}

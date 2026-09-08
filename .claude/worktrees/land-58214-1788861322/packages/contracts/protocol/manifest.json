@@ -1,0 +1,58 @@
+{
+  "$schema": "./schemas/carrier-protocol.schema.json",
+  "protocolId": "shipyard.carrier",
+  "protocolVersion": "2.0.0",
+  "schemaDraft": "https://json-schema.org/draft/2020-12/schema",
+  "securitySchemes": {
+    "carrierSession": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Host-owned bearer session metadata; never a request DTO field."
+    },
+    "webSessionCookie": {
+      "type": "apiKey",
+      "in": "cookie",
+      "name": "__Host-web_session",
+      "description": "HttpOnly same-origin web-client session cookie."
+    }
+  },
+  "ports": [
+    {
+      "name": "CapabilityPort",
+      "description": "Language-neutral Capability membrane and composition boundary.",
+      "operations": [
+        { "id": "capability.announce", "methodName": "announce", "request": "AnnounceRequest", "response": "AnnounceResult", "authorityClass": "control-plane" },
+        { "id": "capability.negotiate", "methodName": "negotiate", "request": "NegotiateRequest", "response": "NegotiateResult", "authorityClass": "control-plane" },
+        { "id": "capability.address", "methodName": "address", "request": "AddressRequest", "response": "AddressResult", "authorityClass": "control-plane" },
+        { "id": "capability.secure", "methodName": "secure", "request": "SecureRequest", "response": "SecureResult", "authorityClass": "policy-enforcement", "trustedRequestFields": ["principal", "authority"] },
+        { "id": "capability.invoke", "methodName": "invoke", "request": "CapabilityInvokeRequest", "response": "CapabilityResult", "authorityClass": "data-plane", "trustedRequestFields": ["principal"] },
+        { "id": "capability.observe", "methodName": "observe", "request": "ObserveRequest", "response": "HealthReport", "authorityClass": "observation" },
+        { "id": "capability.resolve", "methodName": "resolve", "request": "ResolveRequest", "response": "ResolutionResult", "authorityClass": "control-plane" },
+        { "id": "capability.compose", "methodName": "compose", "request": "ComposeRequest", "response": "ComposeResult", "authorityClass": "control-plane" }
+      ]
+    },
+    {
+      "name": "HarborlineHostPort",
+      "description": "Native host services consumed by the Harborline App renderer.",
+      "operations": [
+        { "id": "carrier.host.capabilityInvoke", "methodName": "capabilityInvoke", "hostCommand": "capability_invoke", "request": "CapabilityHostInvokeRequest", "response": "CapabilityResult", "authorityClass": "data-plane", "trustedRequestFields": ["principal"] },
+        { "id": "carrier.host.capabilityHealth", "methodName": "capabilityHealth", "hostCommand": "capability_health", "request": "EmptyRequest", "response": "HealthReport", "authorityClass": "observation" },
+        { "id": "carrier.host.capabilityCpDemoExecute", "methodName": "capabilityCpDemoExecute", "hostCommand": "capability_cp_demo_execute", "request": "CpDemoRequest", "response": "CpDemoResult", "authorityClass": "consequential", "trustedRequestFields": ["principal"] },
+        { "id": "carrier.host.currentPrincipal", "methodName": "currentPrincipal", "hostCommand": "current_principal", "request": "EmptyRequest", "response": "Principal", "authorityClass": "identity", "trustedResponseFields": ["id", "displayName", "kind"] },
+        { "id": "carrier.host.nodeStatus", "methodName": "nodeStatus", "hostCommand": "node_status", "request": "EmptyRequest", "response": "NodeStatus", "authorityClass": "identity", "trustedResponseFields": ["sessionToken"] },
+        { "id": "carrier.host.dataLocationStatus", "methodName": "dataLocationStatus", "hostCommand": "get_data_location_status", "request": "EmptyRequest", "response": "DataLocationStatus", "authorityClass": "observation" },
+        { "id": "carrier.host.deviceCapabilityProfile", "methodName": "deviceCapabilityProfile", "hostCommand": "get_device_capability_profile", "request": "EmptyRequest", "response": "DeviceCapabilityProfile", "authorityClass": "observation" },
+        { "id": "carrier.host.getPeerSyncConfig", "methodName": "getPeerSyncConfig", "hostCommand": "get_peer_sync_config", "request": "EmptyRequest", "response": "PeerSyncConfig", "authorityClass": "configuration" },
+        { "id": "carrier.host.setPeerSyncConfig", "methodName": "setPeerSyncConfig", "hostCommand": "set_peer_sync_config", "request": "PeerSyncConfig", "response": "EmptyResponse", "authorityClass": "configuration" },
+        { "id": "carrier.host.appendRendererLog", "methodName": "appendRendererLog", "hostCommand": "append_renderer_log", "request": "RendererLogEntry", "response": "EmptyResponse", "authorityClass": "observation" }
+      ]
+    },
+    {
+      "name": "HarborlineApplicationPort",
+      "description": "Transport-neutral request boundary for the Harborline application backend.",
+      "operations": [
+        { "id": "carrier.application.getSyncStatus", "methodName": "getSyncStatus", "httpMethod": "GET", "path": "/api/local-node/sync-status", "request": "EmptyRequest", "response": "HarborlineSyncStatus", "responseDescription": "Observed local-node exchange status and recency evidence", "authorityClass": "observation", "trustedRequestFields": ["principal", "session"], "security": ["carrierSession", "webSessionCookie"] }
+      ]
+    }
+  ]
+}

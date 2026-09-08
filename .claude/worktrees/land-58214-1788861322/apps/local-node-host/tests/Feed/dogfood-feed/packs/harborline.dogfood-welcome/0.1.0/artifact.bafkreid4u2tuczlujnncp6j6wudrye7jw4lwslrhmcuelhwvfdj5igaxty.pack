@@ -1,0 +1,46 @@
+{
+  "envelope": {
+    "payload": {
+      "manifest": {
+        "key": "harborline.dogfood-welcome",
+        "version": "0.1.0",
+        "name": "Harborline Dogfood Welcome",
+        "description": "A tiny first-party starter pack published to the dogfood channel so customer-zero dogfoods the discover-verify-acquire path end to end.",
+        "scopeTier": "Horizontal",
+        "contents": [
+          {
+            "key": "welcome-workspace",
+            "kind": "NavWorkspaceConfig",
+            "version": "0.1.0",
+            "contentAddress": "bafkreib23uklnidb6ctyoxd7v2rhm42m66am3m63x77dxqup7qgulf62ji"
+          }
+        ],
+        "dependencies": [],
+        "capabilityRequirements": [],
+        "renamedFrom": null,
+        "providerSlot": null,
+        "dcp": {
+          "contentAddress": "bafkreigmncmbd3cse55dqgq6pw2dt2tkedvmqfydzjfx2xdwo33avkf454",
+          "regulatoryClass": "General",
+          "dcpVersion": "1.0.0"
+        }
+      },
+      "epoch": 1
+    },
+    "issuerId": "1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
+    "issuedAt": "2026-07-16T12:02:34.36+00:00",
+    "nonce": "80f213a2-7389-406b-aa6c-e747d5aaadcf",
+    "signature": "tWPQ38MkdncTQ2L-oqZKdCxNH8dENAwHve2NProiR1GBYj-2YzNREkHZdqtjbA6pQ9wDehcQ8dt-F7b6kMXkCg"
+  },
+  "contents": [
+    {
+      "key": "welcome-workspace",
+      "kind": "NavWorkspaceConfig",
+      "version": "0.1.0",
+      "contentBase64": "eyJzZWN0aW9ucyI6W3siaWQiOiJob21lIiwibGFiZWwiOiJIb21lIn0seyJpZCI6InJlY29yZHMiLCJsYWJlbCI6IlJlY29yZHMifSx7ImlkIjoiYXBwcyIsImxhYmVsIjoiQXBwcyJ9XSwic3VidGl0bGUiOiJZb3VyIGxvY2FsLWZpcnN0IHdvcmtzcGFjZSBpcyByZWFkeS4iLCJ0aXRsZSI6IldlbGNvbWUgdG8gSGFyYm9ybGluZSJ9"
+    }
+  ],
+  "dcp": {
+    "contentBase64": "eyJBY2NvdW50YWJsZUluZGl2aWR1YWxSZWdpbWVzIjpbXSwiQXVkaWVuY2UiOnsiQXVkaWVuY2UiOiJnZW5lcmFsIiwiTWluaW11bU9wZXJhdG9yQWdlIjpudWxsLCJNaW5vcnNBc1ByaW5jaXBhbHMiOmZhbHNlLCJNaW5vcnNBc1N1YmplY3RzIjpmYWxzZX0sIkRhdGFTZW5zaXRpdml0eSI6MSwiRGNwVmVyc2lvbiI6IjEuMC4wIiwiSnVyaXNkaWN0aW9uYWxWYXJpYW5jZSI6eyJDb3Vuc2VsRGlzY2xhaW1lclJlZiI6bnVsbCwiSGFzVmFyaWFuY2UiOmZhbHNlLCJKdXJpc2RpY3Rpb25zIjpbXX0sIk9wZXJhdG9yQ2FwYWNpdHkiOnsiTWluaW11bU9wZXJhdG9yQWdlIjpudWxsLCJSZXF1aXJlZENhcGFjaXRpZXMiOltdfSwiT3V0T2ZTY29wZSI6W10sIlJhY2kiOnsiQXJiaXRlciI6IkhhcmJvcmxpbmUtU29mdHdhcmUiLCJDdXJhdG9yIjoiSGFyYm9ybGluZS1Tb2Z0d2FyZSIsIkRlc2lnbmVyIjoiSGFyYm9ybGluZS1Tb2Z0d2FyZSIsIklzU29sb0NvbGxhcHNlZCI6dHJ1ZSwiU3Rld2FyZCI6IkhhcmJvcmxpbmUtU29mdHdhcmUifSwiUmVndWxhdG9yeUNsYXNzIjowfQ=="
+  }
+}

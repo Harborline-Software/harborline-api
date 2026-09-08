@@ -1,0 +1,129 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(TagInputCss)"
+     style="@CombineStyles()"
+     @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="sf-taginput__label" for="@InputId">@Label</label>
+    }
+    <div class="sf-taginput__control" role="list" aria-label="@(AriaLabel ?? Label ?? "Tags")">
+        @foreach (var tag in _tags)
+        {
+            var removeTag = tag;
+            <span class="sf-chip sf-taginput__tag" role="listitem">
+                <span class="sf-chip__text">@tag</span>
+                @if (Enabled)
+                {
+                    <button type="button"
+                            class="sf-chip__remove"
+                            aria-label="Remove @tag"
+                            @onclick="() => RemoveTag(removeTag)">&times;</button>
+                }
+            </span>
+        }
+        <input id="@InputId"
+               type="text"
+               class="sf-taginput__input"
+               placeholder="@(AtLimit ? null : Placeholder)"
+               aria-label="@(AriaLabel ?? Label ?? "Add tag")"
+               disabled="@(!Enabled || AtLimit)"
+               value="@_draft"
+               aria-invalid="@(!string.IsNullOrEmpty(ErrorCode)).ToString().ToLowerInvariant()"
+               @oninput="HandleInput"
+               @onkeydown="HandleKeyDown"
+               @onblur="CommitDraft" />
+    </div>
+    @if (!string.IsNullOrEmpty(Hint))
+    {
+        <p class="sf-taginput__hint" id="@HintId">@Hint</p>
+    }
+    @if (!string.IsNullOrEmpty(ErrorCode))
+    {
+        <p class="sf-taginput__error" role="alert">@ErrorCode</p>
+    }
+</div>
+
+@code {
+    private readonly string _generatedInputId = $"sf-taginput-{Guid.NewGuid():N}";
+    private List<string> _tags = [];
+    private string _draft = string.Empty;
+
+    /// <summary>The current tags. Powers <c>@@bind-Value</c>.</summary>
+    [Parameter] public List<string> Value { get; set; } = [];
+
+    /// <summary>Fires when a tag is added or removed.</summary>
+    [Parameter] public EventCallback<List<string>> ValueChanged { get; set; }
+
+    /// <summary>Fires when a tag is added or removed, matching the React <c>onChange</c> surface.</summary>
+    [Parameter] public EventCallback<List<string>> OnChange { get; set; }
+
+    /// <summary>Maximum number of tags. The input disables once the limit is reached.</summary>
+    [Parameter] public int? MaxTags { get; set; }
+
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? Hint { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? ErrorCode { get; set; }
+
+    private string InputId => Id ?? _generatedInputId;
+    private string HintId => $"{InputId}-hint";
+
+    private bool AtLimit => MaxTags is { } max && _tags.Count >= max;
+
+    private string TagInputCss
+    {
+        get
+        {
+            var cls = "mar-taginput";
+            if (!Enabled) cls += " mar-taginput--disabled";
+            return cls;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        _tags = Value is null ? [] : new List<string>(Value);
+    }
+
+    private void HandleInput(ChangeEventArgs args)
+    {
+        _draft = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "Enter":
+            case ",":
+                await CommitDraft();
+                break;
+            case "Backspace" when _draft.Length == 0 && _tags.Count > 0:
+                await RemoveTag(_tags[^1]);
+                break;
+        }
+    }
+
+    private async Task CommitDraft()
+    {
+        var candidate = _draft.Trim().TrimEnd(',').Trim();
+        _draft = string.Empty;
+        if (candidate.Length == 0 || AtLimit || _tags.Contains(candidate)) return;
+        _tags.Add(candidate);
+            var next = new List<string>(_tags);
+            await ValueChanged.InvokeAsync(next);
+            await OnChange.InvokeAsync(next);
+    }
+
+    private async Task RemoveTag(string tag)
+    {
+        if (!Enabled || !_tags.Remove(tag)) return;
+        var next = new List<string>(_tags);
+        await ValueChanged.InvokeAsync(next);
+        await OnChange.InvokeAsync(next);
+    }
+}

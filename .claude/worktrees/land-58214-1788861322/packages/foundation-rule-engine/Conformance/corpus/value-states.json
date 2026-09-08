@@ -1,0 +1,67 @@
+{
+  "_comment": "SPINE-1 conformance corpus — ValueState coverage: Resolved, Error (div-by-zero, type), Error propagation through a dependent, Pending (client-tier; .NET save-blocks separately).",
+  "cases": [
+    {
+      "name": "state/resolved",
+      "definitionRules": [
+        { "id": "c.total", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "total", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": 2, "b": 3 },
+      "expectedOutcomes": {
+        "c.total": { "ruleId": "c.total", "target": "field:total", "outputType": "Value", "value": { "state": "Resolved", "value": 5 } }
+      }
+    },
+    {
+      "name": "state/error-div-by-zero",
+      "definitionRules": [
+        { "id": "c.ratio", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "ratio", "action": "Compute",
+          "expression": { "/": [ { "var": "a" }, { "var": "b" } ] } }
+      ],
+      "instance": { "a": 10, "b": 0 },
+      "expectedOutcomes": {
+        "c.ratio": { "ruleId": "c.ratio", "target": "field:ratio", "outputType": "Value",
+          "value": { "state": "Error", "error": { "code": "rule.div_by_zero", "params": {} } } }
+      }
+    },
+    {
+      "name": "state/error-type",
+      "definitionRules": [
+        { "id": "c.bad", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "bad", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, { "var": "txt" } ] } }
+      ],
+      "instance": { "a": 1, "txt": "hello" },
+      "expectedOutcomes": {
+        "c.bad": { "ruleId": "c.bad", "target": "field:bad", "outputType": "Value",
+          "value": { "state": "Error", "error": { "code": "rule.type_error", "params": { "reason": "not-a-number" } } } }
+      }
+    },
+    {
+      "name": "state/error-propagation",
+      "definitionRules": [
+        { "id": "c.ratio", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "ratio", "action": "Compute",
+          "expression": { "/": [ { "var": "a" }, { "var": "b" } ] } },
+        { "id": "c.dbl", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "dbl", "action": "Compute",
+          "expression": { "*": [ { "var": "ratio" }, 2 ] } }
+      ],
+      "instance": { "a": 10, "b": 0 },
+      "expectedOutcomes": {
+        "c.ratio": { "ruleId": "c.ratio", "target": "field:ratio", "outputType": "Value",
+          "value": { "state": "Error", "error": { "code": "rule.div_by_zero", "params": {} } } },
+        "c.dbl": { "ruleId": "c.dbl", "target": "field:dbl", "outputType": "Value",
+          "value": { "state": "Error", "error": { "code": "rule.upstream_error", "params": { "cell": "field:ratio" } } } }
+      }
+    },
+    {
+      "name": "state/pending-from-async-dependency",
+      "definitionRules": [
+        { "id": "c.ship", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "ship", "action": "Compute",
+          "expression": { "cat": [ { "var": "city" }, "!" ] } }
+      ],
+      "instance": { "city": { "@pending": true } },
+      "expectedOutcomes": {
+        "c.ship": { "ruleId": "c.ship", "target": "field:ship", "outputType": "Value", "value": { "state": "Pending" } }
+      }
+    }
+  ]
+}

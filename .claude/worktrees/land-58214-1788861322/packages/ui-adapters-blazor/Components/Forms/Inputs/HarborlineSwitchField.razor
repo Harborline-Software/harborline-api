@@ -1,0 +1,4 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Inputs
+@inherits HarborlineComponentBase
+<label class="@CombineClasses("sf-switch-field")" style="@CombineStyles()" @attributes="AdditionalAttributes"><input type="checkbox" role="switch" checked="@(Checked ? "checked" : null)" aria-label="@(AriaLabel ?? Label)" @onchange="Changed" />@Label</label>
+@code { [Parameter] public bool Checked { get; set; } [Parameter] public EventCallback<bool> CheckedChanged { get; set; } [Parameter] public string Label { get; set; } = "Setting"; [Parameter] public string? AriaLabel { get; set; } private async Task Changed(ChangeEventArgs e) { Checked = e.Value is bool b && b; await CheckedChanged.InvokeAsync(Checked); } }

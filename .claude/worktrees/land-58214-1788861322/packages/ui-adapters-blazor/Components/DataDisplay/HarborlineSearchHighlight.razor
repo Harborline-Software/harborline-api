@@ -1,0 +1,20 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+<span class="@CombineClasses("sf-search-highlight")" style="@CombineStyles()" @attributes="AdditionalAttributes">@((MarkupString)HighlightedText)</span>
+
+@code {
+    [Parameter] public string Text { get; set; } = string.Empty;
+    [Parameter] public string? Query { get; set; }
+
+    private string HighlightedText
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Query)) return System.Net.WebUtility.HtmlEncode(Text);
+            var encoded = System.Net.WebUtility.HtmlEncode(Text);
+            var query = System.Net.WebUtility.HtmlEncode(Query);
+            return encoded.Replace(query, $"<mark>{query}</mark>", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+}

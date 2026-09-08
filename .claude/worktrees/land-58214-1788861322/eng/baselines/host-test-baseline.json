@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "suite": "Harborline.Api.LocalNodeHost.Tests",
+  "repository": "harborline-api",
+  "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
+  "recordedAt": "2026-09-05T00:00:00Z",
+  "totals": {
+    "total": 3658,
+    "passed": 3640,
+    "failed": 0,
+    "notExecuted": 18
+  },
+  "policy": [
+    "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
+    "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
+    "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",
+    "failures for one new flake and a count-only view would have read 5 -> 4 as pure improvement.",
+    "Verdict-(a)/(c) failures stay RED by design. A red test with a recorded verdict is signal;",
+    "converting it to a skip is silence."
+  ],
+  "permittedFailures": [],
+  "knownFlaky": [
+    {
+      "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts â€” no DI cycle",
+      "verdict": "a-pre-existing-at-sha (load-sensitive)",
+      "measuredRate": "3 passed / 0 failed in 3 isolated runs; failed once in a full suite run executed CONCURRENTLY with the hull vitest suite",
+      "cause": "OperationCanceledException during real host startup â€” a startup timeout under machine load, not a functional failure.",
+      "proof": "Passes 3/3 in isolation immediately after the failing run, on the same tree.",
+      "handling": "knownFlaky, not permitted. Root cause is as much operator error as test fragility: a timing-sensitive suite must not be run concurrently with another heavy suite.",
+      "registered": "cleanup register C-008",
+      "retryLimit": 1,
+      "confirmedLoadInduced": "Passed in a full suite run executed with no concurrent workload, immediately after failing in one that shared the machine with hull vitest.",
+      "owner": "C-008",
+      "firstSeen": "2026-09-05",
+      "expires": "2026-10-05"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
+      "owner": "284",
+      "firstSeen": "2026-09-06",
+      "expires": "2026-10-06",
+      "verdict": "a-pre-existing-at-sha (load-sensitive)",
+      "measuredRate": "red once in the ticket 213 slice 1 exact-clone run while the box carried three other lanes; green in the immediately following full suite run on the same tree (3358 passed, 0 failed)",
+      "cause": "five-principal fleet startup exceeds its admission timeout when the machine is saturated; not a functional failure.",
+      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
+      "retryLimit": 1
+    },
+    {
+      "test": "G-4 arch (behavioural): while a fenced JE post is inside its read-through-write window, a concurrent writer is BLOCKED (the BEGIN IMMEDIATE write lock is really held across the fence read)",
+      "method": "Harborline.Api.LocalNodeHost.Tests.ArchTests.HomeEpochFenceAtomicityArchTests.FencedWrite_HoldsWriteLock_AcrossFenceRead_ConcurrentWriterIsBlocked",
+      "owner": "284",
+      "firstSeen": "2026-09-06",
+      "expires": "2026-10-06",
+      "verdict": "a-pre-existing-at-sha (load-sensitive)",
+      "measuredRate": "red once in the ticket 094 land re-gate under box load (land-evidence 20260907T055836Z-791ee7014cd67e973a39d6bc607c8022a1893396.json: Failed 1, Passed 3358); green on the re-run",
+      "cause": "the 30 s window the assertion allows for the blocked writer to be observed is not enough when the box is saturated.",
+      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
+      "retryLimit": 1
+    }
+  ],
+  "skips": {
+    "count": 19,
+    "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent â€” it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
+    "notSilent": "Mtw00CRedFixtureMetaTests checks both the pending and production states on every run, so the skip set cannot drift unnoticed. This is the good version of a skip: gated, reasoned, and covered by a meta-test â€” unlike a missing fixture that skips a test that should have run.",
+    "displayNamePrefix": "MTW-00C red: â€¦ is missing"
+  },
+  "deltaFromPrevious": {
+    "previousTotals": {
+      "total": 3660,
+      "passed": 3642,
+      "failed": 0,
+      "notExecuted": 18
+    },
+    "change": "total 3660 -> 3658; passed 3642 -> 3640; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 292 slice 4: delete four unused ReplicaRestoreCoordinator cases; add two re-host grant architecture fences",
+    "detectedBy": "EXPECTED by arithmetic from origin/main acfc42ea5cae4971dfd06de40d6cc7479f28deda minus 4 cases plus 2 fences; focused tests only, controller owns full gate",
+    "arithmeticCrossCheck": "3660 - 4 + 2 = 3658; passed = 3658 - 18 = 3640."
+  },
+  "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
+  "measuredAt": {
+    "apiCommit": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
+    "platform": "native Windows",
+    "configuration": "Release, via eng/run-exact-clone.mjs, which builds a clean clone of HEAD rather than the working tree",
+    "sdk": "11.0.100-preview.7.26381.103",
+    "runs": "Destination exact-clone failure evidence recorded 2026-09-07T22:45:49Z: total 3575, passed 3553, failed 4, skipped 18. Fix 1 does not run the full suite; the expected repaired totals await the controller gate.",
+    "note": "NO LINUX RUN HAS EVER BEEN PINNED. This bar describes native Windows only. GitHub Actions runs ubuntu-latest and fails 27, of which 22 are CI=true PathMap failures now fixed in harborline-api 4f076a7. Do not compare this pin to a CI result without re-measuring."
+  },
+  "verdictVocabulary": {
+    "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",
+    "a-pre-existing-at-sha": "Fails at the pinned source sha too. Not caused by the migration.",
+    "c-destination-identity-coupled": "Fails because the destination tree deliberately does not carry something the source did.",
+    "d-host-platform-coupled": "Passes on one host OS and fails on another with source byte-identical. Introduced by the winhub relocation from macOS to native Windows. NO CURRENT MEMBERS: both entries in this class have been fixed at source - the carrier separator in harborline-api e2803cf, and the HKDF derivation in 3ac96df. The definition is kept because the class is real and will recur on the next host move.",
+    "e-gate-ordering-coupled": "Passes in a developer working tree and fails only in the exact-clone gate, because of the order in which the gate performs its steps. NO CURRENT MEMBERS: the single entry in this class was fixed by correcting the gate rather than by carrying it as debt. Kept as a definition because the class is a real hazard whenever a gate step depends on a later step."
+  },
+  "flakeRegistry": {
+    "rows": "knownFlaky",
+    "identity": "`test` is the identity the runner prints on its Failed line: the fully qualified name for a plain test, the DisplayName string when the test declares one (`method` then records the method, for the reader).",
+    "rules": "Every row is exact, owned by a ticket, dated (firstSeen) and expiring. An expired or unowned row fails the gate. Validated by eng/flake-registry.mjs; ratcheted by REGISTERED_FLAKE_COUNT there, which must move in the same commit as any growth.",
+    "retry": "ONE identical retry per registered row; both outcomes are recorded in the exact-clone report's host-flake-retry step."
+  }
+}

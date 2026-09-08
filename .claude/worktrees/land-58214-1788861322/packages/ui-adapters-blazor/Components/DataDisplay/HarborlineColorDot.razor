@@ -1,0 +1,62 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+@*
+    HarborlineColorDot — colored dot + label for status/category legends.
+    Parity with ui-react ColorDot (14-color palette, sizes, pulse).
+*@
+
+<span class="@CombineClasses($"sf-color-dot sf-color-dot--{Color}")"
+      style="@CombineStyles("display:inline-flex;align-items:center;gap:.375rem;font-size:.8rem;")"
+      role="@(AccessibleLabel is null ? null : "img")"
+      aria-label="@AccessibleLabel"
+      @attributes="AdditionalAttributes">
+    <span class="sf-color-dot__dot" aria-hidden="true"
+          style="width:@(SizePx)px;height:@(SizePx)px;border-radius:50%;background:@Hex;@(Pulse ? "animation:sf-color-dot-pulse 1.6s ease-in-out infinite;" : string.Empty)"></span>
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="sf-color-dot__label">@Label</span>
+    }
+</span>
+
+@if (Pulse)
+{
+    <style>
+        @@keyframes sf-color-dot-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .35; }
+        }
+    </style>
+}
+
+@code {
+    private static readonly Dictionary<string, string> _palette = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["gray"] = "#6b7280", ["red"] = "#ef4444", ["orange"] = "#f97316",
+        ["amber"] = "#f59e0b", ["yellow"] = "#eab308", ["lime"] = "#84cc16",
+        ["green"] = "#22c55e", ["teal"] = "#14b8a6", ["cyan"] = "#06b6d4",
+        ["blue"] = "#3b82f6", ["indigo"] = "#6366f1", ["violet"] = "#8b5cf6",
+        ["purple"] = "#a855f7", ["pink"] = "#ec4899",
+    };
+
+    /// <summary>Palette color name (14-color set). Default gray.</summary>
+    [Parameter] public string Color { get; set; } = "gray";
+
+    /// <summary>Optional visible label next to the dot.</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>Accessible name. Falls back to the visible label when provided.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Dot diameter in px. Default 8.</summary>
+    [Parameter] public int SizePx { get; set; } = 8;
+
+    /// <summary>Pulses the dot to draw attention.</summary>
+    [Parameter] public bool Pulse { get; set; }
+
+    private string? AccessibleLabel => string.IsNullOrWhiteSpace(AriaLabel)
+        ? (string.IsNullOrWhiteSpace(Label) ? null : Label)
+        : AriaLabel;
+
+    private string Hex => _palette.TryGetValue(Color, out var hex) ? hex : _palette["gray"];
+}

@@ -1,0 +1,10 @@
+{
+  "payload": {
+    "revoked": [],
+    "issuedAtEpochMs": 1784201400000
+  },
+  "issuerId": "1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
+  "issuedAt": "2026-07-16T11:30:00+00:00",
+  "nonce": "95dc4837-28a6-48a5-b41c-252a3614b7cf",
+  "signature": "ITyehV29Lkb0VZ11iG1vkMMLx5IzBAdLBPJxMduu4p27Fw7rtX9kQSQy28qdoYquyAhc2pcdCUnFcX9PNsabAA"
+}

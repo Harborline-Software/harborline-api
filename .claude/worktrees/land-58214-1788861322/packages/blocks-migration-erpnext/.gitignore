@@ -1,0 +1,7 @@
+# Defensive gitignore — ERPNext dump files must NEVER be committed (ADR 0100 C4/C9).
+# The primary control is the CIC-supplied out-of-repo path; this is the backstop.
+*.sql
+*-dump.sql
+import-source/
+erpnext-dump/
+dump-work/

@@ -1,0 +1,7 @@
+{
+  "runtimeId": "runtime-local",
+  "capability": "image",
+  "state": "degraded",
+  "detail": "warming up",
+  "extensions": { "queueDepth": 2, "supportsStreaming": true }
+}

@@ -1,0 +1,63 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Fields
+@inherits HarborlineFieldBase
+
+<CascadingValue Name="@HarborlineField.RequiredCascadeName" Value="@EffectiveRequired">
+    <CascadingValue Name="@HarborlineField.DisabledCascadeName" Value="@EffectiveDisabled">
+        <HarborlineField Text="@Text" Id="@FieldId" Hint="@Hint" Error="@Error"
+                       Required="@EffectiveRequired" Disabled="@EffectiveDisabled"
+                       Class="@Class" Style="@Style" AdditionalAttributes="@AdditionalAttributes">
+            <HarborlineTextBox Value="@Value" ValueChanged="@ValueChanged"
+                             InputType="@EffectiveInputType"
+                             Placeholder="@Placeholder"
+                             IsInvalid="@HasError"
+                             Disabled="@EffectiveDisabled"
+                             ReadOnly="@ReadOnly"
+                             MaxLength="@MaxLength"
+                             Autocomplete="@Autocomplete"
+                             ShowClearButton="@ShowClearButton"
+                             Suffix="@RevealSuffix"
+                             aria-label="@EffectiveAriaLabel"
+                             aria-invalid="@AriaInvalid"
+                             aria-required="@AriaRequired"
+                             aria-describedby="@DescribedBy" />
+        </HarborlineField>
+    </CascadingValue>
+</CascadingValue>
+
+@code {
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public string InputType { get; set; } = "text";
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public int? MaxLength { get; set; }
+    [Parameter] public string? Autocomplete { get; set; }
+    [Parameter] public bool ShowClearButton { get; set; }
+    [Parameter] public bool ShowReveal { get; set; }
+
+    /// <summary>Localized code or label for the password visibility toggle.</summary>
+    [Parameter] public string RevealLabel { get; set; } = "forms.textField.toggleVisibility";
+
+    private bool _isRevealed;
+    private string EffectiveInputType => ShowReveal &&
+        string.Equals(InputType, "password", StringComparison.OrdinalIgnoreCase) && _isRevealed
+        ? "text"
+        : InputType;
+
+    private RenderFragment? RevealSuffix => ShowReveal &&
+        string.Equals(InputType, "password", StringComparison.OrdinalIgnoreCase)
+        ? builder =>
+        {
+            builder.OpenElement(0, "button");
+            builder.AddAttribute(1, "type", "button");
+            builder.AddAttribute(2, "class", "sf-textbox__reveal");
+            builder.AddAttribute(3, "aria-label", RevealLabel);
+            builder.AddAttribute(4, "aria-pressed", _isRevealed ? "true" : "false");
+            builder.AddAttribute(5, "onclick", EventCallback.Factory.Create(this, ToggleReveal));
+            builder.AddContent(6, _isRevealed ? "◉" : "○");
+            builder.CloseElement();
+        }
+        : null;
+
+    private void ToggleReveal() => _isRevealed = !_isRevealed;
+}

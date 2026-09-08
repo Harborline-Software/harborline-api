@@ -1,0 +1,67 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Feedback
+@inherits HarborlineComponentBase
+
+@*
+    HarborlineStatusBanner — full-width page-level banner (provisional, gated,
+    informational, warning). Parity with ui-react StatusBanner.
+
+    Warning banners use role="alert"; the rest use role="status" so screen
+    readers announce without interrupting.
+*@
+
+@if (!_dismissed)
+{
+    <div class="@CombineClasses($"sf-status-banner sf-status-banner--{TypeSuffix}")"
+         style="@CombineStyles($"display:flex;align-items:center;gap:.6rem;width:100%;padding:.55rem .9rem;border-radius:.375rem;font-size:.875rem;border:1px solid {Palette.Border};background:{Palette.Background};color:{Palette.Foreground};")"
+         role="@(Type is StatusBannerType.Warning or StatusBannerType.Gated ? "alert" : "status")"
+         @attributes="AdditionalAttributes">
+        <span class="sf-status-banner__icon" aria-hidden="true">@Palette.Icon</span>
+        <span class="sf-status-banner__message" style="flex:1;">@Message</span>
+        @if (Dismissible)
+        {
+            <button type="button"
+                    class="sf-status-banner__dismiss"
+                    style="min-width:24px;min-height:24px;border:none;background:transparent;cursor:pointer;font-size:1rem;line-height:1;color:inherit;padding:.1rem .3rem;"
+                    aria-label="Dismiss banner"
+                    @onclick="DismissAsync">✕</button>
+        }
+    </div>
+}
+
+@code {
+    private bool _dismissed;
+
+    /// <summary>Banner intent.</summary>
+    [Parameter] public StatusBannerType Type { get; set; } = StatusBannerType.Informational;
+
+    /// <summary>Banner message text.</summary>
+    [Parameter, EditorRequired] public string Message { get; set; } = string.Empty;
+
+    /// <summary>Shows a close button that hides the banner.</summary>
+    [Parameter] public bool Dismissible { get; set; }
+
+    /// <summary>Raised after the banner is dismissed.</summary>
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    private string TypeSuffix => Type switch
+    {
+        StatusBannerType.Provisional => "provisional",
+        StatusBannerType.Gated => "gated",
+        StatusBannerType.Warning => "warning",
+        _ => "informational",
+    };
+
+    private (string Background, string Border, string Foreground, string Icon) Palette => Type switch
+    {
+        StatusBannerType.Provisional => ("var(--color-muted)", "var(--color-border)", "var(--color-foreground)", "◔"),
+        StatusBannerType.Gated => ("var(--color-warning-soft)", "var(--color-warning)", "var(--color-foreground)", "🔒"),
+        StatusBannerType.Warning => ("var(--color-warning-soft)", "var(--color-warning)", "var(--color-foreground)", "⚠"),
+        _ => ("var(--color-accent-soft)", "var(--color-primary)", "var(--color-foreground)", "ℹ"),
+    };
+
+    private async Task DismissAsync()
+    {
+        _dismissed = true;
+        if (OnDismiss.HasDelegate) await OnDismiss.InvokeAsync();
+    }
+}

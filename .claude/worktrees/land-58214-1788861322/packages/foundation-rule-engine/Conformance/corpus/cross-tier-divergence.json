@@ -1,0 +1,105 @@
+{
+  "_comment": "SPINE-1 conformance corpus — the cross-tier DIVERGENCE cases (Stage-4 review findings F1/F2/F5/F7). Each input previously serialized differently across the .NET integrity tier and the TS reactive tier (or lost decimal money precision); they are pinned here so the byte-identical gate exercises them. See council-verdict-2026-06-30T1229Z.",
+  "cases": [
+    {
+      "name": "num/F1-integer-at-2e53-boundary",
+      "definitionRules": [
+        { "id": "c.big", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "big", "action": "Compute",
+          "expression": { "*": [ 100000000, 100000000 ] } }
+      ],
+      "instance": {},
+      "expectedOutcomes": {
+        "c.big": { "ruleId": "c.big", "target": "field:big", "outputType": "Value", "value": { "state": "Resolved", "value": 10000000000000000 } }
+      }
+    },
+    {
+      "name": "num/F1-small-exponential-range",
+      "definitionRules": [
+        { "id": "c.tiny", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "tiny", "action": "Compute",
+          "expression": { "/": [ 1, 10000000 ] } }
+      ],
+      "instance": {},
+      "expectedOutcomes": {
+        "c.tiny": { "ruleId": "c.tiny", "target": "field:tiny", "outputType": "Value", "value": { "state": "Resolved", "value": 1e-7 } }
+      }
+    },
+    {
+      "name": "num/F1-repeating-fraction-17-sig",
+      "definitionRules": [
+        { "id": "c.third", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "third", "action": "Compute",
+          "expression": { "/": [ 1, 3 ] } }
+      ],
+      "instance": {},
+      "expectedOutcomes": {
+        "c.third": { "ruleId": "c.third", "target": "field:third", "outputType": "Value", "value": { "state": "Resolved", "value": 0.3333333333333333 } }
+      }
+    },
+    {
+      "name": "num/F1-large-exponential-1e21",
+      "definitionRules": [
+        { "id": "c.huge", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "huge", "action": "Compute",
+          "expression": { "*": [ 100000000000, 10000000000 ] } }
+      ],
+      "instance": {},
+      "expectedOutcomes": {
+        "c.huge": { "ruleId": "c.huge", "target": "field:huge", "outputType": "Value", "value": { "state": "Resolved", "value": 1e21 } }
+      }
+    },
+    {
+      "name": "coerce/F2-thousands-separator-rejected",
+      "definitionRules": [
+        { "id": "c.sum", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "total", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, 0 ] } }
+      ],
+      "instance": { "a": "1,000" },
+      "expectedOutcomes": {
+        "c.sum": { "ruleId": "c.sum", "target": "field:total", "outputType": "Value",
+          "value": { "state": "Error", "error": { "code": "rule.type_error", "params": { "reason": "not-a-number" } } } }
+      }
+    },
+    {
+      "name": "coerce/F2-hex-string-accepted",
+      "definitionRules": [
+        { "id": "c.hex", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "hx", "action": "Compute",
+          "expression": { "+": [ { "var": "a" }, 0 ] } }
+      ],
+      "instance": { "a": "0x1F" },
+      "expectedOutcomes": {
+        "c.hex": { "ruleId": "c.hex", "target": "field:hx", "outputType": "Value", "value": { "state": "Resolved", "value": 31 } }
+      }
+    },
+    {
+      "name": "membership/F5-in-non-string-scalar-haystack",
+      "definitionRules": [
+        { "id": "c.in", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "hit", "action": "Compute",
+          "expression": { "in": [ { "var": "needle" }, { "var": "hay" } ] } }
+      ],
+      "instance": { "needle": "2", "hay": 1234 },
+      "expectedOutcomes": {
+        "c.in": { "ruleId": "c.in", "target": "field:hit", "outputType": "Value", "value": { "state": "Resolved", "value": false } }
+      }
+    },
+    {
+      "name": "money/F7-aggregate-sum-decimal-exact",
+      "definitionRules": [
+        { "id": "c.total", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "total", "action": "Compute",
+          "expression": { "var": "table.sum(items.amount)" } }
+      ],
+      "instance": { "items": [ { "amount": "0.1" }, { "amount": "0.2" } ] },
+      "expectedOutcomes": {
+        "c.total": { "ruleId": "c.total", "target": "field:total", "outputType": "Value", "value": { "state": "Resolved", "value": "0.3" } }
+      }
+    },
+    {
+      "name": "money/F7-aggregate-min-decimal",
+      "definitionRules": [
+        { "id": "c.lo", "tier": "JsonLogic", "scope": "Field", "scopeTarget": "lo", "action": "Compute",
+          "expression": { "var": "table.min(items.amount)" } }
+      ],
+      "instance": { "items": [ { "amount": "10.50" }, { "amount": "2.25" }, { "amount": "10.50" } ] },
+      "expectedOutcomes": {
+        "c.lo": { "ruleId": "c.lo", "target": "field:lo", "outputType": "Value", "value": { "state": "Resolved", "value": "2.25" } }
+      }
+    }
+  ]
+}

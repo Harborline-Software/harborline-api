@@ -1,0 +1,4 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Feedback
+@inherits HarborlineComponentBase
+<section class="@CombineClasses("sf-error-card")" style="@CombineStyles()" role="alert" aria-label="@(AriaLabel ?? Title)" @attributes="AdditionalAttributes"><h2>@Title</h2><p>@Message</p>@ChildContent</section>
+@code { [Parameter] public string Title { get; set; } = "Something went wrong"; [Parameter] public string Message { get; set; } = "Please try again."; [Parameter] public string? AriaLabel { get; set; } [Parameter] public RenderFragment? ChildContent { get; set; } }

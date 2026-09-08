@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Migration</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Migration</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Migration</RootNamespace>
+    <Description>Foundation-tier substrate for cross-form-factor migration semantics (ADR 0028-A5+A8). Hosts FormFactorProfile + HardwareTierChangeEvent + DerivedSurface primitives, IFormFactorMigrationService contract with sequestration-over-deletion semantics (Invariant DLF: data-loss-vs-feature-loss), ISequestrationStore for the sequestration partition, MigrationAuditPayloads factory, and 10 new AuditEventType discriminators. In-memory reference implementations.</Description>
+    <PackageTags>harborline;foundation;migration;form-factor;invariant-dlf;adr-0028</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <ProjectReference Include="..\foundation-versioning\Harborline.Foundation.Versioning.csproj" />
+    <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Migration.Tests" />
+  </ItemGroup>
+</Project>

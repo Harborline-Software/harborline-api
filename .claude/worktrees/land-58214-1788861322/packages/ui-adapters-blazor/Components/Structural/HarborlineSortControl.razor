@@ -1,0 +1,54 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Structural
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses("sf-sort-control")" @attributes="AdditionalAttributes">
+    <label class="sf-sort-control__label" for="@_selectId">@(Label ?? "Sort by")</label>
+    <select id="@_selectId"
+            class="sf-sort-control__field"
+            aria-label="@(AriaLabel ?? Label ?? "Sort field")"
+            value="@SelectedField"
+            @onchange="OnFieldChanged">
+        <option value="">Unsorted</option>
+        @foreach (var option in Options)
+        {
+            <option value="@option.Value">@option.Label</option>
+        }
+    </select>
+    <button type="button"
+            class="sf-sort-control__direction"
+            aria-label="@(Value?.Direction == HarborlineSortDirection.Descending ? "Sort ascending" : "Sort descending")"
+            aria-pressed="@(Value is null ? "false" : "true")"
+            disabled="@(Value is null)"
+            @onclick="ToggleDirection">
+        @(Value?.Direction == HarborlineSortDirection.Descending ? "↓" : "↑")
+    </button>
+</div>
+
+@code {
+    private readonly string _selectId = $"harborline-sort-{Guid.NewGuid():N}";
+
+    [Parameter] public IReadOnlyList<HarborlineSortOption> Options { get; set; } = Array.Empty<HarborlineSortOption>();
+    [Parameter] public HarborlineSortState? Value { get; set; }
+    [Parameter] public EventCallback<HarborlineSortState?> ValueChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private string SelectedField => Value?.Field ?? string.Empty;
+
+    private async Task OnFieldChanged(ChangeEventArgs args)
+    {
+        var field = args.Value?.ToString() ?? string.Empty;
+        await ValueChanged.InvokeAsync(string.IsNullOrEmpty(field)
+            ? null
+            : new HarborlineSortState(field, Value?.Direction ?? HarborlineSortDirection.Ascending));
+    }
+
+    private Task ToggleDirection() => Value is null
+        ? Task.CompletedTask
+        : ValueChanged.InvokeAsync(Value with
+        {
+            Direction = Value.Direction == HarborlineSortDirection.Ascending
+                ? HarborlineSortDirection.Descending
+                : HarborlineSortDirection.Ascending
+        });
+}

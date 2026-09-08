@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Kernel.Audit</PackageId>
+    <AssemblyName>Harborline.Api.Kernel.Audit</AssemblyName>
+    <RootNamespace>Harborline.Api.Kernel.Audit</RootNamespace>
+    <Description>Harborline kernel audit-trail subsystem (ADR 0049). Append-only domain-typed audit records — recovery events, capability grants, payment authorizations — with multi-party signed attestation. Durability delegated to the kernel IEventLog substrate, parallel to how Kernel.Ledger uses IEventLog.</Description>
+    <PackageTags>harborline;kernel;audit;compliance;event-sourced;append-only</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Kernel.Audit.Tests" />
+    <!-- Ticket 272 slice 2: the host tests exercise AuthorizedAuditRecord.CopyFromDecision, the one seam
+         where a separation-of-duty decision becomes a stored authority snapshot. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
+    <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
+  </ItemGroup>
+</Project>

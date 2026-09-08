@@ -1,0 +1,164 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+@if (Open)
+{
+    <div class="@CombineClasses("sf-command-palette")" style="@CombineStyles()" role="dialog" aria-modal="true" aria-label="@(AriaLabel ?? "Command palette")" @attributes="AdditionalAttributes">
+        <input id="@_inputId"
+               type="text"
+               role="combobox"
+               aria-expanded="true"
+               aria-autocomplete="list"
+               aria-controls="@_listId"
+               aria-activedescendant="@ActiveDescendant"
+               aria-label="@(InputAriaLabel ?? "Search commands")"
+               autocomplete="off"
+               placeholder="@Placeholder"
+               style="min-width:24px;min-height:24px;"
+               value="@_query"
+               @oninput="HandleInput"
+               @onkeydown="HandleKeyDown" />
+        <ul id="@_listId" role="listbox" aria-label="@(ListAriaLabel ?? "Commands")">
+            @if (!HasResults)
+            {
+                <li role="option" aria-selected="false" class="sf-command-palette__empty">@EmptyText</li>
+            }
+            else
+            {
+                @foreach (var group in GroupedResults)
+                {
+                    @if (!string.IsNullOrEmpty(group.Key))
+                    {
+                        <li role="presentation" class="sf-command-palette__group">@group.Key</li>
+                    }
+                    @foreach (var item in group)
+                    {
+                        var index = _filtered.IndexOf(item);
+                        <li id="@OptionId(index)"
+                            role="option"
+                            aria-selected="@((index == _activeIndex).ToString().ToLowerInvariant())"
+                            class="@(index == _activeIndex ? "sf-command-palette__item sf-command-palette__item--active" : "sf-command-palette__item")"
+                            style="min-width:24px;min-height:24px;"
+                            @key="item.Id"
+                            @onclick="() => SelectAsync(item)">
+                            <span class="sf-command-palette__label">@item.Label</span>
+                            @if (!string.IsNullOrEmpty(item.Description))
+                            {
+                                <span class="sf-command-palette__description">@item.Description</span>
+                            }
+                        </li>
+                    }
+                }
+            }
+        </ul>
+    </div>
+}
+@code {
+    private readonly string _inputId = $"sf-command-palette-input-{Guid.NewGuid():N}";
+    private readonly string _listId = $"sf-command-palette-list-{Guid.NewGuid():N}";
+    private string _query = string.Empty;
+    private int _activeIndex;
+    private List<CommandPaletteItem> _filtered = [];
+    private bool _wasOpen;
+
+    /// <summary>Whether the palette dialog is shown.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Raised when the palette requests an open-state change (Escape, selection).</summary>
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>The full set of commands available in the palette.</summary>
+    [Parameter] public IReadOnlyList<CommandPaletteItem> Items { get; set; } = [];
+
+    /// <summary>Raised with the chosen item when the user confirms a command.</summary>
+    [Parameter] public EventCallback<CommandPaletteItem> ItemSelected { get; set; }
+
+    /// <summary>Accessible name of the dialog. Falls back to "Command palette".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Accessible name of the search input. Falls back to "Search commands".</summary>
+    [Parameter] public string? InputAriaLabel { get; set; }
+
+    /// <summary>Accessible name of the result listbox. Falls back to "Commands".</summary>
+    [Parameter] public string? ListAriaLabel { get; set; }
+
+    /// <summary>Placeholder text for the search input.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Type a command…";
+
+    /// <summary>Message announced when no command matches the filter.</summary>
+    [Parameter] public string EmptyText { get; set; } = "No matching commands.";
+
+    private bool HasResults => _filtered.Count > 0;
+
+    private string? ActiveDescendant => HasResults ? OptionId(_activeIndex) : null;
+
+    private string OptionId(int index) => $"{_listId}-option-{index}";
+
+    private IEnumerable<IGrouping<string, CommandPaletteItem>> GroupedResults =>
+        _filtered.GroupBy(i => i.Group ?? string.Empty);
+
+    protected override void OnParametersSet()
+    {
+        if (Open && !_wasOpen)
+        {
+            _query = string.Empty;
+            _activeIndex = 0;
+        }
+
+        _wasOpen = Open;
+        Filter();
+    }
+
+    private void HandleInput(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        Filter();
+    }
+
+    private void Filter()
+    {
+        var query = _query.Trim();
+        _filtered = string.IsNullOrEmpty(query)
+            ? Items.ToList()
+            : Items.Where(i =>
+                i.Label.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || (i.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+                || i.Keywords.Any(k => k.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (_activeIndex >= _filtered.Count)
+        {
+            _activeIndex = 0;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        switch (args.Key)
+        {
+            case "Escape":
+                await CloseAsync();
+                break;
+            case "ArrowDown" when HasResults:
+                _activeIndex = (_activeIndex + 1) % _filtered.Count;
+                break;
+            case "ArrowUp" when HasResults:
+                _activeIndex = (_activeIndex - 1 + _filtered.Count) % _filtered.Count;
+                break;
+            case "Enter" when HasResults:
+                await SelectAsync(_filtered[_activeIndex]);
+                break;
+        }
+    }
+
+    private async Task SelectAsync(CommandPaletteItem item)
+    {
+        await ItemSelected.InvokeAsync(item);
+        await CloseAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        Open = false;
+        _query = string.Empty;
+        _activeIndex = 0;
+        await OpenChanged.InvokeAsync(false);
+    }
+}

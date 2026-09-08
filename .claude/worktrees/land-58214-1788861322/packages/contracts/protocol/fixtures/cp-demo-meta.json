@@ -1,0 +1,8 @@
+{
+  "command": "demo-cp-op",
+  "confirmed": true,
+  "note": "producer-shaped fixture",
+  "executedAt": "2026-08-02T12:00:00.000Z",
+  "proposedBy": { "id": "os:captain", "displayName": "captain", "kind": "local-os-user" },
+  "confirmedBy": { "id": "os:captain", "displayName": "captain", "kind": "local-os-user" }
+}

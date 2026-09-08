@@ -1,0 +1,38 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(ToolbarClass)"
+     style="@CombineStyles(InlineSizeStyle)"
+     role="toolbar"
+     aria-label="Toolbar"
+     aria-orientation="@Orientation.ToLowerInvariant()"
+     @attributes="AdditionalAttributes">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Whether all toolbar items are enabled.</summary>
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public string Orientation { get; set; } = "horizontal";
+    [Parameter] public string Size { get; set; } = "medium";
+    [Parameter] public bool ShowBorder { get; set; }
+
+    private string ToolbarClass
+    {
+        get
+        {
+            var cls = CssProvider.ToolbarClass();
+            if (!Enabled) cls += " mar-toolbar--disabled";
+            if (!string.IsNullOrWhiteSpace(Orientation)) cls += $" mar-toolbar--{Orientation.ToLowerInvariant()}";
+            if (!string.IsNullOrWhiteSpace(Size)) cls += $" mar-toolbar--{Size.ToLowerInvariant()}";
+            if (ShowBorder) cls += " mar-toolbar--bordered";
+            return cls;
+        }
+    }
+
+    private string InlineSizeStyle => Orientation.Equals("vertical", StringComparison.OrdinalIgnoreCase)
+        ? "flex-direction:column;"
+        : "flex-direction:row;";
+}

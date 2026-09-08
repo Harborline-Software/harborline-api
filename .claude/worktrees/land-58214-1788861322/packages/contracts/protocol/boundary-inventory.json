@@ -1,0 +1,2108 @@
+{
+  "schemaVersion": "shipyard.runtime-boundary-inventory/v2",
+  "description": "Runtime boundaries discovered from producer registrations. This artifact is a DENOMINATOR, not a coverage claim: most entries are deferred. Covered operations remain generator-owned by manifest.json.",
+  "defaultReasons": {
+    "deferred": "Known local-node HTTP boundary; protocol schema, canonical fixture, and language adapters have not yet been migrated."
+  },
+  "boundaries": [
+    {
+      "id": "capability-face:address",
+      "kind": "capability-face",
+      "face": "address",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.address"
+    },
+    {
+      "id": "capability-face:announce",
+      "kind": "capability-face",
+      "face": "announce",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.announce"
+    },
+    {
+      "id": "capability-face:compose",
+      "kind": "capability-face",
+      "face": "compose",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.compose"
+    },
+    {
+      "id": "capability-face:invoke",
+      "kind": "capability-face",
+      "face": "invoke",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.invoke"
+    },
+    {
+      "id": "capability-face:negotiate",
+      "kind": "capability-face",
+      "face": "negotiate",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.negotiate"
+    },
+    {
+      "id": "capability-face:observe",
+      "kind": "capability-face",
+      "face": "observe",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.observe"
+    },
+    {
+      "id": "capability-face:resolve",
+      "kind": "capability-face",
+      "face": "resolve",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.resolve"
+    },
+    {
+      "id": "capability-face:secure",
+      "kind": "capability-face",
+      "face": "secure",
+      "source": "apps/capability-host/src/protocol/capability-port-adapter.ts",
+      "status": "covered",
+      "operationId": "capability.secure"
+    },
+    {
+      "id": "local-node-http:DELETE:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "DELETE",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:DELETE:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}/roles/{{roleId}}\"",
+      "kind": "local-node-http",
+      "method": "DELETE",
+      "routeExpression": "$\"{RouteBase}/{{id}}/roles/{{roleId}}\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:DELETE:apps/local-node-host/Health/FormDraftRoutes.cs:$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "kind": "local-node-http",
+      "method": "DELETE",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "source": "apps/local-node-host/Health/FormDraftRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:DELETE:apps/local-node-host/Health/InvoiceRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "DELETE",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Feed/ChannelFeedRoutes.cs:ListChannelsRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ListChannelsRoute",
+      "source": "apps/local-node-host/Feed/ChannelFeedRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AccountingPeriodRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/AccountingPeriodRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AccountingSummaryRoutes.cs:$\"{RouteBase}/outstanding\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/outstanding\"",
+      "source": "apps/local-node-host/Health/AccountingSummaryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AccountingSummaryRoutes.cs:$\"{RouteBase}/summary\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/summary\"",
+      "source": "apps/local-node-host/Health/AccountingSummaryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AdmissionRoutes.cs:$\"{RouteBase}/identity\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/identity\"",
+      "source": "apps/local-node-host/Health/AdmissionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/entities\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/entities/{{id}}\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}/condition\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/entities/{{id}}/condition\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}/submissions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/entities/{{id}}/submissions\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}/tree\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/entities/{{id}}/tree\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/types\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/types\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/types/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/types/{{id}}\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuditEventRoutes.cs:$\"{RouteBase}/{{auditId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{auditId}}\"",
+      "source": "apps/local-node-host/Health/AuditEventRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuditEventRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/AuditEventRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/capability-definitions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/capability-definitions\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/role-vocabulary\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/role-vocabulary\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/standing-catalogue\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/standing-catalogue\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/traces/{{auditId:guid}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/traces/{{auditId:guid}}\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:AccessHoldersRead.Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "AccessHoldersRead.Route",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/match-proposals\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/match-proposals\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/reconciliation-state\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/reconciliation-state\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/statement-lines\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/statement-lines\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BankAccountRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BillRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/BillRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CalendarCollectionRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/CalendarCollectionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CalendarRoutes.cs:$\"{RouteBase}/free-busy\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/free-busy\"",
+      "source": "apps/local-node-host/Health/CalendarRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CalendarRoutes.cs:$\"{RouteBase}/occurrences\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/occurrences\"",
+      "source": "apps/local-node-host/Health/CalendarRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CommsRoutes.cs:ConversationRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ConversationRoute",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CommsRoutes.cs:DmResolveRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "DmResolveRoute",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CommsRoutes.cs:DmRosterRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "DmRosterRoute",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CommsRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ConsentRecordRoutes.cs:$\"{RouteBase}/{{recordId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{recordId}}\"",
+      "source": "apps/local-node-host/Health/ConsentRecordRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ContactRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/CurrentPrincipalSignatureRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/CurrentPrincipalSignatureRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs:$\"{RouteBase}/{{key}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}\"",
+      "source": "apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions\"",
+      "source": "apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "source": "apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExportRoutes.cs:$\"{RouteBase}/{{exportId:guid}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{exportId:guid}}\"",
+      "source": "apps/local-node-host/Health/DataExportRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExportRoutes.cs:$\"{RouteBase}/{{exportId:guid}}/download\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{exportId:guid}}/download\"",
+      "source": "apps/local-node-host/Health/DataExportRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DeclarativeConfirmRoutes.cs:$\"{RouteBase}/{{instanceId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}\"",
+      "source": "apps/local-node-host/Health/DeclarativeConfirmRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DeclarativeConfirmRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/DeclarativeConfirmRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DocumentRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/DocumentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DocumentRoutes.cs:$\"{RouteBase}/{{id}}/content\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}/content\"",
+      "source": "apps/local-node-host/Health/DocumentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DocumentRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/DocumentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/EntityRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/EntityRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{formId}}\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}/versions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/versions\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}/versions/{{version}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/versions/{{version}}\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDraftRoutes.cs:$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "source": "apps/local-node-host/Health/FormDraftRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormDraftRoutes.cs:$\"{RouteBase}/drafts\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/drafts\"",
+      "source": "apps/local-node-host/Health/FormDraftRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/FormsRoutes.cs:$\"{RouteBase}/{{formId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{formId}}\"",
+      "source": "apps/local-node-host/Health/FormsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/HostedLocalNodeApiEndpoint.cs:\"/api/local-node/status\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "\"/api/local-node/status\"",
+      "source": "apps/local-node-host/Health/HostedLocalNodeApiEndpoint.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/HostedLocalNodeApiEndpoint.cs:\"/api/local-node/tables\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "\"/api/local-node/tables\"",
+      "source": "apps/local-node-host/Health/HostedLocalNodeApiEndpoint.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs:$\"{RouteBase}/{{instanceId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}\"",
+      "source": "apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/InvoiceRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/InvoiceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/JournalEntryRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/JournalEntryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/JournalEntryRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/JournalEntryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs:$\"{RouteBase}/{{instanceId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}\"",
+      "source": "apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/KgSearchRoutes.cs:$\"{RouteBase}/search\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/search\"",
+      "source": "apps/local-node-host/Health/KgSearchRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LeaseRoutes.cs:$\"{RouteBase}/{{name}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{name}}\"",
+      "source": "apps/local-node-host/Health/LeaseRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LeaseRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/LeaseRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LeaseSubLedgerRoutes.cs:$\"{RouteBase}/{{name}}/payment-history\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{name}}/payment-history\"",
+      "source": "apps/local-node-host/Health/LeaseSubLedgerRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LifecycleRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/LifecycleRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs:\"/health\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "\"/health\"",
+      "source": "apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs:\"/live\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "\"/live\"",
+      "source": "apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs:\"/ready\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "\"/ready\"",
+      "source": "apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/MaintenanceRoutes.cs:$\"{RouteBase}/{{name}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{name}}\"",
+      "source": "apps/local-node-host/Health/MaintenanceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/MaintenanceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/MaintenanceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/OrgBrandingRoutes.cs:$\"{RouteBase}/logo\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/logo\"",
+      "source": "apps/local-node-host/Health/OrgBrandingRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/OrgBrandingRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/OrgBrandingRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PackComposeRoutes.cs:$\"{ComposeRoute}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{ComposeRoute}/{{id}}\"",
+      "source": "apps/local-node-host/Health/PackComposeRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PackGraphRoutes.cs:GraphRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "GraphRoute",
+      "source": "apps/local-node-host/Health/PackGraphRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PackInstallRoutes.cs:ListInstalledRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ListInstalledRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PackNavigationRoutes.cs:NavigationRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "NavigationRoute",
+      "source": "apps/local-node-host/Health/PackNavigationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PaymentRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/PaymentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PaymentRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/PaymentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PaymentWriteRoutes.cs:$\"{BillRouteBase}/{{id}}/payments\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{BillRouteBase}/{{id}}/payments\"",
+      "source": "apps/local-node-host/Health/PaymentWriteRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PaymentWriteRoutes.cs:$\"{InvoiceRouteBase}/{{id}}/payments\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{InvoiceRouteBase}/{{id}}/payments\"",
+      "source": "apps/local-node-host/Health/PaymentWriteRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/employees\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/employees\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/pay-runs\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/pay-runs\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/pay-runs/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/pay-runs/{{id}}\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PropertyRoutes.cs:$\"{RouteBase}/{{name}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{name}}\"",
+      "source": "apps/local-node-host/Health/PropertyRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/PropertyRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/PropertyRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/RecurringInvoiceRoutes.cs:$\"{RouteBase}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{id}}\"",
+      "source": "apps/local-node-host/Health/RecurringInvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/RecurringInvoiceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/RecurringInvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ReportDefinitionRoutes.cs:$\"{RouteBase}/{{key}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}\"",
+      "source": "apps/local-node-host/Health/ReportDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ReportDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions\"",
+      "source": "apps/local-node-host/Health/ReportDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ReportDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "source": "apps/local-node-host/Health/ReportDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ReportDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ReportDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ReportsRoutes.cs:ChartsRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ChartsRoute",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/{{definitionId}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{definitionId}}\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/{{definitionId}}/versions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{definitionId}}/versions\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/{{definitionId}}/versions/{{revision:int}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{definitionId}}/versions/{{revision:int}}\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:SubjectRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "SubjectRoute",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SpatialFrameRoutes.cs:$\"{RouteBase}/{{anchor}}/{{frameCode}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{anchor}}/{{frameCode}}\"",
+      "source": "apps/local-node-host/Health/SpatialFrameRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SpatialFrameRoutes.cs:$\"{RouteBase}/{{anchor}}/{{frameCode}}/{{frameEpoch}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{anchor}}/{{frameCode}}/{{frameEpoch}}\"",
+      "source": "apps/local-node-host/Health/SpatialFrameRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/SyncStatusRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/SyncStatusRoutes.cs",
+      "status": "covered",
+      "operationId": "carrier.application.getSyncStatus"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/TeamRoutes.cs:ActiveRouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ActiveRouteBase",
+      "source": "apps/local-node-host/Health/TeamRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/TeamRoutes.cs:ListRouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ListRouteBase",
+      "source": "apps/local-node-host/Health/TeamRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ViewDefinitionRoutes.cs:$\"{RouteBase}/{{key}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}\"",
+      "source": "apps/local-node-host/Health/ViewDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ViewDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions\"",
+      "source": "apps/local-node-host/Health/ViewDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ViewDefinitionRoutes.cs:$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}/versions/{{version}}\"",
+      "source": "apps/local-node-host/Health/ViewDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ViewDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ViewDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:InvitationsPath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "InvitationsPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:MembersPath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "MembersPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/AntiforgeryRoutes.cs:IssuePath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "IssuePath",
+      "source": "apps/local-node-host/Health/WebSession/AntiforgeryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs:PermissionsPath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "PermissionsPath",
+      "source": "apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs:WhoamiPath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "WhoamiPath",
+      "source": "apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/WebSessionRoutes.cs:MePath",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "MePath",
+      "source": "apps/local-node-host/Health/WebSession/WebSessionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WorkflowDefinitionRoutes.cs:$\"{RouteBase}/{{key}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{key}}\"",
+      "source": "apps/local-node-host/Health/WorkflowDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WorkflowDefinitionRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/WorkflowDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WorkflowRunReportRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/WorkflowRunReportRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PATCH:apps/local-node-host/Health/MaintenanceRoutes.cs:$\"{RouteBase}/{{name}}\"",
+      "kind": "local-node-http",
+      "method": "PATCH",
+      "routeExpression": "$\"{RouteBase}/{{name}}\"",
+      "source": "apps/local-node-host/Health/MaintenanceRoutes.cs",
+      "status": "deferred",
+      "reason": "Mutating maintenance route registered via MapMethods rather than MapPatch. Needs a request schema and a producer-derived fixture before an adapter can carry it."
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Feed/ChannelFeedRoutes.cs:CheckRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "CheckRoute",
+      "source": "apps/local-node-host/Feed/ChannelFeedRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AccountingPeriodRoutes.cs:$\"{RouteBase}/{{id}}/close\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/close\"",
+      "source": "apps/local-node-host/Health/AccountingPeriodRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AccountingPeriodRoutes.cs:$\"{RouteBase}/open\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/open\"",
+      "source": "apps/local-node-host/Health/AccountingPeriodRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AdmissionRoutes.cs:$\"{RouteBase}/invites\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/invites\"",
+      "source": "apps/local-node-host/Health/AdmissionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AdmissionRoutes.cs:$\"{RouteBase}/join\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/join\"",
+      "source": "apps/local-node-host/Health/AdmissionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AdmissionRoutes.cs:$\"{RouteBase}/redeem\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/redeem\"",
+      "source": "apps/local-node-host/Health/AdmissionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/edges\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/edges\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/entities\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/types\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/types\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/types/{{id}}/revert\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/types/{{id}}/revert\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:$\"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/capability-definitions/{{definitionId:guid}}/binding\"",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/accept-match\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/accept-match\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/archive\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/archive\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/feed/connect\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/feed/connect\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/feed/disconnect\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/feed/disconnect\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/feed/pull\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/feed/pull\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/import-statement\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/import-statement\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/opening-balance\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/opening-balance\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/reconciliation-state/lock\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/reconciliation-state/lock\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/reconciliation-state/unlock\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/reconciliation-state/unlock\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:$\"{RouteBase}/{{accountId}}/un-match\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{accountId}}/un-match\"",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BankAccountRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/BankAccountRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BillRoutes.cs:$\"{RouteBase}/{{id}}/approve\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/approve\"",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BillRoutes.cs:$\"{RouteBase}/{{id}}/dispute\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/dispute\"",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BillRoutes.cs:$\"{RouteBase}/{{id}}/resolve-dispute\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/resolve-dispute\"",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BillRoutes.cs:$\"{RouteBase}/{{id}}/void\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/void\"",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/BillRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/BillRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CalendarCollectionRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/CalendarCollectionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:$\"{RouteBase}/{{id}}/archive\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/archive\"",
+      "source": "apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ChartOfAccountsRoutes.cs:SeedRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "SeedRoute",
+      "source": "apps/local-node-host/Health/ChartOfAccountsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CommsRoutes.cs:ConversationRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ConversationRoute",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CommsRoutes.cs:DmResolveRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "DmResolveRoute",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CommsRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/CommsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CompromisedDeviceResponseRoutes.cs:$\"{RouteBase}/{{partyId}}/respond\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{partyId}}/respond\"",
+      "source": "apps/local-node-host/Health/CompromisedDeviceResponseRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConsentRecordRoutes.cs:$\"{RouteBase}/{{recordId}}/{transition}\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{recordId}}/{transition}\"",
+      "source": "apps/local-node-host/Health/ConsentRecordRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConsentRecordRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ConsentRecordRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}/delete\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/delete\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}/roles\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/roles\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ContactRoutes.cs:$\"{RouteBase}/{{id}}/update\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/update\"",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ContactRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/ContactRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DataExportRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/DataExportRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DeclarativeConfirmRoutes.cs:$\"{RouteBase}/{{instanceId}}/action\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}/action\"",
+      "source": "apps/local-node-host/Health/DeclarativeConfirmRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DocumentRoutes.cs:$\"{RouteBase}/{{id}}/attach\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/attach\"",
+      "source": "apps/local-node-host/Health/DocumentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DocumentRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/DocumentRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DocumentTemplateRoutes.cs:$\"{RouteBase}/issue\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/issue\"",
+      "source": "apps/local-node-host/Health/DocumentTemplateRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/DocumentTemplateRoutes.cs:$\"{RouteBase}/render\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/render\"",
+      "source": "apps/local-node-host/Health/DocumentTemplateRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/EntityRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/EntityRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ErpnextImportPreviewRoutes.cs:PreviewRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "PreviewRoute",
+      "source": "apps/local-node-host/Health/ErpnextImportPreviewRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}/restore\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/restore\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/FormsRoutes.cs:$\"{RouteBase}/{{formId}}/submit\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/submit\"",
+      "source": "apps/local-node-host/Health/FormsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs:$\"{RouteBase}/{{instanceId}}/action\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}/action\"",
+      "source": "apps/local-node-host/Health/InvoiceApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/InvoiceRoutes.cs:$\"{RouteBase}/{{id}}/issue\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/issue\"",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/InvoiceRoutes.cs:$\"{RouteBase}/{{id}}/void\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/void\"",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/InvoiceRoutes.cs:$\"{RouteBase}/{{id}}/write-off\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/write-off\"",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/InvoiceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/InvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/JournalEntryRoutes.cs:$\"{RouteBase}/{{id}}/reverse\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/reverse\"",
+      "source": "apps/local-node-host/Health/JournalEntryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/JournalEntryRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/JournalEntryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs:$\"{RouteBase}/{{instanceId}}/action\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{instanceId}}/action\"",
+      "source": "apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/LeaseRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/LeaseRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/LeaseSubLedgerRoutes.cs:$\"{RouteBase}/{{name}}/activate-subledger\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{name}}/activate-subledger\"",
+      "source": "apps/local-node-host/Health/LeaseSubLedgerRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/LifecycleRoutes.cs:FinishSetupRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "FinishSetupRoute",
+      "source": "apps/local-node-host/Health/LifecycleRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/MaintenanceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/MaintenanceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/OrgBrandingRoutes.cs:$\"{RouteBase}/logo\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/logo\"",
+      "source": "apps/local-node-host/Health/OrgBrandingRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackComposeRoutes.cs:$\"{ComposeRoute}/{{id}}/affirm\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{ComposeRoute}/{{id}}/affirm\"",
+      "source": "apps/local-node-host/Health/PackComposeRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackComposeRoutes.cs:$\"{ComposeRoute}/{{id}}/export\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{ComposeRoute}/{{id}}/export\"",
+      "source": "apps/local-node-host/Health/PackComposeRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackComposeRoutes.cs:ComposeRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ComposeRoute",
+      "source": "apps/local-node-host/Health/PackComposeRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackComposerRoutes.cs:ExportRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ExportRoute",
+      "source": "apps/local-node-host/Health/PackComposerRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackComposerRoutes.cs:VerifyRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "VerifyRoute",
+      "source": "apps/local-node-host/Health/PackComposerRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:ActivateRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ActivateRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:DeactivateRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "DeactivateRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:InstallRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "InstallRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:PreviewRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "PreviewRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PaymentWriteRoutes.cs:$\"{BillRouteBase}/{{id}}/payments\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{BillRouteBase}/{{id}}/payments\"",
+      "source": "apps/local-node-host/Health/PaymentWriteRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PaymentWriteRoutes.cs:$\"{InvoiceRouteBase}/{{id}}/payments\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{InvoiceRouteBase}/{{id}}/payments\"",
+      "source": "apps/local-node-host/Health/PaymentWriteRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/employees\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/employees\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/pay-runs\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/pay-runs\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/pay-runs/{{id}}/post\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/pay-runs/{{id}}/post\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PayrollRoutes.cs:$\"{RouteBase}/pay-runs/{{id}}/reverse\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/pay-runs/{{id}}/reverse\"",
+      "source": "apps/local-node-host/Health/PayrollRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PropertyRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/PropertyRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/RecurringInvoiceRoutes.cs:$\"{RouteBase}/{{id}}/{action}\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/{action}\"",
+      "source": "apps/local-node-host/Health/RecurringInvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/RecurringInvoiceRoutes.cs:$\"{RouteBase}/{{id}}/generate\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{id}}/generate\"",
+      "source": "apps/local-node-host/Health/RecurringInvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/RecurringInvoiceRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/RecurringInvoiceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/ap-aging-summary\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/ap-aging-summary\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/ar-aging-summary\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/ar-aging-summary\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/balance-sheet\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/balance-sheet\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/profit-and-loss-by-property\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/profit-and-loss-by-property\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/profit-and-loss\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/profit-and-loss\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ReportsRoutes.cs:\"/trial-balance\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/trial-balance\"",
+      "source": "apps/local-node-host/Health/ReportsRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/{{definitionId}}/restore\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/{{definitionId}}/restore\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/validate\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "$\"{RouteBase}/validate\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:AppointmentRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "AppointmentRoute",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:EventRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "EventRoute",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:ResourceAvailabilityRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ResourceAvailabilityRoute",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SharedHostedWebApp.cs:\"/membrane/invoke\"",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/membrane/invoke\"",
+      "source": "apps/local-node-host/Health/SharedHostedWebApp.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/SharedHostedWebApp.cs:\"/membrane/invoke\":2",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "\"/membrane/invoke\"",
+      "source": "apps/local-node-host/Health/SharedHostedWebApp.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AccountChallengeRoutes.cs:IssuePath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "IssuePath",
+      "source": "apps/local-node-host/Health/WebSession/AccountChallengeRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AccountSetupAcceptRoutes.cs:AcceptPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "AcceptPath",
+      "source": "apps/local-node-host/Health/WebSession/AccountSetupAcceptRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:InvitationsPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "InvitationsPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:RevokeMemberPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RevokeMemberPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:UpdateMemberPermissionsPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "UpdateMemberPermissionsPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/ConnectDeviceRoutes.cs:ConnectPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ConnectPath",
+      "source": "apps/local-node-host/Health/WebSession/ConnectDeviceRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/FounderBindRoutes.cs:BindPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "BindPath",
+      "source": "apps/local-node-host/Health/WebSession/FounderBindRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/RecoveryAcceptRoutes.cs:RecoverPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RecoverPath",
+      "source": "apps/local-node-host/Health/WebSession/RecoveryAcceptRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/SessionLogoutRoutes.cs:LogoutPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "LogoutPath",
+      "source": "apps/local-node-host/Health/WebSession/SessionLogoutRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/TenantSelectionRoutes.cs:SelectPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "SelectPath",
+      "source": "apps/local-node-host/Health/WebSession/TenantSelectionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/TenantSwitchRoutes.cs:SwitchPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "SwitchPath",
+      "source": "apps/local-node-host/Health/WebSession/TenantSwitchRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/WebSessionRoutes.cs:LoginPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "LoginPath",
+      "source": "apps/local-node-host/Health/WebSession/WebSessionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/types/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "$\"{RouteBase}/types/{{id}}\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/FormDefinitionRoutes.cs:$\"{RouteBase}/{{formId}}\"",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "$\"{RouteBase}/{{formId}}\"",
+      "source": "apps/local-node-host/Health/FormDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/FormDraftRoutes.cs:$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "$\"{RouteBase}/{{formId}}/drafts/{{caseId}}\"",
+      "source": "apps/local-node-host/Health/FormDraftRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/OrgBrandingRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/OrgBrandingRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/SchedulingDefinitionRoutes.cs:$\"{RouteBase}/{{definitionId}}/draft\"",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "$\"{RouteBase}/{{definitionId}}/draft\"",
+      "source": "apps/local-node-host/Health/SchedulingDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/WorkflowDefinitionRoutes.cs:$\"{RouteBase}/{{key}}\"",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "$\"{RouteBase}/{{key}}\"",
+      "source": "apps/local-node-host/Health/WorkflowDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-ws:WEBSOCKET:apps/local-node-host/Health/HostedWebSocketEndpoint.cs:\"/ws\"",
+      "kind": "local-node-ws",
+      "method": "WEBSOCKET",
+      "routeExpression": "\"/ws\"",
+      "source": "apps/local-node-host/Health/HostedWebSocketEndpoint.cs",
+      "status": "deferred",
+      "reason": "Peer-to-peer sync transport. Duplex and long-lived, so the request/response port shapes in manifest.json cannot describe it; covering it requires a streaming port family first."
+    },
+    {
+      "id": "tauri-command:append_renderer_log",
+      "kind": "tauri-command",
+      "command": "append_renderer_log",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.appendRendererLog"
+    },
+    {
+      "id": "tauri-command:capability_cp_demo_execute",
+      "kind": "tauri-command",
+      "command": "capability_cp_demo_execute",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.capabilityCpDemoExecute"
+    },
+    {
+      "id": "tauri-command:capability_health",
+      "kind": "tauri-command",
+      "command": "capability_health",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.capabilityHealth"
+    },
+    {
+      "id": "tauri-command:capability_invoke",
+      "kind": "tauri-command",
+      "command": "capability_invoke",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.capabilityInvoke"
+    },
+    {
+      "id": "tauri-command:current_principal",
+      "kind": "tauri-command",
+      "command": "current_principal",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.currentPrincipal"
+    },
+    {
+      "id": "tauri-command:get_data_location_status",
+      "kind": "tauri-command",
+      "command": "get_data_location_status",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.dataLocationStatus"
+    },
+    {
+      "id": "tauri-command:get_device_capability_profile",
+      "kind": "tauri-command",
+      "command": "get_device_capability_profile",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.deviceCapabilityProfile"
+    },
+    {
+      "id": "tauri-command:get_peer_sync_config",
+      "kind": "tauri-command",
+      "command": "get_peer_sync_config",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.getPeerSyncConfig"
+    },
+    {
+      "id": "tauri-command:node_status",
+      "kind": "tauri-command",
+      "command": "node_status",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.nodeStatus"
+    },
+    {
+      "id": "tauri-command:set_peer_sync_config",
+      "kind": "tauri-command",
+      "command": "set_peer_sync_config",
+      "source": "apps/carrier/src-tauri/src/lib.rs",
+      "status": "covered",
+      "operationId": "carrier.host.setPeerSyncConfig"
+    }
+  ]
+}

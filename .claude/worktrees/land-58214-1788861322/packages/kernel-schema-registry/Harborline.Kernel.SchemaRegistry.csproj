@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Kernel.SchemaRegistry</PackageId>
+    <AssemblyName>Harborline.Api.Kernel.SchemaRegistry</AssemblyName>
+    <RootNamespace>Harborline.Api.Kernel.SchemaRegistry</RootNamespace>
+    <Description>Harborline kernel §3.4 Schema Registry — JSON Schema draft 2020-12 via JsonSchema.Net, content-addressed via IBlobStore, in-memory default backend. Validation path shipped; migration path (jsonata) is a follow-up.</Description>
+    <PackageTags>harborline;kernel;schema;json-schema;registry</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Kernel.SchemaRegistry.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
+  </ItemGroup>
+</Project>

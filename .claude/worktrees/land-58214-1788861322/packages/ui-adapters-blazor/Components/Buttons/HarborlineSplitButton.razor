@@ -1,0 +1,89 @@
+@inherits HarborlineComponentBase
+
+<div class="@CombineClasses(CssProvider.SplitButtonClass())"
+     style="@CombineStyles()"
+     @attributes="AdditionalAttributes">
+    <button class="@CssProvider.ButtonClass(Variant, Size, FillMode.Solid, RoundedMode.Medium, IsDisabled)"
+            type="button"
+            disabled="@IsDisabled"
+            aria-label="@AriaLabel"
+            aria-busy="@(Loading ? "true" : null)"
+            @onclick="OnClick">
+        @if (Loading)
+        {
+            <span class="@CombineClasses("sf-splitbutton__loading-indicator", CssProvider.SpinnerClass(SpinnerSize.Small))"
+                  aria-hidden="true"></span>
+        }
+        else if (Icon != null)
+        {
+            <span class="sf-button__icon">@Icon</span>
+        }
+        @if (!Loading)
+        {
+            @ChildContent
+        }
+    </button>
+    <button @ref="_menuTrigger"
+            class="@CssProvider.ButtonClass(Variant, Size, FillMode.Solid, RoundedMode.Medium, IsDisabled)"
+            type="button"
+            disabled="@IsDisabled"
+            aria-label="@DropdownAriaLabel"
+            aria-haspopup="menu"
+            aria-expanded="@_menuOpen.ToString().ToLowerInvariant()"
+            @onclick="ToggleMenu">
+        @IconProvider.GetIconMarkup("chevron-down", IconSize.Small)
+    </button>
+    @if (_menuOpen)
+    {
+        <div class="sf-splitbutton__overlay" @onclick="CloseMenu"></div>
+        <div class="@CssProvider.MenuClass()" role="menu">
+            @foreach (var item in Items)
+            {
+                <button class="@CssProvider.MenuItemClass(item.Disabled)"
+                        type="button"
+                        role="menuitem"
+                        disabled="@item.Disabled"
+                        aria-disabled="@(item.Disabled ? "true" : null)"
+                        @onclick="() => SelectItemAsync(item)">
+                    @item.Label
+                </button>
+            }
+            @MenuContent
+        </div>
+    }
+</div>
+
+@code {
+    private bool _menuOpen;
+    private ElementReference _menuTrigger;
+
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Secondary;
+    [Parameter] public ButtonSize Size { get; set; } = ButtonSize.Medium;
+    [Parameter] public bool Enabled { get; set; } = true;
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string DropdownAriaLabel { get; set; } = "More options";
+    [Parameter] public RenderFragment? Icon { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? MenuContent { get; set; }
+    [Parameter] public IReadOnlyList<SplitButtonItem> Items { get; set; } = [];
+    [Parameter] public EventCallback<SplitButtonItem> OnItemClick { get; set; }
+
+    private bool IsDisabled => !Enabled || Loading;
+
+    private void ToggleMenu() { if (!IsDisabled) _menuOpen = !_menuOpen; }
+    private void CloseMenu() { _menuOpen = false; }
+
+    private async Task SelectItemAsync(SplitButtonItem item)
+    {
+        if (item.Disabled)
+        {
+            return;
+        }
+
+        await OnItemClick.InvokeAsync(item);
+        _menuOpen = false;
+        await _menuTrigger.FocusAsync();
+    }
+}

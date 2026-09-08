@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -105,6 +106,8 @@ public sealed class AuthorizationRefusalAudit
                 ["permission"] = permission,
                 ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
+                ["preDecisionRefusal"] = decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode
+                    ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation) : null,
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),
             };

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.SecurityPolicy</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.SecurityPolicy</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.SecurityPolicy</RootNamespace>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>Tenant-configurable security policy substrate per ADR 0068 (MFA, device attestation, audit retention, key rotation, recovery contact). PR 1: data-model records + enums. Validation pipeline + audit event types ship in subsequent PRs.</Description>
+    <PackageTags>security;policy;mfa;attestation;retention;tenant;harborline;foundation</PackageTags>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.SecurityPolicy.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
+    <ProjectReference Include="..\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj" />
+    <!-- PR 3b.1 — ApprovalChain / ApprovalStep / StandingOrder (ADR 0065 §1). -->
+    <ProjectReference Include="..\foundation-wayfinder\Harborline.Foundation.Wayfinder.csproj" />
+    <!-- PR 3b.2 — IAuditRetentionEnforcer contract for DefaultAuditRetentionEnforcer. -->
+    <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+  </ItemGroup>
+</Project>

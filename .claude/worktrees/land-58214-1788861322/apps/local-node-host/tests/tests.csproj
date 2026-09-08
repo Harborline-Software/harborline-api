@@ -1,0 +1,140 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Harborline.Api.LocalNodeHost.Tests</PackageId>
+    <AssemblyName>Harborline.Api.LocalNodeHost.Tests</AssemblyName>
+    <RootNamespace>Harborline.Api.LocalNodeHost.Tests</RootNamespace>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- App-level test project; CS1591 would be noisy here. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="Authorization/authorization-trace.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Parse the roster SQL ownership fence with the compiler shipped in the selected SDK. -->
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)/Roslyn/bincore/Microsoft.CodeAnalysis.dll" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)/Roslyn/bincore/Microsoft.CodeAnalysis.CSharp.dll" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <!-- PQC 2c-iii-d CANARY proof: load the host's REAL appsettings.json + appsettings.Development.json
+         (the canary overlay) via AddJsonFile and bind LocalNodeOptions, so the test proves the actual
+         config-LAYERING that turns the cutover on for the dev/reference build (not just the bool gate). -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="bunit" />
+    <PackageReference Include="AngleSharp" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- MTW-00B + MTW-00C red-fixture convention (Admiral-ruled Phase-0 pattern): both cards' red
+         fixtures are [SkippableFact] tests that skip by default so CI stays green (the repo CI filter is
+         FullyQualifiedName-based, not trait-based) and fail red only under their MTW00B_RUN_RED /
+         MTW00C_RUN_RED opt-in. Version is centrally pinned in Directory.Packages.props. -->
+    <PackageReference Include="Xunit.SkippableFact" />
+    <!-- SQLite EF so LocalNodeDbContext resolves. Use the .CORE variant (not plain
+         .Sqlite): the SC-1 round-trip + fail-closed tests open a REAL encrypted store,
+         and plain .Sqlite would deploy the non-cipher bundle_e_sqlite3 into the test
+         output, win the provider race, and make PRAGMA key a silent no-op (plaintext).
+         The cipher bundle is supplied transitively by the host ProjectReference. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite.Core" />
+    <!-- C2 arch-test: both-provider model-drift — build the shared entity model against
+         Npgsql as well as SQLite to verify the post-config sweep produces correct column types
+         on each provider. No real DB connection required (model-compilation only). -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PQC 2c-iii-d CANARY proof: copy the host's ACTUAL appsettings files (not test-local copies) into the
+         test output so HybridKemWriteCanaryConfigTests binds the REAL canary layering (base OFF + Development
+         overlay ON). Linked from the host project dir so the test can never drift from what production ships. -->
+    <None Include="..\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\appsettings.Development.json" Link="appsettings.Development.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <!-- Update-feed U2 golden fixtures: U1's ACTUAL published dogfood feed (copied byte-for-byte from
+         harborline-www feat/update-feed-dogfood public/feed/), so the node feed client's live end-to-end runs
+         against the exact published bytes — not a regenerated look-alike (the artifact is not byte-reproducible
+         across generate runs). The subtree is preserved so DirectoryFeedSource + the in-process HTTP server both
+         serve the real layout. -->
+    <None Update="Feed\dogfood-feed\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Issue 2067: the committed minimal second-pack fixture is exercised byte-for-byte by the route-level
+         multi-pack lifecycle proof; link it into test output so the test never carries a drifting inline copy. -->
+    <None Include="..\..\..\_shared\packs\notes-lite\notes-lite-pack.export.json"
+          Link="Packs\Fixtures\notes-lite-pack.export.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\_shared\packs\general\general-pack.export.json"
+          Link="Packs\Fixtures\general-pack.export.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Card 2262: exercise the exact committed property-management export request through the real
+         export/install/activate routes, rather than maintaining a test-only look-alike. -->
+    <None Include="..\..\..\_shared\packs\property-management\property-management-pack.export.json"
+          Link="Packs\property-management-pack.export.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Ticket 193: the corpus link that used to live here is gone. Ticket 162 had to reach the one
+         corpus file from this suite because no rule-engine test project existed; the real runner now
+         lives in packages/foundation-rule-engine/tests and executes all ten files (with the
+         expectedAst lane this suite could never reach, CompiledGraph.Rules being internal). -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The host project (so we can reference LocalNodeWorker / LocalNodeOptions)
+         plus the kernel packages whose DI extensions the composition root calls.
+         Tests compose an in-memory event log / in-memory-only host so the full
+         host project doesn't have to be executed. -->
+    <ProjectReference Include="..\Harborline.LocalNodeHost.csproj" />
+    <!-- Ticket 316: dotnet test builds test-project reference closures, not every
+         solution member. The assembly inventory fence also scans these artifacts;
+         build them before the fence runs without adding them to its runtime closure. -->
+    <ProjectReference Include="../../../src/Harborline.Api.Client/Harborline.Api.Client.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="../../../hosts/Harborline.Api.MockHost/Harborline.Api.MockHost.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\..\..\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj" />
+    <ProjectReference Include="..\..\node-operator-cli\Harborline.NodeOperatorCli.csproj" />
+    <ProjectReference Include="..\..\..\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj" />
+    <ProjectReference Include="../../../packages/foundation-view-definitions/Harborline.Foundation.ViewDefinitions.csproj" />
+    <ProjectReference Include="../../../packages/foundation-schedule-definitions/Harborline.Foundation.ScheduleDefinitions.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj" />
+    <ProjectReference Include="..\..\node-hosting\Harborline.Api.NodeHosting.csproj" />
+    <ProjectReference Include="..\..\..\packages\client-dotnet\Harborline.Client.csproj" />
+    <ProjectReference Include="..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
+    <ProjectReference Include="..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj" />
+    <ProjectReference Include="..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj" />
+    <!-- INC-4 contacts CRDT bridge: the convergence test drives ICrdtEngine directly. -->
+    <ProjectReference Include="..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj" />
+    <!-- KG-search Slice 0 (ADR 0135 KG-search F3-lift amendment): the clip tests construct AccessGrant /
+         InMemoryGrantStore / GrantScope directly, and use ShipRole from foundation-ship-common. -->
+    <ProjectReference Include="..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj" />
+    <!-- KG-search Slice 1b (ADR 0135 KG-search F3-lift amendment): the vector-layer tests construct the real
+         per-subject crypto substrate (InMemoryTenantKeyProvider / SubjectKeyFieldEncryptor / Decryptor /
+         InMemorySubjectErasureRegistry) to exercise G-6 crypto-shred + the per-subject-keyed index against the
+         actual encrypted store. -->
+    <ProjectReference Include="..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj" />
+    <ProjectReference Include="..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj" />
+    <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24): the durable-store + route tests
+         construct CalendarEvent / ResourceAvailability / ParticipantRef directly + reference the block's
+         query/free-busy services. -->
+    <ProjectReference Include="..\..\..\packages\blocks-calendar\Harborline.Blocks.Calendar.csproj" />
+  </ItemGroup>
+
+  <!-- Issue 2089: use the same digest gate and RID-specific output staging as the production host. -->
+  <Import Project="..\native\sqlite-vec\sqlite-vec.targets" />
+
+</Project>

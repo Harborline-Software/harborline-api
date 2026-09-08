@@ -1,0 +1,80 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+<nav class="@CombineClasses("sf-navigation-menu")" style="@CombineStyles()" aria-label="@(AriaLabel ?? "Site")" @attributes="AdditionalAttributes" @onkeydown="HandleKeyDown">
+    <ul role="list" class="sf-navigation-menu__list">
+        @foreach (var item in Items)
+        {
+            <li @key="item.Id" class="sf-navigation-menu__entry">
+                @if (item.Children.Count == 0)
+                {
+                    <a href="@(item.Href ?? "#")"
+                       style="min-width:24px;min-height:24px;display:inline-block;"
+                       aria-current="@(item.Id == ActiveId ? "page" : null)"
+                       @onclick="() => ItemSelected.InvokeAsync(item)">@item.Label</a>
+                }
+                else
+                {
+                    <button type="button"
+                            id="@TriggerId(item)"
+                            aria-expanded="@((_openId == item.Id).ToString().ToLowerInvariant())"
+                            aria-controls="@PanelId(item)"
+                            style="min-width:24px;min-height:24px;"
+                            @onclick="() => Toggle(item.Id)">
+                        @item.Label
+                    </button>
+                    @if (_openId == item.Id)
+                    {
+                        <div id="@PanelId(item)" class="sf-navigation-menu__panel" role="region" aria-labelledby="@TriggerId(item)">
+                            <ul role="list">
+                                @foreach (var child in item.Children)
+                                {
+                                    <li @key="child.Id">
+                                        <a href="@(child.Href ?? "#")"
+                                           style="min-width:24px;min-height:24px;display:inline-block;"
+                                           @onclick="() => ItemSelected.InvokeAsync(child)">
+                                            <span class="sf-navigation-menu__child-label">@child.Label</span>
+                                            @if (!string.IsNullOrEmpty(child.Description))
+                                            {
+                                                <span class="sf-navigation-menu__child-description">@child.Description</span>
+                                            }
+                                        </a>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                }
+            </li>
+        }
+    </ul>
+</nav>
+@code {
+    private readonly string _id = $"sf-navigation-menu-{Guid.NewGuid():N}";
+    private string? _openId;
+
+    /// <summary>Top-level entries; entries with children render as dropdown panels.</summary>
+    [Parameter] public IReadOnlyList<NavigationMenuItem> Items { get; set; } = [];
+
+    /// <summary>Id of the entry marked as the current page.</summary>
+    [Parameter] public string? ActiveId { get; set; }
+
+    /// <summary>Raised when a link entry is activated.</summary>
+    [Parameter] public EventCallback<NavigationMenuItem> ItemSelected { get; set; }
+
+    /// <summary>Accessible name of the navigation landmark. Falls back to "Site".</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private string TriggerId(NavigationMenuItem item) => $"{_id}-trigger-{item.Id}";
+
+    private string PanelId(NavigationMenuItem item) => $"{_id}-panel-{item.Id}";
+
+    private void Toggle(string id) => _openId = _openId == id ? null : id;
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            _openId = null;
+        }
+    }
+}

@@ -1,0 +1,143 @@
+{
+  "_note": "Harborline 'General' first-party starter pack — slice 1 CONTENT (BUILD #127). Hand-authored declarative content installed through the built Pack Composer B-1b engine (no Composer UI needed). This file is the export request body: POST it to /api/local-node/packs/export to produce a signed .pack file, then /packs/install + /packs/activate. See tooling/preview-host/seed-general-pack.ps1 (dogfood) and _shared/engineering/pack-content-schemas-2026-07-06.md (the pinned per-kind content schema). The asset-type content bodies conform to the AssetTypeDefinition schema; the node's PackSeedProjector maps each to an EntityTypeSeed at CascadeLayer.Pack.",
+  "key": "harborline.general",
+  "version": "1.0.0",
+  "name": "General",
+  "description": "Harborline General starter pack — baseline business asset types so a fresh instance never opens onto an empty Type Manager dropdown.",
+  "scopeTier": "Horizontal",
+  "contents": [
+    {
+      "key": "general.equipment",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.equipment",
+        "displayName": "Equipment",
+        "traits": ["Maintainable"],
+        "expectedUsefulLifeYears": 10,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.vehicle",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.vehicle",
+        "displayName": "Vehicle",
+        "traits": ["Movable", "Maintainable"],
+        "expectedUsefulLifeYears": 8,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.furniture",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.furniture",
+        "displayName": "Furniture",
+        "traits": ["Movable"],
+        "expectedUsefulLifeYears": 15,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.it-computer",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.it-computer",
+        "displayName": "IT / Computer",
+        "traits": ["Movable", "Maintainable"],
+        "expectedUsefulLifeYears": 4,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.tool",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.tool",
+        "displayName": "Tool",
+        "traits": ["Movable", "Maintainable"],
+        "expectedUsefulLifeYears": 7,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.facility",
+      "kind": "AssetTypeDefinition",
+      "version": "1.0.0",
+      "content": {
+        "id": "general.facility",
+        "displayName": "Property / Facility",
+        "traits": ["Container"],
+        "expectedUsefulLifeYears": 40,
+        "conditionScaleMax": 5
+      }
+    },
+    {
+      "key": "general.invoice",
+      "kind": "TemplateDefinition",
+      "version": "1.0.0",
+      "content": {
+        "key": "general.invoice",
+        "version": "1.0.0",
+        "documentType": "invoice",
+        "recordType": { "type": "invoice", "version": "1" },
+        "locale": { "kind": "fixed", "tag": "en-US" },
+        "style": { "brandName": "Harborline Software" },
+        "structure": [
+          {
+            "kind": "header",
+            "lines": [
+              { "runs": [ { "literal": "Invoice " }, { "binding": "field.invoiceNumber" } ] },
+              { "runs": [ { "literal": "Issued " }, { "binding": "field.issueDate", "format": "date" } ] },
+              { "runs": [ { "literal": "Due " }, { "binding": "field.dueDate", "format": "date" } ] }
+            ]
+          },
+          {
+            "kind": "fieldGrid",
+            "label": "Bill to",
+            "lines": [
+              { "runs": [ { "literal": "Customer: " }, { "binding": "field.customer.name" } ] },
+              { "runs": [ { "literal": "Email: " }, { "binding": "field.customer.email" } ] }
+            ]
+          },
+          {
+            "kind": "repeatingRegion",
+            "label": "Line items",
+            "repeatSection": "lineItems",
+            "columns": [
+              { "header": "Description", "binding": "row.description" },
+              { "header": "Qty", "binding": "row.quantity", "format": "integer", "align": "end" },
+              { "header": "Unit price", "binding": "row.unitPrice", "format": "currency", "align": "end" },
+              { "header": "Amount", "binding": "row.amount", "format": "currency", "align": "end" }
+            ]
+          },
+          {
+            "kind": "fieldGrid",
+            "label": "Totals",
+            "lines": [
+              { "runs": [ { "literal": "Subtotal: " }, { "binding": "field.subtotal", "format": "currency" } ] },
+              { "runs": [ { "literal": "Tax: " }, { "binding": "field.taxTotal", "format": "currency" } ] },
+              { "runs": [ { "literal": "Total: " }, { "binding": "field.total", "format": "currency" } ] }
+            ]
+          },
+          {
+            "kind": "footer",
+            "label": "Notes",
+            "showWhen": { "expression": "{\"!!\":[{\"var\":\"field.notes\"}]}" },
+            "lines": [
+              { "runs": [ { "binding": "field.notes" } ] }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "dependencies": [],
+  "capabilityRequirements": []
+}

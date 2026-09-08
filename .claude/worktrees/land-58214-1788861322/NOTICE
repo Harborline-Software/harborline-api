@@ -1,0 +1,14 @@
+Harborline
+Copyright 2026 Harborline-Software LLC
+
+This product includes software developed by Harborline-Software LLC and its
+contributors. Licensed under the Apache License, Version 2.0; see LICENSE.
+
+"Harborline", the Harborline logos and the Harborline product marks are
+trademarks of Harborline-Software LLC. The Apache License does not grant
+permission to use them; see TRADEMARKS.md.
+
+Third-party components keep their own licenses and attribution notices. Those
+notices live next to the component they cover (for example a LICENSES/ or
+NOTICE.md file inside the package directory) and must be preserved in source
+and binary redistributions as Section 4(d) of the Apache License requires.

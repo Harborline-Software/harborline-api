@@ -1,0 +1,83 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Media
+@inherits HarborlineComponentBase
+
+<section class="@CombineClasses("sf-pdf-editor")"
+         style="@CombineStyles($"width:{Width};height:{Height};display:flex;flex-direction:column;border:1px solid var(--color-border);border-radius:.375rem;overflow:hidden;background:var(--color-card);")"
+         aria-label="PDF editor"
+         @attributes="AdditionalAttributes">
+    <div class="sf-pdf-editor__toolbar" role="toolbar" aria-label="PDF editor tools">
+        @foreach (var tool in Enum.GetValues<PdfEditorTool>())
+        {
+            <button type="button"
+                    style="min-width:24px;min-height:24px;"
+                    aria-pressed="@(_tool == tool ? "true" : "false")"
+                    disabled="@ReadOnly"
+                    @onclick="() => SelectToolAsync(tool)">@tool</button>
+        }
+        <span style="flex:1"></span>
+        <button type="button" style="min-width:24px;min-height:24px;" disabled="@ReadOnly" @onclick="ZoomOut">−</button>
+        <span aria-live="polite">@((int)(_zoom * 100))%</span>
+        <button type="button" style="min-width:24px;min-height:24px;" disabled="@ReadOnly" @onclick="ZoomIn">+</button>
+        @if (OnExport.HasDelegate)
+        {
+            <button type="button" style="min-width:24px;min-height:24px;" @onclick="ExportAsync">Export</button>
+        }
+    </div>
+    <div class="sf-pdf-editor__content" style="flex:1;overflow:auto;background:var(--color-muted);">
+        @if (!string.IsNullOrWhiteSpace(Source))
+        {
+            <iframe src="@FramedSource" title="PDF document" style="width:100%;height:100%;border:0;"></iframe>
+        }
+        else
+        {
+            <div style="display:grid;place-items:center;height:100%;padding:1rem;">No PDF loaded.</div>
+        }
+    </div>
+</section>
+
+@code {
+    private PdfEditorTool _tool = PdfEditorTool.Select;
+    private int _page = 1;
+    private double _zoom = 1;
+
+    /// <summary>PDF URL or data URI.</summary>
+    [Parameter] public string? Source { get; set; }
+
+    /// <summary>CSS width.</summary>
+    [Parameter] public string Width { get; set; } = "100%";
+
+    /// <summary>CSS height.</summary>
+    [Parameter] public string Height { get; set; } = "600px";
+
+    /// <summary>Read-only mode disables editing tools.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Current page, one-based.</summary>
+    [Parameter] public int Page { get; set; } = 1;
+
+    /// <summary>Host-owned annotations.</summary>
+    [Parameter] public IReadOnlyList<PdfEditorAnnotation> Annotations { get; set; } = Array.Empty<PdfEditorAnnotation>();
+
+    /// <summary>Raised when a tool is selected.</summary>
+    [Parameter] public EventCallback<PdfEditorTool> OnToolChange { get; set; }
+
+    /// <summary>Raised when page changes.</summary>
+    [Parameter] public EventCallback<int> OnPageChange { get; set; }
+
+    /// <summary>Raised when export is requested.</summary>
+    [Parameter] public EventCallback OnExport { get; set; }
+
+    private string FramedSource => string.IsNullOrEmpty(Source) ? string.Empty : $"{Source}#page={_page}&zoom={(int)(_zoom * 100)}";
+
+    protected override void OnParametersSet() => _page = Math.Max(1, Page);
+
+    private async Task SelectToolAsync(PdfEditorTool tool)
+    {
+        _tool = tool;
+        await OnToolChange.InvokeAsync(tool);
+    }
+
+    private void ZoomIn() => _zoom = Math.Min(3, _zoom + .25);
+    private void ZoomOut() => _zoom = Math.Max(.25, _zoom - .25);
+    private Task ExportAsync() => OnExport.InvokeAsync();
+}

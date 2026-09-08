@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Forms.Engine</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Forms.Engine</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Forms.Engine</RootNamespace>
+    <Description>Foundation-tier dynamic-forms rendering engine (ADR 0055 §3.1). The IFormEngine companion to the Harborline.Api.Foundation.Forms keystone: composes the kernel schema registry, the foundation macaroon capability primitives, the foundation-recovery PII field-encryption seam, and the asset audit log to render / validate / save form instances. Enforces INV-S1 (read-path tenant fail-closed), INV-S2 (schema-validation resource bounds), INV-S3 (PII default-secure-at-rest), and INV-S4 (audit completeness).</Description>
+    <PackageTags>harborline;foundation;forms;form-engine;capabilities;macaroon;adr-0055</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-forms\Harborline.Foundation.Forms.csproj" />
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\kernel-schema-registry\Harborline.Kernel.SchemaRegistry.csproj" />
+    <ProjectReference Include="..\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
+    <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
+    <!-- F-11: the SPINE-2 governance seam (IFieldPolicyEnforcer + IAspectResolver) the engine
+         optionally composes to enforce classification on field VALUES (ADR 0140 D2). -->
+    <ProjectReference Include="..\foundation-governance\Harborline.Foundation.Governance.csproj" />
+    <!-- F-12: the SPINE-1 rule engine the render path projects onto the FormView (server-side
+         visibility / required / compute / presentation parity with the builder preview). -->
+    <ProjectReference Include="..\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <!-- Ticket 150: render-time rule-projection degrades must be observable (a warning naming
+         the responsible definition), so the engine takes the standard optional-logger seam. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Forms.Engine.Tests" />
+  </ItemGroup>
+</Project>

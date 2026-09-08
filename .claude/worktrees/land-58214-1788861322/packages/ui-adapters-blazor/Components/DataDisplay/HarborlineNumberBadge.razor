@@ -1,0 +1,48 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+@*
+    HarborlineNumberBadge — compact count indicator for notifications and
+    counters. Parity with ui-react NumberBadge (count, variant, max overflow).
+*@
+
+@if (Count > 0)
+{
+    <span class="@CombineClasses($"sf-number-badge sf-number-badge--{VariantSuffix}")"
+          style="@CombineStyles($"display:inline-flex;align-items:center;justify-content:center;min-width:1.5rem;min-height:1.5rem;border-radius:9999px;padding:0 .35rem;font-size:.7rem;font-weight:600;background:{Palette.Background};color:{Palette.Foreground};")"
+          role="status"
+          aria-label="@(AriaLabel ?? $"{Count} {(Count == 1 ? "item" : "items")}")"
+          @attributes="AdditionalAttributes">
+        @DisplayCount
+    </span>
+}
+
+@code {
+    /// <summary>The count to display.</summary>
+    [Parameter] public int Count { get; set; }
+
+    /// <summary>Variant: default, primary, danger, warning.</summary>
+    [Parameter] public string Variant { get; set; } = "default";
+
+    /// <summary>Counts above this render as "Max+". Default 99.</summary>
+    [Parameter] public int Max { get; set; } = 99;
+
+    /// <summary>Accessible label override.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private string DisplayCount => Count > Max ? $"{Max}+" : Count.ToString();
+
+    private string VariantSuffix => Variant.ToLowerInvariant() switch
+    {
+        "primary" or "danger" or "warning" => Variant.ToLowerInvariant(),
+        _ => "default",
+    };
+
+    private (string Background, string Foreground) Palette => VariantSuffix switch
+    {
+        "primary" => ("var(--color-primary)", "var(--color-primary-foreground)"),
+        "danger" => ("var(--color-danger)", "var(--color-primary-foreground)"),
+        "warning" => ("var(--color-warning)", "var(--color-foreground)"),
+        _ => ("var(--color-muted)", "var(--color-muted-foreground)"),
+    };
+}

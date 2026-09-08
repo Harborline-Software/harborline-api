@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Protocol.Tests</PackageId>
+    <AssemblyName>Harborline.Api.Protocol.Tests</AssemblyName>
+    <RootNamespace>Harborline.Api.Protocol.Tests</RootNamespace>
+    <!-- Test project: no public API ships from here, so the repo-wide XML-doc requirement
+         (GenerateDocumentationFile + TreatWarningsAsErrors) would only produce CS1591 noise. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Harborline.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The protocol authority travels with the test binary. The TypeScript and Rust lanes read
+         these same files from source; copying keeps this lane reading the identical bytes rather
+         than a second copy that could drift. -->
+    <Content Include="../protocol/**/*.json" LinkBase="protocol" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

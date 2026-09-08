@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Analyzer-attach canary (ticket 008 checklist step 10 / step 16d). This project MUST FAIL TO
+    COMPILE. It exists to prove the convention-injected analyzers are actually attached: both the
+    MSBuild predicate in Directory.Build.props and the analyzer's own assembly-name predicate must
+    match this project's name for HARBORLINE_API_PROVNEUT_001 to fire.
+
+    Deliberately excluded from Harborline.Api.slnx — it is built on demand by the canary check,
+    never as part of the solution.
+  -->
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.AnalyzerCanary</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.AnalyzerCanary</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.AnalyzerCanary</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

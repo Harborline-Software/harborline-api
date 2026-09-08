@@ -1,0 +1,4 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Inputs
+@inherits HarborlineComponentBase
+<input type="search" role="searchbox" class="@CombineClasses("sf-search-input")" style="@CombineStyles()" value="@Value" placeholder="@Placeholder" aria-label="@(AriaLabel ?? Label)" @oninput="Changed" @attributes="AdditionalAttributes" />
+@code { [Parameter] public string Value { get; set; } = string.Empty; [Parameter] public EventCallback<string> ValueChanged { get; set; } [Parameter] public string Label { get; set; } = "Search"; [Parameter] public string Placeholder { get; set; } = "Search"; [Parameter] public string? AriaLabel { get; set; } private async Task Changed(ChangeEventArgs e) { Value = e.Value?.ToString() ?? string.Empty; await ValueChanged.InvokeAsync(Value); } }

@@ -1,0 +1,245 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.AI
+@inherits HarborlineComponentBase
+
+<section class="@CombineClasses("sf-promptbox")"
+         style="@CombineStyles()"
+         aria-label="Prompt box"
+         @attributes="AdditionalAttributes">
+    @if (TopAffix is not null)
+    {
+        <div class="sf-promptbox__top-affix">@TopAffix</div>
+    }
+
+    @if (Attachments is { Count: > 0 })
+    {
+        <div class="sf-promptbox__attachments" aria-label="Attached files">
+            @foreach (var attachment in Attachments)
+            {
+                <span class="sf-promptbox__attachment">
+                    <span>@attachment.Name</span>
+                    @if (attachment.Status == PromptBoxAttachmentStatus.Uploading)
+                    {
+                        <span aria-label="Uploading">…</span>
+                    }
+                    else if (attachment.Status == PromptBoxAttachmentStatus.Error)
+                    {
+                        <span role="img" aria-label="Attachment error">!</span>
+                    }
+                    <button type="button"
+                            style="min-width:24px;min-height:24px;"
+                            aria-label="Remove @attachment.Name"
+                            disabled="@Disabled"
+                            @onclick="() => RemoveAttachmentAsync(attachment)">×</button>
+                </span>
+            }
+        </div>
+    }
+
+    @if (Suggestions is { Count: > 0 })
+    {
+        <div class="sf-promptbox__suggestions" role="toolbar" aria-label="Prompt suggestions">
+            @foreach (var suggestion in Suggestions)
+            {
+                <button type="button"
+                        style="min-width:24px;min-height:24px;"
+                        disabled="@Disabled"
+                        @onclick="() => PickSuggestionAsync(suggestion)">@suggestion</button>
+            }
+        </div>
+    }
+
+    <div class="sf-promptbox__row">
+        @if (StartAffix is not null)
+        {
+            <span class="sf-promptbox__start-affix">@StartAffix</span>
+        }
+        <textarea class="sf-promptbox__input"
+                  rows="@Rows"
+                  maxlength="@(MaxLength > 0 ? MaxLength : null)"
+                  placeholder="@Placeholder"
+                  aria-label="Prompt"
+                  disabled="@Disabled"
+                  value="@Value"
+                  @oninput="HandleInput"
+                  @onkeydown="HandleKeyDown"></textarea>
+        @if (EndAffix is not null)
+        {
+            <span class="sf-promptbox__end-affix">@EndAffix</span>
+        }
+        @if (ShowAttachmentButton)
+        {
+            <button type="button"
+                    class="sf-promptbox__attach"
+                    style="min-width:24px;min-height:24px;"
+                    aria-label="Attach file"
+                    disabled="@Disabled"
+                    @onclick="RequestAttachmentAsync">Attach</button>
+        }
+        @if (ShowSpeechToText)
+        {
+            <button type="button"
+                    class="sf-promptbox__speech"
+                    style="min-width:24px;min-height:24px;"
+                    aria-label="Start speech to text"
+                    disabled="@Disabled"
+                    @onclick="RequestSpeechToTextAsync">Speak</button>
+        }
+        <button type="button"
+                class="sf-promptbox__submit"
+                style="min-width:24px;min-height:24px;"
+                disabled="@(Disabled || string.IsNullOrWhiteSpace(Value))"
+                @onclick="SubmitAsync">Send</button>
+    </div>
+
+    @if (ShowCharCount || MaxLength > 0)
+    {
+        <div class="sf-promptbox__meta" aria-live="polite">
+            @((Value?.Length ?? 0))@(MaxLength > 0 ? $" / {MaxLength}" : "")
+        </div>
+    }
+
+    @if (_historyOpen && History is { Count: > 0 })
+    {
+        <div class="sf-promptbox__history" role="listbox" aria-label="Prompt history">
+            @foreach (var item in History)
+            {
+                <button type="button"
+                        class="sf-promptbox__history-item"
+                        role="option"
+                        style="min-width:24px;min-height:24px;"
+                        disabled="@Disabled"
+                        @onclick="() => PickHistoryAsync(item)">@item</button>
+            }
+        </div>
+    }
+
+    @if (History is { Count: > 0 })
+    {
+        <button type="button"
+                class="sf-promptbox__history-toggle"
+                style="min-width:24px;min-height:24px;"
+                aria-haspopup="listbox"
+                aria-expanded="@(_historyOpen ? "true" : "false")"
+                disabled="@Disabled"
+                @onclick="ToggleHistory">
+            @_historyLabel
+        </button>
+    }
+</section>
+
+@code {
+    private bool _historyOpen;
+    private string _historyLabel = "History";
+
+    /// <summary>Current prompt text. Supports two-way binding.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    /// <summary>Two-way binding callback for <see cref="Value"/>.</summary>
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Raised when the user submits. Set <see cref="PromptBoxSubmitEventArgs.IsCancelled"/> to retain the value.</summary>
+    [Parameter] public EventCallback<PromptBoxSubmitEventArgs> OnSubmit { get; set; }
+
+    /// <summary>Prior prompts shown in the history list.</summary>
+    [Parameter] public IReadOnlyList<string>? History { get; set; }
+
+    /// <summary>Suggestion chips shown above the editor.</summary>
+    [Parameter] public IReadOnlyList<string>? Suggestions { get; set; }
+
+    /// <summary>Maximum number of characters. Zero means unlimited.</summary>
+    [Parameter] public int MaxLength { get; set; }
+
+    /// <summary>Whether to render a character counter.</summary>
+    [Parameter] public bool ShowCharCount { get; set; }
+
+    /// <summary>Optional controlled attachment list.</summary>
+    [Parameter] public IReadOnlyList<PromptBoxAttachment>? Attachments { get; set; }
+
+    /// <summary>Raised after an attachment is removed.</summary>
+    [Parameter] public EventCallback<IReadOnlyList<PromptBoxAttachment>> OnAttachmentsChanged { get; set; }
+
+    /// <summary>Renders the mock attachment affordance.</summary>
+    [Parameter] public bool ShowAttachmentButton { get; set; }
+
+    /// <summary>Raised when the host should open its file picker.</summary>
+    [Parameter] public EventCallback OnAttachmentRequested { get; set; }
+
+    /// <summary>Renders the speech-to-text action.</summary>
+    [Parameter] public bool ShowSpeechToText { get; set; }
+
+    /// <summary>Raised when the host should start speech recognition.</summary>
+    [Parameter] public EventCallback OnSpeechToText { get; set; }
+
+    /// <summary>Optional leading content.</summary>
+    [Parameter] public RenderFragment? StartAffix { get; set; }
+
+    /// <summary>Optional trailing content.</summary>
+    [Parameter] public RenderFragment? EndAffix { get; set; }
+
+    /// <summary>Optional content above the editor.</summary>
+    [Parameter] public RenderFragment? TopAffix { get; set; }
+
+    /// <summary>Number of visible editor rows.</summary>
+    [Parameter] public int Rows { get; set; } = 2;
+
+    /// <summary>Placeholder shown when the input is empty.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Enter a prompt…";
+
+    /// <summary>Whether the input and actions are disabled.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? string.Empty;
+        if (MaxLength > 0 && value.Length > MaxLength) value = value[..MaxLength];
+        Value = value;
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SubmitAsync();
+    }
+
+    private void ToggleHistory() => _historyOpen = !_historyOpen;
+
+    private async Task PickHistoryAsync(string item)
+    {
+        _historyOpen = false;
+        Value = item;
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private async Task PickSuggestionAsync(string suggestion)
+    {
+        Value = suggestion;
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (Disabled || string.IsNullOrWhiteSpace(Value)) return;
+        var args = new PromptBoxSubmitEventArgs(Value);
+        await OnSubmit.InvokeAsync(args);
+        if (args.IsCancelled) return;
+
+        await OnPromptAction.InvokeAsync(new PromptBoxActionEventArgs(Value, Attachments));
+        Value = string.Empty;
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    private Task RequestAttachmentAsync() => OnAttachmentRequested.InvokeAsync();
+
+    private Task RequestSpeechToTextAsync() => OnSpeechToText.InvokeAsync();
+
+    private Task RemoveAttachmentAsync(PromptBoxAttachment attachment)
+    {
+        var next = (Attachments ?? Array.Empty<PromptBoxAttachment>())
+            .Where(item => !string.Equals(item.Id, attachment.Id, StringComparison.Ordinal))
+            .ToArray();
+        return OnAttachmentsChanged.InvokeAsync(next);
+    }
+
+    /// <summary>Raised after a successful submit with the current attachments.</summary>
+    [Parameter] public EventCallback<PromptBoxActionEventArgs> OnPromptAction { get; set; }
+}

@@ -1,0 +1,291 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.AI
+@inherits HarborlineComponentBase
+@using Harborline.Api.UIAdapters.Blazor.Enums
+
+<section class="@CombineClasses($"sf-chat sf-chat--{AppearanceClass}")"
+         style="@CombineStyles()"
+         aria-label="Chat"
+         @attributes="AdditionalAttributes">
+    @if (HeaderContent is not null)
+    {
+        <header class="sf-chat__header">@HeaderContent</header>
+    }
+
+    @if (PinnedMessages is { Count: > 0 })
+    {
+        <aside class="sf-chat__pinned" aria-label="Pinned messages">
+            @foreach (var pinned in PinnedMessages)
+            {
+                <button type="button"
+                        class="sf-chat__pinned-message"
+                        style="min-width:24px;min-height:24px;"
+                        @onclick="() => OnPin.InvokeAsync(pinned)">
+                    <span aria-hidden="true">📌</span>
+                    <span>@pinned.Content</span>
+                </button>
+            }
+        </aside>
+    }
+
+    <div class="sf-chat__messages" role="log" aria-live="polite" aria-label="Chat messages">
+        @if (Messages is null || !Messages.Any())
+        {
+            @EmptyContent
+        }
+        else
+        {
+            @foreach (var message in Messages)
+            {
+                var roleClass = message.Role switch
+                {
+                    ChatRole.User => "sf-chat__message--user",
+                    ChatRole.Assistant => "sf-chat__message--assistant",
+                    ChatRole.System => "sf-chat__message--system",
+                    _ => string.Empty,
+                };
+
+                <article class="sf-chat__message @roleClass"
+                         aria-label="@(message.AuthorName ?? message.Role.ToString()) message">
+                    @if (MessageTemplate is not null)
+                    {
+                        @MessageTemplate(message)
+                    }
+                    else
+                    {
+                        <div class="sf-chat__bubble">
+                            <span class="sf-chat__role">@(message.AuthorName ?? message.Role.ToString())</span>
+                            @if (!string.IsNullOrEmpty(message.ReplyToId))
+                            {
+                                <span class="sf-chat__reply" role="note">Replying to @message.ReplyToId</span>
+                            }
+                            <span class="sf-chat__content">@message.Content</span>
+
+                            @if (message.Attachments.Count > 0)
+                            {
+                                <div class="sf-chat__attachments" aria-label="Attachments">
+                                    @foreach (var attachment in message.Attachments)
+                                    {
+                                        @if (AttachmentTemplate is not null)
+                                        {
+                                            @AttachmentTemplate(attachment)
+                                        }
+                                        else
+                                        {
+                                            <a class="sf-chat__attachment"
+                                               href="@(attachment.Url ?? "#")">
+                                                @if (!string.IsNullOrEmpty(attachment.ImageUrl))
+                                                {
+                                                    <img src="@attachment.ImageUrl" alt="" loading="lazy" />
+                                                }
+                                                <span>@attachment.Title</span>
+                                                @if (!string.IsNullOrEmpty(attachment.Subtitle))
+                                                {
+                                                    <small>@attachment.Subtitle</small>
+                                                }
+                                            </a>
+                                        }
+                                    }
+                                </div>
+                            }
+
+                            <time class="sf-chat__timestamp" datetime="@message.Timestamp.ToString("O")">
+                                @message.Timestamp.ToLocalTime().ToString("g")
+                            </time>
+
+                            @if (StatusTemplate is not null)
+                            {
+                                @StatusTemplate(message)
+                            }
+                            else
+                            {
+                                <span class="sf-chat__status" role="status">@StatusLabel(message.Status)</span>
+                            }
+                        </div>
+                    }
+
+                    @if (MessageActions is { Count: > 0 })
+                    {
+                        <div class="sf-chat__actions" role="toolbar" aria-label="Message actions">
+                            @foreach (var action in MessageActions)
+                            {
+                                <button type="button"
+                                        style="min-width:24px;min-height:24px;"
+                                        @onclick="() => ExecuteActionAsync(message, action)">@action.Label</button>
+                            }
+                        </div>
+                    }
+
+                    <div class="sf-chat__message-controls">
+                        @if (OnPin.HasDelegate)
+                        {
+                            <button type="button"
+                                    style="min-width:24px;min-height:24px;"
+                                    aria-label="@(message.IsPinned ? "Unpin message" : "Pin message")"
+                                    @onclick="() => OnPin.InvokeAsync(message)">@(message.IsPinned ? "Unpin" : "Pin")</button>
+                        }
+                        @if (OnReply.HasDelegate)
+                        {
+                            <button type="button"
+                                    style="min-width:24px;min-height:24px;"
+                                    aria-label="Reply to message"
+                                    @onclick="() => OnReply.InvokeAsync(message)">Reply</button>
+                        }
+                    </div>
+                </article>
+            }
+        }
+
+        @if (TypingIndicator)
+        {
+            <div class="sf-chat__message sf-chat__message--assistant sf-chat__message--typing">
+                <span class="sf-chat__bubble sf-chat__bubble--typing"
+                      role="status"
+                      aria-label="Assistant is typing">Assistant is typing…</span>
+            </div>
+        }
+    </div>
+
+    @if (HasMoreMessages && OnLoadMore.HasDelegate)
+    {
+        <button type="button"
+                class="sf-chat__load-more"
+                style="min-width:24px;min-height:24px;"
+                @onclick="LoadMoreAsync">Load older messages</button>
+    }
+
+    @if (ShowScrollToBottom && OnScrollToBottom.HasDelegate)
+    {
+        <button type="button"
+                class="sf-chat__scroll-bottom"
+                style="min-width:24px;min-height:24px;"
+                aria-label="Scroll to latest message"
+                @onclick="ScrollToBottomAsync">Jump to latest</button>
+    }
+
+    @if (!ReadOnly)
+    {
+        <div class="sf-chat__composer">
+            <input type="text"
+                   class="sf-chat__input"
+                   placeholder="@Placeholder"
+                   aria-label="Message"
+                   disabled="@Disabled"
+                   value="@_draft"
+                   @oninput="HandleInput"
+                   @onkeydown="HandleKeyDown" />
+            <button type="button"
+                    class="sf-chat__send"
+                    style="min-width:24px;min-height:24px;"
+                    disabled="@(Disabled || string.IsNullOrWhiteSpace(_draft))"
+                    @onclick="SendAsync">Send</button>
+        </div>
+    }
+</section>
+
+@code {
+    private string _draft = string.Empty;
+
+    /// <summary>Messages in source order.</summary>
+    [Parameter] public IEnumerable<ChatMessage>? Messages { get; set; }
+
+    /// <summary>Fires with composer text.</summary>
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+
+    /// <summary>Replaces the default message row.</summary>
+    [Parameter] public RenderFragment<ChatMessage>? MessageTemplate { get; set; }
+
+    /// <summary>Custom attachment card renderer.</summary>
+    [Parameter] public RenderFragment<ChatAttachment>? AttachmentTemplate { get; set; }
+
+    /// <summary>Custom status renderer.</summary>
+    [Parameter] public RenderFragment<ChatMessage>? StatusTemplate { get; set; }
+
+    /// <summary>Optional custom empty state.</summary>
+    [Parameter] public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Optional chat heading/content slot.</summary>
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+
+    /// <summary>Whether to show the assistant typing placeholder.</summary>
+    [Parameter] public bool TypingIndicator { get; set; }
+
+    /// <summary>Whether the composer is disabled.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Hides the composer when true.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    /// <summary>Composer placeholder.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Message…";
+
+    /// <summary>Messages shown in the pinned strip.</summary>
+    [Parameter] public IReadOnlyList<ChatMessage>? PinnedMessages { get; set; }
+
+    /// <summary>Pin/unpin callback.</summary>
+    [Parameter] public EventCallback<ChatMessage> OnPin { get; set; }
+
+    /// <summary>Reply callback.</summary>
+    [Parameter] public EventCallback<ChatMessage> OnReply { get; set; }
+
+    /// <summary>Actions rendered for every message.</summary>
+    [Parameter] public IReadOnlyList<ChatMessageAction>? MessageActions { get; set; }
+
+    /// <summary>Message action callback.</summary>
+    [Parameter] public EventCallback<ChatMessageActionEventArgs> OnMessageAction { get; set; }
+
+    /// <summary>Whether more messages can be requested.</summary>
+    [Parameter] public bool HasMoreMessages { get; set; }
+
+    /// <summary>Load-more callback.</summary>
+    [Parameter] public EventCallback OnLoadMore { get; set; }
+
+    /// <summary>Whether to show a jump-to-latest affordance.</summary>
+    [Parameter] public bool ShowScrollToBottom { get; set; }
+
+    /// <summary>Jump-to-latest callback. The host owns actual scroll behavior.</summary>
+    [Parameter] public EventCallback OnScrollToBottom { get; set; }
+
+    /// <summary>Appearance name used as a semantic modifier class.</summary>
+    [Parameter] public string Appearance { get; set; } = "default";
+
+    private string AppearanceClass => Appearance.Trim().ToLowerInvariant() switch
+    {
+        "compact" => "compact",
+        "comfortable" => "comfortable",
+        _ => "default",
+    };
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) await SendAsync();
+    }
+
+    private void HandleInput(ChangeEventArgs e) => _draft = e.Value?.ToString() ?? string.Empty;
+
+    private async Task SendAsync()
+    {
+        if (Disabled || string.IsNullOrWhiteSpace(_draft)) return;
+        var text = _draft.Trim();
+        _draft = string.Empty;
+        await OnSend.InvokeAsync(text);
+    }
+
+    private Task ExecuteActionAsync(ChatMessage message, ChatMessageAction action)
+        => OnMessageAction.InvokeAsync(new ChatMessageActionEventArgs(message, action));
+
+    private Task LoadMoreAsync() => OnLoadMore.InvokeAsync();
+
+    private Task ScrollToBottomAsync() => OnScrollToBottom.InvokeAsync();
+
+    private static string StatusLabel(ChatMessageStatus status) => status switch
+    {
+        ChatMessageStatus.Pending => "Pending",
+        ChatMessageStatus.Streaming => "Streaming",
+        ChatMessageStatus.Error or ChatMessageStatus.Failed => "Failed",
+        ChatMessageStatus.Sent => "Sent",
+        ChatMessageStatus.Delivered => "Delivered",
+        ChatMessageStatus.Read => "Read",
+        _ => "Complete",
+    };
+
+}

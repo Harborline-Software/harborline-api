@@ -1,0 +1,14 @@
+{
+  "auditId": "16300000-0000-0000-0000-000000000001",
+  "read": {
+    "availability": 0,
+    "version": 1,
+    "steps": [
+      { "ordinal": 1, "stage": "act", "facts": ["kind:Gate", "act:tax.return.write", "target:return-163", "principal:party-163", "tenant:tenant-163", "at:2026-09-07T12:00:00.0000000+00:00"] },
+      { "ordinal": 2, "stage": "effective-roles", "facts": ["role:tax.roles/author;scope:Tenant:tenant-163;valid:2026-09-01T00:00:00.0000000+00:00..2026-10-01T00:00:00.0000000+00:00;binding:grant-163@1;definition:definition-163;atom:tax.return.write;in-force:yes;deciding", "deciding:grant:grant-163@1"] },
+      { "ordinal": 3, "stage": "standings", "facts": ["role:tax.roles/author;rule:author-rule;evidence:1"] },
+      { "ordinal": 4, "stage": "verdict", "facts": ["verdict:allowed", "refusal:None", "version:1"] }
+    ],
+    "counterfactual": null
+  }
+}

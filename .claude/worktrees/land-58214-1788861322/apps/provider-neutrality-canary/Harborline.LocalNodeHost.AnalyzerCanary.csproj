@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Ticket 026 analyzer-attach canary. This project MUST FAIL TO COMPILE on
+    HARBORLINE_API_PROVNEUT_001, proving that the apps/* tier receives the same
+    provider-neutrality fence as package tiers.
+
+    Deliberately excluded from Harborline.Api.slnx and built only by
+    eng/verify-analyzer-canary.sh.
+  -->
+  <PropertyGroup>
+    <PackageId>Harborline.Api.LocalNodeHost.AnalyzerCanary</PackageId>
+    <AssemblyName>Harborline.Api.LocalNodeHost.AnalyzerCanary</AssemblyName>
+    <RootNamespace>Harborline.Api.LocalNodeHost.AnalyzerCanary</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

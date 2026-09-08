@@ -1,0 +1,13 @@
+{
+  "payload": {
+    "allowedRegulatoryClasses": [
+      "General"
+    ],
+    "selfGoverned": false,
+    "counselRegisterRef": "dcp-counsel-cleared-classes/v1"
+  },
+  "issuerId": "1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
+  "issuedAt": "2026-07-16T11:30:00+00:00",
+  "nonce": "6dfcbfed-c3eb-425d-bff5-4d8964f37fcd",
+  "signature": "mL5sM89gPrTR-jYur5G6LWscOUMdfCRw50CdpWeK59EFv7oGL_bqDNzDTUCOndjJ7ViLvH9jIG_GBnN2_SXRCw"
+}

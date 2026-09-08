@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Integrations</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Integrations</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Integrations</RootNamespace>
+    <Description>Runtime contracts for external provider integrations: provider registry, credentials references, webhook event envelopes + dispatcher, sync cursors, health checks, and the Tier-2 vendor-provider guard substrate.</Description>
+    <PackageTags>harborline;foundation;integrations;webhooks;providers;tier-2-vendor-substrate</PackageTags>
+    <!-- NU1510 suppressed: direct PackageReferences for
+         Microsoft.Extensions.DependencyInjection.Abstractions,
+         Microsoft.Extensions.Hosting.Abstractions, and
+         Microsoft.Extensions.Logging.Abstractions are required by ADR 0096
+         Step 1 substrate (IServiceCollection, ServiceDescriptor,
+         services.Replace, IHostedService, ILogger<T>) but NuGet preview.4
+         pruning flags them as unnecessary due to transitive availability
+         via Microsoft.Extensions.DependencyInjection. Per fleet-conventions
+         §"NU1510 — keep the PackageRef, suppress the warning"; reference
+         template shipyard commit b4475df. -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\shared\HarborlineOperationalEnvironment.cs"
+             Link="OperationalEnvironment\HarborlineOperationalEnvironment.cs" />
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\foundation-catalog\Harborline.Foundation.Catalog.csproj" />
+    <ProjectReference Include="..\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Integrations.Tests" />
+  </ItemGroup>
+</Project>

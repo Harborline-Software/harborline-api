@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.Forms</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.Forms</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.Forms</RootNamespace>
+    <Description>Foundation-tier dynamic forms substrate keystone (ADR 0055). Hosts the canonical FormDefinition record + HarborlineOverlay (FieldOverlay / FormSection / SectionAccess / RuleDefinition) + IFormDefinitionStore CRUD/lifecycle facade with an in-memory reference implementation. Scope is type-surface only: JSONB entity persistence (foundation-assets-postgres extension), the IFormEngine rendering surface, the three-tier rule evaluator, and the 20-primitive compound catalog (Harborline.Api.Foundation.Compounds) ship as separate companion packages composing this keystone.</Description>
+    <PackageTags>harborline;foundation;forms;dynamic-forms;schema;adr-0055</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+    <!-- D2 (ADR 0135 amendment 2026-07-01): the submission-draft keying doctrine resolves the
+         actor's per-org PartyId through the fail-closed ADR-0102 IPartyContext seam. -->
+    <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
+    <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every friend in this project is test-only; this is a project-local claim, not a repository-wide one. -->
+    <!-- Own tests exercise private lifecycle persistence and freeze invariants. -->
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Forms.Tests" />
+    <!-- Host integration tests prove the real route/projector composition. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+    <!-- NSubstitute's test-only proxy assembly must implement internal lifecycle doubles. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+  </ItemGroup>
+</Project>

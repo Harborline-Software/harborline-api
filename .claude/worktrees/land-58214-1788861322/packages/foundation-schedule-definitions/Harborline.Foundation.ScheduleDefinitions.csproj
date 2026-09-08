@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Foundation.ScheduleDefinitions</PackageId>
+    <AssemblyName>Harborline.Api.Foundation.ScheduleDefinitions</AssemblyName>
+    <RootNamespace>Harborline.Api.Foundation.ScheduleDefinitions</RootNamespace>
+    <Description>Foundation-tier substrate for tenant-scoped, versioned schedule definitions (control ticket 075). A ScheduleDefinition is a binding from a stable key and semantic version to the node's EXISTING scheduling authoring contract (harborline.scheduling-definition-draft/v0) - never a new scheduling DSL. Hosts the DefinitionEnvelope-wired ScheduleDefinition record, the IScheduleDefinitionRegistry pinned-tuple CRUD + governance contract, the IScheduleDefinitionDescriptorRegistry admission seam (host-supplied; the runtime authoring store is deliberately NOT the wire-validity authority), and the IScheduleDefinitionCanonicalizer seam with a pass-through reference implementation.</Description>
+    <PackageTags>harborline;foundation;scheduling;definitions;governance;ticket-075</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
+  </ItemGroup>
+</Project>

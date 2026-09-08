@@ -1,0 +1,18 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.DataDisplay
+@inherits HarborlineComponentBase
+
+<dl class="@CombineClasses("sf-description-list")"
+    style="@CombineStyles("display:grid;grid-template-columns:minmax(8rem, auto) 1fr;gap:.5rem 1rem;")"
+    aria-label="@(AriaLabel ?? "Details")"
+    @attributes="AdditionalAttributes">
+    @foreach (var item in Items)
+    {
+        <dt style="font-weight:600;">@item.Term</dt>
+        <dd style="margin:0;">@item.Description</dd>
+    }
+</dl>
+
+@code {
+    [Parameter] public IReadOnlyList<DescriptionListItem> Items { get; set; } = Array.Empty<DescriptionListItem>();
+    [Parameter] public string? AriaLabel { get; set; }
+}

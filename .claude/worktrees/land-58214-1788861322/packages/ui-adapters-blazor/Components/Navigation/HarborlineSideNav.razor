@@ -1,0 +1,32 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Navigation
+@inherits HarborlineComponentBase
+<nav class="@CombineClasses("sf-side-nav", Collapsed ? "sf-side-nav--collapsed" : null)" style="@CombineStyles()" aria-label="@(Label ?? "Primary navigation")" @attributes="AdditionalAttributes">
+    @if (Groups is not null)
+    {
+        @foreach (var group in Groups)
+        {
+            <section class="sf-side-nav__group" aria-label="@group.Label">
+                @if (!Collapsed) { <h2>@group.Label</h2> }
+                <ul>
+                    @foreach (var item in group.Items)
+                    {
+                        <li><a href="@item.Href" class="@(item.IsActive ? "active" : null)" aria-current="@(item.IsActive ? "page" : null)" title="@(Collapsed ? item.Label : null)">
+                            @if (!string.IsNullOrWhiteSpace(item.Icon)) { <span aria-hidden="true">@item.Icon</span> }
+                            @if (!Collapsed) { <span>@item.Label</span> }
+                        </a></li>
+                    }
+                </ul>
+            </section>
+        }
+    }
+    else
+    {
+        @ChildContent
+    }
+</nav>
+@code {
+    [Parameter] public string? Label { get; set; } = "Primary navigation";
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public IReadOnlyList<SideNavGroup>? Groups { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3658,
-    "passed": 3640,
+    "total": 3664,
+    "passed": 3646,
     "failed": 0,
     "notExecuted": 18
   },
@@ -71,10 +71,10 @@
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3660 -> 3658; passed 3642 -> 3640; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "ticket 292 slice 4: delete four unused ReplicaRestoreCoordinator cases; add two re-host grant architecture fences",
-    "detectedBy": "EXPECTED by arithmetic from origin/main acfc42ea5cae4971dfd06de40d6cc7479f28deda minus 4 cases plus 2 fences; focused tests only, controller owns full gate",
-    "arithmeticCrossCheck": "3660 - 4 + 2 = 3658; passed = 3658 - 18 = 3640."
+    "change": "total 3660 -> 3666; passed 3642 -> 3648; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 295 slice 3a: six floor-reporting and hydration cases; fix 1 strengthens the existing trace case without adding rows. Revocation ordering remains open for slice 3b.",
+    "detectedBy": "EXPECTED by arithmetic from origin/main 68dc3fa2 plus 6 cases; focused tests only, controller owns full gate",
+    "arithmeticCrossCheck": "3660 + 6 = 3666; passed = 3666 - 18 = 3648."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

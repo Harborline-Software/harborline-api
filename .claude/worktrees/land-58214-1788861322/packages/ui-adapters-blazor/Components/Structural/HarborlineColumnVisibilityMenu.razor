@@ -1,0 +1,46 @@
+@namespace Harborline.Api.UIAdapters.Blazor.Components.Structural
+@inherits HarborlineComponentBase
+
+<details class="@CombineClasses("sf-column-visibility-menu")" @attributes="AdditionalAttributes">
+    <summary aria-label="@(AriaLabel ?? "Column visibility")">Columns</summary>
+    <div class="sf-column-visibility-menu__content" role="group" aria-label="@(AriaLabel ?? "Column visibility")">
+        @foreach (var column in Columns)
+        {
+            var visible = IsVisible(column);
+            <label class="sf-column-visibility-menu__option">
+                <input type="checkbox"
+                       checked="@visible"
+                       disabled="@column.Required"
+                       aria-label="@column.Label"
+                       @onchange="e => SetVisibility(column, e)" />
+                <span>@column.Label</span>
+                @if (column.Required)
+                {
+                    <span class="sf-column-visibility-menu__required">Required</span>
+                }
+            </label>
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter] public IReadOnlyList<HarborlineColumnVisibilityOption> Columns { get; set; } = Array.Empty<HarborlineColumnVisibilityOption>();
+    [Parameter] public IReadOnlyDictionary<string, bool>? Visibility { get; set; }
+    [Parameter] public EventCallback<IReadOnlyDictionary<string, bool>> VisibilityChanged { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private bool IsVisible(HarborlineColumnVisibilityOption column) =>
+        Visibility is not null && Visibility.TryGetValue(column.Id, out var visible)
+            ? visible
+            : column.Visible;
+
+    private async Task SetVisibility(HarborlineColumnVisibilityOption column, ChangeEventArgs args)
+    {
+        if (column.Required)
+            return;
+
+        var next = Columns.ToDictionary(c => c.Id, IsVisible);
+        next[column.Id] = args.Value is bool value && value;
+        await VisibilityChanged.InvokeAsync(next);
+    }
+}

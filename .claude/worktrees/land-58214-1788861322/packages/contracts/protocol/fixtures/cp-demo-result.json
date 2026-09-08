@@ -1,0 +1,16 @@
+{
+  "jobId": "job:demo-cp-op:harborline-demo-cp-op-fixture-token",
+  "status": "succeeded",
+  "progress": 1.0,
+  "artifacts": [],
+  "usage": { "unit": "call", "quantity": 1.0, "tier": "local" },
+  "error": null,
+  "meta": {
+    "command": "demo-cp-op",
+    "confirmed": true,
+    "note": "producer-shaped fixture",
+    "executedAt": "2026-08-02T12:00:00.000Z",
+    "proposedBy": { "id": "os:captain", "displayName": "captain", "kind": "local-os-user" },
+    "confirmedBy": { "id": "os:captain", "displayName": "captain", "kind": "local-os-user" }
+  }
+}
