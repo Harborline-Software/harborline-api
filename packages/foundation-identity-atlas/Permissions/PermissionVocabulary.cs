@@ -99,6 +99,9 @@ public static class PermissionVocabulary
         // refuses there.
         Permission.AuditRead,
 
+        // Ticket 329: the holders collection read uses the members list atom over the install root.
+        TeamRolePermissions.MembersManage,
+
         // Ticket 213 -- the consent record's REQUEST route, whose record does not exist to be scoped to
         // yet. `consent:read` is deliberately NOT here: every route that resolves it names the consent
         // record it reads, so a record-less consent read is a bug and must refuse. The three transition

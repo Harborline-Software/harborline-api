@@ -25,6 +25,9 @@ public sealed class AuthorizationAdminWriterBoundaryArchTests
         Assert.Equal(
             new[]
             {
+                // Authorized holders projection: reads the grant snapshot and roster; no configuration
+                // write. Keep it in the family scanned below, under every forbidden-dependency rule.
+                "AccessHoldersRead.cs",
                 "AuthorizationAdminRoutes.cs",
                 "HostedAuthorizationAdminApiEndpoint.cs",
                 "LocalNodeEndpointMapping.cs",

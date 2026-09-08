@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -193,7 +194,8 @@ internal sealed class AdminTeamAccessAuthority(
     IAuthorizedAuditTrail audit,
     IOperationSigner signer,
     ITenantIdentityAuthorityPartitionResolver? partitions = null,
-    InstallationIdentityCoordinatorService? coordinator = null) : IAdminTeamAccessAuthority
+    InstallationIdentityCoordinatorService? coordinator = null,
+    AuthorizationRefusalAudit? refusalAudit = null) : IAdminTeamAccessAuthority
 {
     private readonly IDbContextFactory<NodeLocalWebSessionDbContext> _sessionFactory =
         sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
@@ -237,7 +239,7 @@ internal sealed class AdminTeamAccessAuthority(
         string tenantId,
         CancellationToken cancellationToken = default)
     {
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, at: null, cancellationToken)
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, at: null, cancellationToken, requireGrantCoverage: false)
             .ConfigureAwait(false);
         if (context is null)
         {
@@ -321,7 +323,7 @@ internal sealed class AdminTeamAccessAuthority(
         string tenantId,
         CancellationToken cancellationToken = default)
     {
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, at: null, cancellationToken)
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, at: null, cancellationToken, requireGrantCoverage: false)
             .ConfigureAwait(false);
         if (context is null)
         {
@@ -389,20 +391,21 @@ internal sealed class AdminTeamAccessAuthority(
         CancellationToken cancellationToken = default)
     {
         EnsureAuthorityTenant(tenantId, authority);
-        var decision = await _gate.DecideAsync(
-            authority.Request(
-                AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
-                "members",
-                grantId),
+        var coverage = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId),
             cancellationToken).ConfigureAwait(false);
-        decision.RequireAllowed();
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken)
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+                requireGrantCoverage: true,
+                authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId))
             .ConfigureAwait(false);
         if (context is null)
         {
             return null;
         }
 
+        var decision = context.Decision;
         if (string.IsNullOrWhiteSpace(grantId) || !Guid.TryParse(grantId, out var parsedGrant))
         {
             return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
@@ -496,25 +499,26 @@ internal sealed class AdminTeamAccessAuthority(
         CancellationToken cancellationToken = default)
     {
         EnsureAuthorityTenant(tenantId, authority);
-        var decision = await _gate.DecideAsync(
-            authority.Request(
-                AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
-                "members",
-                grantId),
+        var coverage = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId),
             cancellationToken).ConfigureAwait(false);
-        decision.RequireAllowed();
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
         if (requestedPermissions is null || requestedPermissions.Count == 0)
         {
             return new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.NotFound);
         }
 
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken)
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+                requireGrantCoverage: true,
+                authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId))
             .ConfigureAwait(false);
         if (context is null || _partitions is null || _coordinator is null)
         {
             return null;
         }
 
+        var decision = context.Decision;
         if (string.IsNullOrWhiteSpace(grantId) || !Guid.TryParse(grantId, out var parsedGrant))
         {
             return new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.NotFound);
@@ -575,9 +579,18 @@ internal sealed class AdminTeamAccessAuthority(
         // L618 in grant state and strands the install at the surface. The signed roster edge is
         // authoritative where it exists, so a successor the roster narrows or has ejected is refused here
         // rather than handed a role that does nothing.
-        if (successorParty is null
-            || !EffectiveMemberPermissions.AnAdministratorGrantWouldConferMembersManage(
-                context.Roster, successorParty.PartyId.Value, successorPrincipal)
+        var successorInputs = successorParty is null ? null : EffectiveMemberPermissions.Read(
+            context.Roster, successorParty.PartyId.Value, successorPrincipal);
+        var successorDecision = successorInputs is null ? null : await _gate.DecideAsync(
+            new AuthorizationWriteContext(successorPrincipal, tenant, at)
+                .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
+                with { Roster = successorInputs with
+                    { ProspectiveAdministratorGrant = true,
+                        Permissions = successorInputs.Permissions ?? PermissionSet.Of(TeamRolePermissions.MembersManage) } },
+            cancellationToken).ConfigureAwait(false);
+        if (successorDecision is not null && refusalAudit is not null)
+            await refusalAudit.RecordAsync(successorDecision, cancellationToken).ConfigureAwait(false);
+        if (successorParty is null || successorDecision?.Verdict != AuthorizationVerdict.Allowed
             || successorPrincipal == existing.Subject
             || !LastAdministratorGuard.Guards(existing)
             || population.Any(grant => grant.Subject == successorPrincipal
@@ -681,13 +694,15 @@ internal sealed class AdminTeamAccessAuthority(
 
     /// <summary>
     /// The shared caller gate: revalidates the selected session end-to-end and requires roster
-    /// members:manage for THIS tenant. Returns the validated context, or null on ANY failure.
+    /// members:manage for THIS tenant. Write denials throw; invalid sessions and list refusals return null.
     /// </summary>
     private async Task<AdminSessionContext?> ResolveAdminAsync(
         string selectedSessionHandle,
         string tenantId,
         DateTimeOffset? at,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireGrantCoverage,
+        AuthorizationGateRequest? request = null)
     {
         if (string.IsNullOrWhiteSpace(selectedSessionHandle) ||
             !Guid.TryParse(tenantId, out var parsedTenant))
@@ -732,22 +747,20 @@ internal sealed class AdminTeamAccessAuthority(
             return null;
         }
 
-        // Ticket 211 slice 3 - ONE reading of members:manage (EffectiveMemberPermissions), shared with
-        // the selected-session PEP. The roster edge alone missed the Administrator grant L618's handover
-        // mints for a roster-absent successor, who could then not manage members with the role they had
-        // just been handed.
-        var callerPermissions = await EffectiveMemberPermissions.ResolveAsync(
-                _authorization, roster, party.PartyId.Value, tenant,
-                new ActorId(session.TenantPrincipalId), now, cancellationToken)
-            .ConfigureAwait(false);
-        if (callerPermissions is null ||
-            !callerPermissions.Contains(TeamRolePermissions.MembersManage))
-        {
-            return null;
-        }
-
-        return new AdminSessionContext(
-            session, canonicalTenantId, party.PartyId.Value, roster, callerPermissions);
+        var inputs = await EffectiveMemberPermissions.ReadAsync(
+            _authorization, roster, party.PartyId.Value, tenant,
+            new ActorId(session.TenantPrincipalId), now, cancellationToken).ConfigureAwait(false);
+        request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, now)
+            .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "list");
+        if (request.Principal.Value != session.TenantPrincipalId)
+            throw new ArgumentException("The selected-session principal does not match the write authority.");
+        var decision = await _gate.DecideAsync(request with { Roster = inputs with
+            { RequireGrantCoverage = requireGrantCoverage } }, cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
+        if (requireGrantCoverage) decision.RequireAllowed();
+        if (decision.Verdict == AuthorizationVerdict.Denied) return null;
+        return new AdminSessionContext(session, canonicalTenantId, party.PartyId.Value, roster,
+            PermissionSet.From(decision.AtomsConsidered.Select(atom => atom.Operation.Value)), decision);
     }
 
     private static void EnsureAuthorityTenant(string tenantId, AuthorizationWriteContext authority)
@@ -844,5 +857,6 @@ internal sealed class AdminTeamAccessAuthority(
         string CanonicalTenantId,
         string CallerPartyId,
         MemberRoster Roster,
-        PermissionSet CallerPermissions);
+        PermissionSet CallerPermissions,
+        AuthorizationDecision Decision);
 }

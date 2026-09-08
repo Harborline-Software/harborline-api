@@ -951,7 +951,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 liveAuthorization,
                 new NodeSelectedSessionAuthorizationEpochReader(searchStore.Factory),
                 time,
-                NullLogger<SelectedSessionPermissionResolver>.Instance);
+                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate());
 
             // The #2614-blessed acceptance-saga fakes (copied from AccountSetupAcceptanceServiceTests).
             var invitationStore = new AccountSetupInvitationStore(identityFactory);

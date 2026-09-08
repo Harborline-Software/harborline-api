@@ -1,4 +1,8 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Harborline.Api.Kernel.Runtime.Teams;
+using NSubstitute;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -231,6 +235,167 @@ public sealed class RosterPartialAdoptionTests
         Assert.Single(await f.RowsAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenesisDiagnosticsAlsoReportDroppedCandidatesAlongsideAdoptedChain(bool foreign)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var tenant = foreign ? Guid.Parse("29630000-0000-0000-0000-000000000002") : Tenant;
+        var candidate = MemberRoster.Genesis(tenant, "other-founder", f.Attacker, Verifier, At, Guid.NewGuid());
+        await f.MergeAsync([RosterRecordCrdtState.FromAdmission(candidate.EnumerateAdmissions().Single())]);
+        var report = Assert.Single(f.Projection.RefusalReports);
+        Assert.Equal(foreign ? "roster.genesis.foreign_tenant" : "roster.genesis.duplicate", report.Code);
+        if (!foreign) Assert.Contains("injection attempt", report.Remediation);
+        Assert.True(f.Live.Current.Contains("peer"));
+        Assert.False(f.Live.Current.Contains("other-founder"));
+        await f.Projection.ReconcileAsync(default);
+        Assert.Single(await f.RowsAsync(tenant));
+        Assert.Single(f.Logger.Warnings);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenesisDiagnosticsReportOnceAcrossCyclesAndClearWithoutAdoption(bool foreign)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var tenant = foreign ? Guid.Parse("29630000-0000-0000-0000-000000000002") : Tenant;
+        var candidate = MemberRoster.Genesis(tenant, "different-party", f.Attacker, Verifier, At, Guid.NewGuid());
+        // Leave only the candidate in the sync document: no adoptable chain, while the live roster stays intact.
+        await f.Projection.SupersedeOwnTeamRecordsAsync(Tenant, default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        await f.PublishAsync(RosterRecordCrdtState.FromAdmission(candidate.EnumerateAdmissions().Single()));
+        var code = foreign ? "roster.genesis.foreign_tenant" : "roster.genesis.duplicate";
+        var report = Assert.Single(f.Projection.RefusalReports);
+        Assert.Equal(code, report.Code);
+        Assert.Contains(foreign ? "intended tenant" : "Remove the duplicate candidate", report.Remediation);
+        var accessor = Substitute.For<IActiveTeamAccessor>();
+        var health = new LocalNodeHealthCheck(accessor, f.Projection);
+        Assert.Equal(HealthStatus.Unhealthy, (await health.CheckHealthAsync(new HealthCheckContext())).Status);
+        await using var active = new TeamContext(new TeamId(Tenant), "Test tenant",
+            new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+        accessor.Active.Returns(active);
+        var first = await health.CheckHealthAsync(new HealthCheckContext());
+        Assert.Equal(HealthStatus.Degraded, first.Status);
+        Assert.Equal($"Roster refused: {code}. {report.Remediation}", first.Description);
+        var entry = new HealthReportEntry(first.Status, first.Description, TimeSpan.Zero, null, first.Data);
+        var aggregate = new HealthReport(new Dictionary<string, HealthReportEntry>
+            { ["local-node"] = entry, ["local-node-readiness"] = entry }, TimeSpan.Zero);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Response.Body = new MemoryStream();
+        var writer = typeof(LocalNodeHealthProbeEndpointRouteBuilderExtensions).GetMethod("WriteAggregateResponseAsync",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        await (Task)writer.Invoke(null, [http, aggregate])!;
+        http.Response.Body.Position = 0;
+        using var reader = new StreamReader(http.Response.Body);
+        Assert.Equal($"Degraded{Environment.NewLine}{first.Description}", await reader.ReadToEndAsync());
+        var warnings = f.Logger.Warnings.ToArray();
+        Assert.Single(warnings);
+        Assert.Contains(code, warnings[0]);
+        Assert.Contains(report.Remediation, warnings[0]);
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => f.Projection.ReconcileAsync(default)));
+        Assert.Equal(warnings, f.Logger.Warnings.ToArray());
+        Assert.Single(f.Projection.RefusalReports);
+        Assert.Equal(first.Description, (await health.CheckHealthAsync(new HealthCheckContext())).Description);
+        var row = Assert.Single(await f.RowsAsync(tenant));
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(row.Payload.Payload.Body));
+        Assert.Equal(code, body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(report.Remediation, body.RootElement.GetProperty("remedy").GetString());
+        Assert.True(body.RootElement.GetProperty("preDecision").GetBoolean());
+        Assert.Equal("founder", f.Live.Current.GenesisPartyId);
+        // Empty snapshot must clear even though it cannot adopt a replacement roster.
+        await f.Projection.SupersedeOwnTeamRecordsAsync(tenant, default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        Assert.Empty(f.Projection.RefusalReports);
+        Assert.DoesNotContain("Roster refused", (await health.CheckHealthAsync(new HealthCheckContext())).Description!);
+        Assert.Single(await f.RowsAsync(tenant), r => r.EventType.Value == "AuthorizationRefusalCleared");
+        await f.Projection.ReconcileAsync(default);
+        Assert.Equal(2, (await f.RowsAsync(tenant)).Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenesisDiagnosticsReconstructAfterRestart(bool foreign)
+    {
+        await using var f = await Fixture.CreateAsync();
+        var tenant = foreign ? Guid.Parse("29630000-0000-0000-0000-000000000002") : Tenant;
+        await f.Projection.SupersedeOwnTeamRecordsAsync(Tenant, default);
+        await f.Projection.DrainPendingReconcilesAsync();
+        var candidate = MemberRoster.Genesis(tenant, "other-founder", f.Attacker, Verifier, At, Guid.NewGuid());
+        await f.PublishAsync(RosterRecordCrdtState.FromAdmission(candidate.EnumerateAdmissions().Single()));
+        var before = Assert.Single(f.Projection.RefusalReports);
+        await f.Projection.DisposeAsync();
+        await f.Provider.DisposeAsync();
+        await using var restarted = f.NewProvider(f.Valid);
+        var projection = restarted.GetRequiredService<RosterCrdtProjection>();
+        await projection.HydrateFromStoreAsync(default);
+        await projection.DrainPendingReconcilesAsync();
+        Assert.Equal(before, Assert.Single(projection.RefusalReports));
+        var warnings = f.Logger.Warnings.Count;
+        var rows = (await f.RowsAsync(tenant)).Count;
+        for (var i = 0; i < 8; i++) await projection.ReconcileAsync(default);
+        Assert.Equal(warnings, f.Logger.Warnings.Count);
+        Assert.Equal(rows, (await f.RowsAsync(tenant)).Count);
+        var accessor = Substitute.For<IActiveTeamAccessor>();
+        var health = new LocalNodeHealthCheck(accessor, projection);
+        Assert.Equal(HealthStatus.Unhealthy, (await health.CheckHealthAsync(new HealthCheckContext())).Status);
+        await using var active = new TeamContext(new TeamId(Tenant), "Test tenant",
+            new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+        accessor.Active.Returns(active);
+        var result = await health.CheckHealthAsync(new HealthCheckContext());
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal($"Roster refused: {before.Code}. {before.Remediation}", result.Description);
+        await projection.SupersedeOwnTeamRecordsAsync(tenant, default);
+        await projection.DrainPendingReconcilesAsync();
+        Assert.Empty(projection.RefusalReports);
+    }
+
+    [Fact]
+    public async Task LocallyMintedStaleGenesisRaisesNoRefusalDuringHydrationOrSupersession()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var formerTenant = Guid.Parse("29630000-0000-0000-0000-000000000002");
+        var stale = MemberRoster.Genesis(formerTenant, "founder", f.Founder, Verifier, At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(stale.EnumerateAdmissions().Single());
+        var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(candidate));
+            await db.SaveChangesAsync();
+        }
+        await f.Projection.DisposeAsync();
+        await f.Provider.DisposeAsync();
+        await using var restarted = f.NewProvider(f.Valid);
+        var projection = restarted.GetRequiredService<RosterCrdtProjection>();
+        await projection.HydrateFromStoreAsync(default);
+        await projection.DrainPendingReconcilesAsync();
+        Assert.Contains(projection.Snapshot(), r => r.RecordId == candidate.RecordId);
+        Assert.Empty(projection.RefusalReports);
+        Assert.Empty(await f.RowsAsync(formerTenant));
+        Assert.Empty(f.Logger.Warnings);
+        Assert.True(restarted.GetRequiredService<NodeTeamRoster>().Current.Contains("peer"));
+        Assert.Equal(1, await projection.ReconcileLocallyMintedGenesisAsync(default));
+        await projection.DrainPendingReconcilesAsync();
+        Assert.DoesNotContain(projection.Snapshot(), r => r.RecordId == candidate.RecordId);
+        Assert.Empty(projection.RefusalReports);
+        Assert.Empty(await f.RowsAsync(formerTenant));
+        Assert.Empty(await f.RowsAsync());
+    }
+
+    private sealed class RecordingLogger : ILogger<RosterCrdtProjection>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Warnings { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (level >= LogLevel.Warning) Warnings.Enqueue(formatter(state, exception));
+        }
+    }
+
     private sealed class DelayedTrail : IAuditTrail
     {
         private readonly InMemoryAuditTrail _inner = new();
@@ -249,6 +414,7 @@ public sealed class RosterPartialAdoptionTests
     {
         private readonly string _directory = Path.Combine(Path.GetTempPath(), $"roster-partial-{Guid.NewGuid():N}");
         private IAuditTrail _trail = null!;
+        public RecordingLogger Logger { get; } = new();
         public Ed25519Signer Founder { get; } = new(KeyPair.Generate());
         public Ed25519Signer Attacker { get; } = new(KeyPair.Generate());
         public byte[] PeerTransport { get; } = Enumerable.Repeat((byte)1, 32).ToArray();
@@ -261,6 +427,7 @@ public sealed class RosterPartialAdoptionTests
         {
             var services = new ServiceCollection();
             services.AddLogging();
+            services.AddSingleton<ILogger<RosterCrdtProjection>>(Logger);
             services.AddDbContextFactory<NodeLocalRosterDbContext>(o => o.UseSqlite(
                 $"Data Source={Path.Combine(_directory, "roster.db")};Pooling=False",
                 sqlite => sqlite.MigrationsHistoryTable(NodeLocalRosterDbContext.MigrationsHistoryTableName)));
@@ -327,10 +494,10 @@ public sealed class RosterPartialAdoptionTests
                 await Projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(a with { TransportPublicKey = PoisonTransport }), default);
             if (drain) await Projection.DrainPendingReconcilesAsync();
         }
-        public async Task<List<AuditRecord>> RowsAsync()
+        public async Task<List<AuditRecord>> RowsAsync(Guid? tenant = null)
         {
             var rows = new List<AuditRecord>();
-            await foreach (var row in _trail.QueryAsync(new AuditQuery(new TenantId(Tenant.ToString("D"))))) rows.Add(row);
+            await foreach (var row in _trail.QueryAsync(new AuditQuery(new TenantId((tenant ?? Tenant).ToString("D"))))) rows.Add(row);
             return rows;
         }
         public async ValueTask DisposeAsync()

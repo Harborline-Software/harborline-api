@@ -8,7 +8,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// Write-side decorator that replaces any caller-provided authority with the kernel-captured value before
 /// persistence. Its read path delegates to the stored-record reader and never reaches the authority source.
 /// </summary>
-internal sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail
+internal sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail
 {
     private readonly EventLogBackedAuditTrail _inner;
 
@@ -34,6 +34,9 @@ internal sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail
         return _inner.AppendAsync(authorized, ct);
     }
 
+    public ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default)
+        => _inner.AppendAsync(AuthorizedAuditRecord.CopyRefusal(record, decision), ct);
+
     public async IAsyncEnumerable<AuditRecord> QueryAsync(
         AuditQuery query,
         [EnumeratorCancellation] CancellationToken ct = default)
@@ -57,11 +60,18 @@ internal static class AuthorizedAuditRecord
         AuditRecord record,
         AuthorizationDecision decision,
         SeparationOfDutyDecision? approval = null)
+        => CopyCore(record, decision, approval, refused: false);
+
+    internal static AuditRecord CopyRefusal(AuditRecord record, AuthorizationDecision decision)
+        => CopyCore(record, decision, null, refused: true);
+
+    private static AuditRecord CopyCore(AuditRecord record, AuthorizationDecision decision,
+        SeparationOfDutyDecision? approval, bool refused)
     {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(decision);
 
-        if (decision.Verdict is not AuthorizationVerdict.Allowed)
+        if (refused == (decision.Verdict is AuthorizationVerdict.Allowed))
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.DecisionDenied);
         if (record.TenantId != decision.Request.Tenant)
             throw new AuthorizedAuditRefusedException(AuthorizedAuditRefusalCodes.TenantMismatch);

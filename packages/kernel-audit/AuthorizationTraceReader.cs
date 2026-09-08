@@ -71,6 +71,11 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         Guid auditId,
         DateTimeOffset at,
         CancellationToken ct = default)
+        => (await ReadWithDecisionAsync(tenant, caller, auditId, at, ct).ConfigureAwait(false)).Read;
+
+    /// <summary>Returns the same read and its gate decision for HTTP refusal rendering and audit.</summary>
+    public async ValueTask<(AuthorizationTraceRead Read, AuthorizationDecision Decision)> ReadWithDecisionAsync(
+        TenantId tenant, ActorId caller, Guid auditId, DateTimeOffset at, CancellationToken ct = default)
     {
         var entry = await FindAsync(tenant, auditId, ct).ConfigureAwait(false);
         var snapshot = entry?.AuthoritySnapshot;
@@ -84,7 +89,7 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
             auditId.ToString());
         var decision = await _gate.DecideAsync(request, ct).ConfigureAwait(false);
         if (decision.Verdict is not AuthorizationVerdict.Allowed)
-            return new AuthorizationTraceRead(AuthorizationTraceAvailability.Refused, null, [], null);
+            return (new AuthorizationTraceRead(AuthorizationTraceAvailability.Refused, null, [], null), decision);
 
         // Keyed by ORDINAL, not by stage: an entry whose act also went through the separation-of-duty
         // engine stores that decision's four steps under ordinals 5..8 with the same four stage names, and
@@ -93,13 +98,13 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
             .Where(step => step.Ordinal is >= 1 and <= AuthorizationDecisionEvidence.StepCount)
             .OrderBy(step => step.Ordinal)
             .ToArray();
-        return steps.Length == AuthorizationDecisionEvidence.StepCount
+        return (steps.Length == AuthorizationDecisionEvidence.StepCount
             ? new AuthorizationTraceRead(
                 AuthorizationTraceAvailability.Available,
                 snapshot!.TraceVersion,
                 steps,
                 snapshot.Counterfactual)
-            : new AuthorizationTraceRead(AuthorizationTraceAvailability.NotAvailable, null, [], null);
+            : new AuthorizationTraceRead(AuthorizationTraceAvailability.NotAvailable, null, [], null), decision);
     }
 
     // ponytail: a linear scan of the tenant's trail — IAuditTrail has no by-id query and the node-local

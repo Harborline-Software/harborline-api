@@ -17,9 +17,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The row is an ORDINARY append, never an authorized one: <c>AppendAuthorizedAsync</c> refuses a denied
-/// decision by construction (<c>AuthorizedAuditRefusalCodes.DecisionDenied</c>), and there is no allowed
-/// decision here to carry. The decision's own facts — principal, tenant, instant, target, act — are copied
+/// A decided refusal uses <c>IRefusedAuditTrail</c>, which validates and copies its denied decision.
+/// The allowed-append guard remains unchanged. Pre-decision refusals use the ordinary append. The decision's own facts — principal, tenant, instant, target, act — are copied
 /// from the ONE decision the guard already made and never re-derived; a refusal that never reached a
 /// decision is recorded with <c>preDecision = true</c> instead of an invented one.
 /// </para>
@@ -58,7 +57,7 @@ public sealed class AuthorizationRefusalAudit
     /// Records <paramref name="refusal"/>. <paramref name="decision"/> is the very decision the guard
     /// made, or <see langword="null"/> when the act never reached one.
     /// </summary>
-    public ValueTask RecordAsync(
+    public ValueTask<Guid?> RecordAsync(
         AuthorizationRefusal refusal,
         string permission,
         ActorId principal,
@@ -68,8 +67,17 @@ public sealed class AuthorizationRefusalAudit
         CancellationToken ct = default) =>
         RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType, ct);
 
+    internal async ValueTask RecordAsync(AuthorizationDecision decision, CancellationToken ct)
+    {
+        if (decision.Verdict != AuthorizationVerdict.Denied) return;
+        var refusal = await AuthorizationRefusalRenderer.RenderAsync(decision, [], null, ct).ConfigureAwait(false);
+        var request = decision.Request;
+        await RecordAsync(refusal, request.Act.Operation.Value, request.Principal, request.Tenant,
+            request.At, decision, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Records the clearing of a previously reported refusal, retaining its original diagnostic.</summary>
-    public ValueTask RecordClearedAsync(
+    public ValueTask<Guid?> RecordClearedAsync(
         AuthorizationRefusal refusal,
         string permission,
         ActorId principal,
@@ -78,7 +86,7 @@ public sealed class AuthorizationRefusalAudit
         CancellationToken ct = default) =>
         RecordCoreAsync(refusal, permission, principal, tenant, at, null, AuthorizationRefusalClearedEventType, ct);
 
-    private async ValueTask RecordCoreAsync(
+    private async ValueTask<Guid?> RecordCoreAsync(
         AuthorizationRefusal refusal,
         string permission,
         ActorId principal,
@@ -95,8 +103,10 @@ public sealed class AuthorizationRefusalAudit
             {
                 ["code"] = refusal.Code,
                 ["permission"] = permission,
+                ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
                 [DiagnosticKey] = refusal.Diagnostic,
+                ["decisionEvidence"] = decision?.Evidence.Project(),
             };
             var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid())
                 .ConfigureAwait(false);
@@ -110,7 +120,11 @@ public sealed class AuthorizationRefusalAudit
                 Actor: principal,
                 Target: decision?.Request.Target,
                 Act: decision?.Request.Act);
-            await _trail.AppendAsync(record, ct).ConfigureAwait(false);
+            if (decision is not null)
+                await ((IRefusedAuditTrail)_trail).AppendRefusedAsync(record, decision, ct).ConfigureAwait(false);
+            else
+                await _trail.AppendAsync(record, ct).ConfigureAwait(false);
+            return record.AuditId;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -120,6 +134,7 @@ public sealed class AuthorizationRefusalAudit
                 "Authorization refusal audit append FAILED (tenant {Tenant}, permission {Permission}) — the "
                 + "act was still refused but its audit row was not written.",
                 tenant, permission);
+            return null;
         }
     }
 }
@@ -135,6 +150,7 @@ public static class AuthorizationRefusalAuditComposition
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<AuthorizationRefusalAudit>();
+        services.TryAddScoped<AuthorizationTraceReader>();
         return services;
     }
 }

@@ -170,7 +170,7 @@ internal static class RequestAuthorization
 
     /// <summary>Renders, audits and writes the refusal of <paramref name="decision"/> — the one decision
     /// the caller already made; nothing here re-decides.</summary>
-    private static async ValueTask<IResult> RefusedAsync(
+    internal static async ValueTask<IResult> RefusedAsync(
         HttpContext http,
         AuthorizationDecision decision,
         CancellationToken ct)
@@ -209,13 +209,14 @@ internal static class RequestAuthorization
         AuthorizationDecision? decision,
         CancellationToken ct)
     {
+        Guid? auditId = null;
         if (http.RequestServices.GetService<AuthorizationRefusalAudit>() is { } audit)
         {
-            await audit.RecordAsync(refusal, permission, principal, tenant, at, decision, ct)
+            auditId = await audit.RecordAsync(refusal, permission, principal, tenant, at, decision, ct)
                 .ConfigureAwait(false);
         }
 
-        return Write(refusal, permission);
+        return Write(refusal, permission, auditId);
     }
 
     /// <summary>
@@ -223,14 +224,19 @@ internal static class RequestAuthorization
     /// decided the acting principal may see; <see cref="AuthorizationRefusal.Diagnostic"/> is deliberately
     /// not written here — it belongs to the audit row.
     /// </summary>
-    private static IResult Write(AuthorizationRefusal refusal, string permission) => Results.Json(
-        new
+    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null)
+    {
+        var body = new Dictionary<string, object?>
         {
-            code = refusal.Code,
-            permission,
-            title = refusal.Title,
-            detail = refusal.Detail,
-            remediation = refusal.Remediation,
-        },
-        statusCode: StatusCodes.Status403Forbidden);
+            ["code"] = refusal.Code,
+            ["permission"] = permission,
+            ["title"] = refusal.Title,
+            ["detail"] = refusal.Detail,
+            ["remediation"] = refusal.Remediation,
+        };
+        // Only an appended receipt extends the refusal's original five-field shape.
+        if (auditId is { } recordedId)
+            body["auditId"] = recordedId;
+        return Results.Json(body, statusCode: StatusCodes.Status403Forbidden);
+    }
 }

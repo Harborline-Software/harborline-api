@@ -75,6 +75,8 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         // Ticket 205 slice 4: org:manage-settings resolves at the gate now. The gate follows the SAME
         // ActiveTeamAuthorizationContext this fixture narrows by membership role, so the "every route denies
         // without manage-settings" tooth still moves the verdict.
+        builder.Services.AddSingleton<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>(new Harborline.Api.Kernel.Audit.InMemoryAuditTrail());
+        builder.Services.AddSingleton<IOperationSigner>(new Ed25519Signer(KeyPair.Generate()));
         builder.Services.AddTestKernelClock();
         builder.Services.AddSingleton(sp => Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
             permission => sp.GetRequiredService<ActiveTeamAuthorizationContext>().HasPermission(permission)));

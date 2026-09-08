@@ -178,13 +178,22 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         {
             builder.Services.AddSingleton(authorizationGate);
         }
+        // The HTTP read and feedback append share the shipping trail and signer, including on the
+        // separate listener container used by the native runtime. Never create a second audit store.
+        builder.Services.AddSingleton(_ => outerServices.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());
+        builder.Services.AddSingleton(_ => outerServices.GetRequiredService<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>());
+        builder.Services.AddSingleton(_ => outerServices.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>());
+        if (outerServices.GetService<AuthorizationRefusalAudit>() is { } refusalAudit)
+            builder.Services.AddSingleton(refusalAudit);
+        builder.Services.AddScoped<Harborline.Api.Kernel.Audit.AuthorizationTraceReader>();
         var outerClock = outerServices.GetService<TimeProvider>();
         if (outerClock is not null)
         {
             builder.Services.AddSingleton(outerClock);
         }
         builder.Services.AddHarborlineEngineRoom();
-        builder.Services.AddTransient<LocalNodeHealthCheck>();
+        builder.Services.AddTransient(_ =>
+            ActivatorUtilities.CreateInstance<LocalNodeHealthCheck>(outerServices));
         builder.Services.AddHealthChecks()
             .AddCheck<LocalNodeHealthCheck>("local-node")
             .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])

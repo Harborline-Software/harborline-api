@@ -1,9 +1,9 @@
 {
-  "_note": "Ticket 208 slice 1. The Access administration application as ORDINARY pack content: the definitions the composed host can admit TODAY (the grant form and the privileged-review workflow) and NOTHING else. The holdings view and the access-by-person report ship at S6, in an ordinary 1.1.0 upgrade, alongside the Role Grant entity type and the held-by-person report cartridge that admit them. It carries no grant instance - a grant is what a tenant has, not what a package knows. Preloaded on first run by AccessAdministrationPreloadHostedService through the ordinary export/install/activate path; a later pack may replace it whole.",
+  "_note": "Ticket 329. Ordinary replaceable Access content: grant form, privileged-review workflow and navigation for the holders read. No grant instances. The holdings view definition and access-by-person report remain deferred with their registrations.",
   "key": "harborline.access-administration",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Access administration",
-  "description": "Granting a role and reviewing privileged grants. The holdings view and the access-by-person report arrive at S6.",
+  "description": "Granting roles, reviewing privileged grants and inspecting access holders.",
   "scopeTier": "Horizontal",
   "contents": [
     {
@@ -195,6 +195,49 @@
           }
         ],
         "actions": []
+      }
+    },
+    {
+      "key": "access.navigation",
+      "kind": "NavWorkspaceConfig",
+      "version": "1.1.0",
+      "content": {
+        "seedWorkspaces": [
+          {
+            "id": "access",
+            "labelKey": "access.workspace",
+            "groups": [
+              {
+                "id": "access-inspection",
+                "labelKey": "access.holders",
+                "itemIds": [
+                  "access.holders"
+                ],
+                "items": [{ "id": "access.holders", "labelKey": "access.holders" }]
+              }
+            ]
+          }
+        ],
+        "panelSet": [
+          {
+            "id": "access-details",
+            "labelKey": "access.details",
+            "binding": "panels.access-details.toggle",
+            "shortcut": "mod+shift+a",
+            "defaultWidth": 400,
+            "minimumHeight": 300,
+            "defaultOpen": false,
+            "headerForm": "Title",
+            "bodyTemplate": "Fields",
+            "footer": {
+              "kind": "Claim",
+              "labelKey": "access.details.footer"
+            },
+            "traits": [
+              "Scoped"
+            ]
+          }
+        ]
       }
     }
   ],

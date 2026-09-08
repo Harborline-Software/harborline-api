@@ -29,11 +29,9 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 /// <remarks>
 /// <para>
 /// <b>Definitions only, and only what this host can admit.</b> The package carries the grant form and
-/// the privileged-review workflow — the two definitions the composed host admits today — and nothing
-/// else; this service writes no <c>AccessGrant</c>. A grant is what a tenant HAS, never what a package
-/// knows. The holdings view and the access-by-person report arrive at S6 as an ordinary 1.1.0 upgrade,
-/// in the same slice that registers the Role Grant entity type and the held-by-person report cartridge
-/// that admit them.
+/// the privileged-review workflow, and the holders navigation declaration. This service writes no
+/// <c>AccessGrant</c>. The holdings view definition and access-by-person report remain deferred
+/// alongside their entity type and report cartridge registrations.
 /// </para>
 /// <para>
 /// <b>No bypass.</b> Install and activation run the same verify → admission → atomic commit → project
@@ -59,7 +57,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
     public const string PackKey = "harborline.access-administration";
 
     /// <summary>The preloaded package's pinned version.</summary>
-    public const string PackVersion = "1.0.0";
+    public const string PackVersion = "1.1.0";
 
     /// <summary>
     /// The install provenance this preload records: shipped with every installation, and replaceable by

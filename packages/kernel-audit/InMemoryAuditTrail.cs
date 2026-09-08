@@ -36,7 +36,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// implementation.
 /// </para>
 /// </remarks>
-public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail
+public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail
 {
     private readonly ConcurrentQueue<AuditRecord> _records = new();
 
@@ -59,6 +59,13 @@ public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail
         SeparationOfDutyDecision? approval = null)
     {
         Enqueue(AuthorizedAuditRecord.CopyFromDecision(record, decision, approval), ct);
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default)
+    {
+        Enqueue(AuthorizedAuditRecord.CopyRefusal(record, decision), ct);
         return ValueTask.CompletedTask;
     }
 

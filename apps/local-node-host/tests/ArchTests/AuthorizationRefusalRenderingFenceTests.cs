@@ -54,6 +54,8 @@ public sealed class AuthorizationRefusalRenderingFenceTests
     /// </summary>
     private static readonly Dictionary<string, string> AllowedCatchers = new(StringComparer.Ordinal)
     {
+        ["Harborline.Api.LocalNodeHost.Health.AuthorizationAdminRoutes"] =
+            "Binding writes render and audit the writer decision through RequestAuthorization.RefusedAsync",
         ["Harborline.Api.LocalNodeHost.FormsDevSeeder"] =
             "a development seeder: it logs and skips, and serves no request",
         ["Harborline.Api.LocalNodeHost.FormsShowcaseDevSeeder"] =
@@ -63,6 +65,16 @@ public sealed class AuthorizationRefusalRenderingFenceTests
         ["Harborline.Api.LocalNodeHost.Health.WorkflowDefinitionRoutes"] =
             "ticket 214 slice 2: the workflow-definition PUT authorizes inside its store, so it meets the "
             + "refusal as an exception; both catches hand the carried DECISION to "
+            + "RequestAuthorization.RefusedAsync, which renders it through AuthorizationRefusalRenderer and "
+            + "audits it. The exception's message is never read",
+        ["Harborline.Api.LocalNodeHost.Health.WebSession.AdminTeamAccessRoutes"] =
+            "ticket 293 slice 1: apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs: "
+            + "IssueInvitationAsync: the denial is rendered through the read-filtered refusal renderer "
+            + "and its message never reaches the wire; "
+            + "RevokeMemberAsync: the denial is rendered through the read-filtered refusal renderer "
+            + "and its message never reaches the wire; "
+            + "UpdateMemberPermissionsAsync: the denial is rendered through the read-filtered refusal renderer "
+            + "and its message never reaches the wire. All three catches hand the exception to "
             + "RequestAuthorization.RefusedAsync, which renders it through AuthorizationRefusalRenderer and "
             + "audits it. The exception's message is never read",
         ["Harborline.Api.Foundation.Packs.Install.PackInstaller"] =

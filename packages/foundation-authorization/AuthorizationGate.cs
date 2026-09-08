@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
@@ -9,6 +10,8 @@ public sealed class AuthorizationGate(
     IRecordStandingResolver standings,
     IAuthorizationDefinitionAtomReader definitions)
 {
+    private static readonly ActivitySource Decisions = new("Harborline.AuthorizationGate");
+
     private static readonly IReadOnlyDictionary<string, string> ResourceRecordKindExceptions =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -20,6 +23,7 @@ public sealed class AuthorizationGate(
         AuthorizationGateRequest request,
         CancellationToken ct = default)
     {
+        using var activity = Decisions.StartActivity("decide");
         Validate(request);
         ct.ThrowIfCancellationRequested();
 
@@ -62,6 +66,20 @@ public sealed class AuthorizationGate(
         if (atomCoverageAllowed != namedRoleUnionAllowed)
             throw new InvalidOperationException("Authorization atom and named-role readings diverged.");
 
+        if (request.Roster is { } roster)
+        {
+            var grantAllowed = atomCoverageAllowed;
+            atoms = (roster.Ejected ? PermissionSet.Empty : roster.Permissions ?? PermissionSet.Empty)
+                .Permissions.Select(permission => PermissionAtom.Parse($"{permission}@/"))
+                .ToImmutableArray();
+            atomCoverageAllowed = atoms.Any(atom => atom.Covers(request.Act))
+                && (!roster.RequireMember || roster.Member)
+                && (!roster.RequireGrantCoverage || grantAllowed)
+                && roster.RequiredPermissions.Permissions.All(permission =>
+                    atoms.Any(atom => atom.Operation.Value == permission));
+            namedRoleUnionAllowed = atomCoverageAllowed;
+        }
+
         var verdict = atomCoverageAllowed ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied;
         var verdictName = verdict.ToString().ToLowerInvariant();
         resolution.Add(new AuthorizationResolutionStep(
@@ -72,8 +90,10 @@ public sealed class AuthorizationGate(
             [$"atom-coverage:{verdictName}", $"named-role-union:{verdictName}"]));
 
         ct.ThrowIfCancellationRequested();
-        return new AuthorizationDecision(
+        var decision = new AuthorizationDecision(
             request, verdict, atoms, derivations, standingSnapshot, resolution, snapshot.Excluded);
+        activity?.SetCustomProperty("authorization.evidence", decision.Evidence);
+        return decision;
     }
 
     private static void Validate(AuthorizationGateRequest request)

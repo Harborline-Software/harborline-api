@@ -235,6 +235,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
 
     [Theory]
     [InlineData("team-access")]
+    [InlineData("team-update")]
     [InlineData("invitation")]
     [InlineData("initial-grant")]
     [InlineData("node-administrator")]
@@ -251,10 +252,12 @@ public sealed class AuthorizationSlice3AcceptanceTests
         var adminTenant = new TenantId("11111111-1111-1111-1111-111111111111");
         var authority = TestAuthorization.Write(adminTenant, at: At);
         var denied = TestAuthorization.Gate(false);
+        using var capture = new RosterDecisionCapture();
 
         switch (administrator)
         {
             case "team-access":
+            case "team-update":
             {
                 var grantStore = Substitute.For<IGrantStore>();
                 var invitationIssuer = new InvitationIssuerSpy();
@@ -265,8 +268,11 @@ public sealed class AuthorizationSlice3AcceptanceTests
                     new AuthorizedGrantRevocationWriter(grantStore), closure,
                     denied, new FixedTimeProvider(At), new NoopRosterMemberRevocationAuthority(),
                     new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(),
-                    new Harborline.Api.Foundation.Crypto.Ed25519Signer(Harborline.Api.Foundation.Crypto.KeyPair.Generate()));
-                await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.RevokeMemberGrantAsync(
+                    new Harborline.Api.Foundation.Crypto.Ed25519Signer(Harborline.Api.Foundation.Crypto.KeyPair.Generate()), refusalAudit: capture.Audit);
+                if (administrator == "team-update")
+                    await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.UpdateMemberPermissionsAsync(
+                        "selected", adminTenant.Value, "grant", [TeamRolePermissions.RecordsRead], authority));
+                else await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.RevokeMemberGrantAsync(
                     "selected", adminTenant.Value, "grant", authority));
                 Assert.Empty(grantStore.ReceivedCalls());
                 Assert.Equal(0, invitationIssuer.Calls);
@@ -277,7 +283,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             {
                 var service = new AccountSetupInvitationIssuer(
                     sessions, new WebSelectedSessionStore(sessions), identity, grants, party, roster,
-                    new AccountSetupInvitationStore(identity), denied, new FixedTimeProvider(At));
+                    new AccountSetupInvitationStore(identity), denied, new FixedTimeProvider(At), capture.Audit);
                 await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.IssueAsync(
                     "selected", new AccountSetupInvitationIssueRequest(adminTenant.Value, [TeamRolePermissions.RecordsRead], "invite"), authority));
                 break;
@@ -305,7 +311,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             {
                 var service = new RecoveryInvitationIssuer(
                     sessions, new WebSelectedSessionStore(sessions), identity, grants, party, roster,
-                    new RecoveryInvitationStore(identity), denied);
+                    new RecoveryInvitationStore(identity), denied, capture.Audit);
                 await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.IssueAsync(
                     "selected", new RecoveryInvitationIssueRequest(adminTenant.Value, "member", "recovery"), authority));
                 break;
@@ -325,6 +331,14 @@ public sealed class AuthorizationSlice3AcceptanceTests
                 Assert.Equal(0, admission.Calls);
                 break;
             }
+        }
+
+        if (administrator is "team-access" or "team-update" or "invitation" or "recovery-invitation")
+        {
+            var evidence = Assert.Single(capture.Evidence);
+            Assert.False(evidence.Allowed);
+            Assert.Null(evidence.Roster); // Refused before roster or session lookup.
+            await capture.AssertAuditAsync(adminTenant);
         }
 
         Assert.Empty(identity.ReceivedCalls());

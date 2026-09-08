@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
+  "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3575,
-    "passed": 3557,
+    "total": 3621,
+    "passed": 3603,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,23 +66,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3566,
-      "passed": 3548,
+      "total": 3616,
+      "passed": 3598,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3566 -> 3575; passed 3548 -> 3557; failed unchanged at 0; notExecuted 18 -> 18",
+    "change": "total 3616 -> 3621; passed 3598 -> 3603; failed unchanged at 0; notExecuted 18 -> 18",
     "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
     "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3566 + 9 = 3575; passed = total - notExecuted = 3575 - 18 = 3557."
+    "arithmeticCrossCheck": "3616 + 5 = 3621; passed = total - notExecuted = 3621 - 18 = 3603."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "fix/adr66-step1-bootstrap-once, based on origin/main f7b5351",
+    "apiCommit": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
     "platform": "native Windows",
     "configuration": "Release, via eng/run-exact-clone.mjs, which builds a clean clone of HEAD rather than the working tree",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "1 direct working-tree run 2026-08-31 measuring total 2506, then 1 clone-gate run validating it (the run recorded in this branch's verification receipt)",
+    "runs": "Destination exact-clone failure evidence recorded 2026-09-07T22:45:49Z: total 3575, passed 3553, failed 4, skipped 18. Fix 1 does not run the full suite; the expected repaired totals await the controller gate.",
     "note": "NO LINUX RUN HAS EVER BEEN PINNED. This bar describes native Windows only. GitHub Actions runs ubuntu-latest and fails 27, of which 22 are CI=true PathMap failures now fixed in harborline-api 4f076a7. Do not compare this pin to a CI result without re-measuring."
   },
   "verdictVocabulary": {

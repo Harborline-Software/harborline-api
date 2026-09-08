@@ -198,7 +198,8 @@ public sealed class PackNavigationDeclarationTests
                 "labelKey": "workspaceGroups.operations.by-storey",
                 "destinationQueryRef": "queries.assets.by-storey",
                 "countQueryRef": "queries.assets.by-storey",
-                "itemIds": ["assets-by-storey"]
+                "itemIds": ["assets-by-storey"],
+                "items": [{ "id": "assets-by-storey", "labelKey": "navigation.assets-by-storey" }]
               }],
               "documentSpine": [{
                 "id": "assets",
