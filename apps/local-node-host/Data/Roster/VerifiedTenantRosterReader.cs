@@ -49,6 +49,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             .AsNoTracking().ToListAsync(ct).ConfigureAwait(false);
         foreach (var row in roots)
         {
+            RequireCurrentWireFormat(row);
             var root = NodeRosterRecord.ToCrdtState(row).ToAdmissionOrNull();
             if (root is not null && MemberRoster.FromSyncedRecords([root], [], verifier).HasRootGrantHolder())
                 return root;
@@ -67,22 +68,29 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
 
         var canonicalTeam = teamId.ToString("D");
         await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var query = at is { } queryAt
-            ? db.RosterRecords.FromSql($"""
-                SELECT * FROM roster_records WHERE team_id = {canonicalTeam} AND
-                ((received_at IS NULL AND issued_at <= {queryAt.ToUnixTimeMilliseconds()}) OR
-                 (received_at IS NOT NULL AND
-                  ((issued_at < received_at - {(long)NodeRosterRecord.ReceiveTimeWindow.TotalMilliseconds}
-                    AND received_at <= {queryAt.ToUnixTimeMilliseconds()}) OR
-                   (issued_at >= received_at - {(long)NodeRosterRecord.ReceiveTimeWindow.TotalMilliseconds}
-                    AND issued_at <= {queryAt.ToUnixTimeMilliseconds()}))))
-                """)
-            : db.RosterRecords.Where(row => row.TeamId == canonicalTeam);
+        var query = db.RosterRecords.Where(row => row.TeamId == canonicalTeam);
+        if (at is { } queryAt)
+        {
+            query = query.Where(row =>
+                row.WireFormatVersion != RosterWireFormat.CurrentVersion
+                || row.IssuedAtUtc <= queryAt
+                || row.ReceivedAtUtc <= queryAt);
+        }
         var rows = await query.AsNoTracking()
             .OrderBy(row => row.IssuedAtUtc)
             .ThenBy(row => row.Id)
             .ToListAsync(ct)
             .ConfigureAwait(false);
+
+        if (rows.FirstOrDefault(row => row.WireFormatVersion != RosterWireFormat.CurrentVersion)
+            is { } unsupported)
+            RequireCurrentWireFormat(unsupported);
+        // SQLite cannot translate the cross-column DateTimeOffset subtraction through this model's
+        // epoch-millisecond value converter. The query above is a safe temporal superset; apply only
+        // the exact bounded comparison here, after the explicit-tenant predicate has authorized the rows.
+        if (at is { } boundedAt)
+            rows = rows.Where(row => NodeRosterRecord.BoundedOrderTime(
+                row.IssuedAtUtc, row.ReceivedAtUtc) <= boundedAt).ToList();
 
         var orderTime = NodeRosterRecord.OrderTimes(rows);
         if (rows.Count == 0)
@@ -119,15 +127,11 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         foreach (var row in rows)
         {
             var state = NodeRosterRecord.ToCrdtState(row);
-            RosterReceiveAttestation? attestation = null;
-            if (state.WireFormatVersion == RosterWireFormat.CurrentVersion)
-            {
-                attestation = state.ReceiveAttestationOrNull();
-                if (attestation is null || !Guid.TryParse(state.NonceGuid, out var recordNonce)
-                    || !RosterReceiveAttestationSigning.Verify(state.RecordId, recordNonce, attestation, _verifier))
-                    throw Refuse(VerifiedTenantRosterRefusal.Tampered,
-                        "A durable roster receipt has invalid signed evidence.");
-            }
+            var attestation = state.ReceiveAttestationOrNull();
+            if (attestation is null || !Guid.TryParse(state.NonceGuid, out var recordNonce)
+                || !RosterReceiveAttestationSigning.Verify(state.RecordId, recordNonce, attestation, _verifier))
+                throw Refuse(VerifiedTenantRosterRefusal.Tampered,
+                    "A durable roster receipt has invalid signed evidence.");
             switch ((RosterRecordKind)row.Kind)
             {
                 case RosterRecordKind.Admission:
@@ -145,7 +149,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                             "A durable admission row is malformed or has an invalid signature.");
                     }
                     admissions.Add(admission);
-                    if (attestation is not null) attestations.Add(attestation);
+                    attestations.Add(attestation);
                     break;
                 }
                 case RosterRecordKind.Revocation:
@@ -159,7 +163,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                             "A durable revocation row is malformed or has an invalid signature.");
                     }
                     revocations.Add(revocation);
-                    if (attestation is not null) attestations.Add(attestation);
+                    attestations.Add(attestation);
                     break;
                 }
                 default:
@@ -225,4 +229,12 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
     private static VerifiedTenantRosterRefusedException Refuse(
         VerifiedTenantRosterRefusal refusal,
         string message) => new(refusal, message);
+
+    private static void RequireCurrentWireFormat(NodeRosterRecord row)
+    {
+        if (row.WireFormatVersion != RosterWireFormat.CurrentVersion)
+            throw Refuse(VerifiedTenantRosterRefusal.WireVersionUnsupported,
+                $"A durable roster row has unsupported wire format version '{row.WireFormatVersion}'; "
+                + $"expected '{RosterWireFormat.CurrentVersion}'.");
+    }
 }

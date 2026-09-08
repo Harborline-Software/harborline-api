@@ -213,25 +213,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 .OrderBy(r => r.IssuedAtUtc).ThenBy(r => r.Id)
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
-            foreach (var legacy in rows.Where(row => row.WireFormatVersion != RosterWireFormat.CurrentVersion)
-                         .GroupBy(row => row.TeamId, StringComparer.Ordinal))
-            {
-                var key = _attestationSigner.IssuerId.ToBase64Url();
-                var party = rows.FirstOrDefault(row => row.TeamId == legacy.Key
-                    && row.Kind == (int)RosterRecordKind.Admission && row.PublicKeyB64Url == key)?.PartyId
-                    ?? throw new InvalidOperationException("The local signer has no admission in a legacy roster log.");
-                foreach (var row in legacy)
-                {
-                    var state = NodeRosterRecord.ToCrdtState(row).AttestReceipt(
-                        _attestationSigner, party, row.ReceivedAtUtc ?? row.IssuedAtUtc);
-                    row.ReceivedAtUtc = DateTimeOffset.Parse(state.ReceivedAtIso);
-                    row.WireFormatVersion = state.WireFormatVersion;
-                    row.ReceivedByPartyId = state.ReceivedByPartyId;
-                    row.ReceivedByPublicKey = state.ReceivedByPublicKey;
-                    row.ReceiveAttestationSignatureB64Url = state.ReceiveAttestationSignatureB64Url;
-                }
-            }
-            if (ctx.ChangeTracker.HasChanges()) await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            if (rows.FirstOrDefault(row => row.WireFormatVersion != RosterWireFormat.CurrentVersion)
+                is { } unsupported)
+                throw new VerifiedTenantRosterRefusedException(
+                    VerifiedTenantRosterRefusal.WireVersionUnsupported,
+                    $"A durable roster row has unsupported wire format version '{unsupported.WireFormatVersion}'; "
+                    + $"expected '{RosterWireFormat.CurrentVersion}'.");
 
             var legacyCount = rows.Count(row => !string.IsNullOrEmpty(row.PermissionsJson));
             if (legacyCount > 0 && Interlocked.Exchange(ref _legacyPermissionFieldsReported, 1) == 0)

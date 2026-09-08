@@ -214,14 +214,16 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         await using var provider = Store();
         await using var db = await provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>().CreateDbContextAsync();
         db.RosterRecords.AddRange(foreign.EnumerateAdmissions().Select(admission =>
-            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission))));
+            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                .AttestReceipt(founder.Signer, "other-founder", admission.Admission.IssuedAt))));
         if (revoked)
         {
             var removal = foreign.SignRevoke("other-founder", founder.Signer, admittedParty, verifier,
                 DateTimeOffset.Parse("2026-09-07T13:00:00Z"),
                 Guid.Parse("dddddddd-0000-0000-0000-000000000296"));
             db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(
-                RosterRecordCrdtState.FromRevocation(removal.Signed)));
+                RosterRecordCrdtState.FromRevocation(removal.Signed)
+                    .AttestReceipt(founder.Signer, "other-founder", removal.Signed.Signed.IssuedAt)));
         }
         await db.SaveChangesAsync();
     }

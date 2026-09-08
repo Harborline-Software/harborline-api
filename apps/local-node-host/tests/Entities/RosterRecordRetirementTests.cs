@@ -36,6 +36,17 @@ public sealed class RosterRecordRetirementTests
                     """);
             }
             await db.Database.MigrateAsync();
+            foreach (var row in await db.RosterRecords.ToListAsync())
+            {
+                var state = NodeRosterRecord.ToCrdtState(row)
+                    .AttestReceipt(localSigner, "founder", row.IssuedAtUtc);
+                row.ReceivedAtUtc = DateTimeOffset.Parse(state.ReceivedAtIso);
+                row.WireFormatVersion = state.WireFormatVersion;
+                row.ReceivedByPartyId = state.ReceivedByPartyId;
+                row.ReceivedByPublicKey = state.ReceivedByPublicKey;
+                row.ReceiveAttestationSignatureB64Url = state.ReceiveAttestationSignatureB64Url;
+            }
+            await db.SaveChangesAsync();
         }
         var logger = new LegacyLogger();
         var services = new ServiceCollection();

@@ -179,7 +179,91 @@ public sealed class RosterReceiveTimeTests
     }
 
     [Fact]
-    public async Task NumberedMigrationRetainsReceiptOnDiskAndLeavesLegacyReceiptUnknown()
+    public async Task ReadAtAndInMemoryFoldAgreeForRevocationAtReceiptWindowBoundary()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"roster-boundary-{Guid.NewGuid():N}.db");
+        var options = new DbContextOptionsBuilder<NodeLocalRosterDbContext>()
+            .UseSqlite($"Data Source={path};Pooling=False").Options;
+        using var founderKey = KeyPair.Generate();
+        using var memberKey = KeyPair.Generate();
+        var founder = new Ed25519Signer(founderKey);
+        var verifier = new Ed25519Verifier();
+        var tenant = Guid.NewGuid();
+        var roster = MemberRoster.Genesis(tenant, "founder", founder, verifier, At, Guid.NewGuid())
+            .Admit("founder", founder, "member", memberKey.PrincipalId, PermissionCompositions.Member,
+                verifier, At.AddSeconds(1), Guid.NewGuid());
+        var received = At.AddHours(2);
+        var boundary = received - NodeRosterRecord.ReceiveTimeWindow;
+        var revocation = new MemberRevocationRecord(tenant.ToString("D"), "member",
+            RosterSigning.SignRevocation(founder, tenant, "member", "founder", boundary, Guid.NewGuid()));
+        var states = roster.EnumerateAdmissions()
+            .Select(admission => RosterRecordCrdtState.FromAdmission(admission)
+                .AttestReceipt(founder, "founder", admission.Admission.IssuedAt))
+            .Append(RosterRecordCrdtState.FromRevocation(revocation)
+                .AttestReceipt(founder, "founder", received))
+            .ToArray();
+        var rows = states.Select(NodeRosterRecord.FromCrdtState).ToArray();
+
+        try
+        {
+            await using (var db = new NodeLocalRosterDbContext(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.RosterRecords.AddRange(rows);
+                await db.SaveChangesAsync();
+            }
+
+            var orderTime = NodeRosterRecord.OrderTimes(rows);
+            var included = states.Where(state =>
+                orderTime(state.SignatureB64Url, NodeRosterRecord.FromCrdtState(state).IssuedAtUtc) <= boundary);
+            var folded = MemberRoster.FromSyncedRecords(
+                included.Select(state => state.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>(),
+                included.Select(state => state.ToRevocationOrNull()).OfType<MemberRevocationRecord>(),
+                verifier, orderTime);
+            var read = await new VerifiedTenantRosterReader(new InlineFactory(options), verifier)
+                .ReadAtAsync(new TenantId(tenant.ToString("D")), boundary, default);
+
+            Assert.Equal(folded.Contains("member"), read.Contains("member"));
+            Assert.False(read.Contains("member"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task ReadAtRefusesNonCurrentWireFormatInsteadOfSkippingItsFutureReceipt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"roster-version-{Guid.NewGuid():N}.db");
+        var options = new DbContextOptionsBuilder<NodeLocalRosterDbContext>()
+            .UseSqlite($"Data Source={path};Pooling=False").Options;
+        using var founderKey = KeyPair.Generate();
+        var founder = new Ed25519Signer(founderKey);
+        var verifier = new Ed25519Verifier();
+        var tenant = Guid.NewGuid();
+        var roster = MemberRoster.Genesis(tenant, "founder", founder, verifier, At, Guid.NewGuid());
+        var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState
+            .FromAdmission(roster.EnumerateAdmissions().Single())
+            .AttestReceipt(founder, "founder", At.AddDays(1)));
+        row.WireFormatVersion = 0;
+
+        try
+        {
+            await using (var db = new NodeLocalRosterDbContext(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.RosterRecords.Add(row);
+                await db.SaveChangesAsync();
+            }
+
+            var exception = await Assert.ThrowsAsync<VerifiedTenantRosterRefusedException>(() =>
+                new VerifiedTenantRosterReader(new InlineFactory(options), verifier)
+                    .ReadAtAsync(new TenantId(tenant.ToString("D")), At.AddDays(-1), default));
+            Assert.Equal(VerifiedTenantRosterRefusal.WireVersionUnsupported, exception.Refusal);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task NumberedMigrationRetainsReceiptOnDiskAndQueriesAsOfReceiptCandidates()
     {
         var path = Path.Combine(Path.GetTempPath(), $"roster-receipt-{Guid.NewGuid():N}.db");
         var commands = new List<string>();
@@ -218,8 +302,10 @@ public sealed class RosterReceiveTimeTests
                 row.WireFormatVersion = RosterWireFormat.CurrentVersion;
                 await new VerifiedTenantRosterReader(new InlineFactory(options), new Ed25519Verifier())
                     .ReadAtAsync(new TenantId(row.TeamId), At.AddDays(2), default);
-                Assert.Contains(commands, command => command.Contains("WHERE team_id", StringComparison.Ordinal)
-                    && command.Contains("received_at IS NULL", StringComparison.Ordinal));
+                Assert.Contains(commands, command => command.Contains("WHERE", StringComparison.Ordinal)
+                    && command.Contains("wire_format_version", StringComparison.Ordinal)
+                    && command.Contains("issued_at", StringComparison.Ordinal)
+                    && command.Contains("received_at", StringComparison.Ordinal));
             }
         }
         finally { File.Delete(path); }

@@ -61,7 +61,8 @@ public sealed class RosterPartialAdoptionTests
             // Deliberately invert durable append order; the attacker's chain names our PUBLIC key.
             foreach (var admission in hostile.EnumerateAdmissions().Concat(f.Valid.EnumerateAdmissions()))
             {
-                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)));
+                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                    .AttestReceipt(f.Founder, "founder", admission.Admission.IssuedAt)));
                 await db.SaveChangesAsync();
             }
         }
@@ -362,7 +363,8 @@ public sealed class RosterPartialAdoptionTests
         var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var db = await factory.CreateDbContextAsync())
         {
-            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(candidate));
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(
+                candidate.AttestReceipt(f.Founder, "founder", At)));
             await db.SaveChangesAsync();
         }
         await f.Projection.DisposeAsync();

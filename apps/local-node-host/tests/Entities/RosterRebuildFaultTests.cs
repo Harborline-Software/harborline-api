@@ -73,6 +73,34 @@ public sealed class RosterRebuildFaultTests
         Assert.Equal(afterCorruption, f.Verifier.Calls);
     }
 
+    [Fact]
+    public async Task NonCurrentWireFormatRefusesHydrationWithoutSigningOrReplication()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var forgedReceipt = At.AddYears(1);
+        await using (var db = await f.Factory.CreateDbContextAsync())
+        {
+            var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
+            peer.WireFormatVersion = 0;
+            peer.ReceivedAtUtc = forgedReceipt;
+            peer.ReceivedByPartyId = string.Empty;
+            peer.ReceivedByPublicKey = string.Empty;
+            peer.ReceiveAttestationSignatureB64Url = string.Empty;
+            await db.SaveChangesAsync();
+        }
+
+        await f.RestartAsync();
+        Assert.Equal(0, await f.Projection.HydrateFromStoreAsync(default));
+        Assert.Empty(f.Projection.Snapshot());
+        await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "wire format version");
+
+        await using var reopened = await f.Factory.CreateDbContextAsync();
+        var refused = await reopened.RosterRecords.SingleAsync(r => r.PartyId == "peer");
+        Assert.Equal(0, refused.WireFormatVersion);
+        Assert.Equal(forgedReceipt, refused.ReceivedAtUtc);
+        Assert.Empty(refused.ReceiveAttestationSignatureB64Url);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -325,7 +353,8 @@ public sealed class RosterRebuildFaultTests
             {
                 await db.Database.EnsureCreatedAsync();
                 db.RosterRecords.AddRange(_roster.EnumerateAdmissions()
-                    .Select(a => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a))));
+                    .Select(a => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a)
+                        .AttestReceipt(_founder, "founder", a.Admission.IssuedAt))));
                 await db.SaveChangesAsync();
             }
             var projection = sender.GetRequiredService<RosterCrdtProjection>();
@@ -346,9 +375,11 @@ public sealed class RosterRebuildFaultTests
         public async Task StoreFloorRemovalAsync()
         {
             await using var db = await Factory.CreateDbContextAsync();
-            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(
-                new MemberRevocationRecord(Tenant.ToString("D"), "founder",
-                    RosterSigning.SignRevocation(_founder, Tenant, "founder", "founder", At.AddHours(1), Guid.NewGuid())))));
+            var removal = new MemberRevocationRecord(Tenant.ToString("D"), "founder",
+                RosterSigning.SignRevocation(
+                    _founder, Tenant, "founder", "founder", At.AddHours(1), Guid.NewGuid()));
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(removal)
+                .AttestReceipt(_founder, "founder", removal.Signed.IssuedAt)));
             await db.SaveChangesAsync();
         }
         public async Task PublishSuccessorAsync()
