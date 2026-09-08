@@ -89,6 +89,7 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260902113605_TenantScopedAuthorizationDefinitions",
         "20260902120000_AuthorizationClosureOwnerVersion",
         "20260902202756_TenantScopedSearchProjectionKeys",
+        "20260908030000_RosterAdmissionGrantBackfill",
         // ADR 0066 migration step 1 — the append-only administrator-authority log on the roster context
         // (an existing context and owner; no new context, so the 16/15+1 counts are unchanged).
         "20260831184210_RosterAddAdministratorAuthority",

@@ -110,6 +110,13 @@ public sealed class NodeLocalSearchDbContext : DbContext
         ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<Roster.RosterAdmissionGrantBackfillRow>(e =>
+        {
+            e.ToTable("roster_admission_grant_backfill"); e.HasKey(row => row.Id);
+            e.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            e.Property(row => row.RecordCount).HasColumnName("record_count");
+        });
+
         modelBuilder.Entity<SearchNodeRow>(e =>
         {
             e.ToTable("search_nodes");
