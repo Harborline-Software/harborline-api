@@ -68,6 +68,15 @@ public sealed class AuthorizationRefusalAudit
         CancellationToken ct = default) =>
         RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType, ct);
 
+    internal async ValueTask RecordAsync(AuthorizationDecision decision, CancellationToken ct)
+    {
+        if (decision.Verdict != AuthorizationVerdict.Denied) return;
+        var refusal = await AuthorizationRefusalRenderer.RenderAsync(decision, [], null, ct).ConfigureAwait(false);
+        var request = decision.Request;
+        await RecordAsync(refusal, request.Act.Operation.Value, request.Principal, request.Tenant,
+            request.At, decision, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Records the clearing of a previously reported refusal, retaining its original diagnostic.</summary>
     public ValueTask RecordClearedAsync(
         AuthorizationRefusal refusal,
@@ -98,6 +107,7 @@ public sealed class AuthorizationRefusalAudit
                 ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
                 [DiagnosticKey] = refusal.Diagnostic,
+                ["decisionEvidence"] = decision?.Evidence.Project(),
             };
             var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid())
                 .ConfigureAwait(false);

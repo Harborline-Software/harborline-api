@@ -170,6 +170,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             new[]
             {
                 (PackContentKind.FormDefinition, "access.grant-a-role"),
+                (PackContentKind.NavWorkspaceConfig, "access.navigation"),
                 (PackContentKind.WorkflowDefinition, "access.privileged-grant-review"),
             },
             active.SeedItems.Select(item => (item.Kind, item.Key)).OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray());
@@ -221,6 +222,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         await refusing.PreloadAsync(Tenant, CancellationToken.None);
 
         Assert.Null(_store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey));
+        Assert.Null(PackNavigationRoutes.PackNavigationComposer.Compose(_store, Tenant).Pack);
         // ... but the refusal is durable and operator-visible: the version is installed and INACTIVE in
         // the ordinary installed-pack listing, not silently gone.
         var pending = Assert.Single(

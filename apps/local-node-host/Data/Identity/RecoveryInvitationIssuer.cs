@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -44,7 +45,8 @@ internal sealed class RecoveryInvitationIssuer(
     ICanonicalPrincipalPartyReader partyReader,
     IVerifiedTenantRosterReader rosterReader,
     RecoveryInvitationStore store,
-    AuthorizationGate gate) : IRecoveryInvitationIssuer
+    AuthorizationGate gate,
+    AuthorizationRefusalAudit? refusalAudit = null) : IRecoveryInvitationIssuer
 {
     internal static readonly TimeSpan InvitationLifetime = TimeSpan.FromHours(1);
 
@@ -74,13 +76,11 @@ internal sealed class RecoveryInvitationIssuer(
         ArgumentNullException.ThrowIfNull(request);
         if (!string.Equals(request.TenantId, authority.Tenant.Value, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("The recovery tenant does not match the write authority.", nameof(request));
-        var decision = await _gate.DecideAsync(
-            authority.Request(
-                AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
-                "members",
-                request.IdempotencyKey),
-            cancellationToken).ConfigureAwait(false);
-        decision.RequireAllowed();
+        var coverage = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
+                "members", request.IdempotencyKey), cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
         var normalizedTarget = WebUsernameNormalizer.TryNormalize(request.TargetUsername);
         if (!Guid.TryParse(request.TenantId, out var parsedTenant) ||
             normalizedTarget is null ||
@@ -126,11 +126,17 @@ internal sealed class RecoveryInvitationIssuer(
             return null;
         }
 
-        var issuerPermissions = roster.PermissionsOf(party.PartyId.Value);
-        if (issuerPermissions is null || !issuerPermissions.Contains(TeamRolePermissions.MembersManage))
-        {
-            return null;
-        }
+        var decision = await _gate.DecideAsync(
+            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
+                "members", request.IdempotencyKey) with
+            {
+                Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
+                {
+                    RequireMember = true, RequireGrantCoverage = true,
+                }
+            }, cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
+        decision.RequireAllowed();
 
         // Resolve the EXISTING target account. Non-enumerating: any miss returns the same null the
         // authority failures above return.

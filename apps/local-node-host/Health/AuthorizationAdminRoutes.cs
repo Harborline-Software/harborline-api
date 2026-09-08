@@ -46,7 +46,7 @@ public static class AuthorizationAdminRoutes
         async ValueTask<(TenantId Tenant, IResult? Denied)> SettingsAuthorityAsync(
             HttpContext http, CancellationToken ct)
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = RequestTenant();
             return (tenant, await RequestAuthorization.RefusalAsync(
                 http, tenant, Permission.OrgManageSettings, RouteRecord.TheInstall, ct).ConfigureAwait(false));
         }
@@ -172,6 +172,9 @@ public static class AuthorizationAdminRoutes
                 .ThenBy(row => row.RuleVersion, StringComparer.Ordinal)
                 .ToArray());
         });
+        TenantId RequestTenant() => NodeTenant.Resolve(activeTeam);
+        app.MapGet(AccessHoldersRead.Route, (HttpContext http, CancellationToken ct) =>
+            AccessHoldersRead.ReadAsync(http, RequestTenant(), timeProvider, ct));
     }
 
     private static RoleDefinitionDto ToDto(RoleDefinition role) => new(
