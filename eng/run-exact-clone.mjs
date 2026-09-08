@@ -125,11 +125,11 @@ try {
   // contracts must be built first: its package.json points main/types at dist/, which no clone
   // carries — the exact class of gap this gate exists to surface. Moving these three steps earlier
   // does not weaken that; they still install and build from the clone alone.
-  run('capability-contracts-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'packages/contracts'))
-  run('capability-contracts-build', 'npm', ['run', 'build'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-install', 'pnpm', ['install', '--frozen-lockfile'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-build', 'pnpm', ['run', 'build'], path.join(clone, 'packages/contracts'))
   // 246: the contracts package carries its own tests, including the package-name fence; a clone that
   // only builds it would let a retired-name regression through this route.
-  run('capability-contracts-tests', 'npx', ['vitest', 'run'], path.join(clone, 'packages/contracts'))
+  run('capability-contracts-tests', 'pnpm', ['test'], path.join(clone, 'packages/contracts'))
   run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
 
   const hostTests = run('dotnet-host-tests', 'dotnet',
