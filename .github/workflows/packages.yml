@@ -61,8 +61,6 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
-        with:
-          token: ${{ secrets.HARBORLINE_PLATFORM_READ_TOKEN }}
       - uses: actions/setup-node@v7
         with:
           # No engines field or .nvmrc pins this package; 24 is the version the lane is verified
@@ -107,8 +105,6 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
-        with:
-          token: ${{ secrets.HARBORLINE_PLATFORM_READ_TOKEN }}
       - name: Drive a provisioned node through the operator CLI
         run: >-
           dotnet test apps/local-node-host/tests/tests.csproj
@@ -145,8 +141,6 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
-        with:
-          token: ${{ secrets.HARBORLINE_PLATFORM_READ_TOKEN }}
       - uses: actions/setup-node@v7
         with:
           # Ticket 096: Telemetry.CapabilityInvokeCorrelationTraceTests shells out to
@@ -189,8 +183,6 @@ jobs:
           dotnet-version: '10.0.x'
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
-        with:
-          token: ${{ secrets.HARBORLINE_PLATFORM_READ_TOKEN }}
       - name: Select immutable prerelease version
         id: version
         shell: bash

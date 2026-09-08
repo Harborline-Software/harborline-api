@@ -1,9 +1,5 @@
 name: Pinned platform feed
 description: Build and validate the local NuGet source before restoring API projects
-inputs:
-  token:
-    description: Read token for the platform checkout
-    required: true
 runs:
   using: composite
   steps:
@@ -20,7 +16,6 @@ runs:
         repository: Harborline-Software/harborline-platform
         ref: ${{ steps.platform_pin.outputs.commit }}
         path: .platform
-        token: ${{ inputs.token }}
     - name: Test the feed contract
       shell: bash
       run: node --test eng/tests/platform-feed.test.mjs
