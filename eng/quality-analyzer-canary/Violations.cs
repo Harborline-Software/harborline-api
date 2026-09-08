@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace Harborline.Quality.AnalyzerCanary;
+namespace Harborline.Api.Quality.AnalyzerCanary;
 
 // Every member is deliberately noncompliant. eng/verify-analyzer-canary.sh
 // asserts the upstream IDs in SARIF, rather than accepting a generic red build.
