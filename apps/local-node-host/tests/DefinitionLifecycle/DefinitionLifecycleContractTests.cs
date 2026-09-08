@@ -146,7 +146,7 @@ public sealed class DefinitionLifecycleContractTests
     public async Task Registered_form_severs_author_and_reader_collection_aliases(bool entityStore)
     {
         var roles = new List<string> { "sys.platform-roles/administrator" };
-        var tenant = new Harborline.Api.Foundation.Assets.Common.TenantId("frozen-form-tenant");
+        var tenant = new Harborline.Foundation.Assets.Common.TenantId("frozen-form-tenant");
         IFormDefinitionStore store = entityStore
             ? new EntityStoreFormDefinitionStore(
                 new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), TimeProvider.System)
@@ -263,7 +263,7 @@ public sealed class DefinitionLifecycleContractTests
         Assert.Equal(stateMachine, foundingCaller.DeclaringType);
         Assert.Equal("MoveNext", foundingCaller.Name);
 
-        var tenant = new Harborline.Api.Foundation.Assets.Common.TenantId("mint-evidence");
+        var tenant = new Harborline.Foundation.Assets.Common.TenantId("mint-evidence");
         var authority = new AuthorizationWriteContext(
             new ActorId("installer:authorization-definition-seed"),
             tenant,
@@ -363,7 +363,7 @@ public sealed class DefinitionLifecycleContractTests
     public async Task Noop_adapter_treats_every_public_read_as_an_empty_store_operation()
     {
         IDefinitionLifecycleStore<FormDefinition> store = new NoopFormDefinitionStore();
-        var tenant = new Harborline.Api.Foundation.Assets.Common.TenantId("tenant-empty");
+        var tenant = new Harborline.Foundation.Assets.Common.TenantId("tenant-empty");
         var address = new DefinitionAddress(tenant, "missing.form");
         var coordinates = new DefinitionCoordinates(tenant, "missing.form", "1.0.0");
 

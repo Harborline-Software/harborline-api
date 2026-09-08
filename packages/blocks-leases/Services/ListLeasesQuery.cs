@@ -15,11 +15,11 @@ public sealed record ListLeasesQuery
     public LeasePhase? Phase { get; init; }
 
     /// <summary>
-    /// When set, only leases owned by this <see cref="Harborline.Api.Foundation.Assets.Common.TenantId"/>
+    /// When set, only leases owned by this <see cref="Harborline.Foundation.Assets.Common.TenantId"/>
     /// are returned. Pair with <see cref="Harborline.Api.Foundation.Authorization.ITenantContext.TenantId"/>
     /// to enforce tenant isolation at the query level (W#74 PR 2 A1 amendment).
     /// </summary>
-    public Harborline.Api.Foundation.Assets.Common.TenantId? TenantId { get; init; }
+    public Harborline.Foundation.Assets.Common.TenantId? TenantId { get; init; }
 
     /// <summary>
     /// When set, only leases that include this tenant party are returned.

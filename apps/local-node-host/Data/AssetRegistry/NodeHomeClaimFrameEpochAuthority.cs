@@ -4,7 +4,6 @@ using Harborline.Api.Blocks.Assets.Registry.Services.Spatial;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Health;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 

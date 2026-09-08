@@ -25,4 +25,5 @@
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

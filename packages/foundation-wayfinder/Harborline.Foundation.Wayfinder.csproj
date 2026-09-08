@@ -31,4 +31,5 @@
          Harborline.Api.UIAdapters.Blazor / Harborline.Api.Foundation. -->
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

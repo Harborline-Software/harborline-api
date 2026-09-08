@@ -7,18 +7,16 @@ namespace Harborline.Api.Foundation.MultiTenancy;
 /// this to apply tenant filters, enforce isolation, and surface per-tenant
 /// indexes.
 /// </summary>
-public interface ITenantScoped
+public interface ITenantScoped : Harborline.Foundation.MultiTenancy.ITenantScoped
 {
-    /// <summary>The tenant that owns this entity.</summary>
-    TenantId TenantId { get; }
 }
 
 /// <summary>
 /// Narrower marker: the tenant value must be populated before the entity can
-/// be persisted. Persistence adapters reject writes where <see cref="ITenantScoped.TenantId"/>
+/// be persisted. Persistence adapters reject writes where <see cref="Harborline.Foundation.MultiTenancy.ITenantScoped.TenantId"/>
 /// is the default.
 /// </summary>
-public interface IMustHaveTenant : ITenantScoped
+public interface IMustHaveTenant : ITenantScoped, Harborline.Foundation.MultiTenancy.IMustHaveTenant
 {
 }
 

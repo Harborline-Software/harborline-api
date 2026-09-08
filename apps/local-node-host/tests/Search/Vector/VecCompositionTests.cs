@@ -132,7 +132,7 @@ public sealed class VecCompositionTests
     [Fact(DisplayName = "legacy migration provider is install-secret and refuses application reads for an erased subject")]
     public async Task WireLive_RootSeedKeyProvider_Is_Install_Secret_And_Shred_Fails_Closed()
     {
-        var tenant = Harborline.Api.Foundation.Assets.Common.TenantId.FromString("tenant-A");
+        var tenant = Harborline.Foundation.Assets.Common.TenantId.FromString("tenant-A");
         var subject = new SubjectId("subject-1");
 
         var seedA = new byte[32];

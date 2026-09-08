@@ -34,4 +34,5 @@
     <InternalsVisibleTo Include="Harborline.Api.Blocks.Workflow" />
     <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

@@ -34,4 +34,5 @@
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
     <ProjectReference Include="..\foundation-scheduling\Harborline.Foundation.Scheduling.csproj" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

@@ -361,4 +361,5 @@
                       LogicalName="Harborline.Api.LocalNodeHost.Packs.access-administration-pack.export.json" />
   </ItemGroup>
 
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

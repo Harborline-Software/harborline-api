@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <PackageReference Include="Harborline.Contracts" />
+    <Using Include="Harborline.Foundation.Assets.Common.TenantId" Alias="TenantId" />
+  </ItemGroup>
+</Project>
