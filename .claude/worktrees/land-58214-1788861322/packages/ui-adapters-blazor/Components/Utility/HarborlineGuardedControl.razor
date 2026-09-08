@@ -1,6 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Utility
-@inherits HarborlineComponentBase
-<div class="@CombineClasses("sf-guarded-control")" style="@CombineStyles()" @attributes="AdditionalAttributes">
-    @if (Allowed) { @ChildContent } else { <span role="status">@Fallback</span> }
-</div>
-@code { [Parameter] public bool Allowed { get; set; } [Parameter] public string Fallback { get; set; } = "Unavailable"; [Parameter] public RenderFragment? ChildContent { get; set; } }

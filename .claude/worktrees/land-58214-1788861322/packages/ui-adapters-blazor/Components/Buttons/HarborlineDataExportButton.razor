@@ -1,4 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Buttons
-@inherits HarborlineComponentBase
-<button type="button" class="@CombineClasses("sf-data-export-button")" style="@CombineStyles()" aria-label="@(AriaLabel ?? Label)" @onclick="OnExport" @attributes="AdditionalAttributes">@Label</button>
-@code { [Parameter] public string Label { get; set; } = "Export"; [Parameter] public string? AriaLabel { get; set; } [Parameter] public EventCallback OnExport { get; set; } }

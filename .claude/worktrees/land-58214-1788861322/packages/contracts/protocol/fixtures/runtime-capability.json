@@ -1,9 +1,0 @@
-{
-  "capabilityId": "image",
-  "schemaVersion": "image/1",
-  "providers": [
-    { "id": "provider-local", "transport": "in-process" },
-    { "id": "provider-remote", "transport": "https" }
-  ],
-  "extensions": { "schemaHash": "sha256:fixture" }
-}

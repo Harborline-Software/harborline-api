@@ -1,8 +1,0 @@
-{
-  "runtimeId": "runtime-local",
-  "contractVersion": "1.0.0",
-  "capabilitySchemaVersions": {
-    "image": "image/1",
-    "text": "text/2"
-  }
-}

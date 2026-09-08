@@ -1,7 +1,0 @@
-{
-  "tokenId": "${TOKEN_ID}",
-  "joiningPartyId": "${JOINING_PARTY_ID}",
-  "teamId": "${TEAM_ID}",
-  "genesisPartyId": "${GENESIS_PARTY_ID}",
-  "genesisPublicKey": "${GENESIS_PUBLIC_KEY}"
-}

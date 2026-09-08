@@ -1,4 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Inputs
-@inherits HarborlineComponentBase
-<input type="date" class="@CombineClasses("sf-date-field")" style="@CombineStyles()" value="@Value" aria-label="@(AriaLabel ?? Label)" disabled="@(Disabled ? "disabled" : null)" @onchange="Changed" @attributes="AdditionalAttributes" />
-@code { [Parameter] public string Value { get; set; } = string.Empty; [Parameter] public EventCallback<string> ValueChanged { get; set; } [Parameter] public string Label { get; set; } = "Date"; [Parameter] public string? AriaLabel { get; set; } [Parameter] public bool Disabled { get; set; } private async Task Changed(ChangeEventArgs e) { Value = e.Value?.ToString() ?? string.Empty; await ValueChanged.InvokeAsync(Value); } }

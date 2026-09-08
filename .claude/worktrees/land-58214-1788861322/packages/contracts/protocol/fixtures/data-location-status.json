@@ -1,5 +1,0 @@
-{
-  "dataDirectory": "/var/lib/harborline",
-  "dataDirectorySource": "applicationData",
-  "backup": { "state": "notConfigured", "destination": null, "lastSuccessfulBackupAtMs": null }
-}

@@ -1,9 +1,0 @@
-{
-  "channel": "harborline-dogfood",
-  "channelRootKeyId": "ed25519:1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
-  "keyIdBase64Url": "1S_fuTCz2FPyE-_jo1YDyHeATRjU2UiX23WNX1zXaLs",
-  "fingerprint": "6B:3A:80:D0:3A:82:3F:90:C2:89:EC:EC:2D:8C:F0:5D:17:6D:E5:29:9E:C8:48:80:9B:F6:AF:51:86:27:1A:38",
-  "publisherEpoch": 1,
-  "grade": "dogfood-dev",
-  "note": "DOGFOOD-DEV channel root. NOT the production official root. The production root is a human CP signing ceremony (design note \u00A77.3 / U7); this key is a dev/dogfood anchor generated for the dogfood channel only. The matching PRIVATE seed is never committed."
-}

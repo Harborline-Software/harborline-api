@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <!-- Ticket 026: verifies declared generic type prefixes remain analyzable. -->
-  <PropertyGroup>
-    <PackageId>Harborline.Api.Analyzers.GenericCanary</PackageId>
-    <AssemblyName>Harborline.Api.Analyzers.GenericCanary</AssemblyName>
-    <RootNamespace>Harborline.Api.Analyzers.GenericCanary</RootNamespace>
-    <IsPackable>false</IsPackable>
-  </PropertyGroup>
-</Project>

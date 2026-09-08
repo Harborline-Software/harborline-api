@@ -1,9 +1,0 @@
-{
-  "deviceId": "device-001",
-  "label": "Workshop iMac",
-  "state": "has",
-  "lastReachedAt": "2026-08-01T11:59:30.000Z",
-  "offlineDurationMs": 9007199254740991,
-  "isSecurityEvent": false,
-  "errorCode": null
-}

@@ -1,6 +1,0 @@
-{
-  "runtimeId": "runtime-local",
-  "mode": "remote-mesh",
-  "baseUrl": "https://runtime.example.test",
-  "extensions": { "meshId": "mesh-fixture" }
-}

@@ -1,4 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Forms.Inputs
-@inherits HarborlineComponentBase
-<div class="@CombineClasses("sf-form-field")" style="@CombineStyles()" @attributes="AdditionalAttributes"><label for="@For">@Label</label>@ChildContent</div>
-@code { [Parameter] public string For { get; set; } = string.Empty; [Parameter] public string Label { get; set; } = string.Empty; [Parameter] public RenderFragment? ChildContent { get; set; } }

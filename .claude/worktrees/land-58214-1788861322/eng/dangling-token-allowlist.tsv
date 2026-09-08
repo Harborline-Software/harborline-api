@@ -1,6 +1,0 @@
-# ticket 260 slice 1 — allow-list for eng/dangling-token-scan.sh.
-# shape<TAB>suffix<TAB>reason. `shape` is Add or I; `suffix` is the token with the shape prefix
-# and the era-family word removed, so this file does not spell the family word either.
-# One row per token, exact, with a reason. No wildcards.
-Add	X	Convention placeholder in a doc comment: the shape every registration extension follows, not a call. ui-core/Wayfinder/HelmServiceCollectionExtensions.cs:9.
-Add	LocalFirst_defaults_to_the_causal_resolver	A test method name that begins with a registration name. Declared at foundation-localfirst/tests/CausalConflictResolverTests.cs:129; it is a scan artefact, not a citation.
