@@ -463,7 +463,7 @@ public sealed class KernelClockIntegrationTests
             var roster = await Services.GetRequiredService<IVerifiedTenantRosterReader>()
                 .ReadAsync(tenant, CancellationToken.None);
             var admin = roster.Members.Single(member =>
-                member.Permissions.Contains(TeamRolePermissions.MembersManage));
+                roster.PermissionsOf(member.PartyId)!.Contains(TeamRolePermissions.MembersManage));
             var adminParty = new PartyId(admin.PartyId);
             var adminPrincipal = new ActorId("ticket-216-identity-admin");
             var people = Services.GetRequiredService<IPartyReadModel>();

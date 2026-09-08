@@ -340,8 +340,8 @@ public sealed class RosterSignedFloorTests
         await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta.Value, CancellationToken.None);
         await projection.DrainPendingReconcilesAsync();
         var current = provider.GetRequiredService<NodeTeamRoster>().Current;
-        Assert.Equal(roster.Members.Select(m => (m.PartyId, m.PublicKey, m.Permissions)).OrderBy(m => m.PartyId),
-            current.Members.Select(m => (m.PartyId, m.PublicKey, m.Permissions)).OrderBy(m => m.PartyId));
+        Assert.Equal(roster.Members.Select(m => (m.PartyId, m.PublicKey, roster.PermissionsOf(m.PartyId))).OrderBy(m => m.PartyId),
+            current.Members.Select(m => (m.PartyId, m.PublicKey, current.PermissionsOf(m.PartyId))).OrderBy(m => m.PartyId));
         var refusal = Assert.Single(current.RefusedRevocations);
         var rows = new List<AuditRecord>();
         await foreach (var row in trail.QueryAsync(new AuditQuery(new TenantId(Tenant.ToString("D")))))

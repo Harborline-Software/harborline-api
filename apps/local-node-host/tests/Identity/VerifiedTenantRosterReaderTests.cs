@@ -48,7 +48,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     {
         var fixture = BuildRoster();
         var rows = fixture.Admissions.Select(ToRow).ToArray();
-        rows.Single(row => row.IsGenesis == genesis).PermissionsJson = "[]";
+        rows.Single(row => row.IsGenesis == genesis).SignedPermissionsJson = "[]";
         await SeedAsync(rows);
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.Tampered, Tenant());
     }
