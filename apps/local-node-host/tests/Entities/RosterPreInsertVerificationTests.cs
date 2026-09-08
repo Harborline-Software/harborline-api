@@ -120,6 +120,39 @@ public sealed class RosterPreInsertVerificationTests
         Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == bad.RecordId);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReceiveOrderSurvivesRestartAndLateBackdatingCannotReplaceEarlierRemoval(bool earlierLegitimate)
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var first = earlierLegitimate
+            ? f.Revocation(f.Member, "member", "founder", At.AddMinutes(2))
+            : f.Revocation(f.Founder, "founder", "member", At.AddHours(1));
+        await f.MergeAsync([first]);
+        DateTimeOffset? receipt;
+        await using (var db = await f.Factory.CreateDbContextAsync())
+        {
+            var rows = await db.RosterRecords.AsNoTracking().ToListAsync();
+            Assert.All(rows, row => Assert.NotNull(row.ReceivedAtUtc));
+            receipt = rows.Single(row => row.Id == first.RecordId).ReceivedAtUtc;
+        }
+        await f.RestartAsync();
+        await f.MergeAsync([first]);
+        await using (var db = await f.Factory.CreateDbContextAsync())
+            Assert.Equal(receipt, (await db.RosterRecords.SingleAsync(row => row.Id == first.RecordId)).ReceivedAtUtc);
+        var late = earlierLegitimate
+            ? f.Revocation(f.Founder, "founder", "member", At.AddMinutes(1))
+            : f.Revocation(f.Member, "member", "founder", At.AddMinutes(2));
+        await f.MergeAsync([late]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == late.RecordId);
+        var reader = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
+        var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), default);
+        Assert.Equal(earlierLegitimate, rebuilt.Contains("member"));
+        Assert.Equal(!earlierLegitimate, rebuilt.Contains("founder"));
+        Assert.Contains("roster.record.chain_ineligible", JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
     private sealed class DelayedTrail : IAuditTrail
     {
         private readonly InMemoryAuditTrail _inner = new();
@@ -142,7 +175,7 @@ public sealed class RosterPreInsertVerificationTests
         public Ed25519Signer Member { get; } = new(KeyPair.Generate());
         public ServiceProvider Provider { get; private set; } = null!;
         public RosterCrdtProjection Projection => Provider.GetRequiredService<RosterCrdtProjection>();
-        private IDbContextFactory<NodeLocalRosterDbContext> Factory => Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        public IDbContextFactory<NodeLocalRosterDbContext> Factory => Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         private ServiceProvider NewProvider()
         {
             var services = new ServiceCollection();
@@ -151,6 +184,7 @@ public sealed class RosterPreInsertVerificationTests
             services.AddSingleton<IOperationSigner>(Founder);
             services.AddSingleton(_trail);
             services.AddAuthorizationRefusalAudit();
+            services.AddSingleton(TimeProvider.System);
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
@@ -185,7 +219,7 @@ public sealed class RosterPreInsertVerificationTests
             await using var provider = services.BuildServiceProvider();
             var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
             await using (var db = await factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();
-            await using var sender = new RosterCrdtProjection(new YDotNetCrdtEngine(), factory, Verifier, NullLogger<RosterCrdtProjection>.Instance);
+            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier, NullLogger<RosterCrdtProjection>.Instance);
             foreach (var record in records) await sender.PublishLocalAsync(record, default);
             await sender.DrainPendingReconcilesAsync();
             var delta = await sender.EncodeOutboundDeltaAsync(RosterCrdtProjection.DocumentId, ReadOnlyMemory<byte>.Empty, default);

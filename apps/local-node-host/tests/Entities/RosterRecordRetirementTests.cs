@@ -39,6 +39,7 @@ public sealed class RosterRecordRetirementTests
         var logger = new LegacyLogger();
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();
         services.AddSingleton<ILogger<RosterCrdtProjection>>(logger);
