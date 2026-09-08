@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3621,
-    "passed": 3603,
+    "total": 3618,
+    "passed": 3600,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3616,
-      "passed": 3598,
+      "total": 3621,
+      "passed": 3603,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3616 -> 3621; passed 3598 -> 3603; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3616 + 5 = 3621; passed = total - notExecuted = 3621 - 18 = 3603."
+    "change": "total 3621 -> 3618; passed 3603 -> 3600; failed unchanged at 0; notExecuted 18 -> 18",
+    "cause": "ticket 159: +1 orphan-atom fence, -4 retired stories Auditor theory cases; ticket 332 ratchet uses the same fence",
+    "detectedBy": "Source arithmetic from main's baseline; sourcePin unchanged. Controller full gate must confirm these expected totals; this lane ran focused filters only.",
+    "arithmeticCrossCheck": "3621 + 1 - 4 = 3618; 3603 + 1 - 4 = 3600; passed = total - notExecuted = 3618 - 18 = 3600."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
