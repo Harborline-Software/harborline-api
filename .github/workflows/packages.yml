@@ -141,6 +141,9 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
       - uses: actions/setup-node@v7
         with:
           # Ticket 096: Telemetry.CapabilityInvokeCorrelationTraceTests shells out to

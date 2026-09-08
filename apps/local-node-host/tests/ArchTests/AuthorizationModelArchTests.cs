@@ -441,7 +441,7 @@ public sealed class AuthorizationModelArchTests
             .Select(file => new
             {
                 File = file,
-                Relative = Path.GetRelativePath(root, file),
+                Relative = Path.GetRelativePath(root, file).Replace('\\', '/'),
             })
             .Select(item => new SourceFile(item.Relative, CodeOnly(File.ReadAllText(item.File))));
     }
@@ -525,7 +525,7 @@ public sealed class AuthorizationModelArchTests
     private sealed class ScratchRoot(string root) : IDisposable
     {
         public string Root { get; } = root;
-        public void Dispose() => Directory.Delete(Root, recursive: true);
+        public void Dispose() => ScratchTree.Delete(Root);
     }
 
     private sealed class UnusedSearchContextFactory : IDbContextFactory<NodeLocalSearchDbContext>

@@ -962,13 +962,17 @@ public sealed class RetiredFamilySpellingFenceTests
                 var inside = Path.Combine(planted, directoryName);
                 Directory.CreateDirectory(inside);
                 File.WriteAllText(Path.Combine(inside, "Skipped.cs"), "// " + probe);
-                Assert.Equal(
-                    [("packages/planted/Planted.cs", probe), ($"packages/planted/{directoryName}/Skipped.cs", probe)],
-                    Scan(TrackAll(root)).ToArray());
+                var expected = new[]
+                {
+                    ("packages/planted/Planted.cs", probe),
+                    ($"packages/planted/{directoryName}/Skipped.cs", probe),
+                }.OrderBy(hit => hit.Item1, StringComparer.Ordinal);
+                var actual = Scan(TrackAll(root)).OrderBy(hit => hit.Path, StringComparer.Ordinal);
+                Assert.Equal(expected, actual);
             }
             finally
             {
-                Directory.Delete(temp, recursive: true);
+                ScratchTree.Delete(temp);
             }
         }
     }
@@ -1040,7 +1044,7 @@ public sealed class RetiredFamilySpellingFenceTests
         }
         finally
         {
-            Directory.Delete(temp, recursive: true);
+            ScratchTree.Delete(temp);
         }
     }
 
