@@ -257,7 +257,8 @@ internal sealed class AdminTeamAccessAuthority(
                 members.Add(new TeamMemberView(
                     rosterMember.PartyId,
                     TeamMemberSource.Roster,
-                    rosterMember.Permissions.Permissions.Order(StringComparer.Ordinal).ToArray(),
+                    EffectiveMemberPermissions.Read(context.Roster, rosterMember.PartyId,
+                        new ActorId(rosterMember.PartyId)).Permissions!.Permissions.Order(StringComparer.Ordinal).ToArray(),
                     GrantId: null));
             }
         }

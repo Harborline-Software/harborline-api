@@ -153,7 +153,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         await using (var db = factory.CreateDbContext())
         {
             var row = await db.RosterRecords.SingleAsync(r => r.PartyId == "member");
-            row.PermissionsJson = "[]";
+            row.SignedPermissionsJson = "[]";
             await db.SaveChangesAsync();
         }
         var ex = await Refuses(await Grant(), "invalid_roster");

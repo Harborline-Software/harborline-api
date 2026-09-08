@@ -95,6 +95,7 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260831184210_RosterAddAdministratorAuthority",
         "20260902120000_AddPackProjectionAdmissions",
         "20260908030000_RosterAddRehostGrantBurns",
+        "20260908090000_RosterSeparateSignedPermissions",
     ];
 
     [Fact]
