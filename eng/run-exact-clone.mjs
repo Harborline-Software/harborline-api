@@ -115,8 +115,9 @@ try {
   const artifacts = tracked.filter(file => /(^|\/)(node_modules|obj|bin)\//.test(file))
   steps.push({id: 'clone-carries-no-artifacts', passed: artifacts.length === 0, artifactCount: artifacts.length, sample: artifacts.slice(0, 5)})
 
-  run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx'], clone)
-  run('dotnet-build', 'dotnet', ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore'], clone)
+  run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
+  run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  run('dotnet-build', 'dotnet', ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6'], clone)
 
   // The capability lane's dependencies are installed BEFORE the host tests, not after. The two lanes are
   // not independent in one direction: CapabilityInvokeCorrelationTraceTests is a .NET test that spawns
@@ -138,7 +139,7 @@ try {
 
   const hostResultsDirectory = path.join(clone, 'TestResults', 'host')
   const hostTests = run('dotnet-host-tests', 'dotnet',
-    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build',
+    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
@@ -212,7 +213,7 @@ try {
       outcomes: [{attempt: 0, source: 'host suite', green: false}]}
     for (let attempt = 1; attempt <= limit; attempt++) {
       const resolved = resolveCommand('dotnet',
-        ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '--filter', filter])
+        ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6', '--filter', filter])
       const result = spawnSync(resolved.executable, resolved.args, {cwd: clone, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024})
       const output = stripAnsi(`${result.stdout ?? ''}${result.stderr ?? ''}`)
       record.attempts = attempt
