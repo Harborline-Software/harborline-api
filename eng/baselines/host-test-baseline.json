@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3661,
-    "passed": 3643,
+    "total": 3660,
+    "passed": 3642,
     "failed": 0,
     "notExecuted": 18
   },
@@ -71,10 +71,10 @@
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3655 -> 3661; passed 3637 -> 3643; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "ticket 295 slice 3 first coherent half: six floor reporting, hydration, cache and trace cases; ordering remains open",
-    "detectedBy": "focused roster, audit, trace, bridge and health tests; full suite reserved for controller",
-    "arithmeticCrossCheck": "origin/main 3655 + branch delta 6 = 3661; passed = 3661 - 18 = 3643. Expected post-integration totals, not a full-suite measurement."
+    "change": "total 3655 -> 3660; passed 3637 -> 3642; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "ticket 292 slice 3: four production-composition restore cases and one migration preservation test; existing issue/redemption test strengthened",
+    "detectedBy": "EXPECTED by arithmetic from origin/main 11d12879 plus 5 cases; focused tests only, controller owns full gate",
+    "arithmeticCrossCheck": "3655 + 5 = 3660; passed = 3660 - 18 = 3642."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
