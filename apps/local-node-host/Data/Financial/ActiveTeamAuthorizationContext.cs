@@ -10,50 +10,16 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Enrollment;
+using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
 
 /// <summary>
-/// Node-resident per-org role resolution (ADR 0032 identity layer; survey #1275 §3) — implements
-/// <see cref="ICurrentUser"/> + <see cref="IAuthorizationContext"/> by resolving the OS-user's role
-/// on the membership edge for the <em>active</em> org and projecting it to permission strings.
+/// Desktop operator identity and active-tenant permission checks. The gate decides each act from
+/// durable roster and grant inputs; the boot registry supplies membership evidence and display labels.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The resolution chain</b> (survey #1275 §3):
-/// <code>
-/// active TeamId (org) → membership for (NodeOperator, TeamId) → TeamRole on that edge
-///                     → ICurrentUser.Roles / IAuthorizationContext.HasPermission scoped to the active org
-/// </code>
-/// Because the role lives on the membership edge (not on the person), the same operator can be
-/// <see cref="TeamRole.Admin"/> in one org and <see cref="TeamRole.Viewer"/> in another — switching the
-/// active team re-resolves the role for the now-active org. On the single-office node the operator is
-/// enrolled as <see cref="TeamRole.Admin"/> of the default team (see
-/// <c>MultiTeamBootstrapHostedService.EnrollOperatorAsync</c>), so they hold the full permission set.
-/// </para>
-/// <para>
-/// <b>Synchronous resolution.</b> <see cref="ICurrentUser"/> / <see cref="IAuthorizationContext"/> are
-/// synchronous contracts (ADR 0091). The in-memory membership store resolves without I/O, so the role
-/// is read via the synchronous fast-path of the registry's <see cref="System.Threading.Tasks.ValueTask"/>
-/// API. When the membership store becomes I/O-backed (the keystore roster doctype), this resolves the
-/// role into a per-request cache populated on the active-team-changed event rather than blocking.
-/// </para>
-/// <para>
-/// <b>Plane (card #3356).</b> This resolves the DESKTOP OPERATOR's grants, so it is no longer registered
-/// as <see cref="IAuthorizationContext"/> directly: <c>NodeFinancialPostingComposition</c> registers it
-/// behind the hosted app's request-scoped selected-session facade, which refuses when a hosted-web request
-/// principal is bound (ADR 0160 R3-D — a web request cannot consume desktop foreground authority). It is
-/// still registered as <see cref="ICurrentUser"/> unchanged.
-/// </para>
-/// <para>
-/// <b>Scope (FLAGGED).</b> This wires the per-org role <em>resolution</em> + the primary
-/// <c>ICurrentUser</c>/<c>IAuthorizationContext</c> surface. The node's loopback routes do not yet
-/// <em>enforce</em> <c>HasPermission</c> at the route layer (single-operator node — survey #1275 §3:
-/// "the node's loopback routes have no auth"); route-level enforcement is the follow-up that lands when
-/// multi-user enrollment ships. The resolution is correct and tested now so enforcement is a wiring step,
-/// not a redesign.
-/// </para>
-/// </remarks>
+/// <remarks>The selected-session facade fences this context from hosted-web principals.
+/// Synchronous identity contracts bridge the asynchronous gate without caching permission verdicts.</remarks>
 public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizationContext
 {
     /// <summary>
@@ -75,7 +41,8 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     private readonly IOperationSigner? _nodeSigner;
     private readonly IAuthorizationClosureReader? _authorization;
     private readonly TimeProvider _timeProvider;
-    private readonly AuthorizationGate? _gate;
+    private readonly AuthorizationGate _gate;
+    private readonly AuthorizationRefusalAudit? _refusalAudit;
 
     /// <summary>
     /// Construct over the active-team accessor + the membership store, and - where the composition has them -
@@ -89,14 +56,16 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         NodeTeamRoster? roster = null,
         IOperationSigner? nodeSigner = null,
         IAuthorizationClosureReader? authorization = null,
-        AuthorizationGate? gate = null)
+        AuthorizationGate? gate = null,
+        AuthorizationRefusalAudit? refusalAudit = null)
     {
         _activeTeam = activeTeam ?? throw new ArgumentNullException(nameof(activeTeam));
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _roster = roster;
         _nodeSigner = nodeSigner;
         _authorization = authorization;
-        _gate = gate;
+        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
+        _refusalAudit = refusalAudit;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
@@ -111,7 +80,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
             // The label is a display projection of the cached edge, and it is shown only for a caller the
             // permission answer admits - so a revoked founder loses the label on the same request they lose
             // the permissions, without the registry deciding anything.
-            var role = ResolveEffectivePermissions() is null ? null : ResolveActiveRole();
+            var role = Decide(null)?.Verdict == AuthorizationVerdict.Allowed ? ResolveActiveRole() : null;
             return role is null
                 ? Array.Empty<string>()
                 : new[] { TeamRolePermissions.DisplayName(role.Value) };
@@ -121,89 +90,77 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     /// <inheritdoc />
     public bool HasPermission(string permission)
     {
-        ArgumentNullException.ThrowIfNull(permission);
-        // PBAC migration (taxonomy Q6): HasPermission resolves against the active-org membership's MUTABLE
-        // PERMISSION SET (the authorization truth), not the role label. The effective set is the explicit edge
-        // set when present, else the default composition for the edge's role — and it emits BOTH the fine-grained
-        // PBAC vocabulary AND the legacy coarse strings (ledger:post/records:* ), so existing financial-cluster
-        // HasPermission("ledger:post") checks keep resolving unchanged through the migration.
-        var effective = ResolveEffectivePermissions();
-        return effective is not null && effective.Contains(permission);
+        return TryParsePermission(permission, out _)
+            && Decide(permission)?.Verdict == AuthorizationVerdict.Allowed;
     }
 
-    /// <summary>
-    /// The effective install-wide permission set for the desktop caller, or <c>null</c> when nothing backs
-    /// them here.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Ticket 290 slice 3 - the desktop plane stopped being a third decider.</b> Where the composition
-    /// carries the signed roster and this node's signer, the answer comes from
-    /// <see cref="EffectiveMemberPermissions"/>, the same reading <c>SelectedSessionPermissionResolver</c>
-    /// gives the web plane: the LIVE roster edge for the party this node's signing key is bound to, else the
-    /// grant closure, else a refusal. Membership is read on every call, so a roster revocation that converges
-    /// mid-process is answered on the next request rather than at the next restart - the registry, which is
-    /// refilled only at boot, cannot hold a revoked founder's authority open any more.
-    /// </para>
-    /// <para>
-    /// The registry is a CACHE of what the boot projection wrote, and remains the answer only in a
-    /// composition that registers no roster and no node signer at all - there is then no key to identify the
-    /// caller by, so there is nothing for the one reading to read. Production always registers both
-    /// (<c>Program.cs</c>), so that branch is the in-memory-only test composition's.
-    /// </para>
-    /// </remarks>
-    private PermissionSet? ResolveEffectivePermissions()
+    // The synchronous IAuthorizationContext.HasPermission contract (called by
+    // SelectedSessionTenantContext.HasPermission) and ICurrentUser.Roles (read by
+    // HostedFormsApiEndpoint.StartAsync) force this single bridge. Async callers use
+    // DecideAsync directly; all awaited gate/audit work below avoids capturing a context.
+    private AuthorizationDecision? Decide(string? permission)
+    {
+        var pending = DecideAsync(permission);
+        return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
+    }
+
+    // Carries the same decision into the existing refusal renderer and audit sink. No verdict is cached.
+    internal async ValueTask<AuthorizationDecision?> DecideAsync(string? permission)
     {
         var active = _activeTeam.Active;
-        if (active is null)
+        if (active is null) return null;
+        var tenant = ActiveTeamTenantContext.ProjectTenantId(active.TeamId);
+        var at = _timeProvider.GetUtcNow();
+        var membership = ResolveActiveMembership();
+        var inputs = new AuthorizationRosterInputs(NodeOperator.Value, false, false, null);
+        if (_roster is not null && _nodeSigner is not null && _authorization is not null)
         {
-            return null;
+            var roster = _roster.Current;
+            // Admissions retain revoked keys, so their ejection reaches the gate as evidence too.
+            var partyId = roster.Members.FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId
+                ?? roster.EnumerateAdmissions().FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId;
+            if (partyId is not null)
+                inputs = await EffectiveMemberPermissions.ReadAsync(_authorization, roster, partyId,
+                    tenant, NodeOperator, at, CancellationToken.None).ConfigureAwait(false);
         }
+        AuthorizationDecision? decision = null;
+        // A role label previously required at least one allowed act. Each candidate still asks the gate;
+        // an empty input set asks it once as well, so absence has refusal evidence.
+        var candidates = permission is null
+            ? (inputs.Permissions ?? PermissionSet.Empty).Permissions.DefaultIfEmpty(TeamRolePermissions.RecordsRead)
+            : [permission];
+        foreach (var candidate in candidates)
+        {
+            if (!TryParsePermission(candidate, out var operation)) continue;
+            decision = await _gate.DecideAsync(new AuthorizationWriteContext(NodeOperator, tenant, at)
+                .Request(operation, AuthorizationGate.RecordKindFor(operation), "desktop") with
+                {
+                    Roster = inputs with { RegistryMember = membership is not null }
+                }).ConfigureAwait(false);
+            if (permission is not null && _refusalAudit is not null)
+                await _refusalAudit.RecordAsync(decision, CancellationToken.None).ConfigureAwait(false);
+            if (decision.Verdict == AuthorizationVerdict.Allowed) break;
+        }
+        return decision;
+    }
 
-        if (_roster is null || _nodeSigner is null || _authorization is null)
+    private static bool TryParsePermission(string? permission, out AuthorizationOperation operation)
+    {
+        try
         {
-            return ResolveActiveMembership()?.EffectivePermissions;
+            operation = AuthorizationOperation.Parse(permission!);
+            return true;
         }
-
-        var roster = _roster.Current;
-        // The party this node IS, off LIVE roster state - the same key-bound reading the boot projection
-        // takes (MultiTeamBootstrapHostedService.LocalLiveMember). A revoked member is not a live one.
-        var local = roster.Members.FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId));
-        if (local is null)
+        catch (ArgumentException)
         {
-            return null;
+            operation = default;
+            return false;
         }
-
-        // ICurrentUser / IAuthorizationContext are synchronous contracts (ADR 0091). For a party the roster
-        // carries live, the reading answers off the in-memory roster edge and never awaits the closure, so
-        // this completes synchronously; the fallback is kept for the roster-absent branch of the reading.
-        var task = EffectiveMemberPermissions.ReadAsync(
-            _authorization,
-            roster,
-            local.PartyId,
-            ActiveTeamTenantContext.ProjectTenantId(active.TeamId),
-            NodeOperator,
-            _timeProvider.GetUtcNow(),
-            CancellationToken.None);
-        var inputs = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
-        if (_gate is null) return null;
-        var authority = new AuthorizationWriteContext(NodeOperator,
-            ActiveTeamTenantContext.ProjectTenantId(active.TeamId), _timeProvider.GetUtcNow());
-        var allowed = new List<string>();
-        foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
-        {
-            var operation = AuthorizationOperation.Parse(permission);
-            var pending = _gate.DecideAsync(authority.Request(operation,
-                AuthorizationGate.RecordKindFor(operation), "desktop") with { Roster = inputs });
-            var decision = pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
-            if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
-        }
-        return allowed.Count == 0 ? null : PermissionSet.From(allowed);
     }
 
     /// <summary>
     /// The OS-user's membership edge in the active org, or <c>null</c> when no team is active or the operator
-    /// is not a member of it. Carries the effective permission set (PBAC) and the role label (display).
+    /// is not a member of it. Carries boot membership metadata and the role label for display only.
     /// </summary>
     private TeamMembership? ResolveActiveMembership()
     {
@@ -213,8 +170,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
             return null;
         }
 
-        // In-memory store resolves synchronously; read the completed ValueTask's result. Resolve the full
-        // membership (not just the role) so EffectivePermissions is available.
+        // The registry is read only for membership evidence and display metadata.
         var task = _memberships.GetMembershipsAsync(NodeOperator);
         var memberships = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
         foreach (var m in memberships)

@@ -96,6 +96,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// </para>
 /// </remarks>
 [Trait("PlanCard", "MTW-2-3356")]
+[Collection("Harborline process environment")]
 public sealed class WebPlaneAuthorizationFenceTests
 {
     private const string CallerToken = "web-plane-authz-fence-caller-token";
@@ -107,18 +108,16 @@ public sealed class WebPlaneAuthorizationFenceTests
 
     [Fact(DisplayName =
         "3356: a selected-session web request is NOT authorized by the desktop operator's grants — " +
-        "flipping the operator's own role does not move the member's outcome")]
+        "grant evidence replaces the registry-only precondition; revocation does not move the member's outcome")]
     public async Task WebRequest_IsNotAuthorizedByTheOperatorsGrants()
     {
         await using var fixture = await Fixture.CreateAsync();
 
         // The OS operator holds packages:operate — through the seeded node-operator grant the pack routes
-        // read at the gate (ticket 205 slice 3), and through the flat membership set the remaining ambient
-        // route families still read. The signed-in member holds neither.
+        // read at the gate (ticket 205 slice 3). The registry-only desktop context is not
+        // an authority source in this composition. The signed-in member holds no grant.
         await fixture.SetOperatorRoleAsync(TeamRole.Admin);
-        Assert.True(
-            fixture.OperatorAuthorization.HasPermission(Permission.PackagesOperate),
-            "precondition: the OS operator must hold packages:operate for this experiment to mean anything");
+        await fixture.AssertOperatorGrantDecisionAsync(true);
         Assert.Equal(
             HttpStatusCode.OK,
             (await fixture.PreviewAsDesktopOperatorAsync()).StatusCode);
@@ -131,9 +130,7 @@ public sealed class WebPlaneAuthorizationFenceTests
         // not — and it must genuinely move the OPERATOR's own answer, or the lever proves nothing.
         await fixture.SetOperatorRoleAsync(TeamRole.Member);
         await fixture.RevokeNodeOperatorGrantAsync();
-        Assert.False(
-            fixture.OperatorAuthorization.HasPermission(Permission.PackagesOperate),
-            "precondition: the member role must not hold packages:operate");
+        await fixture.AssertOperatorGrantDecisionAsync(false);
         await AssertRefusedByAuthorizationAsync(await fixture.PreviewAsDesktopOperatorAsync());
 
         using var revoked = await fixture.PreviewAsMemberAsync();
@@ -377,7 +374,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ── The INNER serving app: the real production listener.
             var app = new SharedHostedWebApp(
                 outerProvider,
-                Options.Create(new LocalNodeOptions { HealthPort = 0 }),
+                Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
                 new LocalNodeExecutableEndpointRegistry(),
                 outerProvider.GetRequiredService<ILogger<SharedHostedWebApp>>(),
                 outerProvider.GetRequiredService<TimeProvider>());
@@ -464,6 +461,26 @@ public sealed class WebPlaneAuthorizationFenceTests
                     new GrantReason(
                         GrantReasonCodes.RevocationReview,
                         "the desktop operator genuinely loses packages:operate"))));
+        }
+
+        internal async Task AssertOperatorGrantDecisionAsync(bool allowed)
+        {
+            var decision = await _outerProvider.GetRequiredService<AuthorizationGate>().DecideAsync(
+                new AuthorizationWriteContext(ActiveTeamAuthorizationContext.NodeOperator, OperatorTenant,
+                    TimeProvider.System.GetUtcNow()).Request(
+                        AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "fence"));
+            Assert.Equal(allowed, decision.Verdict == AuthorizationVerdict.Allowed);
+            var grant = await _outerProvider.GetRequiredService<IGrantStore>().FindBySourceReferenceAsync(
+                OperatorTenant, AccessGrantAuthorizationSeed.NodeOperatorGrantSource);
+            Assert.NotNull(grant);
+            var facts = decision.Evidence.Project().SelectMany(step => step.Facts).ToArray();
+            if (allowed)
+                Assert.Contains(decision.Evidence.Bindings, binding => binding.GrantId == grant.GrantId.ToString());
+            else
+                Assert.Contains(decision.Evidence.Excluded, binding =>
+                    binding.Binding.GrantId == grant.GrantId.ToString()
+                    && binding.Reason == AuthorizationExclusionReason.GrantRevoked);
+            Assert.Contains($"verdict:{(allowed ? "allowed" : "denied")}", facts);
         }
 
         /// <summary>Set the OS operator's membership role on the ACTIVE team — the operator's grant lever.</summary>
