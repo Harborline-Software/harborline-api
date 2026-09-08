@@ -106,7 +106,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
             await ctx.Database.EnsureCreatedAsync();
 
         var nodeRoster = new NodeTeamRoster(genesisRoster);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
@@ -139,7 +139,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
             await ctx.Database.EnsureCreatedAsync(); // idempotent — created once, a no-op on subsequent reboots.
 
         var nodeRoster = new NodeTeamRoster(genesisRoster);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 

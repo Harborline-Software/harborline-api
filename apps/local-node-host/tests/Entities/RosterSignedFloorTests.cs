@@ -222,7 +222,7 @@ public sealed class RosterSignedFloorTests
             // Start with only genesis: two distinct refused records can target the same last holder.
             var live = new NodeTeamRoster(roster);
             AuthorizationRefusalAudit? audit = null;
-            var projection = new RosterCrdtProjection(new YDotNetCrdtEngine(), factory, Verifier,
+            var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
                 NullLogger<RosterCrdtProjection>.Instance, nodeRoster: live, refusalAudit: () => audit);
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), CancellationToken.None);
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromRevocation(Removal(founder)), CancellationToken.None);
@@ -234,7 +234,7 @@ public sealed class RosterSignedFloorTests
         public async Task MergeDuplicateRefusalAsync()
         {
             var factory = _provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-            await using var sender = new RosterCrdtProjection(new YDotNetCrdtEngine(), factory, Verifier,
+            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
                 NullLogger<RosterCrdtProjection>.Instance);
             await sender.PublishLocalAsync(Projection.Snapshot().Single(r => r.Kind == RosterRecordKind.Revocation),
                 CancellationToken.None);
@@ -323,6 +323,7 @@ public sealed class RosterSignedFloorTests
         services.AddSingleton<IOperationSigner>(founder);
         services.AddSingleton<IAuditTrail>(trail);
         services.AddAuthorizationRefusalAudit();
+        services.AddSingleton(TimeProvider.System);
         services.AddNodeRoster();
         await using var provider = services.BuildServiceProvider();
         var projection = provider.GetRequiredService<RosterCrdtProjection>();
@@ -330,7 +331,7 @@ public sealed class RosterSignedFloorTests
             .Append(RosterRecordCrdtState.FromRevocation(Removal(founder))).ToArray();
         var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var db = await factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();
-        await using var sender = new RosterCrdtProjection(new YDotNetCrdtEngine(), factory, Verifier,
+        await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance);
         foreach (var record in records) await sender.PublishLocalAsync(record, CancellationToken.None);
         await sender.DrainPendingReconcilesAsync();

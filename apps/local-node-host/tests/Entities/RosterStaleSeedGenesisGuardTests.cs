@@ -110,7 +110,7 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
             await ctx.Database.EnsureCreatedAsync();
 
         var roster = new NodeTeamRoster(bootGenesis);
-        var projection = new RosterCrdtProjection(
+        var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
             NullLogger<RosterCrdtProjection>.Instance, roster);
         _projections.Add(projection);

@@ -66,6 +66,7 @@ public static class NodeRosterComposition
         // adopts the re-validated synced roster into it on each merge. If a host did not register it (minimal DI
         // test), GetService returns null and the projection converges without pushing a live roster.
         services.AddSingleton<RosterCrdtProjection>(sp => new RosterCrdtProjection(
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ICrdtEngine>(),
             sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
             sp.GetRequiredService<IOperationVerifier>(),
