@@ -357,7 +357,7 @@ public partial class HarborlineDateInput : HarborlineComponentBase
         // Auto-advance: once the segment can no longer accept more digits
         // (i.e. any further digit would overflow), move to the next segment.
         var willOverflow = (candidate * 10) > seg.Max;
-        var reachedWidth = candidate.ToString().Length >= seg.Width && seg.Width <= 4;
+        var reachedWidth = candidate.ToString(System.Globalization.CultureInfo.InvariantCulture).Length >= seg.Width && seg.Width <= 4;
         if (willOverflow || reachedWidth)
         {
             MoveFocus(+1);

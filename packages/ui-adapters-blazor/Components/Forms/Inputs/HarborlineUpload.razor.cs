@@ -233,6 +233,7 @@ public partial class HarborlineUpload : HarborlineComponentBase, IUploadChunkSet
             catch (JSDisconnectedException) { }
             _dropZoneHandleId = -1;
         }
+        GC.SuppressFinalize(this);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -561,10 +562,10 @@ public partial class HarborlineUpload : HarborlineComponentBase, IUploadChunkSet
             chunkContent.Add(byteContent, SaveField, info.Name);
 
             // Standard chunk metadata
-            chunkContent.Add(new StringContent(chunkIndex.ToString()), "chunkIndex");
-            chunkContent.Add(new StringContent(totalChunks.ToString()), "totalChunks");
+            chunkContent.Add(new StringContent(chunkIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chunkIndex");
+            chunkContent.Add(new StringContent(totalChunks.ToString(System.Globalization.CultureInfo.InvariantCulture)), "totalChunks");
             chunkContent.Add(new StringContent(info.Name), "fileName");
-            chunkContent.Add(new StringContent(info.Size.ToString()), "totalSize");
+            chunkContent.Add(new StringContent(info.Size.ToString(System.Globalization.CultureInfo.InvariantCulture)), "totalSize");
 
             // Optional metadata field from chunk settings
             if (!string.IsNullOrEmpty(EffectiveMetadataField))

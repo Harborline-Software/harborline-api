@@ -512,7 +512,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         _editMode = true;
         _editResourceKey = cell.resourceKey;
         _editBucket = bucket;
-        _editValue = record?.Value.ToString("0.#") ?? "0";
+        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) ?? "0";
         _activeCell = (cell.resourceKey, bucket.Start);
         await InvokeAsync(StateHasChanged);
     }
@@ -590,7 +590,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
                 if (!IsCellEditable(bucket) || IsCellDisabled(bucket)) continue;
 
                 // Strip common unit suffixes before parsing
-                var raw = cols[ci].Trim().TrimEnd('h', 'H').Replace("$", "").Trim();
+                var raw = cols[ci].Trim().TrimEnd('h', 'H').Replace("$", "", StringComparison.Ordinal).Trim();
                 if (!decimal.TryParse(raw, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var newValue))
                     continue;
@@ -737,7 +737,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
             return 100; // sensible default for auto columns
 
         // Strip "px" suffix and parse
-        var numeric = width.Replace("px", "").Trim();
+        var numeric = width.Replace("px", "", StringComparison.Ordinal).Trim();
         return double.TryParse(numeric, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var val) ? val : 100;
     }
@@ -1265,7 +1265,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         _editResourceKey = resourceKey;
         _editBucket = bucket;
         var record = GetRecord(resourceKey, bucket);
-        _editValue = record?.Value.ToString("0.#") ?? "0";
+        _editValue = record?.Value.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) ?? "0";
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1654,10 +1654,10 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
 
         return _currentViewGrain switch
         {
-            TimeGranularity.Day => GroupBucketsBy(b => b.Start.ToString("MMM yyyy")),
-            TimeGranularity.Week => GroupBucketsBy(b => b.Start.ToString("MMM yyyy")),
-            TimeGranularity.Month => GroupBucketsBy(b => b.Start.Year.ToString()),
-            TimeGranularity.Quarter => GroupBucketsBy(b => b.Start.Year.ToString()),
+            TimeGranularity.Day => GroupBucketsBy(b => b.Start.ToString("MMM yyyy", System.Globalization.CultureInfo.CurrentCulture)),
+            TimeGranularity.Week => GroupBucketsBy(b => b.Start.ToString("MMM yyyy", System.Globalization.CultureInfo.CurrentCulture)),
+            TimeGranularity.Month => GroupBucketsBy(b => b.Start.Year.ToString(System.Globalization.CultureInfo.CurrentCulture)),
+            TimeGranularity.Quarter => GroupBucketsBy(b => b.Start.Year.ToString(System.Globalization.CultureInfo.CurrentCulture)),
             // Year view: no meaningful grouping above year-level columns
             TimeGranularity.Year => new(),
             _ => new()
@@ -1704,15 +1704,15 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         return _currentViewGrain switch
         {
             // Day: short day label — month/year shown in group row
-            TimeGranularity.Day => bucket.Start.ToString("ddd d"),
+            TimeGranularity.Day => bucket.Start.ToString("ddd d", System.Globalization.CultureInfo.CurrentCulture),
             // Week: week number + short date — month/year shown in group row
             TimeGranularity.Week => $"W{GetIsoWeekNumber(bucket.Start)} · {bucket.Start:MMM d}",
             // Month: short month name — year shown in group row
-            TimeGranularity.Month => bucket.Start.ToString("MMM"),
+            TimeGranularity.Month => bucket.Start.ToString("MMM", System.Globalization.CultureInfo.CurrentCulture),
             // Quarter: quarter label — year shown in group row
             TimeGranularity.Quarter => $"Q{(bucket.Start.Month - 1) / 3 + 1}",
             // Year: full year (no group row)
-            TimeGranularity.Year => bucket.Start.ToString("yyyy"),
+            TimeGranularity.Year => bucket.Start.ToString("yyyy", System.Globalization.CultureInfo.CurrentCulture),
             _ => bucket.Start.ToShortDateString()
         };
     }
@@ -1723,7 +1723,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         {
             AllocationValueMode.Hours => $"{value:N1}h",
             AllocationValueMode.Currency => $"${value:N0}",
-            _ => value.ToString("N1")
+            _ => value.ToString("N1", System.Globalization.CultureInfo.CurrentCulture)
         };
     }
 
@@ -1753,7 +1753,7 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
         if (set.Type == AllocationSetType.Baseline && set.IsLocked && set.FinalizedDate.HasValue)
         {
             var fmt = BaselineDateFormat ?? "MMM d, yyyy";
-            return $"Baseline As of {set.FinalizedDate.Value.ToString(fmt)}";
+        return $"Baseline As of {set.FinalizedDate.Value.ToString(fmt, System.Globalization.CultureInfo.CurrentCulture)}";
         }
         return set.Name;
     }
@@ -1798,5 +1798,6 @@ public partial class HarborlineAllocationScheduler<TResource> : HarborlineCompon
             }
         }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

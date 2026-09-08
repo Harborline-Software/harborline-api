@@ -267,7 +267,7 @@ public partial class HarborlineDataSheet<TItem>
                 builder.OpenElement(50, "input");
                 builder.AddAttribute(51, "type", "date");
                 builder.AddAttribute(52, "class", CssProvider.DataSheetEditorInputClass());
-                builder.AddAttribute(53, "value", value is DateTime dt ? dt.ToString("yyyy-MM-dd") : "");
+                builder.AddAttribute(53, "value", value is DateTime dt ? dt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : "");
                 builder.AddAttribute(54, "aria-label", $"Edit {column.DisplayTitle}");
                 builder.AddAttribute(55, "onchange",
                     EventCallback.Factory.Create<ChangeEventArgs>(this,

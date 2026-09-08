@@ -84,5 +84,7 @@ public partial class HarborlineDataSheet<TItem> : IAsyncDisposable
             catch (JSDisconnectedException) { }
         }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
+        GC.SuppressFinalize(this);
     }
 }

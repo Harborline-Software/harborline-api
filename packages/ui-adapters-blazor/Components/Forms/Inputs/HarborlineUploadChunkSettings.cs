@@ -72,5 +72,6 @@ public class HarborlineUploadChunkSettings : ComponentBase, IDisposable
     public void Dispose()
     {
         ParentSink?.UnregisterChunkSettings(this);
+        GC.SuppressFinalize(this);
     }
 }

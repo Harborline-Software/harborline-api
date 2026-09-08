@@ -46,7 +46,7 @@ public partial class HarborlineDataGrid<TItem>
         // B4.3: emit draggable + data-row-index on the <tr> so the JS handler can match tr[data-row-index][draggable="true"].
         // Always emit draggable (true or false) to be explicit and avoid browser default-true edge-cases.
         builder.AddAttribute(8, "draggable", RowDraggable ? "true" : "false");
-        if (RowDraggable) builder.AddAttribute(9, "data-row-index", index.ToString());
+        if (RowDraggable) builder.AddAttribute(9, "data-row-index", index.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         // Drag handle cell (system column, rendered before data columns — Option A)
         if (RowDraggable)
@@ -75,7 +75,7 @@ public partial class HarborlineDataGrid<TItem>
             builder.AddAttribute(24, "type", "button");
             builder.AddAttribute(25, "class", "sf-datagrid__detail-btn");
             builder.AddAttribute(26, "aria-label", isExpanded ? "Collapse detail" : "Expand detail");
-            builder.AddAttribute(27, "aria-expanded", isExpanded.ToString().ToLower());
+            builder.AddAttribute(27, "aria-expanded", isExpanded.ToString().ToLowerInvariant());
             builder.AddAttribute(28, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async (_) => await ToggleDetailRow(detailItem)));
             builder.AddEventStopPropagationAttribute(29, "onclick", true);
             builder.AddContent(30, isExpanded ? "\u25BC" : "\u25B6");
@@ -503,7 +503,7 @@ public partial class HarborlineDataGrid<TItem>
         builder.AddAttribute(2, "role", "row");
 
         builder.OpenElement(3, "td");
-        builder.AddAttribute(4, "colspan", TotalColumnCount.ToString());
+        builder.AddAttribute(4, "colspan", TotalColumnCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.AddAttribute(5, "class", "sf-datagrid__group-cell");
         builder.AddAttribute(6, "role", "gridcell");
         if (indent > 0) builder.AddAttribute(7, "style", $"padding-left:{indent}px;");
@@ -513,7 +513,7 @@ public partial class HarborlineDataGrid<TItem>
         builder.OpenElement(10, "button");
         builder.AddAttribute(11, "type", "button");
         builder.AddAttribute(12, "class", "sf-datagrid__group-toggle");
-        builder.AddAttribute(13, "aria-expanded", (!isCollapsed).ToString().ToLower());
+        builder.AddAttribute(13, "aria-expanded", (!isCollapsed).ToString().ToLowerInvariant());
         builder.AddAttribute(14, "aria-label", isCollapsed ? $"Expand group {group.KeyText}" : $"Collapse group {group.KeyText}");
         builder.AddAttribute(15, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async (_) => await ToggleGroup(gk)));
         builder.AddContent(16, isCollapsed ? "\u25B6" : "\u25BC");
@@ -562,7 +562,7 @@ public partial class HarborlineDataGrid<TItem>
         builder.AddAttribute(2, "role", "row");
 
         builder.OpenElement(3, "td");
-        builder.AddAttribute(4, "colspan", TotalColumnCount.ToString());
+        builder.AddAttribute(4, "colspan", TotalColumnCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.AddAttribute(5, "class", "sf-datagrid__group-footer-cell");
         builder.AddAttribute(6, "role", "gridcell");
         builder.AddContent(7, GroupFooterTemplate(context));
@@ -600,7 +600,7 @@ public partial class HarborlineDataGrid<TItem>
                             builder.AddAttribute(4, "class", "sf-datagrid__detail-row");
                             builder.AddAttribute(5, "role", "row");
                             builder.OpenElement(6, "td");
-                            builder.AddAttribute(7, "colspan", TotalColumnCount.ToString());
+                            builder.AddAttribute(7, "colspan", TotalColumnCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
                             builder.AddAttribute(8, "role", "gridcell");
                             builder.AddContent(9, DetailTemplate(item));
                             builder.CloseElement();

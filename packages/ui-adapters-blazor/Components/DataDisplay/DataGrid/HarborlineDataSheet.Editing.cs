@@ -449,7 +449,7 @@ public partial class HarborlineDataSheet<TItem>
         // V04.1 — Normalize line endings. Windows clipboards produce "\r\n";
         // splitting on '\n' alone leaves '\r' appended to the last cell of
         // each row and breaks decimal/DateTime parsing.
-        var normalized = tsvData.Replace("\r\n", "\n").Replace("\r", "\n");
+        var normalized = tsvData.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal);
         var lines = normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
         // V04.3 — Skip rows that are marked for deletion. The TSV cursor
@@ -656,7 +656,7 @@ public partial class HarborlineDataSheet<TItem>
 
         try
         {
-            var converted = Convert.ChangeType(parsed, effectiveType);
+            var converted = Convert.ChangeType(parsed, effectiveType, System.Globalization.CultureInfo.CurrentCulture);
             return (true, converted);
         }
         catch (Exception ex) when (ex is InvalidCastException or FormatException or OverflowException)

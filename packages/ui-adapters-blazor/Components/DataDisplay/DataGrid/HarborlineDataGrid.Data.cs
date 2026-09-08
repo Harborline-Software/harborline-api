@@ -215,7 +215,7 @@ public partial class HarborlineDataGrid<TItem>
         if (existing is null) return;
 
         _state.GroupDescriptors.Remove(existing);
-        _collapsedGroups.RemoveWhere(k => k.StartsWith($"{field}:"));
+        _collapsedGroups.RemoveWhere(k => k.StartsWith($"{field}:", StringComparison.Ordinal));
         _state.CurrentPage = 1;
         await ProcessDataAsync();
         await NotifyStateChanged("Group");
@@ -505,7 +505,7 @@ public partial class HarborlineDataGrid<TItem>
                 try
                 {
                     var targetType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-                    var convertedFilter = Convert.ChangeType(filterValue, targetType);
+                    var convertedFilter = Convert.ChangeType(filterValue, targetType, System.Globalization.CultureInfo.CurrentCulture);
                     return comparison(comparable.CompareTo(convertedFilter));
                 }
                 catch
