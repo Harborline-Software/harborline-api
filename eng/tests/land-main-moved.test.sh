@@ -40,7 +40,7 @@ EOF
 }
 
 make_case() {
-  local name=$1 measured=$2 want_rc=$3
+  local name=$1 measured=$2 want_rc=$3 evidence=$4
   local case_dir="$scratch/$name" remote="$scratch/$name.git"
   local seed="$case_dir/seed" runner="$case_dir/runner"
   mkdir -p "$case_dir"
@@ -51,9 +51,19 @@ make_case() {
   mkdir -p "$seed/eng/tests"
   cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
     "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$seed/eng/"
+  cat > "$seed/eng/gate-lock.sh" <<'EOF'
+gate_lock_acquire() { :; }
+gate_lock_release() { :; }
+EOF
   cat > "$seed/eng/test-verify-stub.sh" <<'EOF'
 #!/usr/bin/env bash
 expected=$(node -p "require('./eng/baselines/host-test-baseline.json').totals.total")
+if [ "${WRITE_EXACT_CLONE_EVIDENCE:-0}" = 1 ]; then
+  mkdir -p .claude/land-evidence
+  cat > .claude/land-evidence/exact-clone-fail.json <<EVIDENCE
+{"steps":[{"id":"host-baseline-match","observed":{"total":$MOCK_MEASURED_TOTAL}}]}
+EVIDENCE
+fi
 echo "Failed: 0, Passed: $((MOCK_MEASURED_TOTAL - 2)), Skipped: 2, Total: $MOCK_MEASURED_TOTAL"
 [ "$expected" = "$MOCK_MEASURED_TOTAL" ]
 EOF
@@ -122,7 +132,7 @@ EOF
   local shim_path
   shim_path=$(cd "$shim" && pwd)
 
-  export REAL_NODE="$real_node" REAL_GIT="$real_git" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged"
+  export REAL_NODE="$real_node" REAL_GIT="$real_git" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged" WRITE_EXACT_CLONE_EVIDENCE="$evidence"
   export HARBORLINE_LAND_VERIFY_CMD='bash eng/test-verify-stub.sh'
   export HARBORLINE_GATE_LOCK_PATH='../gate.lock'
   if [ "$name" = refuses-regression ]; then
@@ -154,18 +164,22 @@ EOF
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
     [ "$main_total/$branch_total" = "105/105" ] || { echo "FAIL $name: totals main/branch=$main_total/$branch_total"; return 1; }
     grep -Fq 'main moved, measured matches: re-pinned' "$case_dir/output.log" || { echo "FAIL $name: missing re-pin reason"; return 1; }
-  else
+  elif [ "$name" = refuses-regression ]; then
     local branch_total
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
     [ "$branch_total" = 102 ] || { echo "FAIL $name: refused branch moved to $branch_total"; return 1; }
     grep -Fq 'main moved by 3, measured differs by 2!=3: regression (main 103, branch delta +2, measured 104)' "$case_dir/output.log" || { echo "FAIL $name: missing numeric regression reason"; return 1; }
     grep -Fq 'abc123 landing adds three cases' "$case_dir/output.log" || { echo "FAIL $name: missing intervening landing"; return 1; }
+  else
+    ! grep -Fq 'measured differs by' "$case_dir/output.log" || { echo "FAIL $name: invented regression from a non-host Total line"; return 1; }
+    grep -Fq 'land: gate RED before the host suite ran; no measurement (see ' "$case_dir/output.log" || { echo "FAIL $name: missing no-measurement reason"; return 1; }
   fi
   echo "ok   $name"
 }
 
 fails=0
-make_case repins-and-lands 105 0 || fails=$((fails + 1))
-make_case refuses-regression 104 1 || fails=$((fails + 1))
-echo "2 cases, $fails failures"
+make_case repins-and-lands 105 0 0 || fails=$((fails + 1))
+make_case refuses-regression 104 1 1 || fails=$((fails + 1))
+make_case no-measurement 104 1 0 || fails=$((fails + 1))
+echo "3 cases, $fails failures"
 [ "$fails" -eq 0 ]

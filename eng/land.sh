@@ -57,7 +57,8 @@ fi
 intervening_landings=$(git log --oneline "$merge_base..$base_sha")
 landing_shas=$(git log --format=%h "$merge_base..$base_sha" | paste -sd, -)
 land_dir="$root/.claude/worktrees/land-$$-$(date +%s)"
-cleanup() { if [ -d "$land_dir" ]; then git worktree remove --force "$land_dir" >/dev/null 2>&1 || echo "land: WARNING could not remove $land_dir"; fi; gate_lock_release; }
+land_scratch="$root/.claude/worktrees/land-scratch-$$"
+cleanup() { if [ -d "$land_dir" ]; then git worktree remove --force "$land_dir" >/dev/null 2>&1 || echo "land: WARNING could not remove $land_dir"; fi; rm -rf "$land_scratch"; gate_lock_release; }
 trap cleanup EXIT
 git worktree add --detach "$land_dir" "$base_sha" -q
 if ! git -C "$land_dir" merge --no-ff --no-commit "$head_sha" >/dev/null 2>&1; then
@@ -68,7 +69,7 @@ if ! git -C "$land_dir" merge --no-ff --no-commit "$head_sha" >/dev/null 2>&1; t
 fi
 repinned_head=""
 if [ $main_moved -eq 1 ]; then
-  repin_dir="$land_dir/.claude/land-repin"
+  repin_dir="$land_scratch/land-repin"
   mkdir -p "$repin_dir"
   printf '{"recordedAt":"%s","cause":"ticket 335: main moved by %s; branch delta %+d; intervening landings: %s","detectedBy":"eng/land.sh merge-commit verification"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$main_move" "$branch_delta" "${landing_shas:-none}" > "$repin_dir/narrative.json"
@@ -88,36 +89,41 @@ fi
 echo "land: gating tree ${tested_tree:0:12} (base $(git rev-parse --short "$base_sha"), head $(git rev-parse --short "$head_sha"))"
 run_land_verify() {
   local verify_root=$1 verify_log=$2
-  ( cd "$verify_root" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > >(tee "$verify_log") 2>&1
+  ( cd "$verify_root" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > "$verify_log" 2>&1
+  local verify_rc=$?
+  cat "$verify_log"
+  return "$verify_rc"
 }
-verify_log="$land_dir/.claude/land-verify.log"
+verify_log="$land_scratch/land-verify.log"
+preserved_verify_log="$root/.claude/land-verify-$$.log"
 mkdir -p "$(dirname "$verify_log")"
 if ! run_land_verify "$land_dir" "$verify_log" || ! ( cd "$land_dir" && node eng/verify-receipt.mjs --landing ); then
-  if [ $main_moved -eq 1 ]; then
-    measured_total=$(node - "$verify_log" "$land_dir/.claude/land-evidence/exact-clone-fail.json" <<'NODE'
+  cp "$verify_log" "$preserved_verify_log" || { echo "land: WARNING could not preserve verify log at $preserved_verify_log" >&2; preserved_verify_log="$verify_log"; }
+  measured_total=$(node - "$land_dir/.claude/land-evidence/exact-clone-fail.json" <<'NODE'
 const {existsSync, readFileSync} = require('node:fs')
-const [log, evidence] = process.argv.slice(2)
+const evidence = process.argv[2]
 let measured = null
 if (existsSync(evidence)) {
-  const report = JSON.parse(readFileSync(evidence, 'utf8'))
-  measured = report.steps.find(step => step.id === 'host-baseline-match')?.observed?.total ?? null
-}
-if (measured === null && existsSync(log)) {
-  const matches = [...readFileSync(log, 'utf8').matchAll(/Failed:\s*\d+,\s*Passed:\s*\d+,\s*Skipped:\s*\d+,\s*Total:\s*(\d+)/g)]
-  measured = matches.at(-1)?.[1] ?? null
+  try {
+    const report = JSON.parse(readFileSync(evidence, 'utf8'))
+    const total = report.steps.find(step => step.id === 'host-baseline-match')?.observed?.total
+    if (Number.isSafeInteger(total)) measured = total
+  } catch {}
 }
 if (measured !== null) process.stdout.write(String(measured))
 NODE
 )
+  if [ $main_moved -eq 1 ]; then
     if [ -n "$measured_total" ] && [ "$measured_total" -ne "$expected_total" ]; then
       measured_move=$((measured_total - branch_total))
-      echo "land: main moved by $main_move, measured differs by $measured_move!=$main_move: regression (main $main_total, branch delta $(printf '%+d' "$branch_delta"), measured $measured_total)"
+      echo "land: main moved by $main_move, measured differs by $measured_move!=$main_move: regression (main $main_total, branch delta $(printf '%+d' "$branch_delta"), measured $measured_total; verify log: $preserved_verify_log)"
       echo "land: intervening landings:"
       printf '%s\n' "$intervening_landings"
     fi
   fi
+  if [ -z "$measured_total" ]; then echo "land: gate RED before the host suite ran; no measurement (see $preserved_verify_log)"; fi
   preserve_land_evidence "$root" "$land_dir" "$head_sha" || echo "land: WARNING could not preserve exact-clone evidence" >&2
-  echo "land: gate RED on the merge commit; nothing landed"
+  echo "land: gate RED on the merge commit; nothing landed (verify log: $preserved_verify_log)"
   exit 1
 fi
 if [ $main_moved -eq 1 ]; then
@@ -144,6 +150,6 @@ git fetch -q origin || { echo "land: fetch failed before landing; refusing"; exi
 [ "$(git rev-parse origin/main)" = "$base_sha" ] || { echo "land: origin/main moved during the gate ($(git rev-parse --short origin/main) != $(git rev-parse --short "$base_sha")); nothing landed. Merge main into the branch, regate, rerun."; exit 1; }
 # shellcheck source=land-resolve.sh
 source "$root/eng/land-resolve.sh"
-gate_main='verify_dir="$root/.claude/worktrees/land-verify-$$"; verify_log="$verify_dir/.claude/land-verify.log"; git worktree add --detach "$verify_dir" origin/main -q && mkdir -p "$(dirname "$verify_log")" && run_land_verify "$verify_dir" "$verify_log" && ( cd "$verify_dir" && node eng/verify-receipt.mjs --landing ); rc=$?; git worktree remove --force "$verify_dir" >/dev/null 2>&1 || true; [ $rc -eq 0 ]'
+gate_main='verify_dir="$root/.claude/worktrees/land-verify-$$"; verify_scratch="$root/.claude/worktrees/land-scratch-$$"; verify_log="$verify_scratch/land-verify.log"; preserved_verify_log="$root/.claude/land-verify-$$.log"; git worktree add --detach "$verify_dir" origin/main -q && mkdir -p "$(dirname "$verify_log")" && run_land_verify "$verify_dir" "$verify_log" && ( cd "$verify_dir" && node eng/verify-receipt.mjs --landing ); rc=$?; cp "$verify_log" "$preserved_verify_log" || true; git worktree remove --force "$verify_dir" >/dev/null 2>&1 || true; rm -rf "$verify_scratch"; [ $rc -eq 0 ]'
 land_request_and_resolve "$pr" "$base_sha" "$head_sha" "$tested_tree" "$gate_main"
 exit $?
