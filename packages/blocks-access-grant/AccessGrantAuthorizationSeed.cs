@@ -20,6 +20,10 @@ internal sealed class AccessGrantAuthorizationSeed(
     AuthorizationConfigurationStateReader states,
     IGrantStore grants)
 {
+    /// <summary>The deterministic, tenant-owned role for one verified historical admission.</summary>
+    internal static RoleDefinition AdmissionMigrationRole(Guid id, TenantId tenant) =>
+        RoleDefinition.CreateTenantRole(new(id), "roster-admission-" + id.ToString("N"), "Migrated admission", tenant);
+
     public const string PackageId = "harborline.access-grant";
     public const string SchedulerPrincipal = "sys.scheduler";
     public const string DevIndexerPrincipal = "sys.dev-indexer";

@@ -34,6 +34,16 @@ public sealed class AuthorizationDefinitionWriter
         this.grants = grants ?? throw new ArgumentNullException(nameof(grants));
     }
 
+    /// <summary>Validate-stage entry for the host's fenced, verified-admission boot migration.</summary>
+    internal static async ValueTask<ValidatedAuthorizationConfigurationWrite> ValidateAdmissionMigrationAsync(
+        AuthorizationCapabilityDefinition definition, TenantId tenant, DateTimeOffset signedAt,
+        IRoleVocabularyReader roles, CancellationToken ct)
+    {
+        await new AuthorizationDefinitionAdmission(roles).AdmitAsync(definition, tenant, previous: null, ct: ct)
+            .ConfigureAwait(false);
+        return new(AuthorizationConfigurationWriteKind.InstallDefinition, definition, null, 0, 0, signedAt, tenant);
+    }
+
     /// <summary>Runs authorize → bind → mutate → validate → commit → react.</summary>
     public async ValueTask<AuthorizationConfigurationWriteResult> WriteAsync(
         AuthorizationConfigurationCommand command,
