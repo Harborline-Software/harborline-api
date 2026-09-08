@@ -116,12 +116,6 @@ public static class LocalNodeHostRuntime
             await _stopRequested!.Task.ConfigureAwait(false);
             await host.StopAsync().ConfigureAwait(false);
         }
-        catch (Exception exception)
-        {
-            _started?.TrySetException(exception);
-            _stopRequested?.TrySetException(exception);
-            throw;
-        }
         finally
         {
             await DisposeHostAsync(host).ConfigureAwait(false);
@@ -150,8 +144,6 @@ public static class LocalNodeHostRuntime
     {
         var exception = entrypoint.Exception?.GetBaseException()
             ?? new InvalidOperationException("The local-node host composition failed.");
-        started.TrySetException(exception);
-        stopRequested.TrySetException(exception);
 
         lock (Gate)
         {
@@ -164,6 +156,11 @@ public static class LocalNodeHostRuntime
                 CurrentServices = null;
             }
         }
+
+        // The caller must not observe the boot fault until this generation has released its
+        // entrypoint. It may immediately start another host after observing the failure.
+        stopRequested.TrySetException(exception);
+        started.TrySetException(exception);
     }
 
     private static async ValueTask DisposeHostAsync(IHost host)
