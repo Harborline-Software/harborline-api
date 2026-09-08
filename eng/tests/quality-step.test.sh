@@ -44,7 +44,7 @@ grep -q 'quality-defaults.yaml' "$fixture/.git/missing-control.out"
 
 mkdir -p "$old_control/policy"
 cp "$control_root/policy/quality-defaults.yaml" "$old_control/policy/quality-defaults.yaml"
-sed -i 's/maxDropPercentagePoints/maximumAggregateDrop/' "$old_control/policy/quality-defaults.yaml"
+sed -e 's/maxDropPercentagePoints/maximumAggregateDrop/' "$old_control/policy/quality-defaults.yaml" > "$old_control/policy/quality-defaults.yaml".portable && mv "$old_control/policy/quality-defaults.yaml".portable "$old_control/policy/quality-defaults.yaml"
 if HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$old_control" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/old-control.out" 2>&1; then
   echo 'FAIL old control key passed'; exit 1
 fi
