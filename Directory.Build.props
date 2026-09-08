@@ -5,10 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- ADR 0085 D4: enable the SDK's recommended analyzer set, but retain Preview-mode
-         warning handling. Individual quality-rule severities live in .editorconfig. -->
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- SDK default-item globs otherwise treat output from nested projects as source
          content. A project named `tests`, for example, can copy tests/bin and
@@ -47,11 +43,10 @@
       warning; it only declines to fail the build on an advisory the source chose to suppress.
       The bare-NoWarn projects are a source defect: cleanup register C-004.
     -->
-    <!-- HLQ.CS.1000 / VSTHRD002 is Preview-mode evidence for CQG. Keep the
-         diagnostic visible in ErrorLog without letting the repository-wide warning
-         policy reject existing findings before their precision is calibrated. CA1031
-         is also demoted by CodeAnalysisTreatWarningsAsErrors=false above. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1510;VSTHRD002</WarningsNotAsErrors>
+    <!-- HLQ.CS.1000 / VSTHRD002 and HLQ.CS.1100 / CA1031 are Preview-mode
+         evidence for CQG. Keep these two warnings visible in ErrorLog without
+         weakening warning-as-error handling for any other analyzer rule. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1510;VSTHRD002;CA1031</WarningsNotAsErrors>
     <Authors>Harborline Software Contributors</Authors>
     <Company>Harborline Software</Company>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
@@ -221,9 +216,8 @@
     <_HarborlineBannedApiTarget Condition="$(MSBuildProjectName.EndsWith('.Analyzers'))">false</_HarborlineBannedApiTarget>
 
     <!-- ADR 0085 D4 / HLQ.CS.1000 and HLQ.CS.1020: attach the upstream VS
-         threading analyzer only to production packages. The IsPackable check must
-         remain in Directory.Build.targets because project bodies set it after this
-         .props import, just as the BannedApiAnalyzers reference does. -->
+         threading analyzer to every production project while keeping tests and
+         analyzer projects outside the measured population. -->
     <_HarborlineThreadingAnalyzersTarget Condition="'$(_HarborlineThreadingAnalyzersTarget)' == ''">true</_HarborlineThreadingAnalyzersTarget>
     <_HarborlineThreadingAnalyzersTarget Condition="$(MSBuildProjectName.EndsWith('.Tests'))">false</_HarborlineThreadingAnalyzersTarget>
     <_HarborlineThreadingAnalyzersTarget Condition="'$(MSBuildProjectName)' == 'tests'">false</_HarborlineThreadingAnalyzersTarget>

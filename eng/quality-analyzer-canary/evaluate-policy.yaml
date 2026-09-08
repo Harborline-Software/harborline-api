@@ -1,5 +1,0 @@
-version: 1
-policyId: quality-analyzer-canary
-mode: evaluate
-coverage:
-  required: false

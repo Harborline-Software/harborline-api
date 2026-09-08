@@ -117,48 +117,46 @@ try {
 
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
-  // Ticket 340: the clean-clone build is also the Roslyn analysis invocation.
-  // A solution build invokes Csc once per project, and a global ErrorLog would
-  // make concurrent compilers overwrite one another. The analyzer only attaches
-  // to these three packable production projects, so build each once with its own
-  // ErrorLog after the normal solution build. Write outside the disposable clone
-  // so the subsequent quality step can ingest the evidence.
+  // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
+  // invocation. Directory.Build.targets expands the project name per compiler
+  // invocation, so the single solution build cannot overwrite one global log.
   const qualityDirectory = path.join(apiRoot, 'artifacts', 'quality')
-  const roslynBuilds = [
-    {id: 'contracts', project: 'src/Harborline.Api.Contracts/Harborline.Api.Contracts.csproj'},
-    {id: 'client', project: 'src/Harborline.Api.Client/Harborline.Api.Client.csproj'},
-    {id: 'testing', project: 'src/Harborline.Api.Testing/Harborline.Api.Testing.csproj'},
-  ]
-  mkdirSync(qualityDirectory, {recursive: true})
-  for (const file of readdirSync(qualityDirectory)) if (/^roslyn(?:-.*)?\.sarif$/i.test(file)) rmSync(path.join(qualityDirectory, file), {force: true})
-  // The literal quotes keep MSBuild from treating the ErrorLog option's comma as
-  // a second -property assignment. Without them Roslyn silently writes SARIF
-  // 1.0, which CQG rejects.
-  run('dotnet-build', 'dotnet', ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6'], clone)
-  for (const {id, project} of roslynBuilds) {
-    const roslynSarif = path.join(qualityDirectory, `roslyn-${id}.sarif`)
-    run(`roslyn-build-${id}`, 'dotnet', ['build', project, '-c', 'Release', '--nologo', '--no-restore', '--no-dependencies', '-nodeReuse:false', '-maxcpucount:6', `-p:ErrorLog="${roslynSarif},version=2.1"`], clone)
+  const roslynDirectory = path.join(qualityDirectory, 'roslyn')
+  const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
+  const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
+  if (qualityEnabled) {
+    rmSync(roslynDirectory, {recursive: true, force: true})
+    mkdirSync(roslynDirectory, {recursive: true})
+    buildArgs.push(`-p:HarborlineRoslynSarifDirectory=${roslynDirectory}`)
   }
-  const roslynSarifFiles = roslynBuilds.map(({id}) => path.join(qualityDirectory, `roslyn-${id}.sarif`))
-  run('roslyn-sarif-normalize', process.execPath, ['eng/normalize-roslyn-sarif.mjs', ...roslynSarifFiles], clone)
-  let roslynSarifCheck = {passed: false, reason: 'not written'}
-  try {
-    const sarifs = roslynSarifFiles.map(file => JSON.parse(readFileSync(file, 'utf8')))
-    const results = sarifs.flatMap(sarif => sarif.runs?.flatMap(run => run.results ?? []) ?? [])
-    const hasResultShape = results.every(result => typeof result.ruleId === 'string'
-      && result.locations?.[0]?.physicalLocation?.artifactLocation?.uri
-      && Number.isInteger(result.locations?.[0]?.physicalLocation?.region?.startLine)
-      && result.partialFingerprints && typeof result.partialFingerprints === 'object')
-    roslynSarifCheck = {
-      passed: roslynSarifFiles.length > 0 && sarifs.every(sarif => sarif.version === '2.1.0' && typeof sarif.runs?.[0]?.tool?.driver?.name === 'string') && hasResultShape,
-      resultCount: results.length,
-      sarifCount: roslynSarifFiles.length,
-      driver: sarifs[0]?.runs?.[0]?.tool?.driver?.name,
+  run('dotnet-build', 'dotnet', buildArgs, clone)
+  if (qualityEnabled) {
+    const roslynSarifFiles = readdirSync(roslynDirectory)
+      .filter(file => /\.sarif$/i.test(file)).sort().map(file => path.join(roslynDirectory, file))
+    run('roslyn-sarif-normalize', process.execPath,
+      ['eng/normalize-roslyn-sarif.mjs', '--repo-root', clone, ...roslynSarifFiles], clone)
+    let roslynSarifCheck = {passed: false, reason: 'not written'}
+    try {
+      const sarifs = roslynSarifFiles.map(file => JSON.parse(readFileSync(file, 'utf8')))
+      const results = sarifs.flatMap(sarif => sarif.runs?.flatMap(run => run.results ?? []) ?? [])
+      const hasResultShape = results.every(result => typeof result.ruleId === 'string'
+        && /^[^/:]+(?:\/[^/:]+)*$/.test(result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? '')
+        && Number.isInteger(result.locations?.[0]?.physicalLocation?.region?.startLine)
+        && result.partialFingerprints && typeof result.partialFingerprints === 'object')
+      roslynSarifCheck = {
+        passed: roslynSarifFiles.length > 0
+          && sarifs.every(sarif => sarif.version === '2.1.0'
+            && typeof sarif.runs?.[0]?.tool?.driver?.name === 'string')
+          && hasResultShape,
+        resultCount: results.length,
+        sarifCount: roslynSarifFiles.length,
+        driver: sarifs[0]?.runs?.[0]?.tool?.driver?.name,
+      }
+    } catch (error) {
+      roslynSarifCheck = {passed: false, reason: String(error)}
     }
-  } catch (error) {
-    roslynSarifCheck = {passed: false, reason: String(error)}
+    steps.push({id: 'roslyn-sarif', ...roslynSarifCheck})
   }
-  steps.push({id: 'roslyn-sarif', ...roslynSarifCheck})
 
   // The capability lane's dependencies are installed BEFORE the host tests, not after. The two lanes are
   // not independent in one direction: CapabilityInvokeCorrelationTraceTests is a .NET test that spawns

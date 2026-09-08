@@ -1,5 +1,5 @@
-# Formatting only. Nothing here is enforced in the build; TreatWarningsAsErrors and the analyzers stay
-# where they are (Directory.Build.props). Editors and `dotnet format` read this.
+# Formatting defaults plus the three explicitly marked Preview quality-rule severities below.
+# TreatWarningsAsErrors and analyzer attachment remain in the MSBuild configuration.
 root = true
 
 [*]

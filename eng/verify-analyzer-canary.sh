@@ -11,6 +11,8 @@
 # attachment, ProviderNeutralityAnalyzer.IsTargetCompilation for action).
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
+msbuild_root=$(cd "$(dirname "$0")/.." && (pwd -W 2>/dev/null || pwd))
+if command -v cygpath >/dev/null 2>&1; then msbuild_root=$(cygpath -m "$msbuild_root"); fi
 expected="HARBORLINE_API_PROVNEUT_001"
 status=0
 projects=(
@@ -19,7 +21,8 @@ projects=(
 )
 for project in "${projects[@]}"; do
   name=$(basename "$project" .csproj)
-  output=$(dotnet build "$project" -c Release --nologo 2>&1)
+  output=$(dotnet build "$project" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
+    -p:UseSharedCompilation=false 2>&1)
   if grep -q "$expected" <<<"$output"; then
     echo "canary OK   $name — fails on $expected as required"
   else
@@ -45,54 +48,59 @@ else
 fi
 
 # Ticket 340's canary is intentionally outside Harborline.Api.slnx so the host
-# baseline has no new row. First build it as non-packable: this follows the same
-# source but omits the threading analyzer reference, and the assertion is red
-# because its SARIF lacks the two VSTHRD IDs. Then build the production-shaped
-# project and require all three upstream IDs plus the SARIF fields CQG consumes.
-quality_canary="$root/eng/quality-analyzer-canary/Harborline.Quality.AnalyzerCanary.csproj"
-quality_dir="$root/artifacts/quality"
+# baseline has no new row. First build it with analyzers disabled and prove that
+# all three IDs are absent. Then build the production-shaped project and require
+# all three upstream IDs plus the SARIF fields CQG consumes.
+quality_canary="$msbuild_root/eng/quality-analyzer-canary/Harborline.Quality.AnalyzerCanary.csproj"
+quality_dir="$msbuild_root/artifacts/quality"
 without_threading="$quality_dir/roslyn-canary-without-threading.sarif"
 with_threading="$quality_dir/roslyn-canary.sarif"
-mkdir -p "$quality_dir"
-rm -f "$without_threading" "$with_threading"
+node -e '
+const {mkdirSync, rmSync} = require("node:fs");
+mkdirSync(process.argv[1], {recursive: true});
+for (const file of process.argv.slice(2)) rmSync(file, {force: true});
+' "$quality_dir" "$without_threading" "$with_threading"
 
 set +e
 without_output=$(dotnet build "$quality_canary" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
-  -p:IsPackable=false "-p:ErrorLog=\"$without_threading,version=2.1\"" 2>&1)
+  --no-incremental -p:UseSharedCompilation=false -p:RunAnalyzers=false \
+  "-p:ErrorLog=\"$without_threading,version=2.1\"" 2>&1)
 without_status=$?
 set -e
 if [[ $without_status -ne 0 || ! -f "$without_threading" ]]; then
   echo "quality canary FAIL — unattached control build did not emit SARIF" >&2
   echo "$without_output" | tail -20 >&2
   status=1
-elif ! node "$root/eng/normalize-roslyn-sarif.mjs" "$without_threading"; then
+elif ! node "$msbuild_root/eng/normalize-roslyn-sarif.mjs" --repo-root "$msbuild_root" "$without_threading"; then
   echo "quality canary FAIL — unattached control emitted invalid SARIF" >&2
   status=1
 elif node -e '
-const sarif = require(process.argv[1]);
+const {readFileSync} = require("node:fs");
+const sarif = JSON.parse(readFileSync(process.argv[1], "utf8"));
 const ids = new Set(sarif.runs.flatMap(run => run.results ?? []).map(result => result.ruleId));
-process.exit(ids.has("VSTHRD002") || ids.has("VSTHRD100") ? 0 : 1)
+process.exit(["VSTHRD002", "VSTHRD100", "CA1031"].every(id => !ids.has(id)) ? 0 : 1)
 ' "$without_threading"; then
-  echo "quality canary FAIL — unattached control unexpectedly found threading diagnostics" >&2
-  status=1
+  echo "GREEN-CONTROL-RED — VSTHRD002, VSTHRD100 and CA1031 absent"
 else
-  echo "quality canary RED recorded — unattached control lacks VSTHRD002 and VSTHRD100"
+  echo "quality canary FAIL — analyzer-disabled control found a required diagnostic" >&2
+  status=1
 fi
 
 set +e
 with_output=$(dotnet build "$quality_canary" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
-  "-p:ErrorLog=\"$with_threading,version=2.1\"" 2>&1)
+  --no-incremental -p:UseSharedCompilation=false "-p:ErrorLog=\"$with_threading,version=2.1\"" 2>&1)
 with_status=$?
 set -e
 if [[ ! -f "$with_threading" ]]; then
   echo "quality canary FAIL — attached build did not emit SARIF" >&2
   echo "$with_output" | tail -20 >&2
   status=1
-elif ! node "$root/eng/normalize-roslyn-sarif.mjs" "$with_threading"; then
+elif ! node "$msbuild_root/eng/normalize-roslyn-sarif.mjs" --repo-root "$msbuild_root" "$with_threading"; then
   echo "quality canary FAIL — attached build emitted invalid SARIF" >&2
   status=1
 elif node -e '
-const sarif = require(process.argv[1]);
+const {readFileSync} = require("node:fs");
+const sarif = JSON.parse(readFileSync(process.argv[1], "utf8"));
 const results = sarif.runs.flatMap(run => run.results ?? []);
 const ids = new Set(results.map(result => result.ruleId));
 const valid = sarif.version === "2.1.0"
@@ -108,7 +116,7 @@ process.exit(valid ? 0 : 1)
     echo "quality canary FAIL — attached violations compiled without VSTHRD100's configured error" >&2
     status=1
   else
-    echo "quality canary OK — VSTHRD002, VSTHRD100 and CA1031 appear in SARIF"
+    echo "quality canary GREEN — VSTHRD002, VSTHRD100 and CA1031 present"
   fi
 else
   echo "quality canary FAIL — attached SARIF is missing a required rule or CQG field" >&2
