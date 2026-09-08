@@ -33,6 +33,18 @@ test('boundary inventory classifies every runtime producer operation', async () 
   assert.deepEqual(validateInventory(inventory, discovered, manifest), [])
 })
 
+test('Forms runtime inventory carries the producer field DTO and detects metadata drift', async () => {
+  const discovered = await discoverRuntimeBoundaries()
+  const form = discovered.find(entry => entry.method === 'GET' && entry.source.endsWith('/FormsRoutes.cs'))
+  assert.deepEqual(form.responseFieldDtos.FormViewFieldDto,
+    ['name', 'label', 'helpText', 'controlHint', 'isSensitive', 'isReadable', 'value', 'rules', 'options', 'required'])
+  const inventory = JSON.parse(readFileSync(boundaryInventoryPath, 'utf8'))
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const entry = inventory.boundaries.find(entry => entry.id === form.id)
+  entry.responseFieldDtos.FormViewFieldDto = entry.responseFieldDtos.FormViewFieldDto.filter(name => name !== 'options')
+  assert.ok(validateInventory(inventory, discovered, manifest).some(error => error.includes('response field DTO drift')))
+})
+
 test('boundary inventory gate rejects a route added without regeneration', async () => {
   const inventory = JSON.parse(readFileSync(boundaryInventoryPath, 'utf8'))
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
