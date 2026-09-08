@@ -20,3 +20,7 @@ TestResults/
 # Python bytecode (245 fix 1 tracked one by mistake)
 __pycache__/
 *.pyc
+
+# Built from eng/platform-pin.json; CI also checks the producer out here.
+.feed/
+.platform/
