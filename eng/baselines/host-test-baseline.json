@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3693,
-    "passed": 3675,
+    "total": 3698,
+    "passed": 3680,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3687,
-      "passed": 3669,
+      "total": 3693,
+      "passed": 3675,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3687 -> 3693; passed 3669 -> 3675; failed unchanged at 0; notExecuted 18 -> 18",
+    "change": "total 3693 -> 3698; passed 3675 -> 3680; failed unchanged at 0; notExecuted 18 -> 18",
     "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
     "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3687 + 6 = 3693; passed = total - notExecuted = 3693 - 18 = 3675."
+    "arithmeticCrossCheck": "3693 + 5 = 3698; passed = total - notExecuted = 3698 - 18 = 3680."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
