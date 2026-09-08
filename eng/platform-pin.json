@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "44cd8a96d250429623d5a7770dcba7a12c5eb02f",
-  "recordedAt": "2026-09-08 (314 slice 2: align identity assembly with the app)",
+  "commit": "ef875832f55c3d882d4cd6b0ee6c0f1e1c1f02b0",
+  "recordedAt": "2026-09-07 (314 slice 1)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
