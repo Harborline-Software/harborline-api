@@ -50,11 +50,13 @@ public sealed class AuditorSingleCapabilityTests
         return data;
     }
 
-    [Fact(DisplayName = "Catalogue: exactly one effective definition names the Auditor, and it is audit:read")]
+    [Fact(DisplayName = "Catalogue: 46 offered atoms after retiring four unimplemented stories atoms; only audit:read offers Auditor")]
     public async Task Exactly_one_effective_definition_names_the_auditor()
     {
         await using var h = await Harness.CreateAsync();
 
+        Assert.Equal(46, PermissionVocabulary.Operations.Count);
+        Assert.DoesNotContain(PermissionVocabulary.Operations, operation => operation.Value.StartsWith("stories:", StringComparison.Ordinal));
         var rows = await h.Catalogue.ListAsync(Tenant);
 
         var auditorRows = rows

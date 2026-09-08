@@ -42,9 +42,6 @@ public static class PermissionCompositions
     private static readonly string[] CalendarAll =
         { Permission.CalendarRead, Permission.CalendarCreate, Permission.CalendarWrite, Permission.CalendarArchive };
 
-    private static readonly string[] StoriesAll =
-        { Permission.StoriesRead, Permission.StoriesCreate, Permission.StoriesWrite, Permission.StoriesArchive };
-
     private static readonly string[] CommsAll = { Permission.CommsRead, Permission.CommsAppend };
 
     // Legacy coarse strings (TeamRolePermissions) emitted ALONGSIDE the PBAC vocabulary so existing
@@ -55,7 +52,7 @@ public static class PermissionCompositions
     /// <summary>The full Family-A data set across all enabled doctypes INCLUDING <c>gl:post</c> (the
     /// privileged poster's superset). <c>member</c> gets this MINUS <c>gl:post</c>.</summary>
     private static readonly string[] AllDataIncludingGlPost =
-        ContactsAll.Concat(CalendarAll).Concat(StoriesAll).Concat(CommsAll)
+        ContactsAll.Concat(CalendarAll).Concat(CommsAll)
             .Append(Permission.GlRead).Append(Permission.GlPost)
             // spatial:read rides the DATA sets (admin + member), NOT the Viewer floor — CIC [2026-08-06],
             // card 3777: site coordinates are CP-4 PII-class; the read-only floor never sees them.
@@ -65,7 +62,7 @@ public static class PermissionCompositions
 
     /// <summary>The full Family-A data set with GL READ-ONLY (member's data floor — no <c>gl:post</c>).</summary>
     private static readonly string[] AllDataGlReadOnly =
-        ContactsAll.Concat(CalendarAll).Concat(StoriesAll).Concat(CommsAll)
+        ContactsAll.Concat(CalendarAll).Concat(CommsAll)
             .Append(Permission.GlRead)
             .Append(Permission.SpatialRead)
             .Concat(LegacyDataStrings)
@@ -199,7 +196,7 @@ public static class PermissionCompositions
     /// ruled [2026-08-06] (card 3777) that the viewer floor never sees them; spatial reads are an
     /// admin/member data permission.</summary>
     public static PermissionSet Viewer { get; } = PermissionSet.Of(
-        Permission.ContactsRead, Permission.CalendarRead, Permission.StoriesRead,
+        Permission.ContactsRead, Permission.CalendarRead,
         Permission.CommsRead, Permission.GlRead, TeamRolePermissions.RecordsRead);
 
     /// <summary>

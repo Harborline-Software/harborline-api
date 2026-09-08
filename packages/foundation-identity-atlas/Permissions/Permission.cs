@@ -64,15 +64,6 @@ public static class Permission
     /// <summary>Soft-remove a calendar entry.</summary>
     public const string CalendarArchive = "calendar:archive";
 
-    /// <summary>Observe / query the stories doctype (register-CRDT; flight-deck-class).</summary>
-    public const string StoriesRead = "stories:read";
-    /// <summary>Create a story.</summary>
-    public const string StoriesCreate = "stories:create";
-    /// <summary>Edit an existing story.</summary>
-    public const string StoriesWrite = "stories:write";
-    /// <summary>Soft-remove a story.</summary>
-    public const string StoriesArchive = "stories:archive";
-
     /// <summary>Read the comms log (append-log doctype — no write/archive of sent messages).</summary>
     public const string CommsRead = "comms:read";
     /// <summary>Append (send) a message to the comms log.</summary>
