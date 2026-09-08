@@ -24,6 +24,7 @@ public sealed record AuthorizationGateRequest(
 public sealed record AuthorizationRosterInputs(
     string PartyId, bool Member, bool Ejected, PermissionSet? Permissions)
 {
+    public bool? RegistryMember { get; init; }
     public bool ProspectiveAdministratorGrant { get; init; }
     public bool RequireMember { get; init; }
     public bool RequireGrantCoverage { get; init; }
