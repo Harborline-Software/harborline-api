@@ -33,13 +33,11 @@ public sealed class SignedRosterRehostGrantProvider(
             Convert.ToBase64String(replacementIdentity.PublicKey), [ReadCanonical, PromoteHome], now.AddMinutes(5));
         var signed = await signer.SignAsync(payload, now, Guid.NewGuid());
         var grant = new RosterSignedRehostGrant(JsonSerializer.Serialize(signed));
-        await RedeemAsync(grant, tenantId, replacedNodeId, replacementIdentity,
-            [ReadCanonical, PromoteHome], new ActorId(signer.IssuerId.ToBase64Url()), ct);
         return grant;
     }
 
     /// <summary>Verify and burn once; consumers must perform only the requested acts after this returns.</summary>
-    public async ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant grant, string tenantId,
+    public async ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant? grant, string tenantId,
         string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
         CancellationToken ct = default)
     {
@@ -47,7 +45,7 @@ public sealed class SignedRosterRehostGrantProvider(
         var tenant = TenantId.FromString(tenantId);
         SignedOperation<RehostGrantPayload>? signed = null;
         string? reason = null;
-        try { signed = JsonSerializer.Deserialize<SignedOperation<RehostGrantPayload>>(grant.SerializedGrant); }
+        try { signed = JsonSerializer.Deserialize<SignedOperation<RehostGrantPayload>>(grant?.SerializedGrant ?? string.Empty); }
         catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
         { reason = "rehost.malformed"; }
         if (signed?.Payload is not { Acts: not null } payload || signed.Nonce == Guid.Empty)
@@ -65,9 +63,7 @@ public sealed class SignedRosterRehostGrantProvider(
             else if (payload.ExpiresAt <= now || payload.ExpiresAt <= signed.IssuedAt) reason = "rehost.expired";
         }
         await using var db = await contexts.CreateDbContextAsync(ct);
-        // Local redemption receipts are deliberately not roster CRDT events. No migration catalogue or store family is added.
-        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS rehost_grant_burns (tenant TEXT NOT NULL, issuer TEXT NOT NULL, nonce TEXT NOT NULL, PRIMARY KEY (tenant, issuer, nonce))", ct);
-        // SQLite's immediate transaction serializes roster writers and redemptions through commit.
+        // Single use rests on the receipt's composite primary key. The transaction rolls back denied burns.
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (reason is null)
         {
