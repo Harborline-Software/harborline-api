@@ -2,6 +2,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Harborline.Api.Kernel.Audit;
 
@@ -34,6 +35,7 @@ public sealed record AuthorizationTraceRead(
     int? Version,
     IReadOnlyList<AuthorityTraceStepSnapshot> Steps,
     AuthorityCounterfactualSnapshot? Counterfactual,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     AuthorizationPreDecisionRefusal? Refusal = null);
 
 /// <summary>
@@ -106,11 +108,11 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         {
             var value = JsonSerializer.SerializeToElement(stored);
             if (value.ValueKind == JsonValueKind.Object
-                && value.TryGetProperty("Code", out var code) && code.ValueKind == JsonValueKind.String
-                && value.TryGetProperty("Detail", out var detail) && detail.ValueKind == JsonValueKind.String
-                && value.TryGetProperty("Remediation", out var remedy) && remedy.ValueKind == JsonValueKind.String)
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Code), out var code)
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Detail), out var detail)
+                && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Remediation), out var remedy))
                 return (new AuthorizationTraceRead(AuthorizationTraceAvailability.PreDecisionRefusal,
-                    null, [], null, new(code.GetString()!, detail.GetString()!, remedy.GetString()!)), decision);
+                    null, [], null, new(code, detail, remedy)), decision);
         }
 
         // Keyed by ORDINAL, not by stage: an entry whose act also went through the separation-of-duty
@@ -127,6 +129,23 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
                 steps,
                 snapshot.Counterfactual)
             : new AuthorizationTraceRead(AuthorizationTraceAvailability.NotAvailable, null, [], null), decision);
+    }
+
+    // These single-word fields differ only in case under the audit writers' default, camelCase,
+    // and snake_case policies. Read the stored spelling without changing the signed payload.
+    private static bool TryReadReportString(JsonElement value, string name, out string text)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.String)
+            {
+                text = property.Value.GetString()!;
+                return true;
+            }
+        }
+        text = string.Empty;
+        return false;
     }
 
     // ponytail: a linear scan of the tenant's trail — IAuditTrail has no by-id query and the node-local

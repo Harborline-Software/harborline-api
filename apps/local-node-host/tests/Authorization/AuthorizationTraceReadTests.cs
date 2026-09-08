@@ -54,18 +54,33 @@ public sealed class AuthorizationTraceReadTests
         var rows = new List<AuditRecord>();
         await foreach (var row in h.Trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
         var original = Assert.Single(rows);
-        var reloaded = original with
+        foreach (var policy in new System.Text.Json.JsonNamingPolicy?[]
+                 { null, System.Text.Json.JsonNamingPolicy.CamelCase, System.Text.Json.JsonNamingPolicy.SnakeCaseLower })
         {
-            AuditId = Guid.NewGuid(),
-            Payload = original.Payload with
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = policy };
+            var body = new AuditPayload(original.Payload.Payload.Body.ToDictionary(p => p.Key,
+                p => (object?)System.Text.Json.JsonSerializer.SerializeToElement(p.Value, options)));
+            // A naming policy changes the signed bytes: sign the stored representation itself.
+            using var keys = KeyPair.Generate();
+            var reloaded = original with
             {
-                Payload = new AuditPayload(original.Payload.Payload.Body.ToDictionary(p => p.Key,
-                    p => (object?)System.Text.Json.JsonSerializer.SerializeToElement(p.Value)))
-            }
-        };
-        Assert.True(new Ed25519Verifier().Verify(reloaded.Payload));
-        await h.Trail.AppendAsync(reloaded);
-        Assert.Equal(read.Refusal, (await h.Reader.ReadAsync(Tenant, Auditor, reloaded.AuditId, At)).Refusal);
+                AuditId = Guid.NewGuid(),
+                Payload = await new Ed25519Signer(keys).SignAsync(body, At, Guid.NewGuid())
+            };
+            Assert.True(new Ed25519Verifier().Verify(reloaded.Payload));
+            await h.Trail.AppendAsync(reloaded);
+            var restored = await h.Reader.ReadAsync(Tenant, Auditor, reloaded.AuditId, At);
+            Assert.Equal(read.Refusal, restored.Refusal);
+            var rendered = System.Text.Json.JsonSerializer.SerializeToElement(restored,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            Assert.Equal((int)AuthorizationTraceAvailability.PreDecisionRefusal,
+                rendered.GetProperty("availability").GetInt32());
+            Assert.Empty(rendered.GetProperty("steps").EnumerateArray());
+            Assert.Equal(refusal.Code, rendered.GetProperty("refusal").GetProperty("code").GetString());
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, rendered.GetProperty("counterfactual").ValueKind);
+            Assert.DoesNotContain("classified-record-evidence", rendered.GetRawText());
+            Assert.Equal(denied, await h.Reader.ReadAsync(Tenant, Stranger, reloaded.AuditId, At));
+        }
     }
 
     /// <summary>The subject of the decision reads their own trace: ticket 163's question, in the first
