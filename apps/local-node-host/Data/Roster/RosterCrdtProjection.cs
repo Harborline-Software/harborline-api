@@ -77,9 +77,16 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
     private Dictionary<(string RecordId, string Code), RebuildRefusal> _reportedRefusals = new();
     private AuthorizationRefusal[] _refusalReports = [];
+    private RebuildRefusal? _rebuildFailure;
+    private RebuildRefusal? _auditedRebuildFailure;
+
+    /// <summary>A failed fold means the retained roster is not a converged trust reading.</summary>
+    public AuthorizationRefusal? RebuildFailure => Volatile.Read(ref _rebuildFailure)?.Report;
 
     /// <summary>Current refusal state and remedies, rebuilt from roster evidence after restart.</summary>
-    public IReadOnlyList<AuthorizationRefusal> RefusalReports => Array.AsReadOnly(Volatile.Read(ref _refusalReports));
+    public IReadOnlyList<AuthorizationRefusal> RefusalReports => RebuildFailure is { } failure
+        ? Array.AsReadOnly(Volatile.Read(ref _refusalReports).Append(failure).ToArray())
+        : Array.AsReadOnly(Volatile.Read(ref _refusalReports));
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
@@ -179,21 +186,37 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// </summary>
     public async Task<int> HydrateFromStoreAsync(CancellationToken ct)
     {
-        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var rows = await ctx.Set<NodeRosterRecord>()
-            .AsNoTracking()
-            .OrderBy(r => r.IssuedAtUtc).ThenBy(r => r.Id)
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+        try
+        {
+            await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            var rows = await ctx.Set<NodeRosterRecord>()
+                .AsNoTracking()
+                .OrderBy(r => r.IssuedAtUtc).ThenBy(r => r.Id)
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
 
-        _projection.Mutate(
-            schema => schema.PushMany(rows.Select(NodeRosterRecord.ToCrdtState)),
-            signalLocalDelta: false);
+            // Decode the whole batch before changing the document: a bad row must not hydrate half a log.
+            var states = rows.Select(NodeRosterRecord.ToCrdtState).ToArray();
+            _projection.Mutate(
+                schema => schema.PushMany(states),
+                signalLocalDelta: false);
+            await ReconcileAsync(ct).ConfigureAwait(false);
 
-        _logger.LogInformation(
-            "Roster CRDT cold-start hydration pushed {Count} record(s) from local-node.db into the sync document.",
-            rows.Count);
-        return rows.Count;
+            _logger.LogInformation(
+                "Roster CRDT cold-start hydration pushed {Count} record(s) from local-node.db into the sync document.",
+                rows.Count);
+            return rows.Count;
+        }
+        catch (Exception ex) when (ex is JsonException or VerifiedTenantRosterRefusedException)
+        {
+            await ReportRebuildFailureAsync(ex, "roster.rebuild.durable_verification_failed", ct).ConfigureAwait(false);
+            return 0;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await ReportRebuildFailureAsync(ex, "roster.rebuild.failed", ct).ConfigureAwait(false);
+            return 0;
+        }
     }
 
     // ── Local publish path: durable-first, then push onto the CRDT list ─────────────────────────────────
@@ -500,6 +523,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .ToDictionaryAsync(r => r.Id, StringComparer.Ordinal, ct)
                         .ConfigureAwait(false);
 
+                    // Durable rows are evidence for this fold, never fresh inbound refusal targets.
+                    var reader = new VerifiedTenantRosterReader(_contextFactory, _verifier);
+                    foreach (var tenant in existing.Values.Select(r => r.TeamId).Distinct(StringComparer.Ordinal))
+                        await reader.ReadForRebuildAsync(new TenantId(tenant), ct).ConfigureAwait(false);
+
                     var toInsert = new List<NodeRosterRecord>();
                     var refused = await VerifyBeforeInsertAsync(snapshot, existing, ct).ConfigureAwait(false);
                     inboundRefusals.AddRange(refused.Values);
@@ -542,7 +570,15 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     }
                     if (changed)
                     {
-                        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                        try
+                        {
+                            await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            await ReportRebuildFailureAsync(ex, "roster.insert.failed", ct).ConfigureAwait(false);
+                            return;
+                        }
                         _logger.LogDebug(
                             "Roster CRDT reconcile inserted {Count} new record(s) + refreshed carried transport keys.",
                             toInsert.Count);
@@ -562,11 +598,50 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 //     removal leg; and for a locally-originated revocation whose removal leg failed after the
                 //     roster leg committed, this is the recorded repair on the next fold.
                 await ReconcileAdministratorRemovalsAsync(ct).ConfigureAwait(false);
+                await ClearRebuildFailureAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is JsonException or VerifiedTenantRosterRefusedException)
             {
-                _logger.LogWarning(ex, "Roster CRDT reconcile failed: {Reason}", ex.Message);
+                await ReportRebuildFailureAsync(ex, "roster.rebuild.durable_verification_failed", ct).ConfigureAwait(false);
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await ReportRebuildFailureAsync(ex, "roster.rebuild.failed", ct).ConfigureAwait(false);
+            }
+    }
+
+    private async Task ReportRebuildFailureAsync(Exception ex, string code, CancellationToken ct)
+    {
+        var cause = ex.GetBaseException();
+        var detail = cause switch
+        {
+            VerifiedTenantRosterRefusedException refused => refused.Message,
+            JsonException => "The durable roster contains malformed JSON.",
+            _ => code == "roster.insert.failed" ? "The roster insert failed; the node has not converged."
+                : "The roster rebuild failed; the retained roster is not a converged trust reading."
+        };
+        var report = new AuthorizationRefusal(code, "Roster convergence refused", detail,
+            "Repair the roster store or verifier fault and retry the rebuild; preserve the durable log as evidence.",
+            JsonSerializer.Serialize(new { reason = cause.Message, exception = cause.GetType().FullName }));
+        var evidence = _nodeRoster?.Current.EnumerateAdmissions().FirstOrDefault();
+        var refusal = new RebuildRefusal("rebuild", report, "roster.rebuild", ActorId.System,
+            evidence is null ? TenantId.System : new TenantId(evidence.TeamId),
+            evidence?.Admission.IssuedAt ?? DateTimeOffset.UnixEpoch);
+        Volatile.Write(ref _rebuildFailure, refusal);
+        var audit = _refusalAudit?.Invoke();
+        if (_auditedRebuildFailure?.Report == report || audit is null) return;
+        if (await audit.RecordAsync(report, refusal.Permission, refusal.Actor, refusal.Tenant,
+                refusal.IssuedAt, decision: null, ct).ConfigureAwait(false) is not null)
+            _auditedRebuildFailure = refusal;
+    }
+
+    private async Task ClearRebuildFailureAsync(CancellationToken ct)
+    {
+        if (_auditedRebuildFailure is { } previous && _refusalAudit?.Invoke() is { } audit)
+            await audit.RecordClearedAsync(previous.Report, previous.Permission, previous.Actor,
+                previous.Tenant, previous.IssuedAt, ct).ConfigureAwait(false);
+        _auditedRebuildFailure = null;
+        Volatile.Write(ref _rebuildFailure, null);
     }
 
     /// <summary>
