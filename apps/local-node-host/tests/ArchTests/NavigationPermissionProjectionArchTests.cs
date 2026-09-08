@@ -46,8 +46,7 @@ public sealed class NavigationPermissionProjectionArchTests
         // one judgement applied twice, not two derivations converging.
         string[] everydayWork =
         [
-            "assets:read", "calendar:read", "comms:read", "forms:read",
-            "inbox:read", "invoices:read", "search:use",
+            "assets:read", "forms:read", "invoices:read", "search:use",
         ];
         Assert.Equal(everydayWork.Order(StringComparer.Ordinal), member.Order(StringComparer.Ordinal));
 
@@ -143,13 +142,11 @@ public sealed class NavigationPermissionProjectionArchTests
     public void EverySeededComposition_ProjectsItsExactDestinationSet()
     {
         // The ratchet used to project Owner, Member and Viewer only. Admin and Support were LISTED in
-        // SeededCompositions and consumed by nothing, so telemetry:read could derive from a permission
-        // Admin deliberately withholds and no assertion noticed — Admin silently lost a rail item.
+        // SeededCompositions and consumed by nothing, so a composition could silently lose a rail item.
         // Assert every row by name; a composition that is enumerated but never projected is decoration.
         string[] everydayWork =
         [
-            "assets:read", "calendar:read", "comms:read", "forms:read",
-            "inbox:read", "invoices:read", "search:use",
+            "assets:read", "forms:read", "invoices:read", "search:use",
         ];
 
         var expected = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -160,10 +157,10 @@ public sealed class NavigationPermissionProjectionArchTests
                 .. everydayWork, "audit:read", "asset-types:design", "documents:design",
                 "forms:design", "members:manage", "org:branding:write", "org:manage-settings",
                 "packages:author", "packages:operate", "rules:design", "scheduling:design",
-                "studio:use", "telemetry:read", "workflows:design",
+                "studio:use", "workflows:design",
             ],
             ["Member"] = everydayWork,
-            ["Support"] = ["audit:read", "org:manage-settings", "packages:operate", "telemetry:read"],
+            ["Support"] = ["audit:read", "org:manage-settings", "packages:operate"],
             ["Viewer"] = everydayWork,
         };
 

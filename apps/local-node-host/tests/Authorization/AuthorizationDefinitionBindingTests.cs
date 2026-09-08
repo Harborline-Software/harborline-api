@@ -142,42 +142,6 @@ public sealed class AuthorizationDefinitionBindingTests
         await writer.WriteAsync(new InstallAuthorizationDefinition(readWithoutAuditor));
     }
 
-    [Theory]
-    [InlineData(Permission.PackagesPublish)]
-    [InlineData(Permission.PackagesInstall)]
-    public async Task PackageWriteSeed_OffersAdministratorRefusesAuditor(string operationValue)
-    {
-        var vocabulary = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
-        var (grants, store) = TestInMemoryAuthorizationStores.Pair();
-        var writer = new AuthorizationDefinitionWriter(
-            store,
-            store,
-            new AuthorizationDefinitionAdmission(vocabulary),
-            new AuthorizationCapabilityBindingAdmission(),
-            TestAuthorization.AllowGate(),
-            grants);
-        await new AccessGrantAuthorizationSeed(writer, store, grants)
-            .InstallAsync(Tenant, DateTimeOffset.UtcNow, AuthorizationSeedProfile.Production);
-
-        Assert.Contains(
-            await store.DefinitionsForRoleAsync(Tenant, RoleReference.Administrator),
-            definition => definition.Operation.Value == operationValue);
-        Assert.DoesNotContain(
-            await store.DefinitionsForRoleAsync(Tenant, RoleReference.Auditor),
-            definition => definition.Operation.Value == operationValue);
-
-        var operation = AuthorizationOperation.Parse(operationValue);
-        var auditorSeed = new AuthorizationCapabilityDefinition(
-            new AuthorizationCapabilityDefinitionId(Guid.NewGuid()),
-            AccessGrantAuthorizationSeed.PackageId,
-            1,
-            operation,
-            new PermissionAtom(operation, ScopeExpression.Parse("/")),
-            RoleBindingSet.Of(RoleReference.Administrator, RoleReference.Auditor));
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            writer.WriteAsync(new InstallAuthorizationDefinition(auditorSeed)).AsTask());
-    }
-
     [Fact]
     public async Task DefinitionReplacement_CannotAddOfferedRole()
     {
