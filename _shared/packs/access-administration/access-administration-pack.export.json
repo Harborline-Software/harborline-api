@@ -1,15 +1,21 @@
 {
   "_note": "Ticket 329. Ordinary replaceable Access content: grant form, privileged-review workflow and navigation for the holders read. No grant instances. The holdings view definition and access-by-person report remain deferred with their registrations.",
   "key": "harborline.access-administration",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "name": "Access administration",
   "description": "Granting roles, reviewing privileged grants and inspecting access holders.",
   "scopeTier": "Horizontal",
   "contents": [
     {
+      "key": "access.form-submitter",
+      "kind": "RoleDefinition",
+      "version": "1.0.0",
+      "content": { "role": "access-form-submitter", "displayName": "Access form submitter" }
+    },
+    {
       "key": "access.grant-a-role",
       "kind": "FormDefinition",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "content": {
         "overlay": {
           "fields": {
@@ -85,7 +91,8 @@
                 "effectiveFrom",
                 "effectiveTo",
                 "reason"
-              ]
+              ],
+              "access": { "readRoles": ["access-form-submitter"], "writeRoles": ["access-form-submitter"] }
             }
           ],
           "rules": [],
@@ -148,10 +155,12 @@
     {
       "key": "access.privileged-grant-review",
       "kind": "WorkflowDefinition",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "content": {
         "key": "access.privileged-grant-review",
-        "version": "1.0.0",
+        "version": "1.0.1",
+        "subjectFormRef": { "formId": "access.grant-a-role", "version": "1.0.1" },
+        "postSubmitProjection": "access.privileged-grant-review",
         "tenant": "00000000-0000-0000-0000-000000000000",
         "initialState": "requested",
         "states": [
