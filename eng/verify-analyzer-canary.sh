@@ -21,7 +21,7 @@ projects=(
 )
 for project in "${projects[@]}"; do
   name=$(basename "$project" .csproj)
-  output=$(dotnet build "$project" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
+  output=$(dotnet build "$project" -c Release --nologo -nodeReuse:false -maxcpucount:6 \
     -p:UseSharedCompilation=false 2>&1)
   if grep -q "$expected" <<<"$output"; then
     echo "canary OK   $name — fails on $expected as required"
@@ -62,7 +62,7 @@ for (const file of process.argv.slice(2)) rmSync(file, {force: true});
 ' "$quality_dir" "$without_threading" "$with_threading"
 
 set +e
-without_output=$(dotnet build "$quality_canary" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
+without_output=$(dotnet build "$quality_canary" -c Release --nologo -nodeReuse:false -maxcpucount:6 \
   --no-incremental -p:UseSharedCompilation=false -p:RunAnalyzers=false \
   "-p:ErrorLog=\"$without_threading,version=2.1\"" 2>&1)
 without_status=$?
@@ -87,7 +87,7 @@ else
 fi
 
 set +e
-with_output=$(dotnet build "$quality_canary" -c Release --nologo --no-restore -nodeReuse:false -maxcpucount:6 \
+with_output=$(dotnet build "$quality_canary" -c Release --nologo -nodeReuse:false -maxcpucount:6 \
   --no-incremental -p:UseSharedCompilation=false "-p:ErrorLog=\"$with_threading,version=2.1\"" 2>&1)
 with_status=$?
 set -e
