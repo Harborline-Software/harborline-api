@@ -72,6 +72,7 @@ public sealed class RosterSyncBootstrapHostedService : IHostedService
         // Cold-start hydration: seed the CRDT roster list from the recoverable local-node.db so the existing
         // record log replicates to a fresh peer on the first sync round.
         var hydrated = await _projection.HydrateFromStoreAsync(cancellationToken).ConfigureAwait(false);
+        if (_projection.RebuildFailure is not null) return;
         _logger.LogInformation("Roster CRDT cold-start hydration complete ({Count} record(s)).", hydrated);
 
         // Publish the local GENESIS self-admission AS a synced record (idempotent — already-present after a
