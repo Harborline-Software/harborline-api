@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Property tests for the repository-wide gate mutex. Every concurrency case uses real processes.
 set -uo pipefail
+unset HARBORLINE_GATE_LOCK_PATH HARBORLINE_GATE_LOCK_REENTRY_TOKEN
 here=$(cd "$(dirname "$0")" && pwd)
 lock_source="$here/../gate-lock.sh"
 fixture=$(mktemp -d)
