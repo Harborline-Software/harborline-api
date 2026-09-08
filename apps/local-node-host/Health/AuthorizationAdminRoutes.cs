@@ -40,13 +40,13 @@ public static class AuthorizationAdminRoutes
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
-        TenantId ResolveTenant() => NodeTenant.Resolve(activeTeam);
+        TenantId RequestTenant() => NodeTenant.Resolve(activeTeam);
 
         app.MapGet($"{RouteBase}/traces/{{auditId:guid}}",
             async (Guid auditId, HttpContext http, [Microsoft.AspNetCore.Mvc.FromServices] AuthorizationTraceReader reader, CancellationToken ct) =>
             {
                 http.Response.Headers.CacheControl = "no-store";
-                var authority = RequestAuthorization.Authority(http, ResolveTenant(), timeProvider);
+                var authority = RequestAuthorization.Authority(http, RequestTenant(), timeProvider);
                 var (read, decision) = await reader.ReadWithDecisionAsync(
                     authority.Tenant, authority.Principal, auditId, authority.At, ct).ConfigureAwait(false);
                 return read.Availability == AuthorizationTraceAvailability.Refused
@@ -63,7 +63,7 @@ public static class AuthorizationAdminRoutes
         async ValueTask<(TenantId Tenant, IResult? Denied)> SettingsAuthorityAsync(
             HttpContext http, CancellationToken ct)
         {
-            var tenant = ResolveTenant();
+            var tenant = RequestTenant();
             return (tenant, await RequestAuthorization.RefusalAsync(
                 http, tenant, Permission.OrgManageSettings, RouteRecord.TheInstall, ct).ConfigureAwait(false));
         }
@@ -196,6 +196,8 @@ public static class AuthorizationAdminRoutes
                 .ThenBy(row => row.RuleVersion, StringComparer.Ordinal)
                 .ToArray());
         });
+        app.MapGet(AccessHoldersRead.Route, (HttpContext http, CancellationToken ct) =>
+            AccessHoldersRead.ReadAsync(http, RequestTenant(), timeProvider, ct));
     }
 
     private static async ValueTask<Guid> RecordBindingAsync(

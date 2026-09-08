@@ -43,8 +43,9 @@ public sealed class RouteAudienceGraphTests
         var profiles = LocalNodeHostedComponentCatalog.SupportedEndpointProfiles.ToArray();
         // +5 in every profile since ticket 213 slice 2: the consent-record routes (one read, one
         // request, three transitions), all DesktopPlaneOnly.
+        // Ticket 329 adds the holders read to the existing desktop administration group in all six.
         // Ticket 331 adds one desktop-only authorized trace read in each profile.
-        int[] expectedClassifiedCounts = [218, 235, 236, 229, 246, 247];
+        int[] expectedClassifiedCounts = [219, 236, 237, 230, 247, 248];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)
@@ -58,6 +59,9 @@ public sealed class RouteAudienceGraphTests
                     method.RouteFenceKind,
                 }))
                 .ToArray();
+            var holders = Assert.Single(pairs, pair =>
+                pair.HttpMethod == "GET" && pair.RoutePattern == AccessHoldersRead.Route);
+            Assert.Equal(RouteFenceKind.DesktopPlaneOnly, holders.RouteFenceKind);
             var trace = Assert.Single(pairs, pair => pair.HttpMethod == "GET"
                 && pair.RoutePattern == AuthorizationAdminRoutes.RouteBase + "/traces/{auditId:guid}");
             Assert.Equal(RouteFenceKind.DesktopPlaneOnly, trace.RouteFenceKind);
