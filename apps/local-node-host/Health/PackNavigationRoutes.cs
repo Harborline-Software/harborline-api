@@ -12,7 +12,6 @@ using Harborline.Api.Foundation.Packs.Navigation;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 

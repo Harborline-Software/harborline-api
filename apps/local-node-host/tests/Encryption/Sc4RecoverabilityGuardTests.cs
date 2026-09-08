@@ -921,7 +921,7 @@ public sealed class Sc4RecoverabilityGuardTests
         services.AddNodeDocsWrites();
         using var provider = services.BuildServiceProvider();
         var policy = provider.GetRequiredService<Harborline.Api.Blocks.Docs.Services.IMimeTypeAndSizePolicy>();
-        var tenant = new Harborline.Api.Foundation.Assets.Common.TenantId(StaticNodeTenantContext.LocalTenantId);
+        var tenant = new Harborline.Foundation.Assets.Common.TenantId(StaticNodeTenantContext.LocalTenantId);
 
         const long ceiling = NodeDocsWriteComposition.InlineCeilingBytes; // 25 MB
         // image/png is in the default whitelist; size is the dimension under test.

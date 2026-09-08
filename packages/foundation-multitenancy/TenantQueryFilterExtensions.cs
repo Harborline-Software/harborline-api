@@ -87,7 +87,7 @@ public static class TenantQueryFilterExtensions
     /// </summary>
     /// <typeparam name="T">
     /// Entity type that implements <see cref="IMustHaveTenant"/> — guarantees a
-    /// non-nullable <see cref="ITenantScoped.TenantId"/> property.
+    /// non-nullable <see cref="Harborline.Foundation.MultiTenancy.ITenantScoped.TenantId"/> property.
     /// </typeparam>
     /// <param name="query">The source queryable to filter.</param>
     /// <param name="tenantContext">

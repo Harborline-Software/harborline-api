@@ -35,4 +35,5 @@
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

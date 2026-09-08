@@ -137,4 +137,5 @@
   <!-- Issue 2089: use the same digest gate and RID-specific output staging as the production host. -->
   <Import Project="..\native\sqlite-vec\sqlite-vec.targets" />
 
+  <Import Project="$(MSBuildThisFileDirectory)../../../eng/identity-contract.props" />
 </Project>

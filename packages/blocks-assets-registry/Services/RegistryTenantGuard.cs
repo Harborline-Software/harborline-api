@@ -1,4 +1,3 @@
-using TenantId = Harborline.Api.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Services;
 
