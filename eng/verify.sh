@@ -64,7 +64,7 @@ step identity-r3             bash eng/identity-r3-scan.sh
 # protocol-lane-conformance
 step codegen-check           node tooling/harborline-contract-codegen/generate.mjs --check
 step codegen-guard-suite     node tooling/harborline-contract-codegen/run-tests.mjs
-step contracts-typescript    bash -c 'cd packages/contracts && npm ci --silent && npm test'
+step contracts-typescript    bash -c 'cd packages/contracts && pnpm install --frozen-lockfile && pnpm test'
 step contracts-csharp        dotnet test packages/contracts/tests/Harborline.Contracts.Tests.csproj -c Release
 step localfirst-csharp       dotnet test packages/foundation-localfirst/tests/Harborline.Foundation.LocalFirst.Tests.csproj -c Release
 

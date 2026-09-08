@@ -31,7 +31,8 @@ so those commands do not exist here. Run the generator and each lane directly:
 ```bash
 node tooling/harborline-contract-codegen/generate.mjs           # regenerate all four outputs
 node tooling/harborline-contract-codegen/generate.mjs --check   # fail if any output is stale
-npm test --prefix packages/contracts                         # TypeScript lane
+pnpm --dir packages/contracts install --frozen-lockfile       # TypeScript dependencies
+pnpm --dir packages/contracts test                           # TypeScript lane
 dotnet test packages/contracts/tests/Harborline.Contracts.Tests.csproj   # C# lane
 cargo test --manifest-path packages/contracts/rust/Cargo.toml            # Rust lane
 ```
