@@ -6,6 +6,7 @@
 # refuses -T exactly the way BSD mv does, then drives the three paths that used the flag with a
 # bounded wait, so a regression shows up as a failure rather than as a hang.
 set -uo pipefail
+unset HARBORLINE_GATE_LOCK_PATH HARBORLINE_GATE_LOCK_REENTRY_TOKEN
 here=$(cd "$(dirname "$0")" && pwd)
 lock_source="$here/../gate-lock.sh"
 real_mv=$(command -v mv) || { echo "no mv on PATH" >&2; exit 1; }
