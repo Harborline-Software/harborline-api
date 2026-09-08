@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
@@ -12,11 +13,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// sets, and every review round found another directory or extension one of them could not see.
 /// <para>
 /// <b>Root set.</b> EVERY tracked directory at the repository root that can carry source or docs,
-/// discovered by walking the root rather than named one at a time — the earlier fences scanned
+/// discovered from <c>git ls-files</c> rather than named one at a time — the earlier fences scanned
 /// <c>apps</c>+<c>packages</c> (+<c>tooling</c>, +<c>protocol</c>/<c>docs</c>), leaving
 /// <c>eng</c>, <c>hosts</c>, <c>src</c>, <c>tests</c>, <c>_shared</c>, <c>.github</c> and the
-/// repository-root files unscanned. Build and tool output (<c>obj</c>, <c>bin</c>,
-/// <c>node_modules</c>, <c>dist</c>, <c>.git</c>, agent scratch) is excluded structurally.
+/// repository-root files unscanned. The tracked-file inventory excludes runner checkouts and build
+/// output without maintaining a directory denylist.
 /// </para>
 /// <para>
 /// <b>Extension set.</b> The union of every extension any predecessor fence scanned plus the ones
@@ -803,11 +804,11 @@ public sealed class RetiredFamilySpellingFenceTests
 
                 var probe = Path.Combine(planted, "planted.ts");
                 File.WriteAllText(probe, $"// {spelling}-button custom element, data-{spelling}-root sentinel\n");
-                Assert.Equal(["packages/ui-core/src/planted.ts"], ScanTreeForFamilyWord(root, "packages/ui-core").ToArray());
-                Assert.Empty(Scan(root));
+                Assert.Equal(["packages/ui-core/src/planted.ts"], ScanTreeForFamilyWord(TrackAll(root), "packages/ui-core").ToArray());
+                Assert.Empty(Scan(TrackAll(root)));
 
                 File.WriteAllText(probe, "// clean\n");
-                Assert.Empty(ScanTreeForFamilyWord(root, "packages/ui-core"));
+                Assert.Empty(ScanTreeForFamilyWord(TrackAll(root), "packages/ui-core"));
 
                 // A file whose NAME carries the word but whose content never mentions it, in an
                 // extension the identifier table's ScannedExtensions does not read at all.
@@ -815,15 +816,15 @@ public sealed class RetiredFamilySpellingFenceTests
                 File.WriteAllText(named, "export const noop = () => {};");
                 Assert.Equal(
                     [$"packages/ui-core/src/{spelling}-dialog.stories.mdx"],
-                    ScanTreeForFamilyWord(root, "packages/ui-core").ToArray());
-                Assert.Empty(Scan(root));
+                    ScanTreeForFamilyWord(TrackAll(root), "packages/ui-core").ToArray());
+                Assert.Empty(Scan(TrackAll(root)));
                 File.Delete(named);
 
                 // A neighbouring directory that is NOT declared clean is not held to this standard.
                 var neighbour = Path.Combine(RootOf(planted, 2), "ui-adapters-blazor");
                 Directory.CreateDirectory(neighbour);
                 File.WriteAllText(Path.Combine(neighbour, "Live.cs"), $"// {spelling}JsModuleLoader\n");
-                Assert.Empty(ScanTreeForFamilyWord(root, "packages/ui-core"));
+                Assert.Empty(ScanTreeForFamilyWord(TrackAll(root), "packages/ui-core"));
             });
         }
     }
@@ -868,13 +869,13 @@ public sealed class RetiredFamilySpellingFenceTests
             foreach (var name in AllRetiredIdentifiers)
             {
                 File.WriteAllText(file, "public sealed class Planted { void M(" + name + " x) { } }");
-                Assert.Equal([("packages/planted/Planted.cs", name)], Scan(root).ToArray());
+                Assert.Equal([("packages/planted/Planted.cs", name)], Scan(TrackAll(root)).ToArray());
             }
 
             foreach (var literal in RetiredLiterals)
             {
                 File.WriteAllText(file, "// " + literal);
-                Assert.Equal([("packages/planted/Planted.cs", literal)], Scan(root).ToArray());
+                Assert.Equal([("packages/planted/Planted.cs", literal)], Scan(TrackAll(root)).ToArray());
             }
         });
 
@@ -886,7 +887,7 @@ public sealed class RetiredFamilySpellingFenceTests
             WithPlantedRoot(newRoot, "planted", planted =>
             {
                 File.WriteAllText(Path.Combine(planted, "Planted.cs"), "// " + probe);
-                Assert.Equal([($"{newRoot}/planted/Planted.cs", probe)], Scan(RootOf(planted, 2)).ToArray());
+                Assert.Equal([($"{newRoot}/planted/Planted.cs", probe)], Scan(TrackAll(RootOf(planted, 2))).ToArray());
             });
         }
 
@@ -895,7 +896,7 @@ public sealed class RetiredFamilySpellingFenceTests
             WithPlantedRoot("packages", "planted", planted =>
             {
                 File.WriteAllText(Path.Combine(planted, "planted" + extension), "// " + probe);
-                Assert.Equal([($"packages/planted/planted{extension}", probe)], Scan(RootOf(planted, 2)).ToArray());
+                Assert.Equal([($"packages/planted/planted{extension}", probe)], Scan(TrackAll(RootOf(planted, 2))).ToArray());
             });
         }
 
@@ -904,7 +905,7 @@ public sealed class RetiredFamilySpellingFenceTests
         {
             var root = RootOf(planted, 2);
             File.WriteAllText(Path.Combine(root, "README.md"), "// " + probe);
-            Assert.Equal([("README.md", probe)], Scan(root).ToArray());
+            Assert.Equal([("README.md", probe)], Scan(TrackAll(root)).ToArray());
         });
 
         // A renamed asset file that keeps its old NAME but never mentions it in its content: the
@@ -916,7 +917,7 @@ public sealed class RetiredFamilySpellingFenceTests
                 File.WriteAllText(Path.Combine(planted, $"{F5}-{stem}.js"), "export const noop = () => {};");
                 Assert.Equal(
                     [($"packages/planted/js/{F5}-{stem}.js", $"js/{F5}-{stem}.js")],
-                    Scan(RootOf(planted, 3)).ToArray());
+                    Scan(TrackAll(RootOf(planted, 3))).ToArray());
             });
         }
     }
@@ -937,37 +938,33 @@ public sealed class RetiredFamilySpellingFenceTests
             {
                 var file = Path.Combine(planted, name + ".razor");
                 File.WriteAllText(file, "<div></div>" + Environment.NewLine);
-                Assert.Equal([($"packages/planted/{name}.razor", name)], Scan(root).ToArray());
+                Assert.Equal([($"packages/planted/{name}.razor", name)], Scan(TrackAll(root)).ToArray());
                 File.Delete(file);
             }
         });
     }
 
-    [Fact(DisplayName = "Ticket 260 slice 20: a checkout whose own path carries a skipped directory name is still scanned")]
-    public void SkippedDirectoryNames_AreMatchedOnTheRelativePathOnly()
+    [Fact(DisplayName = "Ticket 341: tracked files are scanned regardless of their directory names")]
+    public void TrackedFiles_AreScannedRegardlessOfDirectoryName()
     {
-        // The defect this pins, found by running the fence: the skip test was applied to the ABSOLUTE
-        // path, and this repository's worktrees live under `.claude/worktrees/<lane>/`. Every file in
-        // the tree matched a skipped fragment, the scan returned nothing, and the fence reported green
-        // over an empty walk — while its planted-red tests, which use a short temp root, all passed.
         var temp = Path.Combine(Path.GetTempPath(), "ticket-260-s20-" + Guid.NewGuid().ToString("N"));
-        foreach (var skippedName in SkippedDirectories)
+        foreach (var directoryName in new[] { "obj", "bin", ".platform" })
         {
-            var root = Path.Combine(temp, skippedName, "checkout");
+            var root = Path.Combine(temp, directoryName, "checkout");
             var planted = Path.Combine(root, "packages", "planted");
             Directory.CreateDirectory(Path.Combine(root, "apps"));
             Directory.CreateDirectory(planted);
             try
             {
+                InitializeGitRepository(root);
                 var probe = Retired + "ComponentBase";
                 File.WriteAllText(Path.Combine(planted, "Planted.cs"), "// " + probe);
-                Assert.Equal([("packages/planted/Planted.cs", probe)], Scan(root).ToArray());
-
-                // The same name INSIDE the tree still skips, which is what the filter is for.
-                var inside = Path.Combine(planted, skippedName);
+                var inside = Path.Combine(planted, directoryName);
                 Directory.CreateDirectory(inside);
                 File.WriteAllText(Path.Combine(inside, "Skipped.cs"), "// " + probe);
-                Assert.Equal([("packages/planted/Planted.cs", probe)], Scan(root).ToArray());
+                Assert.Equal(
+                    [("packages/planted/Planted.cs", probe), ($"packages/planted/{directoryName}/Skipped.cs", probe)],
+                    Scan(TrackAll(root)).ToArray());
             }
             finally
             {
@@ -986,7 +983,7 @@ public sealed class RetiredFamilySpellingFenceTests
             File.WriteAllText(Path.Combine(root, ExemptPaths[0].Replace('/', Path.DirectorySeparatorChar)), "// " + probe);
             File.WriteAllText(Path.Combine(planted, "neighbour.json"), "// " + probe);
 
-            var found = Scan(root).Select(hit => hit.Path).Distinct().Order(StringComparer.Ordinal).ToArray();
+            var found = Scan(TrackAll(root)).Select(hit => hit.Path).Distinct().Order(StringComparer.Ordinal).ToArray();
             Assert.Equal([ExemptPaths[0], "eng/baselines/neighbour.json"], found);
             Assert.Equal([ExemptPaths[0]], found.Where(ExemptPaths.Contains).ToArray());
         });
@@ -1005,7 +1002,27 @@ public sealed class RetiredFamilySpellingFenceTests
                 // identifier that merely starts with a retired identifier row.
                 + $"// {F5}-ops.json com.{F1}.local-node-host {F5}.scheduling-definition\n"
                 + $"public sealed class {Retired}JsonLogicRuntime {{ }}\n");
-            Assert.Empty(Scan(RootOf(planted, 2)));
+            Assert.Empty(Scan(TrackAll(RootOf(planted, 2))));
+        });
+    }
+
+    [Fact(DisplayName = "Ticket 341: the spelling fence scans tracked files, not runner checkouts")]
+    public void TrackedFileScope_IgnoresUntrackedFilesAndFindsTrackedFiles()
+    {
+        WithPlantedRoot("packages", "tracked-scope", planted =>
+        {
+            var root = RootOf(planted, 2);
+            var probe = Retired + "ComponentBase";
+            var untracked = Path.Combine(root, ".platform", "Untracked.cs");
+            Directory.CreateDirectory(Path.GetDirectoryName(untracked)!);
+            File.WriteAllText(untracked, "// " + probe);
+
+            Assert.Empty(Scan(root));
+
+            var tracked = Path.Combine(planted, "Tracked.cs");
+            File.WriteAllText(tracked, "// " + probe);
+            Track(root, "packages/tracked-scope/Tracked.cs");
+            Assert.Equal([("packages/tracked-scope/Tracked.cs", probe)], Scan(root).ToArray());
         });
     }
 
@@ -1018,12 +1035,37 @@ public sealed class RetiredFamilySpellingFenceTests
         Directory.CreateDirectory(planted);
         try
         {
+            InitializeGitRepository(temp);
             body(planted);
         }
         finally
         {
             Directory.Delete(temp, recursive: true);
         }
+    }
+
+    private static void InitializeGitRepository(string root) => RunGit(root, "init", "--quiet");
+
+    private static void Track(string root, string relativePath) => RunGit(root, "add", "--", relativePath);
+
+    private static string TrackAll(string root)
+    {
+        RunGit(root, "add", "--all");
+        return root;
+    }
+
+    private static void RunGit(string root, params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = root,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
     }
 
     private static string RootOf(string planted, int levels)
@@ -1034,13 +1076,6 @@ public sealed class RetiredFamilySpellingFenceTests
     }
 
     // ---- the ONE root set and the ONE extension set -------------------------------------------
-
-    /// <summary>
-    /// Directory names never scanned: build output, package caches and agent scratch. A structural
-    /// filter on the walk, applied at every depth, not a per-row exception.
-    /// </summary>
-    private static readonly string[] SkippedDirectories =
-        ["obj", "bin", "node_modules", "dist", ".git", ".vs", ".vite", ".artifacts", "artifacts", ".packages", ".claude", ".wolf", ".codex"];
 
     /// <summary>
     /// Roots the three predecessor fences could not see. Named here only so the planted-red test can
@@ -1086,10 +1121,9 @@ public sealed class RetiredFamilySpellingFenceTests
     ];
 
     /// <summary>
-    /// The ONE scan. Walks the whole repository — every root directory plus the repository-root files
-    /// — filters by <see cref="ScannedExtensions"/>, skips <see cref="SkippedDirectories"/> at any
-    /// depth, and matches identifier rows on an identifier boundary and literal rows as plain
-    /// substrings, over the file's repository-relative PATH as well as its content.
+    /// The ONE scan. Reads the tracked repository inventory from <c>git ls-files</c>, filters by
+    /// <see cref="ScannedExtensions"/>, and matches identifier rows on an identifier boundary and
+    /// literal rows as plain substrings, over the file's repository-relative PATH as well as its content.
     /// </summary>
     private static IEnumerable<(string Path, string Name)> Scan(string root)
     {
@@ -1112,28 +1146,39 @@ public sealed class RetiredFamilySpellingFenceTests
     }
 
     /// <summary>
-    /// The ONE walk both scans read: every file under <paramref name="relativeDirectory"/> (or the whole
-    /// tree when it is null), with the repository-relative path, skipping <see cref="SkippedDirectories"/>
-    /// at any depth. No extension filter — the callers apply their own, and the family-word scan applies
-    /// none at all.
+    /// The ONE walk both scans read: every tracked file under <paramref name="relativeDirectory"/> (or the
+    /// whole repository when it is null), with the repository-relative path. No extension filter — the
+    /// callers apply their own, and the family-word scan applies none at all.
     /// </summary>
     private static IEnumerable<(string Absolute, string Relative)> WalkTree(string root, string? relativeDirectory)
     {
-        var start = relativeDirectory is null
-            ? root
-            : Path.Combine(root, relativeDirectory.Replace('/', Path.DirectorySeparatorChar));
-        if (!Directory.Exists(start)) return [];
+        var prefix = relativeDirectory is null ? null : relativeDirectory.Replace('\\', '/').TrimEnd('/') + "/";
+        return TrackedFiles(root)
+            .Where(entry => prefix is null || entry.Relative.StartsWith(prefix, StringComparison.Ordinal))
+            .ToArray();
+    }
 
-        var separator = Path.DirectorySeparatorChar;
-        var skipped = SkippedDirectories.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private static IEnumerable<(string Absolute, string Relative)> TrackedFiles(string root)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("ls-files");
+        start.ArgumentList.Add("-z");
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0) throw new InvalidOperationException($"git ls-files failed: {error}");
 
-        return Directory.EnumerateFiles(start, "*", SearchOption.AllDirectories)
-            .Select(path => (Absolute: path, Relative: Path.GetRelativePath(root, path).Replace(separator, '/')))
-            // The skip test is on the path RELATIVE to the repository root, never the absolute one: a
-            // checkout can itself sit under a skipped name (this repository's own worktrees live under
-            // `.claude/worktrees/`), and an absolute-path test then silently skips the entire tree and
-            // reports a green fence over nothing.
-            .Where(entry => !entry.Relative.Split('/').SkipLast(1).Any(skipped.Contains));
+        return output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Select(relative => (Absolute: Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)), Relative: relative))
+            .Where(entry => File.Exists(entry.Absolute))
+            .ToArray();
     }
 
     /// <summary>

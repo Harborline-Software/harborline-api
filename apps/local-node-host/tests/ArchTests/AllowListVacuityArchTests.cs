@@ -191,9 +191,6 @@ public sealed class AllowListVacuityArchTests
         ["RetiredFamilySpellingFenceTests.ScannedExtensions"] =
             "the ONE extension set the fence's walk reads, a structural filter rather than a per-row "
             + "exception",
-        ["RetiredFamilySpellingFenceTests.SkippedDirectories"] =
-            "build output, package caches and agent scratch excluded from the walk at every depth; a "
-            + "structural filter, not a per-row exception",
         ["RetiredFamilySpellingFenceTests.NewlyCoveredRoots"] =
             "the roots the three predecessor fences could not see, named so the planted-red test can "
             + "prove the widening bites in each; the walk does not read it and it excuses nothing",

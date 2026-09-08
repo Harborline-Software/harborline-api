@@ -126,11 +126,8 @@ jobs:
   # shape -- a stored claim nobody re-derived, which is exactly the kind of thing that misleads a
   # reader into repeating it.
   #
-  # Two things to know before trusting a number here. A bare `dotnet test` is NOT the gate: the
-  # baseline-aware runner is eng/run-exact-clone.mjs, which takes its verdict from baseline
-  # comparison rather than exit code and retries the named knownFlaky entries. And the pin describes
-  # NATIVE WINDOWS ONLY -- the baseline says no Linux run has ever been pinned, so do not compare an
-  # ubuntu result to it without re-measuring.
+  # A bare `dotnet test` is NOT the gate: the baseline-aware runner is eng/run-exact-clone.mjs,
+  # which takes its verdict from baseline comparison rather than exit code and retries named flakes.
   build-and-test:
     if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
@@ -159,7 +156,7 @@ jobs:
         working-directory: apps/capability-host
         run: npm ci
       - name: Build and test
-        run: dotnet test Harborline.Api.slnx -c Release
+        run: node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.ubuntu.json
 
   # Packs the three shipped projects and restores them into tests/package-consumer the way an
   # external consumer would. Deliberately does NOT `needs: build-and-test`: proving the packed

@@ -5,7 +5,7 @@ import {readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:f
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE} from '../host-baseline.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const baseline = {comparison: 'named', permittedFailures: [{test: 'Listed test'}]}
@@ -134,11 +134,27 @@ test('all fifteen macOS identities are owned, distinct, and compared exactly', (
     assert.deepEqual(renamed.missing, [row.test])
   }
 })
+test('all thirteen Ubuntu identities are owned, distinct, and compared exactly', () => {
+  const ubuntu = JSON.parse(readFileSync(path.join(root, UBUNTU_BASELINE)))
+  const rows = ubuntu.permittedFailures
+  assert.equal(rows.length, 13)
+  assert.equal(new Set(rows.map(row => row.test)).size, 13)
+  for (const row of rows) {
+    assert.equal(row.owner, 'the controller')
+    assert.equal(row.class, 'environmental')
+  }
+  const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')
+  assert.equal(compareHostBaseline({baseline: ubuntu, counts: {total: 13, failed: 13}, adjustedFailed: 13,
+    newFailures: [], trx: trxOf(output, {total: 13, failed: 13})}).passed, true)
+})
 test('OS selection and the actual gate and landing routes carry the baseline', () => {
   assert.equal(hostBaselineFor('darwin'), MACOS_BASELINE)
-  for (const platform of ['win32', 'linux', 'freebsd']) assert.equal(hostBaselineFor(platform), WINDOWS_BASELINE)
+  assert.equal(hostBaselineFor('linux'), UBUNTU_BASELINE)
+  for (const platform of ['win32', 'freebsd']) assert.equal(hostBaselineFor(platform), WINDOWS_BASELINE)
+  assert.throws(() => baselineArgument(['--host-baseline', 'eng/baselines/not-a-baseline.json']), /unknown host baseline/)
   const verify = readFileSync(path.join(root, 'eng/verify.sh'), 'utf8')
   assert.match(verify, /Darwin\) host_baseline=eng\/baselines\/host-test-baseline\.macos\.json/)
+  assert.match(verify, /Linux\)\s+host_baseline=eng\/baselines\/host-test-baseline\.ubuntu\.json/)
   assert.match(verify, /run-exact-clone\.mjs --host-baseline "\$host_baseline"/)
   assert.match(verify, /--record "\$\{passed\[@\]\}" --host-baseline "\$host_baseline"/)
   const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
@@ -164,7 +180,7 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
     const source = readFileSync(path.join(dir, 'eng/verify-receipt.mjs'), 'utf8')
     const steps = [...source.match(/export const requiredStepIds = \[([^\]]+)\]/)[1].matchAll(/'([^']+)'/g)].map(m => m[1])
     const cli = args => run(process.execPath, ['eng/verify-receipt.mjs', ...args])
-    for (const file of [MACOS_BASELINE, WINDOWS_BASELINE]) {
+    for (const file of [MACOS_BASELINE, UBUNTU_BASELINE, WINDOWS_BASELINE]) {
       const recorded = cli(['--record', ...steps, '--host-baseline', file])
       assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr)
       const receipt = JSON.parse(readFileSync(path.join(dir, '.git/harborline-api-verify-receipt.json')))
@@ -173,8 +189,8 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
       assert.equal(cli(['--slice']).status, 0)
       for (const args of [[], ['--landing'], ['--landing', '--slice']]) {
         const checked = cli(args)
-        assert.equal(checked.status, file === MACOS_BASELINE ? 1 : 0, checked.stdout + checked.stderr)
-        if (file === MACOS_BASELINE) assert.match(checked.stderr, /macOS host baseline receipts are slice-only; landings require the Windows host baseline \(ticket 324\)/)
+        assert.equal(checked.status, [MACOS_BASELINE, UBUNTU_BASELINE].includes(file) ? 1 : 0, checked.stdout + checked.stderr)
+        if ([MACOS_BASELINE, UBUNTU_BASELINE].includes(file)) assert.match(checked.stderr, /host baseline receipts are slice-only; landings require the Windows host baseline/)
       }
     }
   } finally { rmSync(dir, {recursive: true, force: true}) }

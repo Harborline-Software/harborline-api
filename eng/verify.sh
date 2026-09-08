@@ -86,7 +86,8 @@ step operator-cli-headless   dotnet test apps/local-node-host/tests/tests.csproj
 # anything missing from the commit fails instead of being supplied by this working tree.
 case "$(uname -s)" in
   Darwin) host_baseline=eng/baselines/host-test-baseline.macos.json ;;
-  *) host_baseline=eng/baselines/host-test-baseline.json ;;
+  Linux)  host_baseline=eng/baselines/host-test-baseline.ubuntu.json ;;
+  *)      host_baseline=eng/baselines/host-test-baseline.json ;;
 esac
 step exact-clone             node eng/run-exact-clone.mjs --host-baseline "$host_baseline"
 
