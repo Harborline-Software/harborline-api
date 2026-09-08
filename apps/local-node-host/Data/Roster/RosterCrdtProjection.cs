@@ -67,7 +67,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly RosterCrdtSchema _schema;
     private readonly CrdtProjection<RosterCrdtSchema> _projection;
     private readonly IDbContextFactory<NodeLocalRosterDbContext> _contextFactory;
-    private readonly IOperationVerifier _verifier;
+    private readonly HydrationRosterVerifier _verifier;
     private readonly NodeTeamRoster? _nodeRoster;
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
     private readonly ILogger<RosterCrdtProjection> _logger;
@@ -77,16 +77,18 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
     private Dictionary<(string RecordId, string Code), RebuildRefusal> _reportedRefusals = new();
     private AuthorizationRefusal[] _refusalReports = [];
-    private RebuildRefusal? _rebuildFailure;
-    private RebuildRefusal? _auditedRebuildFailure;
+    private volatile RebuildRefusal? _rebuildFailure;
+    private volatile RebuildRefusal? _auditedRebuildFailure;
+    private IReadOnlyList<AuthorizationRefusal> _publishedReports = Array.AsReadOnly<AuthorizationRefusal>([]);
 
     /// <summary>A failed fold means the retained roster is not a converged trust reading.</summary>
-    public AuthorizationRefusal? RebuildFailure => Volatile.Read(ref _rebuildFailure)?.Report;
+    public AuthorizationRefusal? RebuildFailure => _rebuildFailure?.Report;
 
     /// <summary>Current refusal state and remedies, rebuilt from roster evidence after restart.</summary>
-    public IReadOnlyList<AuthorizationRefusal> RefusalReports => RebuildFailure is { } failure
-        ? Array.AsReadOnly(Volatile.Read(ref _refusalReports).Append(failure).ToArray())
-        : Array.AsReadOnly(Volatile.Read(ref _refusalReports));
+    public IReadOnlyList<AuthorizationRefusal> RefusalReports => Volatile.Read(ref _publishedReports);
+
+    private void PublishRefusalReports() => Volatile.Write(ref _publishedReports,
+        Array.AsReadOnly(RebuildFailure is { } failure ? [.. _refusalReports, failure] : _refusalReports));
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
@@ -140,7 +142,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         Func<AuthorizationRefusalAudit?>? refusalAudit = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-        _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
+        _verifier = new HydrationRosterVerifier(verifier ?? throw new ArgumentNullException(nameof(verifier)));
         _nodeRoster = nodeRoster;
         _administrators = administrators;
         _refusalAudit = refusalAudit;
@@ -183,9 +185,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// Run ONCE at startup, BEFORE the gossip daemon ships deltas. Idempotent + loop-safe (hydration only
     /// pushes onto the CRDT list; the resulting reconcile inserts nothing because every hydrated row already
     /// exists in the durable store). Returns the number of rows hydrated.
+    /// Awaits reconciliation, live-roster adoption and refusal auditing before returning; this is not a
+    /// silent document-only load. Each hydration starts a fresh signature-verification cache.
     /// </summary>
     public async Task<int> HydrateFromStoreAsync(CancellationToken ct)
     {
+        _verifier.Reset();
         try
         {
             await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
@@ -627,7 +632,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         var refusal = new RebuildRefusal("rebuild", report, "roster.rebuild", ActorId.System,
             evidence is null ? TenantId.System : new TenantId(evidence.TeamId),
             evidence?.Admission.IssuedAt ?? DateTimeOffset.UnixEpoch);
-        Volatile.Write(ref _rebuildFailure, refusal);
+        _rebuildFailure = refusal;
+        PublishRefusalReports();
         var audit = _refusalAudit?.Invoke();
         if (_auditedRebuildFailure?.Report == report || audit is null) return;
         if (await audit.RecordAsync(report, refusal.Permission, refusal.Actor, refusal.Tenant,
@@ -641,7 +647,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             await audit.RecordClearedAsync(previous.Report, previous.Permission, previous.Actor,
                 previous.Tenant, previous.IssuedAt, ct).ConfigureAwait(false);
         _auditedRebuildFailure = null;
-        Volatile.Write(ref _rebuildFailure, null);
+        _rebuildFailure = null;
+        PublishRefusalReports();
     }
 
     /// <summary>
@@ -1021,6 +1028,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             .ToDictionary(group => group.Key, group => group.First());
         var previousReports = Volatile.Read(ref _refusalReports);
         Volatile.Write(ref _refusalReports, current.Values.Select(r => r.Report).ToArray());
+        PublishRefusalReports();
         foreach (var (key, refusal) in current)
         {
             if (!previousReports.Any(r => r.Code == refusal.Report.Code && r.Diagnostic == refusal.Report.Diagnostic))
@@ -1066,7 +1074,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     }
 
     private static AuthorizationRefusal RefusalReport(RosterRevocationRefusal refusal) =>
-        new(refusal.Code, "Roster revocation refused", "The signed and live authority floor would be lost.",
+        new(refusal.Code, "Roster revocation refused",
+            $"Revoking '{refusal.Revocation.RevokedPartyId}' would remove the last signed and live authority floor holder.",
             "Admit a signed successor that holds the floor live.", JsonSerializer.Serialize(refusal));
 
     /// <inheritdoc />

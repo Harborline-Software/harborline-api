@@ -1,6 +1,7 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using System.Text.Json;
 
 namespace Harborline.Api.Kernel.Audit;
 
@@ -16,7 +17,13 @@ public enum AuthorizationTraceAvailability
 
     /// <summary>The gate refused the read. Nothing about the entry is disclosed, its existence included.</summary>
     Refused = 2,
+
+    /// <summary>A recorded guard refusal before a gate decision; no four-step decision was made.</summary>
+    PreDecisionRefusal = 3,
 }
+
+/// <summary>The public reason recorded by a pre-decision guard, without its classified diagnostic.</summary>
+public sealed record AuthorizationPreDecisionRefusal(string Code, string Detail, string Remediation);
 
 /// <summary>
 /// The answer to "why was this decided that way?" for ONE recorded decision: the four ordered public steps
@@ -26,7 +33,8 @@ public sealed record AuthorizationTraceRead(
     AuthorizationTraceAvailability Availability,
     int? Version,
     IReadOnlyList<AuthorityTraceStepSnapshot> Steps,
-    AuthorityCounterfactualSnapshot? Counterfactual);
+    AuthorityCounterfactualSnapshot? Counterfactual,
+    AuthorizationPreDecisionRefusal? Refusal = null);
 
 /// <summary>
 /// The authorized first-class production read of ticket 212's four-step trace (ledger L651/L652), and the
@@ -90,6 +98,20 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         var decision = await _gate.DecideAsync(request, ct).ConfigureAwait(false);
         if (decision.Verdict is not AuthorizationVerdict.Allowed)
             return (new AuthorizationTraceRead(AuthorizationTraceAvailability.Refused, null, [], null), decision);
+
+        // Read the signed guard report only after audit:read succeeds. It is pre-decision evidence,
+        // so preserve that distinction instead of inventing a four-step authorization decision.
+        if (entry?.EventType.Value == "AuthorizationRefused"
+            && entry.Payload.Payload.Body.TryGetValue("preDecisionRefusal", out var stored) && stored is not null)
+        {
+            var value = JsonSerializer.SerializeToElement(stored);
+            if (value.ValueKind == JsonValueKind.Object
+                && value.TryGetProperty("Code", out var code) && code.ValueKind == JsonValueKind.String
+                && value.TryGetProperty("Detail", out var detail) && detail.ValueKind == JsonValueKind.String
+                && value.TryGetProperty("Remediation", out var remedy) && remedy.ValueKind == JsonValueKind.String)
+                return (new AuthorizationTraceRead(AuthorizationTraceAvailability.PreDecisionRefusal,
+                    null, [], null, new(code.GetString()!, detail.GetString()!, remedy.GetString()!)), decision);
+        }
 
         // Keyed by ORDINAL, not by stage: an entry whose act also went through the separation-of-duty
         // engine stores that decision's four steps under ordinals 5..8 with the same four stage names, and

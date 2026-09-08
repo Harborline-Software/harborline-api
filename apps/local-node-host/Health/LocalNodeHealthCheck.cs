@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.IdentityAtlas;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -78,7 +79,9 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
 
         if (_roster?.RefusalReports is { Count: > 0 } reports)
             return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
-                reports.Select(r => $"Roster refused: {r.Code}. {r.Remediation}"))));
+                reports.Select(r => r.Code == MemberRoster.NoBrickingFloorCode
+                    ? $"Roster refused: {r.Code}. {r.Detail} {r.Remediation}"
+                    : $"Roster refused: {r.Code}. {r.Remediation}"))));
 
         var gossip = active.Services.GetService<IGossipDaemon>();
         if (gossip is null)
