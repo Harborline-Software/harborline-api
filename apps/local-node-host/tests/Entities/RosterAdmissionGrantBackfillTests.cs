@@ -31,6 +31,7 @@ public sealed class RosterAdmissionGrantBackfillTests
         services.AddSingleton(store.Factory);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();
+        services.AddNodeAuthorizationModel();
         services.AddSingleton<RosterAdmissionGrantBackfill>();
         services.AddSingleton<RosterSyncBootstrapHostedService>();
         await using var provider = services.BuildServiceProvider();
@@ -144,6 +145,33 @@ public sealed class RosterAdmissionGrantBackfillTests
         Assert.Empty(await grants.Set<RosterAdmissionGrantBackfillRow>().ToArrayAsync());
     }
 
+    [Fact]
+    public async Task Signed_admission_publication_requires_definition_validation_and_rolls_back_every_row()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signer = new Ed25519Signer(KeyPair.Generate());
+        var permissions = PermissionCompositions.Owner.With("migration:unknown");
+        var signature = RosterSigning.SignAdmission(signer, Team, "founder", signer.IssuerId,
+            "founder", true, At, Guid.NewGuid(), admittedPermissions: permissions);
+        var admission = new MemberAdmissionRecord(Tenant.Value, "founder", signer.IssuerId, permissions, signature);
+        await using (var roster = store.CreateRosterContext())
+        {
+            await roster.Database.MigrateAsync();
+            roster.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)));
+            await roster.SaveChangesAsync();
+        }
+        var verified = await new VerifiedTenantRosterReader(new RosterFactory(store), new Ed25519Verifier()).ReadAsync(Tenant, CancellationToken.None);
+        Assert.Single(verified.EnumerateAdmissions());
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => Backfill(store).RunAsync());
+        Assert.Contains("code operation catalogue", refusal.Message);
+        await using var db = store.CreateContext();
+        Assert.Empty(await db.Grants.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationRoles.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationDefinitions.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationOfferedRoles.ToArrayAsync());
+        Assert.Empty(await db.Set<RosterAdmissionGrantBackfillRow>().ToArrayAsync());
+    }
+
     private static async Task<(MemberRoster Roster, Ed25519Signer Signer)> SeedAsync(SearchTestStore store, int count)
     {
         var signer = new Ed25519Signer(KeyPair.Generate());
@@ -159,7 +187,7 @@ public sealed class RosterAdmissionGrantBackfillTests
     }
 
     private static RosterAdmissionGrantBackfill Backfill(SearchTestStore store, RecordingLogger? logger = null) =>
-        new(new RosterFactory(store), store.Factory, new Ed25519Verifier(), logger ?? new RecordingLogger());
+        new(new RosterFactory(store), new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary()), new Ed25519Verifier(), logger ?? new RecordingLogger());
 
     private static ServiceProvider GateProvider(SearchTestStore store)
     {

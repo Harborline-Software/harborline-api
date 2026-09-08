@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3668,
-    "passed": 3650,
+    "total": 3669,
+    "passed": 3651,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3655,
-      "passed": 3637,
+      "total": 3660,
+      "passed": 3642,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3655 -> 3660; passed 3637 -> 3642; failed unchanged at 0; notExecuted unchanged at 18",
-    "cause": "ticket 292 slice 3: four production-composition restore cases and one migration preservation test; existing issue/redemption test strengthened",
-    "detectedBy": "EXPECTED by arithmetic from origin/main 11d12879 plus 5 cases; focused tests only, controller owns full gate",
-    "arithmeticCrossCheck": "3655 + 5 = 3660; passed = 3660 - 18 = 3642."
+    "change": "total 3660 -> 3669; passed 3642 -> 3651; failed unchanged at 0; notExecuted unchanged at 18",
+    "cause": "Ticket 293 slice 3a: eight boot admission backfill cases plus one fix-1 signed-admission publication validation and atomic rollback case.",
+    "detectedBy": "Expected arithmetic from origin/main plus 9 cases; focused tests only in fix 1, controller owns the full suite and exact-clone measurement.",
+    "arithmeticCrossCheck": "3660 + 8 + 1 = 3669; passed = 3669 - 18 = 3651."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
