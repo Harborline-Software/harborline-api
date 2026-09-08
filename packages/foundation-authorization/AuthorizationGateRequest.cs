@@ -16,6 +16,8 @@ public sealed record AuthorizationGateRequest(
     DateTimeOffset At)
 {
     public AuthorizationRosterInputs? Roster { get; init; }
+    /// <summary>A server-verified grant constraint failure; the gate retains it in its decision.</summary>
+    public string? GrantRefusal { get; init; }
 }
 
 /// <summary>Server-derived membership facts; only the gate turns them into a verdict.</summary>

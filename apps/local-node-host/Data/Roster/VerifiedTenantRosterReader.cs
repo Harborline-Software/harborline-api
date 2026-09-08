@@ -26,6 +26,9 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
 
     /// <inheritdoc />
     public Task<MemberRoster> ReadAsync(TenantId team, CancellationToken ct) => ReadCoreAsync(team, false, ct);
+    /// <summary>Verify the durable chain prefix at the signed grant's issue instant.</summary>
+    public Task<MemberRoster> ReadAtAsync(TenantId team, DateTimeOffset at, CancellationToken ct) =>
+        ReadCoreAsync(team, false, ct, at: at);
 
     internal Task<MemberRoster> ReadPartialAsync(TenantId team, PrincipalId derivedPrincipal, CancellationToken ct) => ReadCoreAsync(team, true, ct, derivedPrincipal);
 
@@ -54,7 +57,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
     }
 
     private async Task<MemberRoster> ReadCoreAsync(TenantId team, bool partial, CancellationToken ct,
-        PrincipalId? derivedPrincipal = null, bool requireInstallAnchor = true)
+        PrincipalId? derivedPrincipal = null, bool requireInstallAnchor = true, DateTimeOffset? at = null)
     {
         if (team.IsSystemSentinel || string.IsNullOrWhiteSpace(team.Value) || !Guid.TryParse(team.Value, out var teamId))
         {
@@ -67,6 +70,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         var rows = await db.RosterRecords
             .AsNoTracking()
             .Where(row => row.TeamId == canonicalTeam)
+            .Where(row => at == null || row.IssuedAtUtc <= at)
             .OrderBy(row => row.IssuedAtUtc)
             .ThenBy(row => row.Id)
             .ToListAsync(ct)
