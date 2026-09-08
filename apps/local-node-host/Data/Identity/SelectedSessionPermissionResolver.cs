@@ -3,7 +3,10 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Data.Search;
 
@@ -64,6 +67,8 @@ internal sealed class NodeSelectedSessionAuthorizationEpochReader : ISelectedSes
 /// </summary>
 internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermissionResolver
 {
+    private readonly AuthorizationGate _gate;
+    private readonly AuthorizationRefusalAudit? _refusalAudit;
     private readonly IVerifiedTenantRosterReader _rosterReader;
     private readonly IGrantStore _grantStore;
     private readonly IAuthorizationClosureReader _authorization;
@@ -77,8 +82,12 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
         IAuthorizationClosureReader authorization,
         ISelectedSessionAuthorizationEpochReader epochReader,
         TimeProvider timeProvider,
-        ILogger<SelectedSessionPermissionResolver> logger)
+        ILogger<SelectedSessionPermissionResolver> logger,
+        AuthorizationGate gate,
+        AuthorizationRefusalAudit? refusalAudit = null)
     {
+        _gate = gate;
+        _refusalAudit = refusalAudit;
         _rosterReader = rosterReader ?? throw new ArgumentNullException(nameof(rosterReader));
         _grantStore = grantStore ?? throw new ArgumentNullException(nameof(grantStore));
         _authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -120,9 +129,8 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             var roster = await _rosterReader
                 .ReadAsync(principal.TenantId, cancellationToken)
                 .ConfigureAwait(false);
-            // Ticket 211 slice 3 - the roster-edge-then-closure reading this PEP established now lives
-            // in EffectiveMemberPermissions, so the admin surface cannot answer differently.
-            var permissions = await EffectiveMemberPermissions.ResolveAsync(
+            // Derive the live inputs once; the gate decides each permission projected into this session.
+            var inputs = await EffectiveMemberPermissions.ReadAsync(
                 _authorization,
                 roster,
                 principal.CanonicalParty.Value,
@@ -130,10 +138,19 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
                 NodeGatePrincipal.Of(principal),
                 _timeProvider.GetUtcNow(),
                 cancellationToken).ConfigureAwait(false);
-            if (permissions is null)
+            var allowed = new List<string>();
+            var authority = new AuthorizationWriteContext(NodeGatePrincipal.Of(principal), principal.TenantId,
+                _timeProvider.GetUtcNow());
+            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
             {
-                return null;
+                var operation = AuthorizationOperation.Parse(permission);
+                var decision = await _gate.DecideAsync(authority.Request(operation,
+                    AuthorizationGate.RecordKindFor(operation), "session") with { Roster = inputs }, cancellationToken)
+                    .ConfigureAwait(false);
+                if (_refusalAudit is not null) await _refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
+                if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
             }
+            var permissions = allowed.Count == 0 ? null : PermissionSet.From(allowed);
 
             // Close the read-side race: if a grant mutation landed while the roster was loading, do
             // not publish the pre-bump roster set into this request.

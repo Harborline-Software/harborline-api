@@ -130,6 +130,9 @@ public sealed record AuthorizationDecisionEvidence
     /// <summary>The evidence schema version this object was built at.</summary>
     public int Version => CurrentVersion;
 
+    /// <summary>The exact roster facts consumed by the gate, including both identity ejection keys.</summary>
+    public AuthorizationRosterInputs? Roster { get; private init; }
+
     /// <summary>Which deciding path produced this evidence.</summary>
     public AuthorizationEvidenceKind Kind { get; }
 
@@ -270,6 +273,11 @@ public sealed record AuthorizationDecisionEvidence
                 [
                     .. bindings.Count == 0 ? ["roles:none"] : bindings,
                     $"deciding:{DecidingBinding}",
+                    .. Roster is { } roster ? new[] {
+                        $"roster:party:{roster.PartyId};member:{roster.Member};ejected:{roster.Ejected};prospective-administrator-grant:{roster.ProspectiveAdministratorGrant}",
+                        $"roster:permissions:{string.Join(",", (roster.Permissions ?? PermissionSet.Empty).Permissions.Order(StringComparer.Ordinal))}",
+                        $"roster:require-member:{roster.RequireMember};require-grant:{roster.RequireGrantCoverage};required:{string.Join(",", roster.RequiredPermissions.Permissions.Order(StringComparer.Ordinal))}"
+                    } : Array.Empty<string>(),
                 ]),
             new AuthorizationTraceStep(3, StandingsStage,
                 [.. standings.Length == 0 ? ["standings:none"] : standings]),
@@ -322,9 +330,11 @@ public sealed record AuthorizationDecisionEvidence
                 item.DefinitionId,
                 item.Atom.ToString(),
                 item.InForce,
-                allowed && index == decidingIndex))
+                allowed && index == decidingIndex && request.Roster?.Member != true))
             .ToImmutableArray();
-        var decidingBinding = (allowed, deciding, standings.Count) switch
+        var decidingBinding = allowed && request.Roster?.Member == true
+            ? $"roster:{request.Roster.PartyId}"
+            : (allowed, deciding, standings.Count) switch
         {
             (true, { } grant, _) => $"grant:{grant.GrantId}@{grant.GrantOwnerVersion}",
             (true, null, > 0) => $"standing:{standings[0].RuleId}@{standings[0].EvidenceVersion}",
@@ -350,7 +360,7 @@ public sealed record AuthorizationDecisionEvidence
             [],
             request.Act,
             [.. derivations],
-            [.. excluded]);
+            [.. excluded]) { Roster = request.Roster };
     }
 
     /// <summary>

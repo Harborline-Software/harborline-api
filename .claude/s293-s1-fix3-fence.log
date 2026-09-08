@@ -1,0 +1,117 @@
+Failed to add 'C:\Users\Chris\AppData\Local\Temp\s293-s1-fix3-dotnet\.dotnet\tools' to the PATH environment variable. Add this directory to your PATH to use tools installed with 'dotnet tool install'.
+
+Welcome to .NET 11.0!
+---------------------
+SDK Version: 11.0.100-preview.7.26381.103
+
+----------------
+Installed an ASP.NET Core HTTPS development certificate.
+To trust the certificate, run 'dotnet dev-certs https --trust'
+Learn about HTTPS: https://aka.ms/dotnet-https
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\apps\local-node-host\tests\tests.csproj]
+  Harborline.Analyzers.ProviderNeutrality -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\analyzers\provider-neutrality\bin\Release\netstandard2.0\Harborline.Api.Analyzers.ProviderNeutrality.dll
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-periods\Harborline.Blocks.FinancialPeriods.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\apps\local-node-host\Harborline.LocalNodeHost.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation\Harborline.Foundation.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-forms\Harborline.Foundation.Forms.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-documents\Harborline.Foundation.Documents.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-migration\Harborline.Foundation.Migration.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-preview.7.26381.103\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-governance\Harborline.Foundation.Governance.csproj]
+  Harborline.Analyzers.LocComments -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\analyzers\loc-comments\bin\Release\netstandard2.0\Harborline.Api.Analyzers.LocComments.dll
+  Harborline.Analyzers.LocUnused -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\analyzers\loc-unused\bin\Release\netstandard2.0\Harborline.Api.Analyzers.LocUnused.dll
+  Harborline.Tooling.LocalizationXliff -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\tooling\Harborline.Tooling.LocalizationXliff\bin\Release\netstandard2.0\Harborline.Api.Tooling.LocalizationXliff.dll
+  Harborline.Contracts -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\contracts\bin\Release\net11.0\Harborline.Api.Protocol.dll
+  Harborline.Foundation.PasswordHashing -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-password-hashing\bin\Release\net11.0\Harborline.Api.Foundation.PasswordHashing.dll
+  Harborline.Foundation.Import -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-import\bin\Release\net11.0\Harborline.Api.Foundation.Import.dll
+  Harborline.Foundation.Lifecycle -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-lifecycle\bin\Release\net11.0\Harborline.Api.Foundation.Lifecycle.dll
+  Harborline.Foundation -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation\bin\Release\net11.0\Harborline.Api.Foundation.dll
+MinVer : warning MINVER1001: 'C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts' is not a valid Git working directory. Using default version 0.0.0-alpha.0. [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj]
+  Harborline.Kernel -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel\bin\Release\net11.0\Harborline.Api.Kernel.dll
+  Harborline.NodeOperatorCli -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\apps\node-operator-cli\bin\Release\net11.0\harborline-node.dll
+  Harborline.Foundation.Session -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-session\bin\Release\net11.0\Harborline.Api.Foundation.Session.dll
+  Harborline.Foundation.ScheduleDefinitions -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-schedule-definitions\bin\Release\net11.0\Harborline.Api.Foundation.ScheduleDefinitions.dll
+  Harborline.Foundation.ViewDefinitions -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-view-definitions\bin\Release\net11.0\Harborline.Api.Foundation.ViewDefinitions.dll
+  Harborline.Foundation.DataExchangeDefinitions -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-data-exchange-definitions\bin\Release\net11.0\Harborline.Api.Foundation.DataExchangeDefinitions.dll
+  Harborline.Foundation.ReportDefinitions -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-report-definitions\bin\Release\net11.0\Harborline.Api.Foundation.ReportDefinitions.dll
+  Harborline.Foundation.Events -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-events\bin\Release\net11.0\Harborline.Api.Foundation.Events.dll
+  Harborline.Foundation.UI.SyncState -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-ui-syncstate\bin\Release\net11.0\Harborline.Api.Foundation.UI.SyncState.dll
+  Harborline.Foundation.EngineRoom -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-engine-room\bin\Release\net11.0\Harborline.Api.Foundation.EngineRoom.dll
+  Harborline.Foundation.MultiTenancy -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-multitenancy\bin\Release\net11.0\Harborline.Api.Foundation.MultiTenancy.dll
+  Harborline.Foundation.Scheduling -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-scheduling\bin\Release\net11.0\Harborline.Api.Foundation.Scheduling.dll
+CSC : error CS0016: Could not write to output file 'C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts\obj\Release\net10.0\Harborline.Api.Contracts.xml' -- 'Access to the path 'C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts\obj\Release\net10.0\Harborline.Api.Contracts.xml' is denied.' [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj]
+  Harborline.Foundation.Persistence -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-persistence\bin\Release\net11.0\Harborline.Api.Foundation.Persistence.dll
+  Harborline.Kernel.EventBus -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-event-bus\bin\Release\net11.0\Harborline.Api.Kernel.EventBus.dll
+  Harborline.Blocks.Properties -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-properties\bin\Release\net11.0\Harborline.Api.Blocks.Properties.dll
+  Harborline.Blocks.Docs -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-docs\bin\Release\net11.0\Harborline.Api.Blocks.Docs.dll
+  Harborline.Blocks.People.Foundation -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-people-foundation\bin\Release\net11.0\Harborline.Api.Blocks.People.Foundation.dll
+  Harborline.Foundation.LocalFirst -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-localfirst\bin\Release\net11.0\Harborline.Api.Foundation.LocalFirst.dll
+  Harborline.Blocks.PropertyEquipment -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-property-equipment\bin\Release\net11.0\Harborline.Api.Blocks.PropertyEquipment.dll
+  Harborline.Foundation.IdentityAtlas -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-identity-atlas\bin\Release\net11.0\Harborline.Api.Foundation.IdentityAtlas.dll
+  Harborline.Foundation.CapabilityAdmission -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-capability-admission\bin\Release\net11.0\Harborline.Api.Foundation.CapabilityAdmission.dll
+  Harborline.Kernel.Security -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-security\bin\Release\net11.0\Harborline.Api.Kernel.Security.dll
+  Harborline.Federation.Common -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\federation-common\bin\Release\net11.0\Harborline.Api.Federation.Common.dll
+  Harborline.Foundation.Authorization -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-authorization\bin\Release\net11.0\Harborline.Api.Foundation.Authorization.dll
+  Harborline.Kernel.Audit -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-audit\bin\Release\net11.0\Harborline.Api.Kernel.Audit.dll
+  Harborline.Blocks.Calendar -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-calendar\bin\Release\net11.0\Harborline.Api.Blocks.Calendar.dll
+  Harborline.Foundation.Recovery -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-recovery\bin\Release\net11.0\Harborline.Api.Foundation.Recovery.dll
+  Harborline.Blocks.FinancialLedger -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-ledger\bin\Release\net11.0\Harborline.Api.Blocks.FinancialLedger.dll
+  Harborline.Kernel.SchemaRegistry -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-schema-registry\bin\Release\net11.0\Harborline.Api.Kernel.SchemaRegistry.dll
+  Harborline.Foundation.Taxonomy -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-taxonomy\bin\Release\net11.0\Harborline.Api.Foundation.Taxonomy.dll
+  Harborline.Blocks.Payroll -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-payroll\bin\Release\net11.0\Harborline.Api.Blocks.Payroll.dll
+  Harborline.Blocks.FinancialPeriods -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-periods\bin\Release\net11.0\Harborline.Api.Blocks.FinancialPeriods.dll
+  Harborline.Blocks.FinancialSubLedger -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-subledger\bin\Release\net11.0\Harborline.Api.Blocks.FinancialSubLedger.dll
+  Harborline.Blocks.FinancialTax -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-tax\bin\Release\net11.0\Harborline.Api.Blocks.FinancialTax.dll
+  Harborline.Foundation.Transport -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-transport\bin\Release\net11.0\Harborline.Api.Foundation.Transport.dll
+  Harborline.Kernel.Signatures -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-signatures\bin\Release\net11.0\Harborline.Api.Kernel.Signatures.dll
+  Harborline.Foundation.MissionSpace.Regulatory -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-mission-space-regulatory\bin\Release\net11.0\Harborline.Api.Foundation.MissionSpace.Regulatory.dll
+  Harborline.Blocks.FinancialAp -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-ap\bin\Release\net11.0\Harborline.Api.Blocks.FinancialAp.dll
+  Harborline.Blocks.FinancialAr -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-ar\bin\Release\net11.0\Harborline.Api.Blocks.FinancialAr.dll
+  Harborline.Foundation.Versioning -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-versioning\bin\Release\net11.0\Harborline.Api.Foundation.Versioning.dll
+  Harborline.Blocks.FinancialPayments -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-payments\bin\Release\net11.0\Harborline.Api.Blocks.FinancialPayments.dll
+  Harborline.Blocks.FinancialSubLedger.Projection -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-financial-subledger-projection\bin\Release\net11.0\Harborline.Api.Blocks.FinancialSubLedger.Projection.dll
+  Harborline.Foundation.Migration -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-migration\bin\Release\net11.0\Harborline.Api.Foundation.Migration.dll
+  Harborline.Blocks.Migration.Erpnext -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-migration-erpnext\bin\Release\net11.0\Harborline.Api.Blocks.Migration.Erpnext.dll
+  Harborline.Foundation.MissionSpace -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-mission-space\bin\Release\net11.0\Harborline.Api.Foundation.MissionSpace.dll
+  Harborline.UICore -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\ui-core\bin\Release\net11.0\Harborline.Api.UICore.dll
+  Harborline.Kernel.Crdt -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-crdt\bin\Release\net11.0\Harborline.Api.Kernel.Crdt.dll
+  Harborline.Kernel.Buckets -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-buckets\bin\Release\net11.0\Harborline.Api.Kernel.Buckets.dll
+  Harborline.Kernel.Sync -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-sync\bin\Release\net11.0\Harborline.Api.Kernel.Sync.dll
+  Harborline.Foundation.Wayfinder -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-wayfinder\bin\Release\net11.0\Harborline.Api.Foundation.Wayfinder.dll
+  Harborline.Kernel.Lease -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-lease\bin\Release\net11.0\Harborline.Api.Kernel.Lease.dll
+  Harborline.Foundation.FeatureManagement -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-featuremanagement\bin\Release\net11.0\Harborline.Api.Foundation.FeatureManagement.dll
+  Harborline.Foundation.Catalog -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-catalog\bin\Release\net11.0\Harborline.Api.Foundation.Catalog.dll
+  Harborline.Foundation.Ship.Common -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-ship-common\bin\Release\net11.0\Harborline.Api.Foundation.Ship.Common.dll
+  Harborline.Foundation.Integrations -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-integrations\bin\Release\net11.0\Harborline.Api.Foundation.Integrations.dll
+  Harborline.Foundation.Packs -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-packs\bin\Release\net11.0\Harborline.Api.Foundation.Packs.dll
+  Harborline.Blocks.Banking -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-banking\bin\Release\net11.0\Harborline.Api.Blocks.Banking.dll
+  Harborline.Foundation.UpdateFeed -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-update-feed\bin\Release\net11.0\Harborline.Api.Foundation.UpdateFeed.dll
+  Harborline.Blocks.Workflow -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-workflow\bin\Release\net11.0\Harborline.Api.Blocks.Workflow.dll
+  Harborline.Foundation.Forms -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-forms\bin\Release\net11.0\Harborline.Api.Foundation.Forms.dll
+  Harborline.Foundation.RuleEngine -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-rule-engine\bin\Release\net11.0\Harborline.Api.Foundation.RuleEngine.dll
+  Harborline.Blocks.Assets.Registry -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-assets-registry\bin\Release\net11.0\Harborline.Api.Blocks.Assets.Registry.dll
+  Harborline.Blocks.Workflow.Interpreter -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-workflow-interpreter\bin\Release\net11.0\Harborline.Api.Blocks.Workflow.Interpreter.dll
+  Harborline.Blocks.AccessGrant -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\blocks-access-grant\bin\Release\net11.0\Harborline.Api.Blocks.AccessGrant.dll
+  Harborline.Foundation.Documents -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-documents\bin\Release\net11.0\Harborline.Api.Foundation.Documents.dll
+CSC : error CS0016: Could not write to output file 'C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\ui-adapters-blazor\obj\Release\net11.0\Harborline.Api.UIAdapters.Blazor.xml' -- 'Access to the path 'C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\ui-adapters-blazor\obj\Release\net11.0\Harborline.Api.UIAdapters.Blazor.xml' is denied.' [C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj]
+  Harborline.Foundation.SecurityPolicy -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-security-policy\bin\Release\net11.0\Harborline.Api.Foundation.SecurityPolicy.dll
+  Harborline.Kernel.Ledger -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-ledger\bin\Release\net11.0\Harborline.Api.Kernel.Ledger.dll
+  Harborline.Documents.PdfSharp -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\documents-pdfsharp\bin\Release\net11.0\Harborline.Api.Documents.PdfSharp.dll
+  Harborline.Kernel.Runtime -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\kernel-runtime\bin\Release\net11.0\Harborline.Api.Kernel.Runtime.dll
+  Harborline.Foundation.Governance -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-governance\bin\Release\net11.0\Harborline.Api.Foundation.Governance.dll
+  Harborline.Foundation.Forms.Engine -> C:\Projects\Harborline\harborline-api\.claude\worktrees\t293\packages\foundation-forms-engine\bin\Release\net11.0\Harborline.Api.Foundation.Forms.Engine.dll

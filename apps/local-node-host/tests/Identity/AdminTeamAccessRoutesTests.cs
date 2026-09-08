@@ -4,8 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
@@ -15,6 +17,47 @@ public sealed class AdminTeamAccessRoutesTests
     private static readonly DateTimeOffset Now = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset IssuedAt = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset ExpiresAt = new(2026, 7, 24, 2, 0, 0, TimeSpan.Zero);
+
+    [Theory]
+    [InlineData(AdminTeamAccessRoutes.InvitationsPath)]
+    [InlineData(AdminTeamAccessRoutes.RevokeMemberPath)]
+    [InlineData(AdminTeamAccessRoutes.UpdateMemberPermissionsPath)]
+    public async Task Write_Authorization_Denial_Returns_Rendered_403(string path)
+    {
+        var operation = AuthorizationOperation.Parse("members:manage");
+        var write = new AuthorizationWriteContext(
+            new ActorId("party-1"), new TenantId("tenant-1"), Now);
+        var decision = await TestRouteGate.Denying().DecideAsync(
+            write.Request(operation, AuthorizationGate.RecordKindFor(operation), "grant-9"));
+        var denial = Assert.Throws<AuthorizationDeniedException>(() => decision.RequireAllowed());
+        var authority = new RecordingAuthority { Denial = denial };
+        var antiforgery = new RecordingAntiforgeryPolicy();
+        object request = path == AdminTeamAccessRoutes.InvitationsPath
+            ? new AdminTeamAccessRoutes.IssueInvitationRequest(["records:read"], "idem-1")
+            : path == AdminTeamAccessRoutes.RevokeMemberPath
+                ? new AdminTeamAccessRoutes.RevokeMemberRequest("grant-9")
+                : new AdminTeamAccessRoutes.UpdateMemberPermissionsRequest("grant-9", ["records:read"]);
+
+        var response = await InvokePostAsync(path, authority, request, antiforgery: antiforgery);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+        var refusal = await AuthorizationRefusalRenderer.RenderAsync(decision, [], null);
+        using var json = System.Text.Json.JsonDocument.Parse(response.Body);
+        var body = json.RootElement;
+        Assert.Equal(5, body.EnumerateObject().Count());
+        Assert.Equal(refusal.Code, body.GetProperty("code").GetString());
+        Assert.Equal(operation.Value, body.GetProperty("permission").GetString());
+        Assert.Equal(refusal.Title, body.GetProperty("title").GetString());
+        Assert.Equal(refusal.Detail, body.GetProperty("detail").GetString());
+        Assert.Equal(refusal.Remediation, body.GetProperty("remediation").GetString());
+        Assert.DoesNotContain(denial.Message, response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(refusal.Diagnostic, response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("party-1", response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("tenant-1", response.Body, StringComparison.Ordinal);
+        Assert.Equal("no-store", response.CacheControl);
+        Assert.Equal(SelectedHandle, antiforgery.RotatedSelectedHandle);
+        Assert.Equal("replacement-token", response.Antiforgery);
+    }
 
     // --- list members -------------------------------------------------------------------------
 
@@ -687,6 +730,8 @@ public sealed class AdminTeamAccessRoutesTests
 
     private sealed class RecordingAuthority : IAdminTeamAccessAuthority
     {
+        public AuthorizationDeniedException? Denial { get; init; }
+
         public AdminTeamMembersResult? Members { get; init; }
 
         public AdminPendingInvitationsResult? Pending { get; init; }
@@ -740,6 +785,7 @@ public sealed class AdminTeamAccessRoutesTests
             CancellationToken cancellationToken = default)
         {
             IssueTenantId = tenantId;
+            if (Denial is not null) return Task.FromException<AdminIssuedInvitation?>(Denial);
             return Task.FromResult(Issued);
         }
 
@@ -754,6 +800,7 @@ public sealed class AdminTeamAccessRoutesTests
             RevokeTenantId = tenantId;
             RevokeGrantId = grantId;
             RevokeSuccessorPrincipalId = successorPrincipalId;
+            if (Denial is not null) return Task.FromException<AdminRevokeMemberResult?>(Denial);
             return Task.FromResult(Revoke);
         }
 
@@ -768,6 +815,7 @@ public sealed class AdminTeamAccessRoutesTests
             UpdateTenantId = tenantId;
             UpdateGrantId = grantId;
             UpdatePermissions = requestedPermissions;
+            if (Denial is not null) return Task.FromException<AdminUpdateMemberPermissionsResult?>(Denial);
             return Task.FromResult(Update);
         }
     }
