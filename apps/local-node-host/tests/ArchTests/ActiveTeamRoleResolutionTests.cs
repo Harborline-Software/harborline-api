@@ -9,12 +9,7 @@ using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
-/// <summary>
-/// ADR 0032 identity layer — per-org role resolution. Proves <see cref="ActiveTeamAuthorizationContext"/>
-/// resolves the OS-user's role from the membership edge for the ACTIVE org and answers
-/// <c>HasPermission</c> accordingly (survey #1275 §3): the role is per-(person, active org), so the same
-/// operator yields a different permission set when the active org changes.
-/// </summary>
+/// <summary>Boot registry labels and permission sets cannot authorize a desktop caller.</summary>
 public sealed class ActiveTeamRoleResolutionTests
 {
     private static readonly TeamId AdminOrg = new(Guid.Parse("a0000000-0000-0000-0000-00000000000a"));
@@ -45,36 +40,28 @@ public sealed class ActiveTeamRoleResolutionTests
         await registry.AddMembershipAsync(op, Membership(ViewerOrg, TeamRole.Viewer));
 
         var accessor = new FakeActiveTeamAccessor();
-        var sut = new ActiveTeamAuthorizationContext(accessor, registry, TimeProvider.System);
+        var sut = new ActiveTeamAuthorizationContext(accessor, registry, TimeProvider.System,
+            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
         return (accessor, sut);
     }
 
-    [Fact(DisplayName = "ADR0032: HasPermission resolves the ACTIVE org's role (Admin org => full perms)")]
-    public async Task HasPermission_InAdminOrg_GrantsLedgerPost()
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Registry_only_roles_never_supply_permission_verdicts(bool admin, bool readRoles)
     {
         var (accessor, sut) = await BuildAsync();
-        accessor.Set(Materialize(AdminOrg));
-
-        Assert.True(sut.HasPermission(TeamRolePermissions.LedgerPost));
-        Assert.True(sut.HasPermission(TeamRolePermissions.MembersManage));
-        Assert.True(sut.HasPermission(TeamRolePermissions.RecordsWrite));
-        Assert.Contains("Admin", sut.Roles);
-    }
-
-    [Fact(DisplayName = "ADR0032: switching the active org SWITCHES the resolved role/permissions")]
-    public async Task SwitchingActiveOrg_SwitchesResolvedRole()
-    {
-        var (accessor, sut) = await BuildAsync();
-
-        accessor.Set(Materialize(AdminOrg));
-        Assert.True(sut.HasPermission(TeamRolePermissions.LedgerPost));
-
-        // Same operator, different active org — now a Viewer.
-        accessor.Set(Materialize(ViewerOrg));
-        Assert.False(sut.HasPermission(TeamRolePermissions.LedgerPost));
-        Assert.False(sut.HasPermission(TeamRolePermissions.RecordsWrite));
-        Assert.True(sut.HasPermission(TeamRolePermissions.RecordsRead));
-        Assert.Contains("Viewer", sut.Roles);
+        accessor.Set(Materialize(admin ? AdminOrg : ViewerOrg));
+        using var capture = new Harborline.Api.LocalNodeHost.Tests.Authorization.RosterDecisionCapture();
+        if (readRoles) Assert.Empty(sut.Roles);
+        else Assert.False(sut.HasPermission(TeamRolePermissions.RecordsRead));
+        var evidence = capture.AssertSingle(false);
+        Assert.True(evidence.Roster!.RegistryMember);
+        Assert.False(evidence.Roster.Member);
+        Assert.Null(evidence.Roster.Permissions);
+        Assert.Contains("registry:member:True", evidence.Project()[1].Facts);
     }
 
     [Fact(DisplayName = "ADR0032: no active team => no role, no permissions")]

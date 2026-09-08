@@ -99,6 +99,7 @@ public sealed class AuthorizationGateArchTests
     ];
 
     [Theory]
+    [InlineData(typeof(ActiveTeamAuthorizationContext))]
     [InlineData(typeof(AdminTeamAccessAuthority))]
     [InlineData(typeof(SelectedSessionPermissionResolver))]
     [InlineData(typeof(AccountSetupInvitationIssuer))]
@@ -121,6 +122,8 @@ public sealed class AuthorizationGateArchTests
                 && call.IsGenericMethod && call.GetGenericArguments()[0] == typeof(string)
             || call.Name == "Contains" && call.DeclaringType is { IsGenericType: true } collection
                 && collection.GetGenericArguments().Contains(typeof(string))
+            || call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.TeamMembership)
+                && call.Name == "get_EffectivePermissions"
             || call.DeclaringType == typeof(EffectiveMemberPermissions)
                 && call.Name is not "Read" and not "ReadAsync");
     }
