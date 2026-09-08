@@ -76,6 +76,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     // Replaced wholesale on every reconcile (never mutated in place): the AM-16/G1 fence counts every
     // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
     private Dictionary<(string RecordId, string Code), RebuildRefusal> _reportedRefusals = new();
+    private AuthorizationRefusal[] _refusalReports = [];
+
+    /// <summary>Current refusal state and remedies, rebuilt from roster evidence after restart.</summary>
+    public IReadOnlyList<AuthorizationRefusal> RefusalReports => Array.AsReadOnly(Volatile.Read(ref _refusalReports));
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAdministratorRemoval>
         _pendingAdministratorRemovals = new(StringComparer.Ordinal);
 
@@ -476,7 +481,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private async Task ReconcileSchemaAsync(CancellationToken ct)
     {
             IReadOnlyList<RosterRecordCrdtState> snapshot = Snapshot();
-            if (snapshot.Count == 0) return;
+            if (snapshot.Count == 0)
+            {
+                await ReconcileRefusalAuditAsync(null, snapshot, null, [], ct).ConfigureAwait(false);
+                return;
+            }
 
             try
             {
@@ -545,7 +554,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     _contextFactory, _nodeRoster.Current.TeamId, _verifier, ct).ConfigureAwait(false);
                 var rejectedIds = inboundRefusals.Select(r => r.RecordId).ToHashSet(StringComparer.Ordinal);
                 var acceptedSnapshot = snapshot.Where(s => !rejectedIds.Contains(s.RecordId)).ToArray();
-                var adopted = TryRebuildLiveRoster(acceptedSnapshot, anchor);
+                var adopted = TryRebuildLiveRoster(acceptedSnapshot, anchor, inboundRefusals);
                 await ReconcileRefusalAuditAsync(adopted, acceptedSnapshot, anchor, inboundRefusals, ct).ConfigureAwait(false);
 
                 // (3) Ticket 290 — fold the administrator-authority log back onto the live roster. A revocation
@@ -642,7 +651,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// </summary>
     public void RebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot) => TryRebuildLiveRoster(snapshot);
 
-    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot, MemberAdmissionRecord? anchor = null)
+    private MemberRoster? TryRebuildLiveRoster(IReadOnlyList<RosterRecordCrdtState> snapshot, MemberAdmissionRecord? anchor = null, List<RebuildRefusal>? refusals = null)
     {
         if (_nodeRoster is null) return null; // minimal DI test — no live roster to push into.
 
@@ -716,42 +725,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         // foreign or empty roster brick our own membership.
         if (rebuilt.Members.Count == 0)
         {
-            // F2/F3 (#1291) — distinguish WHY the rebuild was rejected so the empty-guard is diagnosable instead
-            // of one silent Debug line for every cause. Count the well-formed genesis candidates in the snapshot
-            // (the same shape FromSyncedRecords rejects on); ≥2 genesis is a CONVERGENCE-POISON, not the benign
-            // "no shared genesis" case.
-            var genesisCandidates = admissions.Where(a => a.Admission.IsGenesis).ToList();
-            if (genesisCandidates.Count > 1)
-            {
-                // F3 — own-duplicate-genesis (a restart/bug artifact for OUR founder party, recoverable once F1's
-                // deterministic genesis dedups it) vs foreign genesis (a peer that founded a different team, or an
-                // injection attempt — correctly rejected). Distinguished by whether every genesis party id matches
-                // our local genesis party.
-                var localGenesisParty = _nodeRoster.Current.GenesisPartyId;
-                var allOwn = !string.IsNullOrEmpty(localGenesisParty)
-                    && genesisCandidates.All(a =>
-                        string.Equals(a.PartyId, localGenesisParty, StringComparison.Ordinal));
-                if (allOwn)
-                {
-                    _logger.LogWarning(
-                        "Roster CRDT rebuild rejected on {Count} OWN-party genesis records (party '{Party}') — a "
-                        + "convergence-poisoning duplicate genesis (restart/bug artifact). Keeping the local roster; "
-                        + "the deterministic-genesis fix (#1291 F1) prevents new duplicates.",
-                        genesisCandidates.Count, localGenesisParty);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "Roster CRDT rebuild rejected on {Count} genesis records from differing parties — a "
-                        + "convergence-poisoning second genesis (foreign team or injection attempt). Keeping the "
-                        + "local roster (fail-closed; no member adopted).",
-                        genesisCandidates.Count);
-                }
-                return null;
-            }
-
-            _logger.LogDebug(
-                "Roster CRDT rebuild produced no trustworthy genesis-rooted membership; keeping the local roster.");
+            ReportRejectedGenesis(snapshot, refusals);
             return null;
         }
 
@@ -793,13 +767,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
 
         if (!nodeIsMemberOfRebuilt)
         {
-            _logger.LogWarning(
-                "Roster CRDT rebuild produced a genesis-rooted roster (genesis party '{RebuiltParty}') that this node "
-                + "is NOT a member of (its own signing key is bound to no member) — a STALE/FOREIGN durable roster "
-                + "(e.g. a data dir left over from a prior root seed). NOT adopting it; keeping the local seed-derived "
-                + "roster (fail-safe). If this is a dev instance with a changed HARBORLINE_DEV_SEED_HEX, clear its "
-                + "HARBORLINE_DEV_DATA_DIR.",
-                rebuilt.GenesisPartyId);
+            ReportRejectedGenesis(snapshot, refusals);
             return null;
         }
 
@@ -897,7 +865,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             foreach (var candidate in pending)
             {
                 var code = VerifyInboundRecord(candidate, evidence, tenant, anchor, competingRoots)!;
-                var report = new AuthorizationRefusal(code, "Roster record refused",
+                var report = code == "roster.genesis.duplicate" ? GenesisRefusal(candidate).Report
+                    : new AuthorizationRefusal(code, "Roster record refused",
                     "The record has no valid signature and eligible live signer in the durable genesis chain.",
                     "Supply a signed record rooted in the durable genesis with the required authority.",
                     JsonSerializer.Serialize(candidate));
@@ -957,30 +926,32 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private async Task ReconcileRefusalAuditAsync(MemberRoster? adopted, IReadOnlyList<RosterRecordCrdtState> snapshot,
         MemberAdmissionRecord? anchor, List<RebuildRefusal> inboundRefusals, CancellationToken ct)
     {
-        if (_refusalAudit?.Invoke() is not { } audit) return;
+        var audit = _refusalAudit?.Invoke();
         var refusals = (adopted?.RefusedRevocations ?? []).Select(refusal => new RebuildRefusal(
             RosterRecordCrdtState.FromRevocation(refusal.Revocation).RecordId, RefusalReport(refusal), Permission.MembersRevoke,
             new ActorId(refusal.Revocation.Signed.RevokedByPartyId), new TenantId(refusal.Revocation.TeamId),
             refusal.Revocation.Signed.IssuedAt)).ToList();
         refusals.AddRange(inboundRefusals);
         if (adopted is null)
-            refusals.AddRange(_reportedRefusals.Values);
+            refusals.AddRange(_reportedRefusals.Values.Where(r => !r.Report.Code.StartsWith("roster.genesis.", StringComparison.Ordinal)
+                && snapshot.Any(s => s.RecordId == r.RecordId)));
         if (anchor is not null)
             foreach (var candidate in snapshot.Where(s => s.Kind == RosterRecordKind.Admission && s.IsGenesis
-                         && s.TeamId == anchor.TeamId && s.SignatureB64Url != anchor.Admission.Signature))
-                refusals.Add(new RebuildRefusal(candidate.RecordId,
-                    new AuthorizationRefusal("roster.genesis.duplicate", "Roster genesis refused",
-                        "The durable log already names an earlier verified genesis.",
-                        "Remove the duplicate candidate; keep the chain rooted in the durable genesis.", JsonSerializer.Serialize(candidate)),
-                    Permission.MembersAdmit, new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
-                    NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc));
+                         && (s.TeamId != anchor.TeamId || s.SignatureB64Url != anchor.Admission.Signature)
+                         && !IsLocallyMintedStaleGenesis(s, _nodeRoster!.Current.TeamId,
+                             anchor.PartyId, anchor.PublicKey, anchor.PublicKey.ToBase64Url())))
+                refusals.Add(GenesisRefusal(candidate));
         var current = refusals.GroupBy(
             refusal => (refusal.RecordId, refusal.Report.Code))
             .ToDictionary(group => group.Key, group => group.First());
+        var previousReports = Volatile.Read(ref _refusalReports);
+        Volatile.Write(ref _refusalReports, current.Values.Select(r => r.Report).ToArray());
         foreach (var (key, refusal) in current)
         {
-            if (_reportedRefusals.ContainsKey(key)) continue;
-            _logger.LogWarning("Roster rebuild refused record {Record}: {Code}", refusal.RecordId, refusal.Report.Code);
+            if (!previousReports.Any(r => r.Code == refusal.Report.Code && r.Diagnostic == refusal.Report.Diagnostic))
+                _logger.LogWarning("Roster rebuild refused record {Record}: {Code}. {Remedy}",
+                refusal.RecordId, refusal.Report.Code, refusal.Report.Remediation);
+            if (_reportedRefusals.ContainsKey(key) || audit is null) continue;
             await audit.RecordAsync(refusal.Report, refusal.Permission, refusal.Actor, refusal.Tenant,
                 refusal.IssuedAt, decision: null, ct).ConfigureAwait(false);
             _reportedRefusals.Add(key, refusal);
@@ -988,10 +959,35 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         foreach (var (key, refusal) in _reportedRefusals)
         {
             if (current.ContainsKey(key)) continue;
-            await audit.RecordClearedAsync(refusal.Report, refusal.Permission, refusal.Actor, refusal.Tenant,
+            if (audit is not null) await audit.RecordClearedAsync(refusal.Report, refusal.Permission, refusal.Actor, refusal.Tenant,
                 refusal.IssuedAt, ct).ConfigureAwait(false);
         }
-        _reportedRefusals = current;
+        if (audit is not null) _reportedRefusals = current;
+    }
+
+    private void ReportRejectedGenesis(IReadOnlyList<RosterRecordCrdtState> snapshot, List<RebuildRefusal>? refusals)
+    {
+        if (refusals is null) return; // Direct rebuild is a test seam; production reconciles await the audit.
+        var localGenesis = _nodeRoster?.Current.EnumerateAdmissions().SingleOrDefault(a => a.Admission.IsGenesis);
+        foreach (var candidate in snapshot.Where(s => s.Kind == RosterRecordKind.Admission && s.IsGenesis
+                     && s.SignatureB64Url != localGenesis?.Admission.Signature))
+            refusals.Add(GenesisRefusal(candidate));
+    }
+
+    private RebuildRefusal GenesisRefusal(RosterRecordCrdtState candidate)
+    {
+        var foreign = _nodeRoster is not null && candidate.TeamId != _nodeRoster.Current.TeamId.ToString("D");
+        var report = new AuthorizationRefusal(
+            foreign ? "roster.genesis.foreign_tenant" : "roster.genesis.duplicate", "Roster genesis refused",
+            foreign ? "The candidate belongs to a foreign tenant; the local roster is retained."
+                : "A duplicate genesis candidate conflicts with this tenant's established chain.",
+            foreign ? "Use the data directory and tenant configuration belonging to this install, or enrol through a current member of the intended tenant; do not overwrite the roster log."
+                : "A duplicate may be a restart/bug artifact or an injection attempt. " +
+                  "Remove the duplicate candidate; keep the chain rooted in the durable genesis. " + GenesisStartupMessages.InvalidLog,
+            JsonSerializer.Serialize(candidate));
+        return new RebuildRefusal(candidate.RecordId, report, Permission.MembersAdmit,
+            new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
+            NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc);
     }
 
     private static AuthorizationRefusal RefusalReport(RosterRevocationRefusal refusal) =>

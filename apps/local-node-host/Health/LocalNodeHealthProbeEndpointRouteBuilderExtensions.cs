@@ -40,7 +40,8 @@ public static class LocalNodeHealthProbeEndpointRouteBuilderExtensions
         context.Response.ContentType = "text/plain; charset=utf-8";
         var details = report.Entries.Values
             .Select(entry => entry.Description)
-            .Where(description => !string.IsNullOrWhiteSpace(description));
+            .Where(description => !string.IsNullOrWhiteSpace(description))
+            .Distinct(StringComparer.Ordinal);
         return context.Response.WriteAsync(
             string.Join(Environment.NewLine, details.Prepend(report.Status.ToString())));
     }

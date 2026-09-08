@@ -42,6 +42,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 public sealed class LocalNodeHealthCheck : IHealthCheck
 {
     private readonly IActiveTeamAccessor _activeTeam;
+    private readonly Data.Roster.RosterCrdtProjection? _roster;
 
     /// <summary>
     /// Construct the health check. Called by the DI container once per probe
@@ -49,10 +50,12 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
     /// <c>services.AddHealthChecks().AddCheck&lt;LocalNodeHealthCheck&gt;(…)</c>.
     /// </summary>
     /// <param name="activeTeam">Install-level active-team accessor.</param>
-    public LocalNodeHealthCheck(IActiveTeamAccessor activeTeam)
+    /// <param name="roster">Install-level roster refusal status.</param>
+    public LocalNodeHealthCheck(IActiveTeamAccessor activeTeam, Data.Roster.RosterCrdtProjection? roster = null)
     {
         ArgumentNullException.ThrowIfNull(activeTeam);
         _activeTeam = activeTeam;
+        _roster = roster;
     }
 
     /// <inheritdoc />
@@ -68,6 +71,10 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
                 "not bootstrapped a team context; Bridge supervisor should treat this " +
                 "as a failed boot."));
         }
+
+        if (_roster?.RefusalReports is { Count: > 0 } reports)
+            return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
+                reports.Select(r => $"Roster refused: {r.Code}. {r.Remediation}"))));
 
         var gossip = active.Services.GetService<IGossipDaemon>();
         if (gossip is null)
