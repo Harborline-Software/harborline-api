@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
@@ -19,6 +23,71 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     : AuthorizationConfigurationStateReader, IAuthorizationConfigurationStore, IAuthorizationDefinitionReader,
         IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader
 {
+    /// <summary>Boot-only publication: signed roster provenance and completion commit under one fence.</summary>
+    internal async Task<int> CommitRosterAdmissionMigrationAsync(
+        IDbContextFactory<NodeLocalRosterDbContext> rosterFactory, IOperationVerifier verifier, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await db.Database.MigrateAsync(ct).ConfigureAwait(false);
+        return await HomeEpochFenceTransaction.RunAsync(db, async () =>
+        {
+            if (await db.Set<RosterAdmissionGrantBackfillRow>().AnyAsync(ct).ConfigureAwait(false)) return 0;
+            await using var rosterDb = await rosterFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            var rows = await rosterDb.RosterRecords.AsNoTracking().ToArrayAsync(ct).ConfigureAwait(false);
+            var reader = new VerifiedTenantRosterReader(rosterFactory, verifier);
+            var converted = 0;
+            foreach (var group in rows.GroupBy(row => row.TeamId))
+            {
+                var tenant = new TenantId(group.Key);
+                // Verification holds the shared database's write lock; no peer append can race it.
+                var roster = await reader.ReadAsync(tenant, ct).ConfigureAwait(false);
+                foreach (var admission in roster.EnumerateAdmissions())
+                {
+                    var signed = admission.Admission;
+                    var source = RosterRecordCrdtState.FromAdmission(admission).RecordId;
+                    var id = StableId(group.Key + ":" + source);
+                    var role = new RoleReference(RoleVocabularies.Domain, "roster-admission-" + id.ToString("N"));
+                    var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
+                    var migrationVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
+                    await EnsureRoleAsync(db, role, ct, migrationVocabulary).ConfigureAwait(false);
+                    foreach (var permission in PermissionSet.From(signed.Permissions ?? []).Permissions)
+                    {
+                        var operation = AuthorizationOperation.Parse(permission);
+                        var definition = new AuthorizationCapabilityDefinition(
+                            new(StableId(id.ToString("D") + ":" + permission)), AccessGrantAuthorizationSeed.PackageId,
+                            1, operation, new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.From([role]));
+                        var write = await AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync(
+                            definition, tenant, signed.IssuedAt, migrationVocabulary, ct).ConfigureAwait(false);
+                        await StageWriteAsync(db, write, ct, migrationVocabulary).ConfigureAwait(false);
+                    }
+                    var actor = new ActorId(admission.PartyId);
+                    var granter = new ActorId(signed.AdmittedByPartyId);
+                    var removal = roster.Contains(admission.PartyId) ? null : group
+                        .Where(row => row.Kind == (int)RosterRecordKind.Revocation && row.PartyId == admission.PartyId)
+                        .Select(NodeRosterRecord.ToCrdtState).Select(state => state.ToRevocationOrNull()!)
+                        .Where(record => !roster.RefusedRevocations.Any(refusal => refusal.Revocation == record))
+                        .OrderBy(record => record.Signed.IssuedAt).ThenBy(record => record.Signed.Nonce).First();
+                    var revocation = removal is null ? null : new GrantRevocation(
+                        new ActorId(removal.Signed.RevokedByPartyId), removal.Signed.IssuedAt,
+                        new GrantReason(GrantReasonCodes.RevocationReview, removal.Signed.Nonce.ToString("D")));
+                    var grant = new AccessGrant(new GrantId(id), tenant, actor, role, ScopeExpression.Parse("/"),
+                        GrantResidency.Cache, new GrantValidity(signed.IssuedAt), GranterKind.Person, granter,
+                        signed.IssuedAt, new GrantProvenance(GrantSourceKind.Manual,
+                            new GrantReason(GrantReasonCodes.Manual, signed.Nonce.ToString("D")), granter),
+                        signed.IssuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
+                    db.Grants.Add(NodeEfGrantStore.ToRow(grant, "roster-migration:" + id.ToString("D")));
+                    await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
+                    converted++;
+                }
+            }
+            db.Set<RosterAdmissionGrantBackfillRow>().Add(new() { Id = 1, RecordCount = converted });
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return converted;
+        }, ct).ConfigureAwait(false);
+    }
+
+    private static Guid StableId(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
+
     public override async ValueTask<AuthorizationConfigurationState> ReadStateAsync(
         AuthorizationCapabilityDefinitionId definitionId, TenantId? tenantId = null, CancellationToken ct = default)
     {
@@ -61,6 +130,14 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         {
             throw new InvalidOperationException("The authorization-definition bootstrap path is permanently sealed.");
         }
+        await StageWriteAsync(context, write, ct).ConfigureAwait(false);
+        await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
+    }
+
+    private async Task StageWriteAsync(NodeLocalSearchDbContext context,
+        ValidatedAuthorizationConfigurationWrite write, CancellationToken ct, IRoleVocabularyReader? writeVocabulary = null)
+    {
         if (write.Definition is { } definition)
         {
             var current = await context.AuthorizationDefinitions.Where(x => x.DefinitionId == definition.DefinitionId.Value.ToString())
@@ -77,7 +154,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                     throw new InvalidOperationException("A replacement must retain the definition's declaring tenant.");
             }
             foreach (var role in definition.OfferedRoles.Roles)
-                await EnsureRoleAsync(context, role, ct).ConfigureAwait(false);
+                await EnsureRoleAsync(context, role, ct, writeVocabulary).ConfigureAwait(false);
             context.AuthorizationDefinitions.Add(new AuthorizationDefinitionRow
             {
                 DefinitionId = definition.DefinitionId.Value.ToString(), Revision = definition.Revision,
@@ -111,8 +188,6 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             if (version is null) context.AuthorizationTenantVersions.Add(new AuthorizationTenantVersionRow { TenantId = binding.TenantId.Value, Version = 1 });
             else version.Version++;
         }
-        await context.SaveChangesAsync(ct).ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
     }
 
     private static async Task<bool> HasBootstrapRetirementEvidenceAsync(
@@ -130,11 +205,12 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 
-    private async Task EnsureRoleAsync(NodeLocalSearchDbContext context, RoleReference role, CancellationToken ct)
+    private async Task EnsureRoleAsync(NodeLocalSearchDbContext context, RoleReference role, CancellationToken ct, IRoleVocabularyReader? writeVocabulary = null)
     {
-        if (await context.AuthorizationRoles.AnyAsync(
+        if (context.AuthorizationRoles.Local.Any(x => x.Vocabulary == role.Vocabulary && x.RoleName == role.Name)
+            || await context.AuthorizationRoles.AnyAsync(
             x => x.Vocabulary == role.Vocabulary && x.RoleName == role.Name, ct).ConfigureAwait(false)) return;
-        var definition = await vocabulary.ResolveAsync(role, ct).ConfigureAwait(false)
+        var definition = await (writeVocabulary ?? vocabulary).ResolveAsync(role, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Unknown role '{role}'.");
         context.AuthorizationRoles.Add(new AuthorizationRoleRow
         {
