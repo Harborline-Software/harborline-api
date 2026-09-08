@@ -224,15 +224,19 @@ internal static class RequestAuthorization
     /// decided the acting principal may see; <see cref="AuthorizationRefusal.Diagnostic"/> is deliberately
     /// not written here — it belongs to the audit row.
     /// </summary>
-    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null) => Results.Json(
-        new
+    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null)
+    {
+        var body = new Dictionary<string, object?>
         {
-            code = refusal.Code,
-            permission,
-            title = refusal.Title,
-            detail = refusal.Detail,
-            remediation = refusal.Remediation,
-            auditId,
-        },
-        statusCode: StatusCodes.Status403Forbidden);
+            ["code"] = refusal.Code,
+            ["permission"] = permission,
+            ["title"] = refusal.Title,
+            ["detail"] = refusal.Detail,
+            ["remediation"] = refusal.Remediation,
+        };
+        // Only an appended receipt extends the refusal's original five-field shape.
+        if (auditId is { } recordedId)
+            body["auditId"] = recordedId;
+        return Results.Json(body, statusCode: StatusCodes.Status403Forbidden);
+    }
 }

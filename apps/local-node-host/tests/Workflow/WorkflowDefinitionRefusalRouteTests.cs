@@ -43,6 +43,7 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private TenantId _tenant;
+    private FaultingAuditTrail _trail = null!;
 
     public async Task InitializeAsync()
     {
@@ -70,6 +71,8 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<IOperationSigner>(
             sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
         builder.Services.AddEnrollmentCompensatingControlAudit();
+        builder.Services.AddSingleton<IAuditTrail>(sp =>
+            _trail = new FaultingAuditTrail(sp.GetRequiredService<InMemoryAuditTrail>()));
         builder.Services.AddAuthorizationRefusalAudit();
 
         _app = builder.Build();
@@ -136,6 +139,18 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
             body.GetProperty("remediation").GetString());
         // No extensions, no headers: the refusal has no other public surface to drift into.
         Assert.False(response.Headers.Contains("X-Authorization-Diagnostic"));
+
+        // A failed append still renders the same refusal, without an unrecorded receipt id.
+        _trail.FailRefusalAppend = true;
+        var failedAppendResponse = await _client.PutAsJsonAsync($"{Base}/{Key}", Body());
+        Assert.Equal(HttpStatusCode.Forbidden, failedAppendResponse.StatusCode);
+        var failedAppendBody = await failedAppendResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            new[] { "code", "detail", "permission", "remediation", "title" },
+            failedAppendBody.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+        foreach (var property in failedAppendBody.EnumerateObject())
+            Assert.Equal(body.GetProperty(property.Name).GetRawText(), property.Value.GetRawText());
+        Assert.Equal(1, _trail.FailedAppends);
     }
 
     [Fact(DisplayName = "214 s2: the audit row keeps the classified diagnostic the response withheld")]
@@ -153,6 +168,8 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         }
 
         var row = Assert.Single(rows);
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(row.AuditId, json.RootElement.GetProperty("auditId").GetGuid());
         var diagnostic = Assert.IsType<string>(
             row.Payload.Payload.Body[AuthorizationRefusalAudit.DiagnosticKey]);
 
@@ -169,6 +186,28 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         Assert.Equal("scheduling", row.Target!.Value.RecordKind);
         Assert.NotNull(row.AuthoritySnapshot);
         Assert.Equal(4, row.AuthoritySnapshot.Trace!.Count);
+    }
+
+    private sealed class FaultingAuditTrail(InMemoryAuditTrail inner) : IRefusedAuditTrail
+    {
+        internal bool FailRefusalAppend { get; set; }
+        internal int FailedAppends { get; private set; }
+
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) =>
+            inner.AppendAsync(record, ct);
+
+        public ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default)
+        {
+            if (FailRefusalAppend)
+            {
+                FailedAppends++;
+                throw new IOException("Injected refusal append failure.");
+            }
+            return inner.AppendRefusedAsync(record, decision, ct);
+        }
+
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default) =>
+            inner.QueryAsync(query, ct);
     }
 
     private static object Body() => new
