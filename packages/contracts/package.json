@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=cobertura",
+    "test:coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=cobertura --coverage.reportsDirectory=./coverage",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --report-unused-disable-directives --max-warnings 0",

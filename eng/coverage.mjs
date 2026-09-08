@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 
@@ -25,12 +26,22 @@ export function addCoverageLabel(file, label) {
 export function setCoverageSourceRoot(file, sourceRoot) {
   const xml = readFileSync(file, 'utf8')
   if (!/<sources>/.test(xml)) throw new Error(`Cobertura report has no sources: ${file}`)
-  writeFileSync(file, xml.replace(/<source>[^<]*<\/source>/g, `<source>${sourceRoot}</source>`))
+  const relativeRoot = sourceRoot.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '') || '.'
+  writeFileSync(file, xml.replace(/<source>[^<]*<\/source>/g, `<source>${relativeRoot}</source>`))
 }
 
 export function postProcessCoverage(file, {label, sourceRoot}) {
   setCoverageSourceRoot(file, sourceRoot)
   addCoverageLabel(file, label)
+}
+
+export function compactCobertura(file) {
+  const xml = readFileSync(file, 'utf8')
+  writeFileSync(file, xml
+    .replace(/<!DOCTYPE[\s\S]*?>/gi, '')
+    .replace(/&(?:amp|lt|gt|quot|apos);/g, '')
+    .replace(/\bbranch="(True|False)"/g, (_, value) => `branch="${value.toLowerCase()}"`)
+    .replace(/<methods>[\s\S]*?<\/methods>/g, ''))
 }
 
 export function coverageSummary(xml) {
@@ -63,10 +74,18 @@ const walk = directory => readdirSync(directory, {withFileTypes: true}).flatMap(
 })
 
 export function copyCoberturaReport({resultsDirectory, target, label, sourceRoot}) {
-  const reports = walk(resultsDirectory).filter(file => /\.cobertura\.xml$/i.test(file))
-  if (reports.length !== 1) throw new Error(`expected one Cobertura report under ${resultsDirectory}, found ${reports.length}`)
+  const reports = walk(resultsDirectory)
+    .filter(file => /^(coverage\.cobertura|cobertura-coverage)\.xml$/i.test(path.basename(file)))
+    .filter(file => !path.relative(resultsDirectory, file).split(path.sep).some(part => part.toLowerCase() === 'in'))
+    .sort((left, right) => left.localeCompare(right))
+  const direct = reports.filter(file => path.relative(resultsDirectory, file).split(path.sep).length === 2)
+  const candidates = direct.length ? direct : reports
+  if (!candidates.length) throw new Error(`expected a Cobertura report under ${resultsDirectory}, found 0`)
+  const digests = new Set(candidates.map(file => createHash('sha256').update(readFileSync(file)).digest('hex')))
+  if (digests.size !== 1) throw new Error(`different Cobertura reports under ${resultsDirectory}`)
   mkdirSync(path.dirname(target), {recursive: true})
-  copyFileSync(reports[0], target)
+  copyFileSync(candidates[0], target)
+  compactCobertura(target)
   postProcessCoverage(target, {label, sourceRoot})
   return target
 }

@@ -142,16 +142,16 @@ try {
   // 246: the contracts package carries its own tests, including the package-name fence; a clone that
   // only builds it would let a retired-name regression through this route.
   const contractsDirectory = path.join(clone, 'packages/contracts')
-  const contractsCoverageDirectory = path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'contracts')
+  const contractsCoverageDirectory = path.join(contractsDirectory, 'coverage')
   run('capability-contracts-tests', 'pnpm', collectCoverage
-    ? ['run', 'test:coverage', '--', `--coverage.reportsDirectory=${contractsCoverageDirectory}`]
+    ? ['run', 'test:coverage']
     : ['test'], contractsDirectory)
   if (collectCoverage) {
     copyCoberturaReport({
       resultsDirectory: contractsCoverageDirectory,
       target: coveragePaths.contracts,
       label: 'contracts',
-      sourceRoot: path.join(apiRoot, 'packages', 'contracts'),
+      sourceRoot: 'packages/contracts',
     })
   }
   run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
@@ -162,11 +162,11 @@ try {
   const hostTests = run('dotnet-host-tests', 'dotnet',
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
-      ...(collectCoverage ? ['--collect:XPlat Code Coverage', '--', 'DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'] : [])], clone, {expectNonZero: true})
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   if (collectCoverage) {
     copyCoberturaReport({resultsDirectory: hostResultsDirectory, target: coveragePaths.host,
-      label: 'unit-tests', sourceRoot: apiRoot})
+      label: 'unit-tests', sourceRoot: '.'})
   }
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
