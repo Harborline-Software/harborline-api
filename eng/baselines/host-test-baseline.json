@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3655,
-    "passed": 3637,
+    "total": 3663,
+    "passed": 3645,
     "failed": 0,
     "notExecuted": 18
   },
@@ -66,15 +66,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3638,
-      "passed": 3620,
+      "total": 3655,
+      "passed": 3637,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3638 -> 3655; passed 3620 -> 3637; failed unchanged at 0; notExecuted 18 -> 18",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3638 + 17 = 3655; passed = total - notExecuted = 3655 - 18 = 3637."
+    "change": "total 3655 -> 3663; passed 3637 -> 3645; failed 0; notExecuted 18",
+    "cause": "Ticket 293 slice 3 partial: eight admission-grant backfill cases; no existing tests removed.",
+    "detectedBy": "Focused backfill and affected filters only; controller must measure the full host suite.",
+    "arithmeticCrossCheck": "origin/main 11d12879307cf75a8dfacdfb4ad7774cc80f6367: 3655 + 8 = 3663; passed 3637 + 8 = 3645. This is integration arithmetic, not a full-suite measurement."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

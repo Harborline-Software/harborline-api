@@ -1200,6 +1200,7 @@ builder.Services.AddHostedService<CommsSyncBootstrapHostedService>();
 // projection is composed by AddNodeRoster() below. This makes the roster propagate across nodes (admit/revoke
 // records ride the delta-router + wire-fan-out, validate to genesis on merge) so membership converges with no
 // central authority — the two-user harness no longer has to FAKE it by seeding both nodes.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Roster.RosterAdmissionGrantBackfill>();
 builder.Services.AddHostedService<RosterSyncBootstrapHostedService>();
 
 // ADR 0032 identity layer — the team-membership store (the many-to-many ActorId↔TeamId

@@ -211,7 +211,7 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
     /// twice in one transaction, and a second query would miss the first leg's pending insert and add a
     /// duplicate key.
     /// </remarks>
-    private static async Task AdvanceEpochAsync(NodeLocalSearchDbContext ctx, TenantId tenant, ActorId subject, CancellationToken ct)
+    internal static async Task AdvanceEpochAsync(NodeLocalSearchDbContext ctx, TenantId tenant, ActorId subject, CancellationToken ct)
     {
         var row = ctx.GrantAuthorizationEpochs.Local.FirstOrDefault(
                 x => x.TenantId == tenant.Value && x.PrincipalId == subject.Value)
@@ -228,7 +228,7 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
         else tenantVersion.Version++;
     }
 
-    private static GrantRow ToRow(AccessGrant grant, string? sourceReference, long ownerVersion = 1) => new()
+    internal static GrantRow ToRow(AccessGrant grant, string? sourceReference, long ownerVersion = 1) => new()
     {
         GrantId = grant.GrantId.ToString(), TenantId = grant.TenantId.Value, SubjectId = grant.Subject.Value,
         RoleVocabulary = grant.Role.Vocabulary, RoleName = grant.Role.Name, ScopeType = (int)grant.Scope.Type,

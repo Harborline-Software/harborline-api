@@ -136,6 +136,12 @@ public sealed class SearchTestStore : IAsyncDisposable
         return new NodeLocalInstallationIdentityDbContext(options);
     }
 
+    public Data.Roster.NodeLocalRosterDbContext CreateRosterContext() => new(
+        new DbContextOptionsBuilder<Data.Roster.NodeLocalRosterDbContext>()
+            .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true,
+                sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
+                    Data.Roster.NodeLocalRosterDbContext.MigrationsHistoryTableName)).Options);
+
     /// <summary>An <see cref="IDbContextFactory{TContext}"/> over this harness for services that need one.</summary>
     public IDbContextFactory<NodeLocalSearchDbContext> Factory => new HarnessFactory(this);
 
