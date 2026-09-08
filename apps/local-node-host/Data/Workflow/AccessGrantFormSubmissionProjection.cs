@@ -19,7 +19,10 @@ internal sealed class AccessGrantFormSubmissionProjection(
     IWorkflowTriggerDispatcher dispatcher) : IFormSubmitProjection, IFormSubmissionGate
 {
     private const string FormId = "access.grant-a-role";
-    private const string SubmitterRole = "access-form-submitter";
+    // A section's role tokens are the QUALIFIED reference (DeclarativeGateReference.ParseRole refuses a
+    // bare name), and the minted capability token is matched against them verbatim — so both spell it the
+    // same way as the pack's RoleDefinition: RoleVocabularies.Domain + "/" + the declared name.
+    private const string SubmitterRole = RoleVocabularies.Domain + "/access-form-submitter";
 
     public string? RequiredPermission(FormDefinitionId form) =>
         form.Value == FormId ? TeamRolePermissions.MembersManage : null;

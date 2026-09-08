@@ -95,17 +95,24 @@ public sealed partial class ComposedHostBootSmokeTests
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
         await GrantPackOperationToHostInstallerAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        string issuedGrantId;
         await using (var host = StartAccessHost(bootstrap.DataDirectory))
         {
             using var client = await AccessClientAsync(host);
+            using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
+            var existing = before.RootElement.GetProperty("holders").EnumerateArray()
+                .Select(row => row.GetProperty("grantId").GetString()).ToHashSet();
             using var submitted = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate());
             Assert.Equal(HttpStatusCode.Created, submitted.StatusCode);
+            using var issued = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
+            issuedGrantId = Assert.Single(issued.RootElement.GetProperty("holders").EnumerateArray(), row =>
+                !existing.Contains(row.GetProperty("grantId").GetString())).GetProperty("grantId").GetString()!;
         }
         await using var restarted = StartAccessHost(bootstrap.DataDirectory);
         using var afterRestart = await AccessClientAsync(restarted);
         using var holders = JsonDocument.Parse(await afterRestart.GetStringAsync(AccessHoldersRead.Route));
         Assert.Contains(holders.RootElement.GetProperty("holders").EnumerateArray(), holder =>
-            holder.GetProperty("person").GetString() == "principal-access-recipient" &&
+            holder.GetProperty("grantId").GetString() == issuedGrantId &&
             holder.GetProperty("role").GetProperty("name").GetString() == "administrator");
     }
 

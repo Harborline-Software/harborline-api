@@ -92,7 +92,7 @@
                 "effectiveTo",
                 "reason"
               ],
-              "access": { "readRoles": ["access-form-submitter"], "writeRoles": ["access-form-submitter"] }
+              "access": { "readRoles": ["tax.roles/access-form-submitter"], "writeRoles": ["tax.roles/access-form-submitter"] }
             }
           ],
           "rules": [],

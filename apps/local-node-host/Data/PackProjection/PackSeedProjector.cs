@@ -482,6 +482,14 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 _store.GetKeyOwnership(tenant))
             .ToDictionary(c => c.ContentKey, StringComparer.Ordinal);
 
+        // Role names retract LAST — the exact reverse of the projection order below, which puts them
+        // FIRST. Withdrawing a role-gated form or workflow re-runs the role-gate admission, so a role
+        // name removed ahead of the definitions gated on it makes their withdrawal unresolvable and
+        // leaves the replaced package's content PUBLISHED. (Found by 208 s7b: the Access pack's own
+        // submitter role.)
+        static IEnumerable<PackSeedItem> RetractionOrder(IEnumerable<PackSeedItem> items) =>
+            items.OrderBy(i => i.Kind == PackContentKind.RoleDefinition ? 1 : 0);
+
         // (L633) One item's reverse projection, shared by the two retraction loops below: every kind the
         // projector parses retracts, so a replacement can never leave the replaced package's copy live.
         var retractedByKind = new Dictionary<PackContentKind, int>();
@@ -525,7 +533,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                      && p.PackKey == authority.PackId
                      && p.Version == authority.PackVersion))
         {
-            foreach (var item in pack.SeedItems.Select(Overlaid))
+            foreach (var item in RetractionOrder(pack.SeedItems.Select(Overlaid)))
             {
                 if (DecideContested(pack, item, collisions) != ContestedDecision.Project)
                 {
@@ -958,7 +966,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                          && p.PackKey == authority.PackId
                          && p.Version != authority.PackVersion))
             {
-                foreach (var item in pack.SeedItems.Select(Overlaid))
+                foreach (var item in RetractionOrder(pack.SeedItems.Select(Overlaid)))
                 {
                     if (admittedTuples.Contains((item.Key, item.Version)))
                     {
