@@ -112,6 +112,24 @@ public sealed class NodeRosterRecord
     /// <summary>Issuance instant (UTC). The chronological order of records.</summary>
     public DateTimeOffset IssuedAtUtc { get; set; }
 
+    /// <summary>Local first receipt, retained across restart; not yet a replicated attestation.</summary>
+    public DateTimeOffset? ReceivedAtUtc { get; set; }
+
+    /// <summary>The existing sync HELLO clock-skew allowance bounds retrospective ordering.</summary>
+    public static readonly TimeSpan ReceiveTimeWindow = TimeSpan.FromSeconds(
+        Harborline.Api.Kernel.Sync.Handshake.HandshakeProtocol.HelloTimestampSkewSeconds);
+
+    /// <summary>Legacy rows retain signed order until the receive-attestation wire cutover.</summary>
+    public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received) =>
+        received is { } at && issued < at - ReceiveTimeWindow ? at : issued;
+
+    internal static Func<string, DateTimeOffset, DateTimeOffset> OrderTimes(IEnumerable<NodeRosterRecord> rows)
+    {
+        var receipts = rows.GroupBy(r => r.SignatureB64Url, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().ReceivedAtUtc, StringComparer.Ordinal);
+        return (signature, issued) => BoundedOrderTime(issued, receipts.GetValueOrDefault(signature));
+    }
+
     /// <summary>Project a converged CRDT snapshot into its durable read-model row.</summary>
     public static NodeRosterRecord FromCrdtState(RosterRecordCrdtState s)
     {

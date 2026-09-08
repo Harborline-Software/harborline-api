@@ -108,6 +108,9 @@ public sealed class NodeLocalRosterDbContext : DbContext
                 .HasConversion(new ValueConverter<DateTimeOffset, long>(
                     v => v.ToUnixTimeMilliseconds(),
                     v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+            e.Property(r => r.ReceivedAtUtc).HasColumnName("received_at")
+                .HasConversion(new ValueConverter<DateTimeOffset, long>(
+                    v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
             // The roster scope + ordering columns.
             e.HasIndex(r => r.TeamId);
             e.HasIndex(r => new { r.TeamId, r.IssuedAtUtc });

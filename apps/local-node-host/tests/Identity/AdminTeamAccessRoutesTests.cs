@@ -484,14 +484,14 @@ public sealed class AdminTeamAccessRoutesTests
             AdminTeamAccessRoutes.UpdateMemberPermissionsPath,
             authority,
             new AdminTeamAccessRoutes.UpdateMemberPermissionsRequest(
-                "grant-9", new[] { "calendar:read", "inbox:read" }),
+                "grant-9", new[] { "assets:read", "forms:read" }),
             antiforgery: antiforgery);
 
         Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
         Assert.Contains("\"status\":\"updated\"", response.Body, StringComparison.Ordinal);
         Assert.Equal("tenant-1", authority.UpdateTenantId);
         Assert.Equal("grant-9", authority.UpdateGrantId);
-        Assert.Equal(new[] { "calendar:read", "inbox:read" }, authority.UpdatePermissions);
+        Assert.Equal(new[] { "assets:read", "forms:read" }, authority.UpdatePermissions);
         Assert.Equal(SelectedHandle, antiforgery.RotatedSelectedHandle);
     }
 

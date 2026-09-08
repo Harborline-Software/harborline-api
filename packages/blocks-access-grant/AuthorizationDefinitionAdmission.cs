@@ -130,7 +130,7 @@ public sealed class AuthorizationDefinitionAdmission(IRoleVocabularyReader roles
         // for every operation the platform defines, and a pack's content is reviewed by nobody. Without
         // this, a signed pack shipping {"operation":"grant:permissions","offeredRoles":["tax.roles/clerk"]}
         // plus its own `clerk` role would confer the authority to issue grants on a role it invented --
-        // and the same shape reaches org:transfer-ownership, members:set-role and provider:configure-*.
+        // and the same shape reaches org:transfer-ownership.
         // A pack may still NARROW a platform offer, and it is its own ceiling for its own operations.
         if (packPublished && ExceedsReviewedCeiling(definition))
         {
