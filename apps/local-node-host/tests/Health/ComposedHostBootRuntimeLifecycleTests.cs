@@ -11,74 +11,107 @@ public sealed class ComposedHostBootRuntimeLifecycleTests
         "3463463463463463463463463463463463463463463463463463463463463463";
 
     [Fact]
-    public async Task Faulted_composition_surfaces_its_error_and_releases_the_runtime_for_a_healthy_boot()
+    public async Task Canceled_start_releases_the_runtime_for_a_healthy_boot()
     {
+        var canceledDirectory = CreateDataDirectory();
         var faultedDirectory = CreateDataDirectory();
         var healthyDirectory = CreateDataDirectory();
         var previousRootSeedHex = Environment.GetEnvironmentVariable("LocalNode__RootSeedHex");
-        var healthyStarted = false;
+        var compositionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var compositionMayContinue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var canceled = new CancellationTokenSource();
         try
         {
             Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", RootSeedHex);
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var canceledStart = Task.Run(() => LocalNodeHostRuntime.StartAsync(
+                "ticket-346-canceled-composition",
+                canceledDirectory,
+                canceled.Token,
+                finalServiceRegistration: _ =>
+                {
+                    compositionEntered.TrySetResult();
+                    compositionMayContinue.Task.GetAwaiter().GetResult();
+                }));
+            await compositionEntered.Task;
+            canceled.Cancel();
+            compositionMayContinue.TrySetResult();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledStart);
+
+            var fault = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 LocalNodeHostRuntime.StartAsync(
                     "ticket-346-faulted-composition",
                     faultedDirectory,
                     CancellationToken.None,
                     finalServiceRegistration: _ =>
                         throw new InvalidOperationException("ticket-346 composition fault")));
-            Assert.Equal("ticket-346 composition fault", exception.Message);
+            Assert.Equal("ticket-346 composition fault", fault.Message);
 
             var address = await LocalNodeHostRuntime.StartAsync(
                 "ticket-346-healthy-composition", healthyDirectory, CancellationToken.None);
-            healthyStarted = true;
             using var client = new HttpClient { BaseAddress = address };
             using var health = await client.GetAsync("/health");
             Assert.Equal(HttpStatusCode.OK, health.StatusCode);
 
             await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-            healthyStarted = false;
         }
         finally
         {
-            if (healthyStarted)
-                await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-
+            compositionMayContinue.TrySetResult();
+            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
             Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", previousRootSeedHex);
+            DeleteDataDirectory(canceledDirectory);
             DeleteDataDirectory(faultedDirectory);
             DeleteDataDirectory(healthyDirectory);
         }
     }
 
     [Fact]
-    public async Task Concurrent_boot_is_refused_while_a_healthy_host_is_running()
+    public async Task Canceled_start_does_not_weaken_the_concurrent_boot_guard()
     {
+        var canceledDirectory = CreateDataDirectory();
         var firstDirectory = CreateDataDirectory();
         var secondDirectory = CreateDataDirectory();
         var previousRootSeedHex = Environment.GetEnvironmentVariable("LocalNode__RootSeedHex");
-        var healthyStarted = false;
+        var compositionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var compositionMayContinue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var canceled = new CancellationTokenSource();
         try
         {
             Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", RootSeedHex);
+
+            var canceledStart = Task.Run(() => LocalNodeHostRuntime.StartAsync(
+                "ticket-346-canceled-before-concurrent-guard",
+                canceledDirectory,
+                canceled.Token,
+                finalServiceRegistration: _ =>
+                {
+                    compositionEntered.TrySetResult();
+                    compositionMayContinue.Task.GetAwaiter().GetResult();
+                }));
+            await compositionEntered.Task;
+            canceled.Cancel();
+            compositionMayContinue.TrySetResult();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledStart);
+
             var address = await LocalNodeHostRuntime.StartAsync(
                 "ticket-346-first-healthy-composition", firstDirectory, CancellationToken.None);
-            healthyStarted = true;
             using var client = new HttpClient { BaseAddress = address };
             using var health = await client.GetAsync("/health");
             Assert.Equal(HttpStatusCode.OK, health.StatusCode);
 
-            var exception = Assert.Throws<InvalidOperationException>(() =>
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 LocalNodeHostRuntime.StartAsync(
                     "ticket-346-second-healthy-composition", secondDirectory, CancellationToken.None));
             Assert.Equal("The local-node host is already running.", exception.Message);
         }
         finally
         {
-            if (healthyStarted)
-                await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
-
+            compositionMayContinue.TrySetResult();
+            await LocalNodeHostRuntime.StopAsync(CancellationToken.None);
             Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", previousRootSeedHex);
+            DeleteDataDirectory(canceledDirectory);
             DeleteDataDirectory(firstDirectory);
             DeleteDataDirectory(secondDirectory);
         }
