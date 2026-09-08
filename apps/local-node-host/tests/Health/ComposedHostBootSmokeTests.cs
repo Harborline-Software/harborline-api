@@ -46,7 +46,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 /// the distinction is load-bearing for the desktop permissions regression this fixture now guards.
 /// </para>
 /// </remarks>
-public sealed class ComposedHostBootSmokeTests
+public sealed partial class ComposedHostBootSmokeTests
 {
     [Fact]
     public async Task Program_Composition_ClosesTheShippingAuditSameInstanceInvariant()
@@ -233,11 +233,12 @@ public sealed class ComposedHostBootSmokeTests
 
     private static async Task GrantPackOperationToHostInstallerAsync(
         ComposedHost host,
-        string rootSeedHex)
+        string rootSeedHex,
+        string? principalOverride = null)
     {
         var rootSeed = Convert.FromHexString(rootSeedHex);
         using var signer = new NodePrincipalSigner(rootSeed);
-        var principal = new ActorId(signer.Signer.IssuerId.ToBase64Url());
+        var principal = new ActorId(principalOverride ?? signer.Signer.IssuerId.ToBase64Url());
         var tenant = ActiveTeamTenantContext.ProjectTenantId(GenesisTeamId.Derive(rootSeed));
         var services = new ServiceCollection();
         services.AddLogging();
@@ -502,7 +503,8 @@ public sealed class ComposedHostBootSmokeTests
             bool multiTeam,
             string environment,
             string? rootSeedHex = null,
-            string? dataDirectoryOverride = null)
+            string? dataDirectoryOverride = null,
+            int healthPort = 0)
         {
             var hostDll = LocateHostDll();
             var dataDirectory = dataDirectoryOverride ?? Path.Combine(
@@ -519,7 +521,7 @@ public sealed class ComposedHostBootSmokeTests
                 multiTeam,
                 environment,
                 rootSeedHex,
-                out var readinessMarker);
+                out var readinessMarker, healthPort);
 
             var host = new ComposedHost(process, dataDirectory, profile, environment);
             host.Attach(readinessMarker);
@@ -696,7 +698,8 @@ public sealed class ComposedHostBootSmokeTests
         bool multiTeam,
         string environment,
         string? rootSeedHex,
-        out string readinessMarker)
+        out string readinessMarker,
+        int healthPort = 0)
     {
         readinessMarker = "harborline-composed-host-ready-" +
             Guid.NewGuid().ToString("N") + ":";
@@ -715,8 +718,8 @@ public sealed class ComposedHostBootSmokeTests
         // IsDevelopment() decides whether the container validates.
         startInfo.Environment["DOTNET_ENVIRONMENT"] = environment;
         startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = environment;
-        startInfo.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
-        startInfo.Environment["LocalNode__HealthPort"] = "0";
+        startInfo.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{healthPort}";
+        startInfo.Environment["LocalNode__HealthPort"] = healthPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
         startInfo.Environment["LocalNode__DataDirectory"] = dataDirectory;
         startInfo.Environment["LocalNode__RootSeedHex"] = rootSeedHex ?? new string('1', 64);
         startInfo.Environment["LocalNode__SessionToken"] = "composed-host-smoke-token";

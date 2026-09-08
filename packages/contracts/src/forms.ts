@@ -769,6 +769,9 @@ export interface FormDefinition {
  */
 export interface FormViewField {
   name: string
+  /** Select choices and requiredness from the admitted field schema. */
+  options?: readonly string[] | null
+  required?: boolean
   label: InternationalizedText
   helpText?: InternationalizedText | null
   controlHint?: string | null
