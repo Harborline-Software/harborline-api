@@ -2,7 +2,7 @@
 # Exercises the pinned quality step's refusal and rollout outcomes against a disposable API repository.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-quality_root=$(cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../harborline-quality" && { pwd -W 2>/dev/null || pwd; })
+quality_root=${HARBORLINE_QUALITY_REPO:-$(cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../harborline-quality" && { pwd -W 2>/dev/null || pwd; })}
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$quality_root"
