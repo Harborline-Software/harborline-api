@@ -205,10 +205,31 @@ jobs:
           HARBORLINE_PACKAGE_VERSION: ${{ steps.version.outputs.value }}
           HARBORLINE_PACKAGE_OUTPUT: ${{ github.workspace }}/artifacts/packages
         run: bash eng/verify-packages.sh
+      # The npm contracts package rides the same artifact as the nupkgs, stamped with the same
+      # immutable prerelease version, so one publish run ships one version across both registries.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: packages/contracts/pnpm-lock.yaml
+      - name: Pack the npm contracts package
+        working-directory: packages/contracts
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm pack --pack-destination "${{ github.workspace }}/artifacts/packages"
       - uses: actions/upload-artifact@v7
         with:
           name: harborline-api-${{ steps.version.outputs.value }}
-          path: artifacts/packages/*.nupkg
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.tgz
           if-no-files-found: error
   # Publication keeps BOTH gates. The split unblocked verification, not distribution: nothing is
   # pushed unless the full suite is green AND the clean consumer restored. The nupkgs come from
@@ -255,3 +276,15 @@ jobs:
             --source github \
             --api-key "${GH_TOKEN}" \
             --skip-duplicate
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@harborline-software'
+      - name: Publish the npm contracts package to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for tgz in artifacts/packages/*.tgz; do
+            npm publish "$tgz" --access restricted
+          done
