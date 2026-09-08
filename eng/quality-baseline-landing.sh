@@ -1,29 +1,34 @@
 #!/usr/bin/env bash
-# Shared by land.sh and its focused proof: generate the candidate from the merged tree, then compare raw bytes.
+# Shared by land.sh and its focused proof: generate the candidate baseline from the merged tree, then compare
+# the SET OF FINDINGS with the committed baseline. Bytes are not comparable: the committed file may be
+# pretty-printed while the tool writes canonical JSON, and commit/generatedAt are re-derived on every run.
+quality_baseline_sets_compare() {
+  local candidate=$1 baseline=$2
+  node - "$candidate" "$baseline" <<'NODE'
+const {readFileSync} = require('node:fs')
+const load = file => new Set(JSON.parse(readFileSync(file, 'utf8')).findings.map(f => f.fingerprint))
+const candidate = load(process.argv[2]), baseline = load(process.argv[3])
+const fresh = [...candidate].filter(f => !baseline.has(f)).length
+const resolved = [...baseline].filter(f => !candidate.has(f)).length
+console.log(`${fresh} ${resolved}`)
+NODE
+}
 quality_baseline_compare() {
   local land_root=$1
-  local baseline="$land_root/eng/baselines/quality-baseline.json" candidate decision counts new resolved
+  local baseline="$land_root/eng/baselines/quality-baseline.json" candidate counts new resolved
   candidate=$(mktemp "$land_root/.quality-baseline.XXXXXX")
-  decision=$(git -C "$land_root" rev-parse --path-format=absolute --git-common-dir)/harborline-api-quality-decision.json
   if ! ( cd "$land_root" && node eng/quality-step.mjs --write-baseline "$candidate" ); then
     rm -f "$candidate"
     return 1
   fi
-  if cmp -s "$candidate" "$baseline"; then
-    rm -f "$candidate"
+  counts=$(quality_baseline_sets_compare "$candidate" "$baseline") || { rm -f "$candidate"; return 1; }
+  rm -f "$candidate"
+  read -r new resolved <<<"$counts"
+  if [ "$new" -eq 0 ] && [ "$resolved" -eq 0 ]; then
     echo 'land: quality baseline unchanged'
     return 0
   fi
-  counts=$(node - "$decision" <<'NODE'
-const {readFileSync} = require('node:fs')
-const decision = JSON.parse(readFileSync(process.argv[2], 'utf8'))
-const fresh = decision.findings.filter(finding => finding.baselineState === 'new').length
-const resolved = decision.resolved.length
-console.log(`${fresh} ${resolved}`)
-NODE
-)
-  read -r new resolved <<<"$counts"
-  rm -f "$candidate"
+  # Ticket 335 carries the re-pin back to the branch for the host baseline; the quality baseline follows it.
   echo "land: quality baseline moved: $new new, $resolved resolved (re-pin on the branch and regate)" >&2
   return 1
 }
