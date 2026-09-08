@@ -8,6 +8,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Roster;
 // A hydration/restart discards all proofs, including negative results for invalid signatures.
 internal sealed class HydrationRosterVerifier(IOperationVerifier inner) : IOperationVerifier
 {
+    internal const int Capacity = 4096;
     private readonly object _gate = new();
     private readonly Dictionary<(Type Type, string Digest, string Signature), bool> _verified = [];
 
@@ -24,6 +25,7 @@ internal sealed class HydrationRosterVerifier(IOperationVerifier inner) : IOpera
         {
             if (_verified.TryGetValue(key, out var valid)) return valid;
             valid = inner.Verify(op);
+            if (_verified.Count == Capacity) _verified.Clear();
             _verified.Add(key, valid);
             return valid;
         }

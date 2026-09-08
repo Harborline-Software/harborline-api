@@ -66,6 +66,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
             services.AddSqlCipherLocalNodeDbContext(Convert.FromHexString(Seed), DatabasePath, new SqlCipherKeyDerivation());
         services.AddSingleton<IOperationVerifier, Ed25519Verifier>();
         if (roster is not null) services.AddSingleton(roster);
+        services.AddSingleton(TimeProvider.System);
         services.AddNodeRoster();
         return services.BuildServiceProvider();
     }
