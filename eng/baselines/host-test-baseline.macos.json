@@ -38,7 +38,7 @@
       "class": "behavioural", "owner": "302"
     },
     {
-      "test": "",
+      "test": "260 S-I: the node reads its data directory from the same variable name this harness sets — renaming one side alone silently drops the test into the process-local default",
       "class": "behavioural", "owner": "302"
     },
     {
