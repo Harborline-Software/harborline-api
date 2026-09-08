@@ -82,7 +82,7 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-runner-'))
   try {
     let invocation
-    new Function('path', 'clone', 'run', hostBlock)(path, dir, (...args) => { invocation = args; return {} })
+    new Function('path', 'clone', 'run', 'collectCoverage', hostBlock)(path, dir, (...args) => { invocation = args; return {} }, false)
     assert.equal(invocation[0], 'dotnet-host-tests')
     assert.deepEqual(invocation[2], ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', path.join(dir, 'TestResults', 'host')])
