@@ -142,3 +142,9 @@ test('receipt records both coverage entries when flagged and none otherwise', ()
     })
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
+
+test('the contracts coverage.reportsDirectory is gitignored so the script leaves the tree clean', () => {
+  const pkg = JSON.parse(readFileSync(path.join(root, 'packages/contracts/package.json'), 'utf8'))
+  const dir = pkg.scripts['test:coverage'].match(/--coverage\.reportsDirectory=(\S+)/)[1].replace(/^\.\//, '')
+  execFileSync('git', ['check-ignore', '-q', `packages/contracts/${dir}/cobertura-coverage.xml`], {cwd: root})
+})
