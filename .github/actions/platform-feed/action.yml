@@ -1,0 +1,31 @@
+name: Pinned platform feed
+description: Build and validate the local NuGet source before restoring API projects
+inputs:
+  token:
+    description: Read token for the platform checkout
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+    - name: Read the recorded platform pin
+      id: platform_pin
+      shell: bash
+      run: echo "commit=$(jq -r '.commit' eng/platform-pin.json)" >> "$GITHUB_OUTPUT"
+    - name: Check out the pinned platform
+      uses: actions/checkout@v7
+      with:
+        repository: Harborline-Software/harborline-platform
+        ref: ${{ steps.platform_pin.outputs.commit }}
+        path: .platform
+        token: ${{ inputs.token }}
+    - name: Test the feed contract
+      shell: bash
+      run: node --test eng/tests/platform-feed.test.mjs
+    - name: Build the local package feed
+      shell: bash
+      env:
+        HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+      run: node eng/build-local-feed.mjs
