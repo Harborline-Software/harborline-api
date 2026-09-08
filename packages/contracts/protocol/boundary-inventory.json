@@ -571,6 +571,20 @@
       "method": "GET",
       "routeExpression": "$\"{RouteBase}/{{formId}}\"",
       "source": "apps/local-node-host/Health/FormsRoutes.cs",
+      "responseFieldDtos": {
+        "FormViewFieldDto": [
+          "name",
+          "label",
+          "helpText",
+          "controlHint",
+          "isSensitive",
+          "isReadable",
+          "value",
+          "rules",
+          "options",
+          "required"
+        ]
+      },
       "status": "deferred"
     },
     {
