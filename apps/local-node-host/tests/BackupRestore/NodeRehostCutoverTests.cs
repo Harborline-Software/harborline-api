@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Persistence;
@@ -64,23 +67,13 @@ public sealed class NodeRehostCutoverTests : IAsyncLifetime
             previous: 0,
             homeDeviceId: "old-node",
             HomePromotionKind.Genesis));
-        var service = new NodeRehostService(
-            new FixedTrusteeKeyRecovery(),
-            new NoOpRootSeedRestorer(),
-            new FixedIdentityFactory(new NodeIdentity("replacement-node", new byte[32], new byte[32])),
-            new FixedGrantProvider(),
-            new FixedCanonicalSource(),
-            new FixedPromotionAuthority(() => SignedBump(
-                tenantId,
-                epoch: 2,
-                previous: 1,
-                homeDeviceId: "replacement-node",
-                HomePromotionKind.RecoveryFailover,
-                _adminB)),
-            epochStore);
-
+        var service = new NodeRehostService(new NoOpRootSeedRestorer(), new FixedGrantProvider(), epochStore);
         var result = await service.RestoreAsync(
-            new NodeRehostRequest(tenantId, "old-node"),
+            new NodeRehostRequest(tenantId, "old-node", new ActorId("operator"), new("roster-signed-grant")),
+            new NodeRehostSession(new NodeIdentity("replacement-node", new byte[32], new byte[32]),
+                new FixedTrusteeKeyRecovery(), new FixedCanonicalSource(),
+                new FixedPromotionAuthority(() => SignedBump(tenantId, epoch: 2, previous: 1,
+                    homeDeviceId: "replacement-node", HomePromotionKind.RecoveryFailover, _adminB))),
             CancellationToken.None);
 
         Assert.Equal(
@@ -156,6 +149,12 @@ public sealed class NodeRehostCutoverTests : IAsyncLifetime
 
     private sealed class FixedGrantProvider : IRosterRehostGrantProvider
     {
+        public ValueTask<AuthorizationDecision> RedeemAsync(RosterSignedRehostGrant? grant, string tenantId,
+            string replacedNodeId, NodeIdentity replacement, IReadOnlyList<string> requiredActs, ActorId caller,
+            CancellationToken ct = default) => TestAuthorization.AllowGate().DecideAsync(
+                new AuthorizationWriteContext(caller, new TenantId(tenantId), TestAuthorization.At).Request(
+                    AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId), ct);
+
         public ValueTask<RosterSignedRehostGrant> ObtainAsync(
             string tenantId,
             string replacedNodeId,

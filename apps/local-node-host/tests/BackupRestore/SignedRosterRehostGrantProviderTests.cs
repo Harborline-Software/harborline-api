@@ -37,7 +37,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
     {
         factory = new Factory(path);
         await using var db = factory.CreateDbContext();
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
         roster = MemberRoster.Genesis(Team, "founder", founder, verifier, At.AddHours(-2), Guid.NewGuid())
             .Admit("founder", founder, "member", member.IssuerId, PermissionCompositions.Member,
                 verifier, At.AddHours(-1), Guid.NewGuid());
@@ -87,6 +87,8 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         var op = JsonSerializer.Deserialize<SignedOperation<RehostGrantPayload>>(obtained.SerializedGrant)!;
         Assert.True(verifier.Verify(op));
         Assert.Equal(new[] { SignedRosterRehostGrantProvider.ReadCanonical, SignedRosterRehostGrantProvider.PromoteHome }, op.Payload.Acts);
+        Assert.Equal(1, gateCalls); // Issuing must neither decide nor burn.
+        Assert.Equal(AuthorizationVerdict.Allowed, (await Redeem(obtained)).Verdict);
         await Refuses(obtained, "already_redeemed");
     }
 
