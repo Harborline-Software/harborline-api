@@ -63,6 +63,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 11.1.3
+      - uses: ./.github/actions/platform-feed
       - uses: actions/setup-node@v7
         with:
           # No engines field or .nvmrc pins this package; 24 is the version the lane is verified
@@ -106,6 +107,7 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - uses: ./.github/actions/platform-feed
       - name: Drive a provisioned node through the operator CLI
         run: >-
           dotnet test apps/local-node-host/tests/tests.csproj
@@ -141,6 +143,7 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - uses: ./.github/actions/platform-feed
       - uses: actions/setup-node@v7
         with:
           # Ticket 096: Telemetry.CapabilityInvokeCorrelationTraceTests shells out to
@@ -182,6 +185,7 @@ jobs:
           # ran on a clean machine. Verified on ubuntu: without this the job is red, with it green.
           dotnet-version: '10.0.x'
           global-json-file: global.json
+      - uses: ./.github/actions/platform-feed
       - name: Select immutable prerelease version
         id: version
         shell: bash
