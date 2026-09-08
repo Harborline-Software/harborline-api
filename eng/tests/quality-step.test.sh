@@ -2,13 +2,15 @@
 # Exercises the pinned quality step's refusal and rollout outcomes against a disposable API repository.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-quality_root=${HARBORLINE_QUALITY_REPO:-$(cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../harborline-quality" && { pwd -W 2>/dev/null || pwd; })}
+# The main root's sibling, portable to bash 3.2 (a brace group inside ${:-} does not parse there).
+main_sibling() { (cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../$1" && { pwd -W 2>/dev/null || pwd; }); }
+quality_root=${HARBORLINE_QUALITY_REPO:-$(main_sibling harborline-quality)}
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$quality_root"
 fixture=$(mktemp -d)
 old_control=$(mktemp -d)
-control_root=${HARBORLINE_CONTROL_REPO:-$(cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../harborline-control" && { pwd -W 2>/dev/null || pwd; })}
+control_root=${HARBORLINE_CONTROL_REPO:-$(main_sibling harborline-control)}
 cleanup() { rm -rf "$fixture" "$old_control"; }
 trap cleanup EXIT
 
