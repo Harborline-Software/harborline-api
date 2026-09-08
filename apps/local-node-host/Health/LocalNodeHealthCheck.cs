@@ -63,10 +63,6 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        if (_roster?.RefusalReports is { Count: > 0 } reports)
-            return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
-                reports.Select(r => $"Roster refused: {r.Code}. {r.Remediation}"))));
-
         var active = _activeTeam.Active;
         if (active is null)
         {
@@ -75,6 +71,10 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
                 "not bootstrapped a team context; Bridge supervisor should treat this " +
                 "as a failed boot."));
         }
+
+        if (_roster?.RefusalReports is { Count: > 0 } reports)
+            return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
+                reports.Select(r => $"Roster refused: {r.Code}. {r.Remediation}"))));
 
         var gossip = active.Services.GetService<IGossipDaemon>();
         if (gossip is null)

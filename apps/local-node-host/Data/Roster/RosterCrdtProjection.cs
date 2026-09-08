@@ -937,7 +937,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 && snapshot.Any(s => s.RecordId == r.RecordId)));
         if (anchor is not null)
             foreach (var candidate in snapshot.Where(s => s.Kind == RosterRecordKind.Admission && s.IsGenesis
-                         && (s.TeamId != anchor.TeamId || s.SignatureB64Url != anchor.Admission.Signature)))
+                         && (s.TeamId != anchor.TeamId || s.SignatureB64Url != anchor.Admission.Signature)
+                         && !IsLocallyMintedStaleGenesis(s, _nodeRoster!.Current.TeamId,
+                             anchor.PartyId, anchor.PublicKey, anchor.PublicKey.ToBase64Url())))
                 refusals.Add(GenesisRefusal(candidate));
         var current = refusals.GroupBy(
             refusal => (refusal.RecordId, refusal.Report.Code))
@@ -980,7 +982,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             foreign ? "The candidate belongs to a foreign tenant; the local roster is retained."
                 : "A duplicate genesis candidate conflicts with this tenant's established chain.",
             foreign ? "Use the data directory and tenant configuration belonging to this install, or enrol through a current member of the intended tenant; do not overwrite the roster log."
-                : "Remove the duplicate candidate; keep the chain rooted in the durable genesis. " + GenesisStartupMessages.InvalidLog,
+                : "A duplicate may be a restart/bug artifact or an injection attempt. " +
+                  "Remove the duplicate candidate; keep the chain rooted in the durable genesis. " + GenesisStartupMessages.InvalidLog,
             JsonSerializer.Serialize(candidate));
         return new RebuildRefusal(candidate.RecordId, report, Permission.MembersAdmit,
             new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),

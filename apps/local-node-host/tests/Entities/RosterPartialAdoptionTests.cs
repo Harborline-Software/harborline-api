@@ -246,6 +246,7 @@ public sealed class RosterPartialAdoptionTests
         await f.MergeAsync([RosterRecordCrdtState.FromAdmission(candidate.EnumerateAdmissions().Single())]);
         var report = Assert.Single(f.Projection.RefusalReports);
         Assert.Equal(foreign ? "roster.genesis.foreign_tenant" : "roster.genesis.duplicate", report.Code);
+        if (!foreign) Assert.Contains("injection attempt", report.Remediation);
         Assert.True(f.Live.Current.Contains("peer"));
         Assert.False(f.Live.Current.Contains("other-founder"));
         await f.Projection.ReconcileAsync(default);
@@ -269,7 +270,12 @@ public sealed class RosterPartialAdoptionTests
         var report = Assert.Single(f.Projection.RefusalReports);
         Assert.Equal(code, report.Code);
         Assert.Contains(foreign ? "intended tenant" : "Remove the duplicate candidate", report.Remediation);
-        var health = new LocalNodeHealthCheck(Substitute.For<IActiveTeamAccessor>(), f.Projection);
+        var accessor = Substitute.For<IActiveTeamAccessor>();
+        var health = new LocalNodeHealthCheck(accessor, f.Projection);
+        Assert.Equal(HealthStatus.Unhealthy, (await health.CheckHealthAsync(new HealthCheckContext())).Status);
+        await using var active = new TeamContext(new TeamId(Tenant), "Test tenant",
+            new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+        accessor.Active.Returns(active);
         var first = await health.CheckHealthAsync(new HealthCheckContext());
         Assert.Equal(HealthStatus.Degraded, first.Status);
         Assert.Equal($"Roster refused: {code}. {report.Remediation}", first.Description);
@@ -332,11 +338,50 @@ public sealed class RosterPartialAdoptionTests
         for (var i = 0; i < 8; i++) await projection.ReconcileAsync(default);
         Assert.Equal(warnings, f.Logger.Warnings.Count);
         Assert.Equal(rows, (await f.RowsAsync(tenant)).Count);
-        var health = new LocalNodeHealthCheck(Substitute.For<IActiveTeamAccessor>(), projection);
-        Assert.Contains(before.Remediation, (await health.CheckHealthAsync(new HealthCheckContext())).Description!);
+        var accessor = Substitute.For<IActiveTeamAccessor>();
+        var health = new LocalNodeHealthCheck(accessor, projection);
+        Assert.Equal(HealthStatus.Unhealthy, (await health.CheckHealthAsync(new HealthCheckContext())).Status);
+        await using var active = new TeamContext(new TeamId(Tenant), "Test tenant",
+            new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+        accessor.Active.Returns(active);
+        var result = await health.CheckHealthAsync(new HealthCheckContext());
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal($"Roster refused: {before.Code}. {before.Remediation}", result.Description);
         await projection.SupersedeOwnTeamRecordsAsync(tenant, default);
         await projection.DrainPendingReconcilesAsync();
         Assert.Empty(projection.RefusalReports);
+    }
+
+    [Fact]
+    public async Task LocallyMintedStaleGenesisRaisesNoRefusalDuringHydrationOrSupersession()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var formerTenant = Guid.Parse("29630000-0000-0000-0000-000000000002");
+        var stale = MemberRoster.Genesis(formerTenant, "founder", f.Founder, Verifier, At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(stale.EnumerateAdmissions().Single());
+        var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(candidate));
+            await db.SaveChangesAsync();
+        }
+        await f.Projection.DisposeAsync();
+        await f.Provider.DisposeAsync();
+        await using var restarted = f.NewProvider(f.Valid);
+        var projection = restarted.GetRequiredService<RosterCrdtProjection>();
+        await projection.HydrateFromStoreAsync(default);
+        await projection.DrainPendingReconcilesAsync();
+        Assert.Contains(projection.Snapshot(), r => r.RecordId == candidate.RecordId);
+        Assert.Empty(projection.RefusalReports);
+        Assert.Empty(await f.RowsAsync(formerTenant));
+        Assert.Empty(f.Logger.Warnings);
+        Assert.True(restarted.GetRequiredService<NodeTeamRoster>().Current.Contains("peer"));
+        Assert.Equal(1, await projection.ReconcileLocallyMintedGenesisAsync(default));
+        await projection.DrainPendingReconcilesAsync();
+        Assert.DoesNotContain(projection.Snapshot(), r => r.RecordId == candidate.RecordId);
+        Assert.Empty(projection.RefusalReports);
+        Assert.Empty(await f.RowsAsync(formerTenant));
+        Assert.Empty(await f.RowsAsync());
     }
 
     private sealed class RecordingLogger : ILogger<RosterCrdtProjection>
