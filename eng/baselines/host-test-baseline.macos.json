@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "suite": "Harborline.Api.LocalNodeHost.Tests",
+  "repository": "harborline-api",
+  "sourcePin": "c618a009",
+  "recordedAt": "2026-09-07T00:00:00Z",
+  "comparison": "named",
+  "totals": {"total": 3510, "passed": 3476, "failed": 15, "notExecuted": 19},
+  "policy": [
+    "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
+    "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
+    "Totals describe the ticket 324 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
+    "Classes follow ticket 302's explicit per-test classification: eleven behavioural, four environmental. Its aggregate count and the slice brief disagree with those rows."
+  ],
+  "permittedFailures": [
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"web client off (ADR 0161 Path-A desktop-only insta\"···, webClient: False, llmProxy: False, schedulingDogfood: False)",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"web host\", webClient: True, llmProxy: False, schedulingDogfood: False)",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"customer-zero (dogfood-appsettings.Production.json\"···, webClient: True, llmProxy: True, schedulingDogfood: True)",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 3)",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.OperatorCli.CliCoverageReconciliationTests.Every_Operator_Route_Is_Covered_By_A_Verb_Or_An_Exemption_And_Nothing_Is_Stale",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "260 S-I: the node reads its data directory from the same variable name this harness sets",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "D5: POST contact then GET contact proves persistence and audit envelope",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "B2: a composition failure surfaces quickly and the runtime can restart",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "ticket 016: production host boots and form-submit outbox survives restart",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "REAL composition: approving an issued invoice co-commits the admitting decision in the shipping audit row",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootEventLogTests.ThrowingEventLogSink_DoesNotStopTheComposedHostAndIsReportedByHealth",
+      "class": "environmental", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.AdministratorRecoveryCommandTests.ConfiguredDataDirectory_OwnsRecoveryIdentityAndKeystore",
+      "class": "environmental", "owner": "302"
+    },
+    {
+      "test": "W4-C3/C5: valid node leaf requires SAN, private key, and server-auth",
+      "class": "environmental", "owner": "302"
+    },
+    {
+      "test": "W4-C4: enabled LAN host binds exactly loopback and LAN endpoints",
+      "class": "environmental", "owner": "302"
+    }
+  ],
+  "knownFlaky": [],
+  "skips": {"count": 19},
+  "measuredAt": {"apiCommit": "c618a009", "platform": "macOS (macpro)", "configuration": "Release; ticket 324 measurement"}
+}

@@ -19,6 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn} from './host-baseline.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -42,7 +43,7 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // stops the gate rather than silently redefining what passing means. Changing a baseline is a
 // deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
 const BASELINES = {
-  host: 'eng/baselines/host-test-baseline.json',
+  host: baselineArgument(process.argv.slice(2)),
   capability: 'eng/baselines/hull-test-baseline.json',
 }
 const baselineProvenance = {}
@@ -133,7 +134,8 @@ try {
   run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
 
   const hostTests = run('dotnet-host-tests', 'dotnet',
-    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build'], clone, {expectNonZero: true})
+    ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build',
+      ...(hostBaseline.comparison === 'named' ? ['--logger', 'console;verbosity=normal'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
@@ -171,7 +173,7 @@ try {
   //      nothing, so a stale registration cannot keep buying retries.
   // The trailing bracket is the duration, and it is NOT always numeric — vstest prints "[< 1 ms]"
   // for a fast test, so anchoring on a digit silently drops those rows. Match the bracket itself.
-  const failedNamesIn = text => [...text.matchAll(/^ {2}Failed (.+?)\s+\[[^\]]*\]\s*$/gm)].map(m => m[1].trim())
+  const failedNamesIn = text => resultNamesIn(text, 'Failed')
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
@@ -250,14 +252,19 @@ try {
       : 'Attempts-to-green is the measurement this step exists to produce; a change in it is signal.',
   })
 
+  const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
+    adjustedFailed, newFailures, output: hostTests.fullOutput})
+  for (const name of hostComparison.burnDown ?? []) console.log(`host baseline burn-down: remove row: ${name}`)
+  for (const name of hostComparison.missing ?? []) console.log(`host baseline missing result: ${name}`)
   steps.push({
     id: 'host-baseline-match',
-    passed: Boolean(hostCounts) && hostCounts.total === hostBaseline.totals.total && adjustedFailed === hostBaseline.totals.failed && newFailures.length === 0,
+    ...hostComparison,
+    baseline: BASELINES.host,
     expected: hostBaseline.totals, observed: hostCounts,
     newFailures,
     observedAfterFlakeRetry: adjustedFailed === null ? null : {...hostCounts, failed: adjustedFailed},
     rescuedByRetry: rescued,
-    note: 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
+    note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
   steps.push({
     id: 'capability-baseline-match',

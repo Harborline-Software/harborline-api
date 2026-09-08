@@ -50,4 +50,7 @@ bash "$repo_root/eng/legacy-env-prefix-scan.sh" "$repo_root" || exit 1
 # repo and a fake mv) and runs here, in the preflight step, rather than as a receipt step id.
 bash "$repo_root/eng/tests/gate-lock-portable-mv.test.sh" || exit 1
 
+# Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
+node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
+
 echo "Harborline API consumer-neutral boundary: PASS"
