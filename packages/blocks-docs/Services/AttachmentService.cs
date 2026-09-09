@@ -250,7 +250,7 @@ public sealed class AttachmentService : IAttachmentService
     /// <summary>Return only the file-extension (no leading dot, no basename) — audit-log PII guard.</summary>
     private static string FileExtensionOnly(string filename)
     {
-        var dot = filename.LastIndexOf('.');
+        var dot = filename.LastIndexOf('.', StringComparison.Ordinal);
         return dot >= 0 && dot < filename.Length - 1 ? filename.Substring(dot + 1) : "";
     }
 

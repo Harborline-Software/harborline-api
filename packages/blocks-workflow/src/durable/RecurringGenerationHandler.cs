@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Harborline.Api.Blocks.Workflow.Durable;
@@ -50,7 +51,7 @@ public static class RecurringGenerationSteps
 
     /// <summary>Builds the occurrence-specific generate step id (<c>generate@yyyy-MM-dd</c>).</summary>
     public static string GenerateStep(DateOnly occurrenceDate)
-        => GeneratePrefix + occurrenceDate.ToString("yyyy-MM-dd");
+        => GeneratePrefix + occurrenceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>True when <paramref name="step"/> is an occurrence-specific generate step.</summary>
     public static bool IsGenerateStep(string step)
@@ -149,7 +150,7 @@ public sealed class RecurringGenerationHandler : IWorkflowStepHandler
         var eventData = JsonSerializer.Serialize(new
         {
             kind = "recurring-occurrence-generated",
-            occurrenceDate = occurrence.ToString("yyyy-MM-dd"),
+            occurrenceDate = occurrence.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             generated = effect is not null,
         });
 

@@ -86,7 +86,7 @@ public static class FilenameSanitizer
         // 6. Reject Windows reserved device names. Split on the FIRST `.` rather
         // than the last (SE-3 council blocker) — Windows resolves "COM1.foo.bar"
         // against "COM1", not "COM1.foo".
-        var firstDot = leaf.IndexOf('.');
+        var firstDot = leaf.IndexOf('.', StringComparison.Ordinal);
         var stem = firstDot >= 0 ? leaf.Substring(0, firstDot) : leaf;
         // Stem may carry residual trailing whitespace if a multi-dot filename
         // had whitespace before its first dot (e.g., "CON .pdf" → stem = "CON ").

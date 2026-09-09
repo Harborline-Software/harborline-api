@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -193,8 +194,8 @@ public sealed class InMemoryJournalEntryQueryReadModel : IJournalEntryQueryReadM
             tenant   = query.TenantId.Value,
             chart    = query.ChartId?.Value,
             account  = query.AccountId?.Value,
-            from     = query.FromDate?.ToString("O"),
-            to       = query.ToDate?.ToString("O"),
+            from     = query.FromDate?.ToString("O", CultureInfo.InvariantCulture),
+            to       = query.ToDate?.ToString("O", CultureInfo.InvariantCulture),
             statuses = query.Statuses is not null
                 ? string.Join(",", query.Statuses.Select(s => (int)s).OrderBy(x => x))
                 : null,
@@ -216,7 +217,7 @@ public sealed class InMemoryJournalEntryQueryReadModel : IJournalEntryQueryReadM
     private static JournalEntrySummaryDto ToSummaryDto(JournalEntry e) =>
         new(
             Id:           e.Id.Value,
-            EntryDate:    e.EntryDate.ToString("O"),
+            EntryDate:    e.EntryDate.ToString("O", CultureInfo.InvariantCulture),
             Memo:         e.Memo,
             Status:       e.Status.ToString(),
             SourceKind:   e.SourceKind.ToString(),
