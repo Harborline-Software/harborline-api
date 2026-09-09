@@ -104,7 +104,9 @@ test('only the landing gate enables the host and contracts coverage route', () =
   assert.match(settings, /<ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute<\/ExcludeByAttribute>/)
   assert.match(settings, /<ExcludeByFile>\*\*\/Generated\/\*\*\/\*\.cs,\*\*\/Migrations\/\*\*\/\*\.cs,\*\*\/obj\/\*\*\/\*\.cs<\/ExcludeByFile>/)
   const landing = readFileSync(path.join(root, 'eng', 'land.sh'), 'utf8')
-  assert.equal((landing.match(/HARBORLINE_GATE_COVERAGE=1 bash eng\/verify\.sh/g) ?? []).length, 2)
+  // 335 s1 moved both landing routes onto run_land_verify; the helper exports the flag for the nested verify.
+  assert.match(landing, /export HARBORLINE_GATE_COVERAGE=1 &&/)
+  assert.equal((landing.match(/run_land_verify "\$(?:land_dir|verify_dir)" "\$verify_log"/g) ?? []).length, 2)
   const contracts = JSON.parse(readFileSync(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8'))
   assert.equal(contracts.devDependencies['@vitest/coverage-v8'], '5.0.0')
   assert.match(contracts.scripts['test:coverage'], /--coverage\.reporter=cobertura/)
