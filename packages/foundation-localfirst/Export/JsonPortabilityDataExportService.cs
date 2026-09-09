@@ -194,14 +194,14 @@ public sealed class JsonPortabilityDataExportService : IDataExportService
             return null;
         }
 
-        var boundary = key.IndexOf('/', tenantsPrefix.Length);
+        var boundary = key.IndexOf('/', tenantsPrefix.Length, StringComparison.Ordinal);
         return boundary < 0 ? null : key[(boundary + 1)..];
     }
 
     private static bool IsAccessibleTenantEntry(string key)
     {
         const string tenantsPrefix = "tenants/";
-        var boundary = key.IndexOf('/', tenantsPrefix.Length);
+        var boundary = key.IndexOf('/', tenantsPrefix.Length, StringComparison.Ordinal);
         return key.StartsWith(tenantsPrefix, StringComparison.Ordinal) &&
             boundary > tenantsPrefix.Length &&
             !key.AsSpan(tenantsPrefix.Length, boundary - tenantsPrefix.Length).StartsWith("__");

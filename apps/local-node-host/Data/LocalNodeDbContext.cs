@@ -165,7 +165,7 @@ public sealed class LocalNodeDbContext : DbContext
             // identifier syntax. ToList() so we can mutate annotations during enumeration.
             foreach (var index in entityType.GetIndexes().ToList())
             {
-                if (index.GetFilter() is { } filter && filter.Contains('"'))
+                if (index.GetFilter() is { } filter && filter.Contains('"', StringComparison.Ordinal))
                 {
                     index.SetFilter(null);
                 }

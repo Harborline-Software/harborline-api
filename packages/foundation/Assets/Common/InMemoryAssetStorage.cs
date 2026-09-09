@@ -14,7 +14,7 @@ namespace Harborline.Api.Foundation.Assets.Common;
 /// sync with the append-only version log by construction (plan D-VERSION-STORE-SHAPE).
 /// Consumers who want independent stores can construct independent storage instances.
 /// </remarks>
-public sealed class InMemoryAssetStorage
+public sealed class InMemoryAssetStorage : IDisposable
 {
     private readonly SemaphoreSlim _transactionGate = new(1, 1);
     private readonly AsyncLocal<int> _transactionDepth = new();
@@ -65,6 +65,9 @@ public sealed class InMemoryAssetStorage
             await action().ConfigureAwait(false);
             return true;
         }, ct);
+
+    /// <inheritdoc />
+    public void Dispose() => _transactionGate.Dispose();
 }
 
 /// <summary>

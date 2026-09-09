@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -296,7 +297,7 @@ public sealed record AuthorizationDecisionEvidence
 
     private static string Describe(AuthorizationEvidenceRole role) =>
         $"role:{role.Role};scope:{role.Scope};valid:{role.ValidFrom:O}..{(role.ValidUntil is { } end ? end.ToString("O") : "open")}"
-        + $";binding:{role.BindingId}@{(role.BindingVersion is { } version ? version.ToString() : "-")}"
+        + $";binding:{role.BindingId}@{(role.BindingVersion is { } version ? version.ToString(CultureInfo.InvariantCulture) : "-")}"
         + $";definition:{role.DefinitionId};atom:{role.Atom};in-force:{InForceFact(role.InForce)}"
         + (role.Deciding ? ";deciding" : string.Empty);
 

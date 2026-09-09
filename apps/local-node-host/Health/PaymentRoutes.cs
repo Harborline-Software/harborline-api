@@ -191,7 +191,7 @@ public sealed record PaymentDto(
         PaymentNumber:   p.PaymentNumber,
         Direction:       p.Direction.ToString(),
         // ISO 8601 calendar date (yyyy-MM-dd) — DateOnly round-trip format.
-        PaymentDate:     p.PaymentDate.ToString("yyyy-MM-dd"),
+        PaymentDate:     p.PaymentDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Amount:          p.Amount,
         UnappliedAmount: p.UnappliedAmount,
         Currency:        p.Currency,

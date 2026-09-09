@@ -131,7 +131,7 @@ public static class SchedulerRecurrence
 
         foreach (var part in text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var separator = part.IndexOf('=');
+            var separator = part.IndexOf('=', StringComparison.Ordinal);
             if (separator <= 0)
             {
                 continue;

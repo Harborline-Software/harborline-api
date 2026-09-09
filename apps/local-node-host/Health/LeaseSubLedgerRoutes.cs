@@ -212,7 +212,7 @@ public sealed record SubLedgerEntryWire(
     /// <summary>Projects a domain <see cref="SubLedgerEntry"/> onto the wire shape.</summary>
     public static SubLedgerEntryWire From(SubLedgerEntry e) => new(
         // ISO 8601 calendar date (yyyy-MM-dd) — DateOnly round-trip.
-        EntryDate:      e.EntryDate.ToString("yyyy-MM-dd"),
+        EntryDate:      e.EntryDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Kind:           e.Kind.ToString(),
         SourceId:       e.SourceId,
         Reference:      e.Reference,

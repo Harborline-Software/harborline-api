@@ -122,7 +122,7 @@ public sealed class ArEntityModule : IHarborlineEntityModule
         var raw = JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonOptions)
                   ?? new Dictionary<string, string>();
         return raw.ToDictionary(
-            kv => DateOnly.Parse(kv.Key),
+            kv => DateOnly.Parse(kv.Key, System.Globalization.CultureInfo.InvariantCulture),
             kv => new InvoiceId(kv.Value));
     }
 
@@ -312,7 +312,7 @@ public sealed class ArEntityModule : IHarborlineEntityModule
         // (not an inline lambda) because statement-body lambdas cannot be expression trees.
         var generatedInvoicesConverter = new ValueConverter<IReadOnlyDictionary<DateOnly, InvoiceId>, string>(
             v => JsonSerializer.Serialize(
-                     v.ToDictionary(kv => kv.Key.ToString("yyyy-MM-dd"), kv => kv.Value.Value),
+                     v.ToDictionary(kv => kv.Key.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), kv => kv.Value.Value),
                      JsonOptions),
             v => DeserializeGeneratedInvoices(v));
         var generatedInvoicesComparer = new ValueComparer<IReadOnlyDictionary<DateOnly, InvoiceId>>(

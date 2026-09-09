@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -56,7 +57,7 @@ public readonly record struct KeyFingerprint(string Value)
         for (int i = 0; i < hash.Length; i++)
         {
             if (i > 0) sb.Append(':');
-            sb.Append(hash[i].ToString("X2"));
+            sb.Append(hash[i].ToString("X2", CultureInfo.InvariantCulture));
         }
         return new KeyFingerprint(sb.ToString());
     }

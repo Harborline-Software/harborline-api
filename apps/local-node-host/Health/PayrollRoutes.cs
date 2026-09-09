@@ -125,7 +125,7 @@ public static class PayrollRoutes
                     wagesPayableAccountId: new GLAccountId(body.WagesPayableAccountId.Trim()),
                     createdAtUtc: at,
                     costCentreId: body.CostCentreId.HasValue
-                        ? new ClassificationId(body.CostCentreId.Value.ToString())
+                        ? new ClassificationId(body.CostCentreId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))
                         : (ClassificationId?)null);
             }
             catch (ArgumentException ex)
@@ -317,9 +317,9 @@ public static class PayrollRoutes
     private static PayRunSummaryWire ToPayRunSummary(PayRun r) => new(
         PayRunId: r.Id.Value,
         Label: r.Label,
-        PeriodStart: r.PeriodStart.ToString("yyyy-MM-dd"),
-        PeriodEnd: r.PeriodEnd.ToString("yyyy-MM-dd"),
-        PostingDate: r.PostingDate.ToString("yyyy-MM-dd"),
+        PeriodStart: r.PeriodStart.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        PeriodEnd: r.PeriodEnd.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        PostingDate: r.PostingDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Status: r.Status.ToString(),
         LineCount: r.Lines.Count,
         JournalEntryId: r.JournalEntryId?.Value);
@@ -327,9 +327,9 @@ public static class PayrollRoutes
     private static PayRunDetailWire ToPayRunDetail(PayRun r) => new(
         PayRunId: r.Id.Value,
         Label: r.Label,
-        PeriodStart: r.PeriodStart.ToString("yyyy-MM-dd"),
-        PeriodEnd: r.PeriodEnd.ToString("yyyy-MM-dd"),
-        PostingDate: r.PostingDate.ToString("yyyy-MM-dd"),
+        PeriodStart: r.PeriodStart.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        PeriodEnd: r.PeriodEnd.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        PostingDate: r.PostingDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Status: r.Status.ToString(),
         DefaultTaxWithheldAccountId: r.DefaultTaxWithheldAccountId.Value,
         DefaultDeductionPayableAccountId: r.DefaultDeductionPayableAccountId.Value,

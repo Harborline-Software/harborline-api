@@ -26,12 +26,12 @@ public readonly record struct EntityId(string Scheme, string Authority, string L
     public static EntityId Parse(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        var colon = value.IndexOf(':');
+        var colon = value.IndexOf(':', StringComparison.Ordinal);
         if (colon <= 0 || colon == value.Length - 1)
             throw new FormatException($"EntityId '{value}' must be of form scheme:authority/localPart.");
         var scheme = value[..colon];
         var rest = value[(colon + 1)..];
-        var slash = rest.IndexOf('/');
+        var slash = rest.IndexOf('/', StringComparison.Ordinal);
         if (slash <= 0 || slash == rest.Length - 1)
             throw new FormatException($"EntityId '{value}' must be of form scheme:authority/localPart.");
         var authority = rest[..slash];

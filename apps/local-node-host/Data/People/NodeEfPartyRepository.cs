@@ -165,13 +165,16 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
         CancellationToken cancellationToken = default)
     {
         if (tenantId == default) throw new ArgumentException("TenantId is required.", nameof(tenantId));
+        var displayNameLower = displayName.ToLowerInvariant();
         await using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         return await ctx.Set<Party>()
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(p => p.TenantId == tenantId
                 && p.DeletedAt == null
-                && p.DisplayName.ToLower() == displayName.ToLower())
+#pragma warning disable CA1304, CA1311 // EF Core translates only the parameterless ToLower (SQL LOWER()); the culture overload has no translation and throws at runtime. The parameter side is lowered invariant before the query (319 review).
+                && p.DisplayName.ToLower() == displayNameLower)
+#pragma warning restore CA1304, CA1311
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -191,7 +194,9 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
             .Where(ea => ea.TenantId == tenantId
                 && ea.ReplacedAt == null
                 && ea.DeletedAt == null
+#pragma warning disable CA1304, CA1311 // EF Core translates only the parameterless ToLower (SQL LOWER()); the culture overload has no translation and throws at runtime. The parameter side is lowered invariant before the query (319 review).
                 && ea.Address.ToLower() == emailLower)
+#pragma warning restore CA1304, CA1311
             .Select(ea => ea.PartyId.Value)
             .Distinct()
             .ToListAsync(cancellationToken)

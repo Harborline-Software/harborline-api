@@ -316,8 +316,7 @@ public sealed class HarborlineClient : IHarborlineClient, IDisposable
         ArgumentNullException.ThrowIfNull(nodeAddress);
         if (string.IsNullOrWhiteSpace(sessionToken))
             throw new InvalidOperationException("The node session token is not available in memory.");
-
-        _http.BaseAddress = nodeAddress.AbsoluteUri.EndsWith('/')
+        _http.BaseAddress = nodeAddress.AbsoluteUri.EndsWith('/', StringComparison.Ordinal)
             ? nodeAddress
             : new Uri(nodeAddress.AbsoluteUri + "/", UriKind.Absolute);
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken);

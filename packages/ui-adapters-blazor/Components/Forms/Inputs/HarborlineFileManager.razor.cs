@@ -219,7 +219,7 @@ public partial class HarborlineFileManager<TItem> : HarborlineComponentBase
 
     // ── Derived state ───────────────────────────────────────────────────────────
 
-    internal bool CanNavigateUp => Path != "/" && Path.Contains('/');
+    internal bool CanNavigateUp => Path != "/" && Path.Contains('/', StringComparison.Ordinal);
 
     /// <summary>Returns the first selected item (or null when nothing is selected).</summary>
     internal TItem? SelectedItem => _selectedItems.Count > 0 ? _selectedItems[0] : default;
@@ -359,7 +359,7 @@ public partial class HarborlineFileManager<TItem> : HarborlineComponentBase
 
     private static string GetParentPath(string path)
     {
-        var lastSlash = path.TrimEnd('/').LastIndexOf('/');
+        var lastSlash = path.TrimEnd('/').LastIndexOf('/', StringComparison.Ordinal);
         return lastSlash <= 0 ? "" : path[..lastSlash];
     }
 

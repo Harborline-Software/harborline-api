@@ -311,8 +311,8 @@ public static class RecurringInvoiceRoutes
         CustomerId:            s.CustomerId.Value,
         ArAccountId:           s.ArAccountId.Value,
         RecurrenceRule:        s.RecurrenceRule,
-        StartsOn:              s.StartsOn.ToString("yyyy-MM-dd"),
-        EndsOn:                s.EndsOn?.ToString("yyyy-MM-dd"),
+        StartsOn:              s.StartsOn.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        EndsOn:                s.EndsOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Status:                s.Status.ToString(),
         GeneratedInvoiceCount: s.GeneratedInvoices.Count,
         LastGeneratedAtUtc:    s.LastGeneratedAtUtc?.ToString("o"));
@@ -325,8 +325,8 @@ public static class RecurringInvoiceRoutes
         ArAccountId:           s.ArAccountId.Value,
         RecurrenceRule:        s.RecurrenceRule,
         Timezone:              s.Timezone,
-        StartsOn:              s.StartsOn.ToString("yyyy-MM-dd"),
-        EndsOn:                s.EndsOn?.ToString("yyyy-MM-dd"),
+        StartsOn:              s.StartsOn.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        EndsOn:                s.EndsOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Status:                s.Status.ToString(),
         LookaheadHorizonDays:  s.LookaheadHorizonDays,
         GenerateLeadDays:      s.GenerateLeadDays,
@@ -349,7 +349,7 @@ public static class RecurringInvoiceRoutes
         AlreadyPresentCount: r.AlreadyPresentCount,
         Error:               r.Error,
         Invoices:            r.Invoices.Select(e => new InvoiceGenerationEntryWire(
-            OccurrenceDate: e.OccurrenceDate.ToString("yyyy-MM-dd"),
+            OccurrenceDate: e.OccurrenceDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             InvoiceId:      e.InvoiceId.Value,
             Outcome:        e.Outcome.ToString())).ToArray());
 }

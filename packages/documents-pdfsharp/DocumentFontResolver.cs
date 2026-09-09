@@ -136,7 +136,7 @@ public sealed class DocumentFontResolver : IFontResolver
     private static bool LooksLikeUsableRegular(string fileName)
     {
         var f = fileName.ToLowerInvariant();
-        if (f.Contains("bold") || f.Contains("italic") || f.Contains("oblique") || f.Contains("black") || f.Contains("light"))
+        if (f.Contains("bold", StringComparison.Ordinal) || f.Contains("italic", StringComparison.Ordinal) || f.Contains("oblique", StringComparison.Ordinal) || f.Contains("black", StringComparison.Ordinal) || f.Contains("light", StringComparison.Ordinal))
         {
             return false;
         }

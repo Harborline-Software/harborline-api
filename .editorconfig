@@ -1,4 +1,4 @@
-# Formatting defaults plus the three explicitly marked Preview quality-rule severities below.
+# Formatting and analyzer severities. Editors, `dotnet format`, and builds read this.
 # TreatWarningsAsErrors and analyzer attachment remain in the MSBuild configuration.
 root = true
 
@@ -15,6 +15,17 @@ indent_size = 4
 dotnet_sort_system_directives_first = true
 csharp_style_namespace_declarations = file_scoped:suggestion
 csharp_prefer_braces = when_multiline:suggestion
+dotnet_diagnostic.CA1001.severity = error
+dotnet_diagnostic.CA1304.severity = error
+dotnet_diagnostic.CA1305.severity = error
+dotnet_diagnostic.CA1307.severity = error
+dotnet_diagnostic.CA1309.severity = error
+dotnet_diagnostic.CA1310.severity = error
+dotnet_diagnostic.CA1311.severity = error
+dotnet_diagnostic.CA1816.severity = error
+dotnet_diagnostic.CA2016.severity = error
+dotnet_diagnostic.CA5398.severity = error
+
 
 # ADR 0085 D4 Preview-mode Roslyn evidence. The normalized CQG identities are
 # intentionally comments: SARIF carries upstream engine IDs, and CQG maps them.
@@ -49,6 +60,50 @@ dotnet_diagnostic.VSTHRD113.severity = suggestion
 dotnet_diagnostic.VSTHRD114.severity = suggestion
 dotnet_diagnostic.VSTHRD115.severity = suggestion
 dotnet_diagnostic.VSTHRD200.severity = suggestion
+
+[**/tests/**/*.cs]
+dotnet_diagnostic.CA1001.severity = none
+dotnet_diagnostic.CA1304.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1307.severity = none
+dotnet_diagnostic.CA1309.severity = none
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1311.severity = none
+dotnet_diagnostic.CA2016.severity = none
+dotnet_diagnostic.CA5398.severity = none
+
+[**/tests/*.cs]
+dotnet_diagnostic.CA1001.severity = none
+dotnet_diagnostic.CA1304.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1307.severity = none
+dotnet_diagnostic.CA1309.severity = none
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1311.severity = none
+dotnet_diagnostic.CA2016.severity = none
+dotnet_diagnostic.CA5398.severity = none
+
+[tests/**/*.cs]
+dotnet_diagnostic.CA1001.severity = none
+dotnet_diagnostic.CA1304.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1307.severity = none
+dotnet_diagnostic.CA1309.severity = none
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1311.severity = none
+dotnet_diagnostic.CA2016.severity = none
+dotnet_diagnostic.CA5398.severity = none
+
+[tests/*.cs]
+dotnet_diagnostic.CA1001.severity = none
+dotnet_diagnostic.CA1304.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1307.severity = none
+dotnet_diagnostic.CA1309.severity = none
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1311.severity = none
+dotnet_diagnostic.CA2016.severity = none
+dotnet_diagnostic.CA5398.severity = none
 
 [*.{md,markdown}]
 trim_trailing_whitespace = false

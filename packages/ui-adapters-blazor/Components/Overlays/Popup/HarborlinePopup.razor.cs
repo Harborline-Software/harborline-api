@@ -379,6 +379,7 @@ public partial class HarborlinePopup : HarborlineComponentBase, IAsyncDisposable
             _jsModule = null;
         }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     protected override void Dispose(bool disposing)

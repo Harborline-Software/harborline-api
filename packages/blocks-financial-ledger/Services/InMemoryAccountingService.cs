@@ -10,7 +10,7 @@ namespace Harborline.Api.Blocks.FinancialLedger.Services;
 /// Suitable for testing, prototyping, and kitchen-sink demos.
 /// Not intended for production persistence — use a database-backed implementation for that.
 /// </summary>
-public sealed class InMemoryAccountingService : IAccountingService
+public sealed class InMemoryAccountingService : IAccountingService, IDisposable
 {
     private readonly TimeProvider _time;
     private readonly ConcurrentDictionary<GLAccountId, GLAccount> _accounts = new();
@@ -27,6 +27,9 @@ public sealed class InMemoryAccountingService : IAccountingService
 
     public InMemoryAccountingService(TimeProvider time)
         => _time = time ?? throw new ArgumentNullException(nameof(time));
+
+    /// <summary>Releases the semaphore that serializes account creation.</summary>
+    public void Dispose() => _accountWriteLock.Dispose();
 
     // ---------------------------------------------------------------------------
     // GL Accounts

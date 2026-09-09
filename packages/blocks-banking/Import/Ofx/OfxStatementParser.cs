@@ -140,7 +140,7 @@ public sealed class OfxStatementParser : IStatementFileParser
                 }
             }
         }
-        catch (System.Xml.XmlException ex) when (ex.Message.Contains("DTD"))
+        catch (System.Xml.XmlException ex) when (ex.Message.Contains("DTD", StringComparison.Ordinal))
         {
             throw new StatementParseException(Format, ParseRejectReason.XmlDtdProhibited,
                 "OFX/XML file contains a DTD declaration which is prohibited for security (XXE prevention).", ex);
@@ -196,7 +196,7 @@ public sealed class OfxStatementParser : IStatementFileParser
             if (!inStmtTrn) continue;
 
             // Extract tag and value: <TAG>value
-            int gt = line.IndexOf('>');
+            int gt = line.IndexOf('>', StringComparison.Ordinal);
             if (gt < 0) continue;
             string tag   = line[1..gt].ToUpperInvariant();
             string value = line[(gt + 1)..].Trim();
@@ -253,7 +253,7 @@ public sealed class OfxStatementParser : IStatementFileParser
         string v = value.Trim();
 
         // Strip timezone suffix (everything after [ or +/-)
-        int bracketIdx = v.IndexOf('[');
+        int bracketIdx = v.IndexOf('[', StringComparison.Ordinal);
         if (bracketIdx >= 0) v = v[..bracketIdx].Trim();
 
         // Try longest then shortest form

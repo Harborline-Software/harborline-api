@@ -236,7 +236,7 @@ public sealed class InMemoryRruleExpansionService : IRruleExpansionService
         foreach (var token in rrule.Split(';',
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var eq = token.IndexOf('=');
+            var eq = token.IndexOf('=', StringComparison.Ordinal);
             if (eq < 0) continue;
             var key = token[..eq].Trim().ToUpperInvariant();
             var value = token[(eq + 1)..].Trim();

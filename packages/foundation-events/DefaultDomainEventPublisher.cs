@@ -86,7 +86,7 @@ public sealed class DefaultDomainEventPublisher : IDomainEventPublisher
 
     private static string DeriveProducerCluster(string eventType)
     {
-        var dotIdx = eventType.IndexOf('.');
+        var dotIdx = eventType.IndexOf('.', StringComparison.Ordinal);
         // The store already validated the format on AppendAsync — if
         // we got past AppendAsync, the dot is present. Defensive
         // fallback to empty for any unparseable case.

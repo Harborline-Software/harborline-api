@@ -277,7 +277,7 @@ public static class PackComposerRoutes
             value = fallback;
             return true;
         }
-        return Enum.TryParse(raw.Replace("-", string.Empty), ignoreCase: true, out value);
+        return Enum.TryParse(raw.Replace("-", string.Empty, StringComparison.Ordinal), ignoreCase: true, out value);
     }
 
     /// <summary>Same contract as <see cref="TryParseRegulatoryClass"/> for the data-sensitivity class.</summary>

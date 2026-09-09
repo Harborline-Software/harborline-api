@@ -44,7 +44,7 @@ public sealed class InMemoryInvoiceNumberingService : IInvoiceNumberingService
 
         // Sequence portion: D4 padding minimum, expands beyond for very
         // high-volume replicas (10000+ invoices on a single chart).
-        var seqPart = next < 10_000 ? next.ToString("D4") : next.ToString();
+        var seqPart = next < 10_000 ? next.ToString("D4", System.Globalization.CultureInfo.InvariantCulture) : next.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var number = $"INV-{issueDate:yyyy-MM-dd}-{_localReplica.Value}-{seqPart}";
         return Task.FromResult(number);
     }

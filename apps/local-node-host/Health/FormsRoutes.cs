@@ -318,7 +318,7 @@ public static class FormsRoutes
             return true; // header absent — fresh instance
         }
 
-        if (values.Count != 1 || values.Any(value => value?.Contains(',') == true))
+        if (values.Count != 1 || values.Any(value => value?.Contains(',', StringComparison.Ordinal) == true))
         {
             error = Results.BadRequest(new { code = "forms.idempotency_key_repeated", detail = new { header = IdempotencyKeyHeader } });
             return false;

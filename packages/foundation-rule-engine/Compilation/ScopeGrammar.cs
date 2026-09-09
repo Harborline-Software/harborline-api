@@ -75,7 +75,7 @@ internal static class ScopeGrammar
                 }
 
                 // A table.fn(col) var lowers to the agg operator.
-                if (path.StartsWith("table.", StringComparison.Ordinal) && path.Contains('('))
+                if (path.StartsWith("table.", StringComparison.Ordinal) && path.Contains('(', StringComparison.Ordinal))
                 {
                     return LowerAgg(path, ctx, ruleId);
                 }
@@ -113,8 +113,8 @@ internal static class ScopeGrammar
     private static JsonNode LowerAgg(string path, LowerContext ctx, string ruleId)
     {
         // table.<fn>(<col>)  or  table.<fn>(<section>.<col>)
-        int open = path.IndexOf('(');
-        int close = path.IndexOf(')');
+        int open = path.IndexOf('(', StringComparison.Ordinal);
+        int close = path.IndexOf(')', StringComparison.Ordinal);
         if (close <= open)
         {
             throw Bad(ruleId, $"malformed table aggregate '{path}'");
@@ -122,7 +122,7 @@ internal static class ScopeGrammar
         string fn = path[6..open];
         string arg = path[(open + 1)..close];
         string section, col;
-        int dot = arg.IndexOf('.');
+        int dot = arg.IndexOf('.', StringComparison.Ordinal);
         if (dot >= 0)
         {
             section = arg[..dot];
@@ -176,7 +176,7 @@ internal static class ScopeGrammar
         {
             // section.<id>.<field> disambiguates authoring; resolves to the top-level field.
             var rest = path["section.".Length..];
-            int lastDot = rest.IndexOf('.');
+            int lastDot = rest.IndexOf('.', StringComparison.Ordinal);
             if (lastDot < 0) throw Bad(ruleId, $"malformed section reference '{path}' (expected section.<id>.<field>)");
             return "field." + rest[(lastDot + 1)..];
         }
@@ -195,7 +195,7 @@ internal static class ScopeGrammar
 
     private static string RowFieldOf(LowerContext ctx, string ruleId)
     {
-        int slash = ctx.ScopeTarget.IndexOf('/');
+        int slash = ctx.ScopeTarget.IndexOf('/', StringComparison.Ordinal);
         if (slash < 0) throw Bad(ruleId, $"Row rule ScopeTarget '{ctx.ScopeTarget}' must be 'section/field'");
         return ctx.ScopeTarget[(slash + 1)..];
     }

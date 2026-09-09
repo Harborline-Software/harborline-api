@@ -312,7 +312,7 @@ public sealed class LocalNodeExecutableEndpointRegistry
                 "cannot be represented deterministically.");
         }
 
-        var argumentStart = policy.Content.IndexOf('(');
+        var argumentStart = policy.Content.IndexOf('(', StringComparison.Ordinal);
         return argumentStart < 0
             ? policy.Content.ToUpperInvariant()
             : policy.Content[..argumentStart].ToUpperInvariant() + policy.Content[argumentStart..];

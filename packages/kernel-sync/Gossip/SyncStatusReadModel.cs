@@ -376,17 +376,17 @@ public sealed class SyncStatusReadModel : ISyncStatusReadModel, IDisposable
             s = s[(scheme + 3)..];
         }
         // Not host:port (e.g. a unix socket path) — one shared local key.
-        if (s.StartsWith('/'))
+        if (s.StartsWith('/', StringComparison.Ordinal))
         {
             return "local-uds";
         }
         // IPv6 literal [::1]:port → ::1
         if (s.StartsWith('[', StringComparison.Ordinal))
         {
-            var close = s.IndexOf(']');
+            var close = s.IndexOf(']', StringComparison.Ordinal);
             return close > 0 ? s[1..close] : s;
         }
-        var colon = s.LastIndexOf(':');
+        var colon = s.LastIndexOf(':', StringComparison.Ordinal);
         return colon > 0 ? s[..colon] : s;
     }
 

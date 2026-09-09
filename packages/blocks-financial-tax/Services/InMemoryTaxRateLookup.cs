@@ -97,7 +97,7 @@ public sealed class InMemoryTaxRateLookup : ITaxRateLookup
             return new TaxRateUpsertResult(
                 null,
                 TaxRateValidationError.DateRangeOverlap,
-                $"Candidate {candidate.EffectiveDate}..{candidate.ExpiryDate?.ToString() ?? "open"} overlaps existing rate {overlapCheck.Id} ({overlapCheck.EffectiveDate}..{overlapCheck.ExpiryDate?.ToString() ?? "open"}).");
+                $"Candidate {candidate.EffectiveDate:O}..{candidate.ExpiryDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "open"} overlaps existing rate {overlapCheck.Id} ({overlapCheck.EffectiveDate:O}..{overlapCheck.ExpiryDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "open"}).");
         }
 
         _rows[candidate.Id] = candidate;
@@ -197,7 +197,7 @@ public sealed class InMemoryTaxRateLookup : ITaxRateLookup
                     oldRate,
                     null,
                     TaxRateValidationError.DateRangeOverlap,
-                    $"New rate {newEffectiveDate}.. overlaps existing rate {conflict.Id} ({conflict.EffectiveDate}..{conflict.ExpiryDate?.ToString() ?? "open"}).");
+                    $"New rate {newEffectiveDate:O}.. overlaps existing rate {conflict.Id} ({conflict.EffectiveDate:O}..{conflict.ExpiryDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture) ?? "open"}).");
             }
 
             error = TaxRateValidationError.None;

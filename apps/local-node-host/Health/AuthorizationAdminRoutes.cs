@@ -203,9 +203,7 @@ public static class AuthorizationAdminRoutes
     private static async ValueTask<Guid> RecordBindingAsync(
         HttpContext http, Guid definitionId, AuthorizationDecision decision, CancellationToken ct)
     {
-        var payload = await http.RequestServices.GetRequiredService<IOperationSigner>().SignAsync(
-            new AuditPayload(new Dictionary<string, object?> { ["definitionId"] = definitionId }),
-            decision.Request.At, Guid.NewGuid()).ConfigureAwait(false);
+        var payload = await http.RequestServices.GetRequiredService<IOperationSigner>().SignAsync(new AuditPayload(new Dictionary<string, object?> { ["definitionId"] = definitionId }), decision.Request.At, Guid.NewGuid(), ct).ConfigureAwait(false);
         var auditRecord = new AuditRecord(Guid.NewGuid(), decision.Request.Tenant, new AuditEventType("AuthorizationBindingNarrowed"),
             decision.Request.At, payload, [], Actor: decision.Request.Principal,
             Target: decision.Request.Target, Act: decision.Request.Act);

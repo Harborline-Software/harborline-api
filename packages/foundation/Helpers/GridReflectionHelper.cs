@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Harborline.Api.Foundation.Helpers;
@@ -37,7 +38,7 @@ public static class GridReflectionHelper
             }
             else if (value.GetType() != targetType)
             {
-                value = Convert.ChangeType(value, targetType);
+                value = Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
             }
             prop.SetValue(item, value);
         }
