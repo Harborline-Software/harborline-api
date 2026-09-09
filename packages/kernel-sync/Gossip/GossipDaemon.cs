@@ -272,7 +272,7 @@ public sealed class GossipDaemon : IGossipDaemon
         {
             if (_runLoop is not null) return; // idempotent start
             _runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _runLoop = Task.Run(() => RunLoopAsync(_runCts.Token));
+            _runLoop = Task.Run(() => RunLoopAsync(_runCts.Token), ct);
         }
         finally
         {
@@ -332,7 +332,7 @@ public sealed class GossipDaemon : IGossipDaemon
             var cap = Math.Max(1, _options.MaxConcurrentInboundHandshakes);
             _handshakeConcurrency = new SemaphoreSlim(cap, cap);
             _listenCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _listenLoop = Task.Run(() => AcceptLoopAsync(_listenCts.Token));
+            _listenLoop = Task.Run(() => AcceptLoopAsync(_listenCts.Token), ct);
         }
         finally
         {
@@ -1062,7 +1062,7 @@ public sealed class GossipDaemon : IGossipDaemon
                 //     the semaphore instance so the handler releases the SAME
                 //     one even if a stop/start cycle swapped the field.
                 var concurrency = _handshakeConcurrency;
-                if (concurrency is null || !concurrency.Wait(0))
+                if (concurrency is null || !concurrency.Wait(0, CancellationToken.None))
                 {
                     ReleasePerIp(remoteIp);
                     _logger.LogWarning(
@@ -1449,14 +1449,14 @@ public sealed class GossipDaemon : IGossipDaemon
         var scheme = s.IndexOf("://", StringComparison.Ordinal);
         if (scheme >= 0) s = s[(scheme + 3)..];
         // Not host:port (e.g. a unix socket path) — one shared local key.
-        if (s.StartsWith('/')) return "local-uds";
+        if (s.StartsWith('/', StringComparison.Ordinal)) return "local-uds";
         // IPv6 literal [::1]:port
         if (s.StartsWith('[', StringComparison.Ordinal))
         {
-            var close = s.IndexOf(']');
+            var close = s.IndexOf(']', StringComparison.Ordinal);
             return close > 0 ? s[1..close] : s;
         }
-        var colon = s.LastIndexOf(':');
+        var colon = s.LastIndexOf(':', StringComparison.Ordinal);
         return colon > 0 ? s[..colon] : s;
     }
 

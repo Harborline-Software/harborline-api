@@ -81,9 +81,9 @@ public sealed record DeclarativeGateReference
     private static RoleReference ParseRole(string value, string field)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        var separator = value.IndexOf('/');
+        var separator = value.IndexOf('/', StringComparison.Ordinal);
         if (separator > 0
-            && separator == value.LastIndexOf('/')
+            && separator == value.LastIndexOf('/', StringComparison.Ordinal)
             && separator < value.Length - 1)
             return new RoleReference(value[..separator], value[(separator + 1)..]);
 

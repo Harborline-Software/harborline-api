@@ -46,7 +46,7 @@ internal static class CanonicalNumber
             exp = int.Parse(r[(ePos + 1)..], CultureInfo.InvariantCulture);
             mant = r[..ePos];
         }
-        int dot = mant.IndexOf('.');
+        int dot = mant.IndexOf('.', StringComparison.Ordinal);
         int pointPos;          // count of digits left of the decimal point within `mant`
         string allDigits;
         if (dot >= 0) { allDigits = mant.Remove(dot, 1); pointPos = dot; }

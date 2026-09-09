@@ -16,7 +16,7 @@ internal static class HarborlineOperationalEnvironment
             .FirstOrDefault();
         if (legacyName is not null)
         {
-            var separator = legacyName.IndexOf('_');
+            var separator = legacyName.IndexOf('_', StringComparison.Ordinal);
             var replacement = ReplacementPrefix + legacyName[(separator + 1)..];
             throw new InvalidOperationException(
                 $"Legacy Harborline environment variable {legacyName} is not supported; use {replacement}.");

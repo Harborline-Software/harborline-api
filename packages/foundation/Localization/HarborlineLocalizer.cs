@@ -9,7 +9,7 @@ namespace Harborline.Api.Foundation.Localization;
 /// <summary>
 /// SmartFormat.NET-backed implementation of <see cref="IHarborlineLocalizer{T}"/>.
 /// Resolves patterns via the injected <see cref="IStringLocalizer{T}"/>, then renders
-/// them through SmartFormat under <see cref="CultureInfo.CurrentUICulture"/> so CLDR
+/// them through SmartFormat under <see cref="CultureInfo.CurrentCulture"/> so CLDR
 /// plural rules apply per-locale (Arabic six-form, Japanese single-form, etc.).
 /// </summary>
 public sealed class HarborlineLocalizer<T> : IHarborlineLocalizer<T>
@@ -28,14 +28,14 @@ public sealed class HarborlineLocalizer<T> : IHarborlineLocalizer<T>
     public string Format(string key, object args)
     {
         var pattern = _inner[key].Value;
-        return _formatter.Format(CultureInfo.CurrentUICulture, pattern, args);
+        return _formatter.Format(CultureInfo.CurrentCulture, pattern, args);
     }
 
     public string Plural(string key, long count, object? additionalArgs = null)
     {
         var pattern = _inner[key].Value;
         var bag = BuildArgs(count, additionalArgs);
-        return _formatter.Format(CultureInfo.CurrentUICulture, pattern, bag);
+        return _formatter.Format(CultureInfo.CurrentCulture, pattern, bag);
     }
 
     private static Dictionary<string, object> BuildArgs(long count, object? additionalArgs)

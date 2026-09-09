@@ -468,7 +468,7 @@ internal static class SubmitValidationGate
         {
             // agg:section/fn/col → /section (anchor the aggregate verdict to its table).
             var rest = target["agg:".Length..];
-            var slash = rest.IndexOf('/');
+            var slash = rest.IndexOf('/', StringComparison.Ordinal);
             return slash > 0 ? "/" + rest[..slash] : string.Empty;
         }
         return string.Empty; // section: / schema: — a form-level error.
@@ -488,8 +488,8 @@ internal static class SubmitValidationGate
         if (key.StartsWith("row:", StringComparison.Ordinal) || key.StartsWith("agg:", StringComparison.Ordinal))
         {
             // row:section/rowId/field | agg:section/fn/col — exempt when the owning section is hidden.
-            var rest = key[(key.IndexOf(':') + 1)..];
-            var slash = rest.IndexOf('/');
+            var rest = key[(key.IndexOf(':', StringComparison.Ordinal) + 1)..];
+            var slash = rest.IndexOf('/', StringComparison.Ordinal);
             return slash > 0 && hiddenSections.Contains(rest[..slash]);
         }
         if (key.StartsWith("section:", StringComparison.Ordinal))

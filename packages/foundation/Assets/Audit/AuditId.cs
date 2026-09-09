@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Harborline.Api.Foundation.Assets.Audit;
 
 /// <summary>
@@ -7,5 +9,5 @@ namespace Harborline.Api.Foundation.Assets.Audit;
 public readonly record struct AuditId(long Value)
 {
     /// <inheritdoc />
-    public override string ToString() => Value.ToString("D");
+    public override string ToString() => Value.ToString("D", CultureInfo.InvariantCulture);
 }

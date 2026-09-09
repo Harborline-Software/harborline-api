@@ -187,7 +187,7 @@ public sealed class SqliteDomainEventStore : IDomainEventStore
 
     private static string DeriveProducerCluster(string eventType)
     {
-        var dotIdx = eventType.IndexOf('.');
+        var dotIdx = eventType.IndexOf('.', StringComparison.Ordinal);
         if (dotIdx <= 0)
             throw new ArgumentException(
                 $"EventType '{eventType}' is not cluster-qualified. "

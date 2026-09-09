@@ -47,14 +47,14 @@ public readonly record struct VersionId(EntityId Entity, int Sequence, string Ha
 
         // Format: {scheme}:{authority}/{localPart}@{sequence}:{fullHash}
         // Find the last '@' to split entity from sequence:hash
-        var atIndex = value.LastIndexOf('@');
+        var atIndex = value.LastIndexOf('@', StringComparison.Ordinal);
         if (atIndex <= 0 || atIndex == value.Length - 1)
             throw new FormatException($"VersionId '{value}' must be of form entity@sequence:hash.");
 
         var entityPart = value[..atIndex];
         var rest = value[(atIndex + 1)..];
 
-        var colonIndex = rest.IndexOf(':');
+        var colonIndex = rest.IndexOf(':', StringComparison.Ordinal);
         if (colonIndex <= 0 || colonIndex == rest.Length - 1)
             throw new FormatException($"VersionId '{value}' must be of form entity@sequence:hash.");
 

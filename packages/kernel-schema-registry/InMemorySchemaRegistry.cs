@@ -453,7 +453,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
         JsonNode? current = root;
         foreach (var raw in pointer.Split('/').Skip(1))
         {
-            var segment = raw.Replace("~1", "/").Replace("~0", "~");
+            var segment = raw.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
             if (current is JsonObject obj && obj.TryGetPropertyValue(segment, out var next))
             {
                 current = next;
@@ -472,7 +472,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
 
     /// <summary>Encodes a property name into one RFC-6901 JSON-Pointer segment.</summary>
     private static string EncodePointerSegment(string name)
-        => name.Replace("~", "~0").Replace("/", "~1");
+        => name.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
 
     /// <summary>
     /// Extracts the property names the validator listed as absent in a `required` detail
@@ -484,8 +484,8 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
     private static HashSet<string> ExtractMissingRequiredNames(string detail)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
-        var start = detail.IndexOf('[');
-        var end = detail.IndexOf(']');
+        var start = detail.IndexOf('[', StringComparison.Ordinal);
+        var end = detail.IndexOf(']', StringComparison.Ordinal);
         if (start < 0 || end < start) return names;
         var inner = detail.Substring(start, end - start + 1);
         try
