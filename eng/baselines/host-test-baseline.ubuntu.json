@@ -65,7 +65,9 @@
     {
       "test": "REAL composition: approving an issued invoice co-commits the admitting decision in the shipping audit row",
       "class": "environmental", "owner": "the controller"
-    }
+    },
+    { "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootRuntimeLifecycleTests.Canceled_start_releases_the_runtime_for_a_healthy_boot", "class": "behavioural", "owner": "302" },
+    { "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootRuntimeLifecycleTests.Canceled_start_does_not_weaken_the_concurrent_boot_guard", "class": "behavioural", "owner": "302" }
   ],
   "knownFlaky": [],
   "skips": {"count": 19},

@@ -63,6 +63,11 @@ public static class NodeRosterComposition
         services.TryAddSingleton<IOperationVerifier, Ed25519Verifier>();
         services.TryAddSingleton<IVerifiedTenantRosterReader, VerifiedTenantRosterReader>();
 
+        // 293 s3c: the replicated path's authority is the local grant store, read through the one sanctioned
+        // roster-edge-then-closure reading (EffectiveMemberPermissions). A composition with no grant store
+        // answers the empty set, which is the same fail-closed floor an unregistered authority gave.
+        services.TryAddSingleton<IRosterAuthority>(GrantStoreRosterAuthority.FromServices);
+
         // The projection is built via a FACTORY that resolves the live NodeTeamRoster (seeded at bootstrap) and
         // adopts the re-validated synced roster into it on each merge. If a host did not register it (minimal DI
         // test), GetService returns null and the projection converges without pushing a live roster.
@@ -80,7 +85,7 @@ public static class NodeRosterComposition
             // 293 s3b2: no permission set rides the wire, so the replicated chain gates (admitter holds
             // members:admit, revoker holds members:revoke, no-escalation) read a party's authority from the
             // host's IRosterAuthority - the grant store's view. Unregistered → the fail-closed floor, where
-            // only the genesis chain root holds authority; slice 3c binds this to the grant closure.
+            // only the genesis chain root holds authority. Slice 3c registers GrantStoreRosterAuthority above.
             rosterAuthority: () => sp.GetService<IRosterAuthority>()));
         services.AddSingleton<IRosterRevocationProjection, RosterRevocationProjection>();
 
