@@ -48,7 +48,7 @@ internal static class NodeMutationIdempotency
         {
             if (!IsMutation(context.Request.Method) ||
                 IsNeverCacheRoute(context.Request.Path) ||
-                !context.Request.Path.StartsWithSegments("/api/local-node", StringComparison.Ordinal) ||
+                !context.Request.Path.StartsWithSegments("/api/local-node", StringComparison.OrdinalIgnoreCase) ||
                 IsDurableFormSubmit(context.Request.Path))
             {
                 await next(context).ConfigureAwait(false);
@@ -151,7 +151,7 @@ internal static class NodeMutationIdempotency
     }
 
     private static bool IsNeverCacheRoute(PathString path) =>
-        NeverCachePrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.Ordinal));
+        NeverCachePrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsDurableFormSubmit(PathString path)
     {
