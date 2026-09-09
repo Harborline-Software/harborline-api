@@ -2,21 +2,23 @@ import {readFileSync} from 'node:fs'
 
 export const WINDOWS_BASELINE = 'eng/baselines/host-test-baseline.json'
 export const MACOS_BASELINE = 'eng/baselines/host-test-baseline.macos.json'
-export const MACOS_LANDING_REFUSAL = 'macOS host baseline receipts are slice-only; landings require the Windows host baseline (ticket 324)'
+export const UBUNTU_BASELINE = 'eng/baselines/host-test-baseline.ubuntu.json'
+export const MACOS_LANDING_REFUSAL = 'macOS and Ubuntu host baseline receipts are slice-only; landings require the Windows host baseline (tickets 324, 341)'
 
-export const hostBaselineFor = (platform = process.platform) => platform === 'darwin' ? MACOS_BASELINE : WINDOWS_BASELINE
+export const hostBaselineFor = (platform = process.platform) =>
+  platform === 'darwin' ? MACOS_BASELINE : platform === 'linux' ? UBUNTU_BASELINE : WINDOWS_BASELINE
 
 export function baselineArgument(args) {
   const index = args.indexOf('--host-baseline')
   const baseline = index < 0 ? hostBaselineFor() : args[index + 1]
-  if (![WINDOWS_BASELINE, MACOS_BASELINE].includes(baseline)) throw new Error(`unknown host baseline: ${baseline}`)
+  if (![WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE].includes(baseline)) throw new Error(`unknown host baseline: ${baseline}`)
   if (index >= 0) args.splice(index, 2)
   return baseline
 }
 
 export function receiptBaselineProblem(receipt, slice = false) {
-  if (receipt.hostBaseline === MACOS_BASELINE && !slice) return MACOS_LANDING_REFUSAL
-  if (![WINDOWS_BASELINE, MACOS_BASELINE].includes(receipt.hostBaseline)) return 'receipt does not name a recognized host baseline; rerun verification'
+  if ((receipt.hostBaseline === MACOS_BASELINE || receipt.hostBaseline === UBUNTU_BASELINE) && !slice) return MACOS_LANDING_REFUSAL
+  if (![WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE].includes(receipt.hostBaseline)) return 'receipt does not name a recognized host baseline; rerun verification'
   return null
 }
 

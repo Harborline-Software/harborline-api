@@ -46,6 +46,12 @@
         "resolved": "11.0.0-preview.7.26381.103",
         "contentHash": "AppDz9fiw1EmI7rBXv/LUsSP+nA/4+BhB6+8Fpoy8Ha4dZs3FcO5blejjD0NPggttahb8X0NDQBbJzuwK/ovnw=="
       },
+      "Microsoft.VisualStudio.Threading.Analyzers": {
+        "type": "Direct",
+        "requested": "[17.14.15, )",
+        "resolved": "17.14.15",
+        "contentHash": "mXQPJsbuUD2ydq4/ffd8h8tSOFCXec+2xJOVNCvXjuMOq/+5EKHq3D2m2MC2+nUaXeFMSt66VS/J4HdKBixgcw=="
+      },
       "Konscious.Security.Cryptography.Blake2": {
         "type": "Transitive",
         "resolved": "1.1.1",
