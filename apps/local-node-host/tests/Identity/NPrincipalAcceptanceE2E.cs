@@ -101,7 +101,7 @@ public sealed class NPrincipalAcceptanceE2E
                 Content = JsonContent.Create(new
                 {
                     tokenId = pairing!.TokenId,
-                    joiningPartyId = principal.CanonicalParty.Value,
+                    joiningPartyId = principal.PrincipalUserId.Value,
                     teamId = pairing.Anchor.TeamId,
                     genesisPartyId = pairing.Anchor.GenesisPartyId,
                     genesisPublicKey = pairing.Anchor.GenesisPublicKey,
@@ -117,11 +117,11 @@ public sealed class NPrincipalAcceptanceE2E
             actors.Add(new Actor(node, handle, principal, grantId));
         }
 
-        Assert.Equal(n, actors.Select(actor => actor.Principal.CanonicalParty.Value).Distinct().Count());
+        Assert.Equal(n, actors.Select(actor => actor.Principal.PrincipalUserId.Value).Distinct().Count());
         Assert.Equal(n, actors.Select(actor => actor.Node.Signer.Signer.IssuerId.ToBase64Url()).Distinct().Count());
-        Assert.All(actors, actor => Assert.True(founder.Roster.Current.Contains(actor.Principal.CanonicalParty.Value)));
+        Assert.All(actors, actor => Assert.True(founder.Roster.Current.Contains(actor.Principal.PrincipalUserId.Value)));
 
-        await fleet.ConvergeRosterAsync(actors.Select(actor => actor.Principal.CanonicalParty.Value).ToArray());
+        await fleet.ConvergeRosterAsync(actors.Select(actor => actor.Principal.PrincipalUserId.Value).ToArray());
         for (var index = 0; index < actors.Count; index++)
         {
             var actor = actors[index];
@@ -134,7 +134,7 @@ public sealed class NPrincipalAcceptanceE2E
             earlierAttributions.Add(await actor.Node.JournalAttributionsAsync());
         Assert.Equal(n, earlierAttributions.Sum(attributions => attributions.Count));
         Assert.Equal(
-            actors.Select(actor => actor.Principal.CanonicalParty.Value).Order(StringComparer.Ordinal),
+            actors.Select(actor => actor.Principal.PrincipalUserId.Value).Order(StringComparer.Ordinal),
             earlierAttributions.SelectMany(static attribution => attribution).Order(StringComparer.Ordinal));
 
         var revoked = actors[1];
@@ -151,7 +151,7 @@ public sealed class NPrincipalAcceptanceE2E
         foreach (var survivor in actors.Where(actor => !ReferenceEquals(actor, revoked)))
             Assert.NotNull(await founder.Principals.AuthenticateAsync(survivor.SelectedHandle));
 
-        await fleet.ConvergeRevocationAsync(revoked.Principal.CanonicalParty.Value);
+        await fleet.ConvergeRevocationAsync(revoked.Principal.PrincipalUserId.Value);
         var founderTrust = founder.Worker.BoundTeam!.Services.GetRequiredService<IPeerTrustPolicy>();
         Assert.False(founderTrust.IsTrusted(Hello(revoked.Node.TeamIdentity)));
         foreach (var survivor in actors.Skip(2))
@@ -170,7 +170,7 @@ public sealed class NPrincipalAcceptanceE2E
         await WaitUntilAsync(
             async () => (convergedReceipt = await founder.FindJournalReceiptAsync(receipt.MessageId)) is not null,
             "post-revocation survivor TCP journal-write receipt convergence");
-        Assert.Equal(joinerB.Principal.CanonicalParty.Value, convergedReceipt!.AuthorPartyId);
+        Assert.Equal(joinerB.Principal.PrincipalUserId.Value, convergedReceipt!.AuthorPartyId);
         Assert.Equal(joinerB.Node.Signer.Signer.IssuerId.ToBase64Url(), convergedReceipt.AuthorIssuerId);
         Assert.Equal(postRevocationId, convergedReceipt.Body);
 
@@ -181,7 +181,7 @@ public sealed class NPrincipalAcceptanceE2E
         for (var index = 0; index < actors.Count; index++)
             Assert.All(earlierAttributions[index], attribution =>
                 Assert.Contains(attribution, afterRevocation[index]));
-        Assert.Equal(joinerB.Principal.CanonicalParty.Value, afterRevocation[2][^1]);
+        Assert.Equal(joinerB.Principal.PrincipalUserId.Value, afterRevocation[2][^1]);
 
         var refused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var revokedPeerNodeId = PeerNodeId(revoked.Node.TeamIdentity.PublicKey);
@@ -536,7 +536,7 @@ public sealed class NPrincipalAcceptanceE2E
             {
                 var decision = TestAuthorization.AllowedDecision(
                     tenant, id, "journal-entry", TeamRolePermissions.LedgerPost,
-                    principal.CanonicalParty.Value, Clock.GetUtcNow());
+                    principal.PrincipalUserId.Value, Clock.GetUtcNow());
                 await _provider.GetRequiredService<NodeEfJournalStore>().SaveAtomicAsync(
                     tenant, PostedEntry(tenant, id, amount, Clock.GetUtcNow()), decision);
             }
@@ -580,7 +580,7 @@ public sealed class NPrincipalAcceptanceE2E
             var tenant = ActiveTeamTenantContext.ProjectTenantId(ActiveTeam.Active!.TeamId);
             var receipt = await CommsMessageFactory.CreateSignedAsync(
                 Signer.Signer,
-                principal.CanonicalParty.Value,
+                principal.PrincipalUserId.Value,
                 tenant.Value,
                 journalEntryId,
                 Clock.GetUtcNow());

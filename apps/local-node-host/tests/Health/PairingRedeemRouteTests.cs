@@ -54,6 +54,10 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     private const string SessionToken = "test-pairing-session-token-abcd-1234";
     private static readonly Guid Team = Guid.Parse("7e57aaaa-0000-0000-0000-00000000000b");
     private static readonly IOperationVerifier Verifier = new Ed25519Verifier();
+    /// <summary>Ticket 294 slice 2a — the People PartyId behind principal-1. The roster edge and the wire
+    /// are keyed by the canonical tenant PRINCIPAL id, so this value is deliberately a different string.</summary>
+    private const string PeoplePartyId = "party-1";
+
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeMilliseconds(1_752_640_000_000);
 
     private static readonly Harborline.Api.Kernel.Security.Crypto.Ed25519Signer TransportSigner = new();
@@ -84,7 +88,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     [Fact(DisplayName = "distinct-seed web joiner: token Party and team anchor stay bound through commit")]
     public async Task DistinctSeedJoiner_PresentsWebBoundParty_ThroughRealJoinRoute()
     {
-        var admitter = await ComposeAdmitterAsync(new FixedPartyReader("party-1"));
+        var admitter = await ComposeAdmitterAsync(new FixedPartyReader(PeoplePartyId));
         var joinerProvider = await ComposeJoinerAsync(admitter.Dispatch);
         var joinerRoster = joinerProvider.GetRequiredService<NodeTeamRoster>();
         var joinerPartyId = joinerRoster.Current.GenesisPartyId;
@@ -95,7 +99,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
             SessionPrincipal(admitter.Tenant), admitter.Roster.Current, ttl: null).Token!;
 
         Assert.NotEqual(admitter.Roster.Current.GenesisPartyId, joinerPartyId);
-        Assert.NotEqual("party-1", joinerPartyId);
+        Assert.NotEqual("principal-1", joinerPartyId);
 
         var forged = await join.JoinAsync(
             token.TokenId, "forged-party", token.Anchor, CancellationToken.None);
@@ -113,26 +117,26 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         admitter.Roster.AdoptEnrollment(teamBRoster, new Dictionary<string, byte[]>());
 
         var wrongTeam = await join.JoinAsync(
-            token.TokenId, "party-1", token.Anchor, CancellationToken.None);
+            token.TokenId, "principal-1", token.Anchor, CancellationToken.None);
         Assert.False(wrongTeam.Succeeded);
         Assert.Equal(teamBRoster.TeamId, admitter.Roster.Current.TeamId);
-        Assert.False(admitter.Roster.Current.Contains("party-1"));
+        Assert.False(admitter.Roster.Current.Contains("principal-1"));
 
         // The anchor-scoped refusal is pre-decision: restoring team A lets the SAME live token admit.
         admitter.Roster.AdoptEnrollment(teamARoster, new Dictionary<string, byte[]>());
 
         var joined = await join.JoinAsync(
-            token.TokenId, "party-1", token.Anchor, CancellationToken.None);
+            token.TokenId, "principal-1", token.Anchor, CancellationToken.None);
         Assert.True(joined.Succeeded, transport.LastOutcome?.InternalReason);
-        Assert.True(admitter.Roster.Current.Contains("party-1"));
-        Assert.True(joinerRoster.Current.Contains("party-1"));
-        Assert.Contains(admitter.Roster.Current.EnumerateAdmissions(), row => row.PartyId == "party-1");
+        Assert.True(admitter.Roster.Current.Contains("principal-1"));
+        Assert.True(joinerRoster.Current.Contains("principal-1"));
+        Assert.Contains(admitter.Roster.Current.EnumerateAdmissions(), row => row.PartyId == "principal-1");
     }
 
     [Fact(DisplayName = "composed pairing: a team switch after anchor resolution is refused at atomic install")]
     public async Task TeamSwitch_AfterAnchorResolution_CannotOverwriteLiveRosterAtInstall()
     {
-        var barrier = new GatedPartyReader("party-1");
+        var barrier = new GatedPartyReader(PeoplePartyId);
         var admitter = await ComposeAdmitterAsync(barrier);
         var joinerProvider = await ComposeJoinerAsync(admitter.Dispatch);
         var joinerRoster = joinerProvider.GetRequiredService<NodeTeamRoster>();
@@ -145,7 +149,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         // The shipping admitter resolves token.Anchor before the bridge calls this gated party-reader seam.
         // Releasing it therefore drives the request from a resolved team-A decision into the atomic install.
         var pending = join.JoinAsync(
-            token.TokenId, "party-1", token.Anchor, CancellationToken.None);
+            token.TokenId, "principal-1", token.Anchor, CancellationToken.None);
         await barrier.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
         var teamBFounder = Member.New("team-b-founder");
@@ -165,7 +169,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         Assert.False(outcome.Succeeded);
         Assert.Equal(teamBBytes, JsonSerializer.SerializeToUtf8Bytes(
             admitter.Roster.Current.EnumerateAdmissions()));
-        Assert.False(admitter.Roster.Current.Contains("party-1"));
+        Assert.False(admitter.Roster.Current.Contains("principal-1"));
         Assert.Equal(publicationBefore, JsonSerializer.SerializeToUtf8Bytes(admitter.Projection.Snapshot()));
         Assert.Same(joinerTeamBefore, joinerRoster.Current);
     }
@@ -174,7 +178,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     public async Task WebAdmittedMember_Enrolls_A_Device_EndToEnd_NoBackdoor()
     {
         var h = await StartAsync(webPlaneEnabled: true);
-        var device = Member.New("party-1"); // the enrolling device's atlas principal key; party = the web-plane party.
+        var device = Member.New("principal-1"); // the enrolling device's atlas principal key; party = the web-plane party.
 
         // (1) The member (authenticated, session-derived) mints a device-pairing token — the real mint, bound pins.
         var mintOutcome = h.Mint.MintForSession(SessionPrincipal(h.Tenant), h.Roster.Current, ttl: null);
@@ -188,12 +192,12 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
         var admissions = doc.RootElement.GetProperty("admissions").EnumerateArray()
             .Select(a => a.GetProperty("partyId").GetString()).ToArray();
-        Assert.Contains("party-1", admissions);
+        Assert.Contains("principal-1", admissions);
 
         // The signed admission landed in the live roster + validates to genesis + carries the X-Wing key.
-        Assert.True(h.Roster.Current.Contains("party-1"));
+        Assert.True(h.Roster.Current.Contains("principal-1"));
         Assert.True(h.Roster.Current.ValidatesToGenesis(Verifier));
-        Assert.NotNull(h.Roster.Current.XWingPublicKeyOf("party-1"));
+        Assert.NotNull(h.Roster.Current.XWingPublicKeyOf("principal-1"));
 
         // F3-b — the token is DURABLY redeemed (a replay of the SAME pairing token now refuses opaque).
         var replay = await h.Client.SendAsync(
@@ -434,7 +438,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     public async Task All_Pairing_Refusals_Are_Byte_Identical_On_The_Wire()
     {
         var h = await StartAsync(webPlaneEnabled: true);
-        var device = Member.New("party-1");
+        var device = Member.New("principal-1");
 
         var refusals = new List<RefusalWireImage>();
 
@@ -561,7 +565,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     public async Task Full_Route_Concurrent_Redeem_Admits_Exactly_Once()
     {
         var h = await StartAsync(webPlaneEnabled: true);
-        var device = Member.New("party-1");
+        var device = Member.New("principal-1");
         var token = h.Mint.MintForSession(
             SessionPrincipal(h.Tenant), h.Roster.Current, ttl: null).Token!;
         var body = PairingRedeemBody(token.TokenId, device, XWingKeyB64(9));
@@ -581,7 +585,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
     [Fact(DisplayName = "pairing: a binding-store fault in the route pre-dispatch is contained to an opaque 400 — never a distinguishable 500 (verdict M3)")]
     public async Task Route_Level_Binding_Store_Fault_Is_Contained_To_Opaque_400()
     {
-        var device = Member.New("party-1");
+        var device = Member.New("principal-1");
 
         // A REFERENCE opaque refusal from a HEALTHY harness (mode-exclusive: a plain redeem while web-plane enabled).
         var healthy = await StartAsync(webPlaneEnabled: true);
@@ -705,7 +709,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
 
         // The pairing bundle (bridge + gated admitter + mint + web-plane predicate + rate limiter).
         var bridge = new WebAdmittedMemberAtlasBridge(
-            new FixedPartyReader("party-1"), search.Factory, coordinator, bindings, new FixedTimeProvider(Now),
+            new FixedPartyReader(PeoplePartyId), search.Factory, coordinator, bindings, new FixedTimeProvider(Now),
             new Harborline.Api.LocalNodeHost.Tests.Identity.FixedAuthorizationClosure());
         var mint = new WebAdmittedMemberPairingTokenMint(coordinator, bindings);
         var gated = new PairingTokenGatedAdmitter(
@@ -904,7 +908,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         accountId: "account-1",
         tenantId: tenant,
         principalUserId: new PrincipalUserId("principal-1"),
-        canonicalParty: new CanonicalPartyReference("party-1"),
+        canonicalParty: new CanonicalPartyReference(PeoplePartyId),
         membershipId: "membership-1",
         membershipOwnerVersion: 3,
         pinnedGrantOwnerVersions: new[] { new PinnedGrantOwnerVersion("grant-1", 4) },

@@ -92,8 +92,7 @@ public static class LocalNodeHostComposition
         TimeProvider? kernelClock = null,
         Action<IServiceCollection>? finalServiceRegistration = null,
         string? installFootprintRootOverride = null,
-        Action<IServiceCollection, IServiceProviderFactory<IServiceCollection>>? finalServiceProviderProbe = null,
-        Func<string>? genesisAccountName = null)
+        Action<IServiceCollection, IServiceProviderFactory<IServiceCollection>>? finalServiceProviderProbe = null)
     {
 var rootTimeProvider = kernelClock ?? TimeProvider.System;
 // Admin subcommand: mint an Argon2id hash for a WEB-CLIENT founder password so the plaintext never
@@ -524,25 +523,62 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
     // Ticket 296: resolve the signed durable identity before any hosted service can publish.
     // A renamed account is not a new principal: only a tenant without a log consults the shell.
     MemberRoster? storedGenesisRoster;
+    // Ticket 294 slice 2a — the party key minted for a first boot with no stored genesis. It is the
+    // founder's CANONICAL TENANT PRINCIPAL id, the one key the grant store, the closure reader and the
+    // admin surface already speak (see NodeGatePrincipal); there is no shell-derived fallback.
+    string? mintedGenesisPartyId = null;
     var genesisStoreServices = new ServiceCollection();
     // This short-lived probe owns its native connections: disposing its contexts must close
     // the file even when later composition refuses startup, before a host owns the store.
     AddInstallStore(genesisStoreServices, pooling: false);
     await using (var genesisStore = genesisStoreServices.BuildServiceProvider())
+    {
         storedGenesisRoster = await DurableGenesisIdentity.ReadAsync(
             genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
             genesisTeamId, genesisSigner.Signer.IssuerId, genesisVerifier, CancellationToken.None);
 
+        if (storedGenesisRoster is null)
+        {
+            // The founder's canonical tenant principal is DETERMINISTIC in the genesis tenant and the
+            // founder ceremony correlation — FounderTenantMembershipAttachService derives the identical
+            // value when it writes the founder's People binding, so the roster edge and the grant store
+            // are born on one key instead of being reconciled afterwards.
+            var genesisTenant = ActiveTeamTenantContext.ProjectTenantId(resolvedGenesisTeam);
+            var founderPrincipal = FounderTenantMembershipAttachService.DerivePrincipal(
+                genesisTenant, InstallationFounderBootstrapCeremony.CorrelationId);
+
+            // The refusal. A missing genesis roster is normal ONLY before the founder bootstrap ceremony
+            // has run — the founder attach then adopts this very principal as the install's canonical
+            // party. Once the ceremony HAS completed and this node still has no genesis of its own, the
+            // install's founder identity is half-written; minting anything here would put the roster on a
+            // key the grant store never reads, which is the defect that produced two key spaces. There is
+            // no shell-derived fallback: refuse, name the code, publish nothing.
+            //
+            // The probe cannot ask ICanonicalPrincipalPartyReader: this short-lived composition registers
+            // the store graph only, not the People entity model, so a Party read here throws rather than
+            // refusing. It does not need to — the reader echoes the principal it is given
+            // (NodeEfCanonicalPrincipalPartyReader), so it can never answer a DIFFERENT key than the
+            // derivation above; it only answers whether a binding exists yet. This check answers the same
+            // question one layer earlier and on a store the probe already owns.
+            await using var identity = await genesisStore
+                .GetRequiredService<IDbContextFactory<NodeLocalInstallationIdentityDbContext>>()
+                .CreateDbContextAsync(CancellationToken.None).ConfigureAwait(false);
+            await identity.Database.MigrateAsync(CancellationToken.None).ConfigureAwait(false);
+            if (await identity.InstallationAccessGrants.AsNoTracking().AnyAsync(
+                    row => row.AuditCorrelationId == InstallationFounderBootstrapCeremony.CorrelationId,
+                    CancellationToken.None).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(GenesisStartupMessages.PartyUnresolved);
+            }
+
+            mintedGenesisPartyId = founderPrincipal.Value;
+        }
+    }
+
     // Keep the install's admitted party when its configured tenant was founded by another node.
     var genesisPartyId = storedGenesisRoster?.Members
-        .First(member => member.PublicKey.Equals(genesisSigner.Signer.IssuerId)).PartyId;
-    if (genesisPartyId is null)
-    {
-        var osUserRaw = (genesisAccountName ?? (() => Environment.UserName))();
-        var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
-        var nodeKeyHex8 = Convert.ToHexString(genesisSigner.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
-        genesisPartyId = ActorId.Mint($"os:{osUser}#{nodeKeyHex8}").Value;
-    }
+        .First(member => member.PublicKey.Equals(genesisSigner.Signer.IssuerId)).PartyId
+        ?? mintedGenesisPartyId!;
 
     // C5 (DM key-substitution fix) — derive the founder's OWN team-scoped DM PUBLIC key (HKDF(root, genesisTeamId)
     // over the DM domain) BEFORE the genesis self-admission, so it can be SIGNED INTO the genesis admission envelope

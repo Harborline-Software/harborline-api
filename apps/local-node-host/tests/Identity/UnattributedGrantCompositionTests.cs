@@ -84,7 +84,9 @@ public sealed class UnattributedGrantCompositionTests
         Assert.Contains(TeamRolePermissions.MembersManage, row.Capabilities);
         if (binding == "resolved")
         {
-            Assert.Equal("party-target", row.PartyId);
+            // Ticket 294 slice 2a — a grant-anchored row is surfaced under the ONE key (the canonical
+            // tenant principal). The live People binding still decides attributed vs UNATTRIBUTED.
+            Assert.Equal("principal-target", row.PartyId);
             Assert.Equal(TeamMemberSource.Grant, row.Source);
             Assert.Null(row.AttributionFailure);
         }
