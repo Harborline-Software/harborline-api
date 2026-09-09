@@ -24,6 +24,31 @@ dotnet_diagnostic.VSTHRD002.severity = warning
 dotnet_diagnostic.VSTHRD100.severity = error
 # HLQ.CS.1100 empty catch (partial evidence)
 dotnet_diagnostic.CA1031.severity = warning
+# The rest of the threading analyzer package is outside the ADR 0085 preview set. Suggestion here
+# (several of these rules default to error, which no warnings property can demote); razor-generated
+# sources miss this section and are covered by WarningsNotAsErrors in Directory.Build.props.
+dotnet_diagnostic.VSTHRD001.severity = suggestion
+dotnet_diagnostic.VSTHRD003.severity = suggestion
+dotnet_diagnostic.VSTHRD004.severity = suggestion
+dotnet_diagnostic.VSTHRD010.severity = suggestion
+dotnet_diagnostic.VSTHRD011.severity = suggestion
+dotnet_diagnostic.VSTHRD012.severity = suggestion
+dotnet_diagnostic.VSTHRD101.severity = suggestion
+dotnet_diagnostic.VSTHRD102.severity = suggestion
+dotnet_diagnostic.VSTHRD103.severity = suggestion
+dotnet_diagnostic.VSTHRD104.severity = suggestion
+dotnet_diagnostic.VSTHRD105.severity = suggestion
+dotnet_diagnostic.VSTHRD106.severity = suggestion
+dotnet_diagnostic.VSTHRD107.severity = suggestion
+dotnet_diagnostic.VSTHRD108.severity = suggestion
+dotnet_diagnostic.VSTHRD109.severity = suggestion
+dotnet_diagnostic.VSTHRD110.severity = suggestion
+dotnet_diagnostic.VSTHRD111.severity = suggestion
+dotnet_diagnostic.VSTHRD112.severity = suggestion
+dotnet_diagnostic.VSTHRD113.severity = suggestion
+dotnet_diagnostic.VSTHRD114.severity = suggestion
+dotnet_diagnostic.VSTHRD115.severity = suggestion
+dotnet_diagnostic.VSTHRD200.severity = suggestion
 
 [*.{md,markdown}]
 trim_trailing_whitespace = false
