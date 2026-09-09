@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Ticket 340 planted Roslyn violations. This project is intentionally excluded
+    from Harborline.Api.slnx and is built only by eng/verify-analyzer-canary.sh,
+    so it adds no rows to the host suite baseline. It is never packed: the
+    analyzers attach by project name (Directory.Build.props), not by IsPackable,
+    and the identity scan (R1) holds every project to the Harborline.Api.* envelope.
+  -->
+  <PropertyGroup>
+    <PackageId>Harborline.Api.Quality.AnalyzerCanary</PackageId>
+    <AssemblyName>Harborline.Api.Quality.AnalyzerCanary</AssemblyName>
+    <RootNamespace>Harborline.Api.Quality.AnalyzerCanary</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>
