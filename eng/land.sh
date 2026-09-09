@@ -87,6 +87,14 @@ if [ $main_moved -eq 0 ]; then
   [ "$tested_tree" = "$head_tree" ] || { echo "land: internal: merge tree != head tree although head is a descendant of main"; exit 1; }
 fi
 echo "land: gating tree ${tested_tree:0:12} (base $(git rev-parse --short "$base_sha"), head $(git rev-parse --short "$head_sha"))"
+run_land_verify() {
+  local verify_root=$1 verify_log=$2
+  ( cd "$verify_root" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > "$verify_log" 2>&1
+  local verify_rc=$?
+  cat "$verify_log"
+  return "$verify_rc"
+}
+
 # Ticket 350: the mac slice gate publishes a receipt for the MERGE tree as refs/receipts/tree/<tree>.
 # If one exists for exactly this tree, is schema-current, covers every step eng/verify-receipt.mjs
 # requires and is younger than HARBORLINE_RECEIPT_MAX_AGE_HOURS, the twelve steps have already run on
@@ -104,13 +112,6 @@ else
 fi
 rm -f "$receipt_file"
 if [ $receipt_accepted -eq 0 ]; then
-run_land_verify() {
-  local verify_root=$1 verify_log=$2
-  ( cd "$verify_root" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > "$verify_log" 2>&1
-  local verify_rc=$?
-  cat "$verify_log"
-  return "$verify_rc"
-}
 verify_log="$land_scratch/land-verify.log"
 preserved_verify_log="$root/.claude/land-verify-$$.log"
 mkdir -p "$(dirname "$verify_log")"
