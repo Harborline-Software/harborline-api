@@ -264,6 +264,28 @@ public sealed class RosterRebuildFaultTests
         }
     }
 
+    [Fact]
+    public async Task AMalformedDurablePayloadSeedsNoTrust()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.CorruptPayloadAsync();
+        await f.RestartAsync();
+        var service = ActivatorUtilities.CreateInstance<RosterSyncBootstrapHostedService>(f.Provider);
+        await service.StartAsync(default);
+        await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "");
+
+        // NO TRUST from an undecodable payload: the rows survive (a refusal never mutates the log), and the
+        // rebuild over them admits only the genesis root - the corrupted record confers nothing.
+        await using var db = await f.Factory.CreateDbContextAsync();
+        var states = (await db.RosterRecords.ToListAsync()).Select(NodeRosterRecord.ToCrdtState).ToArray();
+        Assert.Equal(2, states.Length);
+        var rebuilt = MemberRoster.FromSyncedRecords(
+            states.Select(state => state.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>(),
+            states.Select(state => state.ToRevocationOrNull()).OfType<MemberRevocationRecord>(),
+            new Ed25519Verifier());
+        Assert.Equal(["founder"], rebuilt.Members.Select(member => member.PartyId).ToArray());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -365,6 +387,17 @@ public sealed class RosterRebuildFaultTests
             await projection.DrainPendingReconcilesAsync();
             var delta = await projection.EncodeOutboundDeltaAsync(RosterCrdtProjection.DocumentId, ReadOnlyMemory<byte>.Empty, default);
             await Projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta!.Value, default);
+        }
+        /// <summary>
+        /// A MALFORMED durable PAYLOAD - a public key that does not decode at all. The retired
+        /// signed_permissions column used to carry this vector as bad JSON (293 s3b2 stopped reading it), so the
+        /// property "a malformed durable payload seeds no trust" now rides the key field the rebuild does read.
+        /// </summary>
+        public async Task CorruptPayloadAsync()
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            (await db.RosterRecords.SingleAsync(r => r.PartyId == "peer")).PublicKeyB64Url = "!!not-base64!!";
+            await db.SaveChangesAsync();
         }
         public async Task CorruptAsync(bool malformed)
         {

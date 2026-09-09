@@ -862,10 +862,22 @@ public sealed class MemberRoster
         // No permission set rides the wire any more (293 s3b2), so the authority the chain gates read comes
         // from the local grant store through IRosterAuthority. The chain root is the one exception: the genesis
         // self-admission IS the root-authority evidence, so it keeps the owner floor.
-        PermissionSet AuthorityOf(string partyId) =>
-            string.Equals(partyId, genesis.PartyId, StringComparison.Ordinal)
-                ? PermissionCompositions.Owner
-                : authority?.PermissionsFor(genesis.TeamId, partyId) ?? PermissionSet.Empty;
+        // ONE tenant-key form for both authority readers (the projection's chain check already uses "D"): the
+        // parsed team id, never the record's arrival form. Read once per party per rebuild - a rebuild is a
+        // point-in-time evaluation, and the relaxation fixpoint asks for the same party many times.
+        var canonicalTeamId = teamId.ToString("D");
+        var authorityByParty = new Dictionary<string, PermissionSet>(StringComparer.Ordinal);
+        PermissionSet AuthorityOf(string partyId)
+        {
+            if (string.Equals(partyId, genesis.PartyId, StringComparison.Ordinal))
+                return PermissionCompositions.Owner;
+            if (!authorityByParty.TryGetValue(partyId, out var held))
+            {
+                held = authority?.PermissionsFor(canonicalTeamId, partyId) ?? PermissionSet.Empty;
+                authorityByParty[partyId] = held;
+            }
+            return held;
+        }
 
         var live = new Dictionary<string, MemberState>(StringComparer.Ordinal)
         {

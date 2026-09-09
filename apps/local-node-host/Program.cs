@@ -713,7 +713,9 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
             // adopt-time self-supersession — on join, B retracts its OWN superseded genesis team's records from
             // the synced doctype so the dual-genesis injection guard does not fail-close the converged roster.
             rosterSupersession: sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Roster.RosterCrdtProjection>(),
-            clock: sp.GetRequiredService<TimeProvider>()));
+            clock: sp.GetRequiredService<TimeProvider>(),
+            // 293 s3c: the joiner's own grant view decides each admitter's members:admit on the adopted chain.
+            rosterAuthority: sp.GetService<Harborline.Api.Foundation.IdentityAtlas.IRosterAuthority>()));
 
         // The B-side wire transport to the ADMITTER. #1301 F-1 — PREFER the SOCKET transport over the admitter's
         // 7473 sync listener (the cross-machine path: a remote joiner CAN reach 0.0.0.0:7473, but CANNOT reach the

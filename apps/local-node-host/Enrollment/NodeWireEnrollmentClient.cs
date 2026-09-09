@@ -53,6 +53,9 @@ public sealed class NodeWireEnrollmentClient
     private readonly NodeTeamRoster _roster;
     private readonly IOperationVerifier _verifier;
     private readonly IOwnTeamRosterSupersession? _rosterSupersession;
+    // 293 s3c: B's own grant view. No permission set rides the wire, so the admitter's members:admit is read
+    // from B's local grant store; absent, only A's genesis root may have admitted anyone B adopts.
+    private readonly IRosterAuthority? _rosterAuthority;
     private readonly TimeProvider _clock;
 
     /// <summary>
@@ -82,7 +85,8 @@ public sealed class NodeWireEnrollmentClient
         NodeTeamRoster roster,
         IOperationVerifier verifier,
         IOwnTeamRosterSupersession? rosterSupersession = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IRosterAuthority? rosterAuthority = null)
     {
         _rootIdentity = rootIdentity ?? throw new ArgumentNullException(nameof(rootIdentity));
         _subkeyDerivation = subkeyDerivation ?? throw new ArgumentNullException(nameof(subkeyDerivation));
@@ -95,6 +99,7 @@ public sealed class NodeWireEnrollmentClient
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _rosterSupersession = rosterSupersession;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _rosterAuthority = rosterAuthority;
     }
 
     /// <summary>
@@ -197,7 +202,7 @@ public sealed class NodeWireEnrollmentClient
 
         // 4) Validate A's response against the OUT-OF-BAND invite anchor → the adoption plan (fail-closed).
         var plan = WireEnrollment.ValidateAndPlanAdoption(
-            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier);
+            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier, _rosterAuthority);
         if (!plan.Succeeded || plan.Roster is null)
         {
             return EnrollmentOutcome.Failed(plan.FailureReason ?? "validation_failed");

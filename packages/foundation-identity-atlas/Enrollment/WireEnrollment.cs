@@ -306,12 +306,16 @@ public static class WireEnrollment
     /// <param name="joinerPrincipalPublicKey">B's own principal public key (to confirm A bound the right key).</param>
     /// <param name="joinerPartyId">B's own party id.</param>
     /// <param name="verifier">The signature verifier (re-validates the roster to genesis).</param>
+    /// <param name="authority">The joiner's own grant view (ticket 293 slice 3c). No permission set rides the
+    /// wire, so B reads each admitter's authority from its LOCAL grant store rather than from A's say-so. Absent
+    /// - the fail-closed floor, where only the genesis chain root may admit.</param>
     public static EnrollmentAdoptionPlan ValidateAndPlanAdoption(
         EnrollmentResponse response,
         TeamTrustAnchor inviteAnchor,
         PrincipalId joinerPrincipalPublicKey,
         string joinerPartyId,
-        IOperationVerifier verifier)
+        IOperationVerifier verifier,
+        IRosterAuthority? authority = null)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(inviteAnchor);
@@ -355,7 +359,7 @@ public static class WireEnrollment
             var revocations = response.Revocations
                 .Select(r => new MemberRevocationRecord(r.TeamId, r.RevokedPartyId, r.Signed))
                 .ToArray();
-            rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, verifier);
+            rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, verifier, authority: authority);
         }
         catch (FormatException)
         {
