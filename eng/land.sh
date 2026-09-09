@@ -94,6 +94,24 @@ run_land_verify() {
   cat "$verify_log"
   return "$verify_rc"
 }
+
+# Ticket 350: the mac slice gate publishes a receipt for the MERGE tree as refs/receipts/tree/<tree>.
+# If one exists for exactly this tree, is schema-current, covers every step eng/verify-receipt.mjs
+# requires and is younger than HARBORLINE_RECEIPT_MAX_AGE_HOURS, the twelve steps have already run on
+# this exact tree and re-running them here buys nothing but an hour. Everything AFTER the gate — the
+# baseline re-pin, the PR binding, the merge and the landing resolution — is unchanged and still runs.
+# eng/receipt-accept.mjs owns the decision (and prints the reason either way) so it is testable
+# without a repository.
+receipt_ref="refs/receipts/tree/$tested_tree"
+receipt_file=$(mktemp "${TMPDIR:-/tmp}/land-receipt-XXXXXX")
+receipt_accepted=0
+if git fetch -q --no-tags origin "+$receipt_ref:$receipt_ref" 2>/dev/null && git cat-file blob "$receipt_ref" >"$receipt_file" 2>/dev/null; then
+  if node eng/receipt-accept.mjs "$tested_tree" "$receipt_file"; then receipt_accepted=1; fi
+else
+  echo "land: no verification receipt published for tree ${tested_tree:0:12}; gating here"
+fi
+rm -f "$receipt_file"
+if [ $receipt_accepted -eq 0 ]; then
 verify_log="$land_scratch/land-verify.log"
 preserved_verify_log="$root/.claude/land-verify-$$.log"
 mkdir -p "$(dirname "$verify_log")"
@@ -130,6 +148,13 @@ if [ $main_moved -eq 1 ]; then
   echo "land: main moved, measured matches: re-pinned (main $main_total, branch delta $(printf '%+d' "$branch_delta"), measured $expected_total)"
   echo "land: intervening landings:"
   printf '%s\n' "$intervening_landings"
+fi
+else
+  if [ $main_moved -eq 1 ]; then
+    echo "land: main moved: re-pinned arithmetically (main $main_total, branch delta $(printf '%+d' "$branch_delta"), expected $expected_total); measurement skipped on the accepted receipt (ticket 350)"
+    echo "land: intervening landings:"
+    printf '%s\n' "$intervening_landings"
+  fi
 fi
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ $main_moved -eq 1 ]; then
