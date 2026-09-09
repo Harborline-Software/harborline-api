@@ -96,7 +96,7 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
     /// <summary>Build a node's RosterCrdtProjection over a caller-supplied SQLite connection (so a "reboot" can re-open
     /// the SAME durable store). <paramref name="bootGenesis"/> is the in-memory genesis the fresh process seeds.</summary>
     private async Task<(RosterCrdtProjection Projection, NodeTeamRoster Roster)> NewNodeAsync(
-        MemberRoster bootGenesis, string connectionString)
+        MemberRoster bootGenesis, string connectionString, IOperationSigner attestationSigner)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -111,7 +111,7 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
 
         var roster = new NodeTeamRoster(bootGenesis);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, roster);
         _projections.Add(projection);
         return (projection, roster);
@@ -154,7 +154,7 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
 
         // ── PRIOR RUN: the Harborline App spawned the node with seed-A; it seeded seed-A's genesis durably, then exited. ──
         var seedA = SeedIdentity.From(0xA1, _signers);
-        var (projA, rosterA) = await NewNodeAsync(GenesisFor(seedA), conn);
+        var (projA, rosterA) = await NewNodeAsync(GenesisFor(seedA), conn, seedA.Signer.Signer);
         await SeedGenesisDurablyAsync(projA, rosterA);
         await projA.DisposeAsync();
         _projections.Remove(projA);
@@ -167,7 +167,7 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
         //    DURABLE seed-A genesis. seed-A.PartyId != seed-B.PartyId and binds seed-A's key. ──
         var seedB = SeedIdentity.From(0xB2, _signers);
         Assert.NotEqual(seedA.PartyId, seedB.PartyId); // distinct identities (gap-#2 per-seed-distinct).
-        var (projB, rosterB) = await NewNodeAsync(GenesisFor(seedB), conn);
+        var (projB, rosterB) = await NewNodeAsync(GenesisFor(seedB), conn, seedB.Signer.Signer);
 
         // Before hydration: the live roster is the seed-B genesis the boot just seeded — binding is consistent.
         Assert.Equal(seedB.PartyId, rosterB.Current.GenesisPartyId);
@@ -198,14 +198,14 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
 
         // A durable store seeded by seed-A only (the prior identity's genesis).
         var seedA = SeedIdentity.From(0xC3, _signers);
-        var (projSeed, rosterSeed) = await NewNodeAsync(GenesisFor(seedA), conn);
+        var (projSeed, rosterSeed) = await NewNodeAsync(GenesisFor(seedA), conn, seedA.Signer.Signer);
         await SeedGenesisDurablyAsync(projSeed, rosterSeed);
         await projSeed.DisposeAsync();
         _projections.Remove(projSeed);
 
         // A fresh boot under seed-B over that store.
         var seedB = SeedIdentity.From(0xD4, _signers);
-        var (projB, rosterB) = await NewNodeAsync(GenesisFor(seedB), conn);
+        var (projB, rosterB) = await NewNodeAsync(GenesisFor(seedB), conn, seedB.Signer.Signer);
         await projB.HydrateFromStoreAsync(CancellationToken.None);
         await projB.DrainPendingReconcilesAsync();
 
@@ -234,13 +234,13 @@ public sealed class RosterStaleSeedGenesisGuardTests : IAsyncLifetime
         var seed = SeedIdentity.From(0xE5, _signers);
 
         // Prior run seeded this seed's genesis durably.
-        var (proj1, roster1) = await NewNodeAsync(GenesisFor(seed), conn);
+        var (proj1, roster1) = await NewNodeAsync(GenesisFor(seed), conn, seed.Signer.Signer);
         await SeedGenesisDurablyAsync(proj1, roster1);
         await proj1.DisposeAsync();
         _projections.Remove(proj1);
 
         // Restart under the SAME seed (the standalone / LocalNode__RootSeedHex-stable path).
-        var (proj2, roster2) = await NewNodeAsync(GenesisFor(seed), conn);
+        var (proj2, roster2) = await NewNodeAsync(GenesisFor(seed), conn, seed.Signer.Signer);
         await proj2.HydrateFromStoreAsync(CancellationToken.None);
         await proj2.DrainPendingReconcilesAsync();
 

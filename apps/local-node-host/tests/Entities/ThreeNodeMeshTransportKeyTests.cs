@@ -127,7 +127,7 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
         }
     }
 
-    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster)
+    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster, IOperationSigner attestationSigner)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-3node-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -148,7 +148,7 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
 
         var nodeRoster = new NodeTeamRoster(seedRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         var replica = new Replica
@@ -259,11 +259,11 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
 
         // Three INDEPENDENT, persisted replicas. A founds; B and C adopt A's team genesis as their trust root (the
         // joiner posture — they do NOT publish a competing genesis, so the team has exactly one genesis).
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         await SeedGenesisAsync(a, founder);
         var aGenesisRoster = a.NodeRoster.Current;
-        var b = await NewReplicaAsync("B", aGenesisRoster);
-        var c = await NewReplicaAsync("C", aGenesisRoster);
+        var b = await NewReplicaAsync("B", aGenesisRoster, founder.PrincipalSigner);
+        var c = await NewReplicaAsync("C", aGenesisRoster, founder.PrincipalSigner);
 
         // A admits B, THEN (later) A admits C — the star-admission shape. Each admission publishes A's record
         // carrying (or, pre-fix, omitting) the admitted peer's transport key.
@@ -332,10 +332,10 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
         var bob = Member.New("os:B#bob");
         var carol = Member.New("os:C#carol");
 
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         await SeedGenesisAsync(a, founder);
-        var b = await NewReplicaAsync("B", a.NodeRoster.Current);
-        var c = await NewReplicaAsync("C", a.NodeRoster.Current);
+        var b = await NewReplicaAsync("B", a.NodeRoster.Current, founder.PrincipalSigner);
+        var c = await NewReplicaAsync("C", a.NodeRoster.Current, founder.PrincipalSigner);
 
         await AdmitAndPublishAsync(a, founder, bob);
         await AdmitAndPublishAsync(a, founder, carol);
@@ -402,9 +402,9 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
         var bob = Member.New("os:B#bob");
         var mallory = Member.New("os:M#mallory");   // NEVER admitted by A — a stranger.
 
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         await SeedGenesisAsync(a, founder);
-        var b = await NewReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewReplicaAsync("B", a.NodeRoster.Current, founder.PrincipalSigner);
 
         await AdmitAndPublishAsync(a, founder, bob);
         await ConvergeAllAsync(a, b);
@@ -448,9 +448,9 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
         var bob = Member.New("os:B#bob");
         var carol = Member.New("os:C#carol");
 
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         await SeedGenesisAsync(a, founder);
-        var c = await NewReplicaAsync("C", a.NodeRoster.Current);
+        var c = await NewReplicaAsync("C", a.NodeRoster.Current, founder.PrincipalSigner);
 
         // A admits B and C, both carry transport keys; converge → C trusts B (the mesh fix).
         await AdmitAndPublishAsync(a, founder, bob);
@@ -496,11 +496,11 @@ public sealed class ThreeNodeMeshTransportKeyTests : IAsyncLifetime
         var bob = Member.New("os:B#bob");
         var carol = Member.New("os:C#carol");
 
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         // The genesis carries the founder's own transport key (the production seed path — the upgraded founder).
         await SeedGenesisAsync(a, founder);
-        var b = await NewReplicaAsync("B", a.NodeRoster.Current);
-        var c = await NewReplicaAsync("C", a.NodeRoster.Current);
+        var b = await NewReplicaAsync("B", a.NodeRoster.Current, founder.PrincipalSigner);
+        var c = await NewReplicaAsync("C", a.NodeRoster.Current, founder.PrincipalSigner);
 
         // MIXED record set: B admitted with an OLD record (no carried key), C admitted with a NEW record (carries).
         // This is the realistic rollout shape — an upgraded founder (genesis carries) with a member admitted by a

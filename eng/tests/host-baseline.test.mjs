@@ -42,12 +42,13 @@ test('named: missing, skipped, miscounted or unparsed results cannot pass', () =
 
 const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
 const macNames = mac.permittedFailures.map(row => row.test)
+const n = macNames.length // 15 from ticket 302 plus the two ticket 346 lifecycle rows
 const macOutput = macNames.map(name => `  Failed ${name} [12 ms]\n`).join('')
-const macInput = {baseline: mac, counts: {total: 15, failed: 15}, adjustedFailed: 15, newFailures: [], trx: trxOf(macOutput, {total: 15, failed: 15})}
+const macInput = {baseline: mac, counts: {total: n, failed: n}, adjustedFailed: n, newFailures: [], trx: trxOf(macOutput, {total: n, failed: n})}
 
 test('named: macOS duplicate permitted cases count individually', () => {
   const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[6]} [< 1 ms]\n`
-  const result = compareHostBaseline({...macInput, trx: trxOf(output, {total: 16, failed: 16}), adjustedFailed: 16})
+  const result = compareHostBaseline({...macInput, trx: trxOf(output, {total: n + 1, failed: n + 1}), adjustedFailed: n + 1})
   assert.deepEqual(result.burnDown, [])
   assert.deepEqual(result.missing, [])
   assert.equal(result.passed, true)
@@ -65,19 +66,19 @@ test('result parser preserves real display names across outcomes and duration fo
 })
 
 test('named: every false verdict supplies actionable console and evidence details', () => {
-  const noLines = 'host baseline incomplete: TRX has 0 failed results but its counter is 15'
+  const noLines = `host baseline incomplete: TRX has 0 failed results but its counter is ${n}`
   const cases = [
-    [{counts: {total: 3510, failed: 16}}, 'host baseline incomplete: TRX has 15 failed results but its counter is 16'],
+    [{counts: {total: 3510, failed: n + 1}}, `host baseline incomplete: TRX has ${n} failed results but its counter is ${n + 1}`],
     [{counts: null}, 'host baseline incomplete: TRX counters unavailable; inspect the host test output'],
-    [{counts: {total: 0, failed: 15}}, 'host baseline incomplete: TRX counted no tests; check test discovery'],
-    [{output: 'Failed: 15, Passed: 3476, Skipped: 19, Total: 3510'}, noLines],
+    [{counts: {total: 0, failed: n}}, 'host baseline incomplete: TRX counted no tests; check test discovery'],
+    [{output: `Failed: ${n}, Passed: 3476, Skipped: 19, Total: 3510`}, noLines],
     [{baseline: {...mac, permittedFailures: [...mac.permittedFailures, mac.permittedFailures[6]]}},
       `host baseline duplicate permitted row: remove duplicate row: ${macNames[6]}`],
-    [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: 16, failed: 16}, newFailures: ['Regression']},
+    [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: n + 1, failed: n + 1}, newFailures: ['Regression']},
       'host baseline unlisted failure: investigate: Regression'],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: 15, failed: 14}},
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: n, failed: n - 1}},
       `host baseline burn-down: remove row: ${macNames[6]}`],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: 15, failed: 14}},
+    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: n, failed: n - 1}},
       `host baseline missing result: ${macNames[6]}`],
     [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, 'host baseline incomplete: TRX has 0 total results but its counter is 1'],
   ]
@@ -111,25 +112,25 @@ test('Windows comparison preserves the original count and identity truth table',
     }
   }
 })
-test('all fifteen macOS identities are owned, distinct, and compared exactly', () => {
+test('all seventeen macOS identities are owned, distinct, and compared exactly', () => {
   const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
   const rows = mac.permittedFailures
-  assert.equal(rows.length, 15)
-  assert.equal(new Set(rows.map(row => row.test)).size, 15)
+  assert.equal(rows.length, 17)
+  assert.equal(new Set(rows.map(row => row.test)).size, 17)
   for (const row of rows) {
     assert.equal(row.owner, '302')
     assert.ok(['behavioural', 'environmental'].includes(row.class))
   }
   const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')
-  const input = {baseline: mac, counts: {total: 15, failed: 15}, adjustedFailed: 15, newFailures: [], trx: trxOf(output, {total: 15, failed: 15})}
+  const input = {baseline: mac, counts: {total: 17, failed: 17}, adjustedFailed: 17, newFailures: [], trx: trxOf(output, {total: 17, failed: 17})}
   assert.equal(compareHostBaseline(input).passed, true)
   for (const row of rows) {
-    const result = compareHostBaseline({...input, counts: {total: 15, failed: 14},
-      trx: trxOf(output.replace(`Failed ${row.test}`, `Passed ${row.test}`), {total: 15, failed: 14})})
+    const result = compareHostBaseline({...input, counts: {total: 17, failed: 16},
+      trx: trxOf(output.replace(`Failed ${row.test}`, `Passed ${row.test}`), {total: 17, failed: 16})})
     assert.equal(result.passed, false)
     assert.deepEqual(result.burnDown, [row.test])
     const renamed = compareHostBaseline({...input, newFailures: [row.test + ' renamed'],
-      trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: 15, failed: 15})})
+      trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: 17, failed: 17})})
     assert.equal(renamed.passed, false)
     assert.deepEqual(renamed.missing, [row.test])
   }
@@ -146,10 +147,11 @@ test('OS selection and the actual gate and landing routes carry the baseline', (
   assert.match(runner, /compareHostBaseline\(/)
   assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
   const land = readFileSync(path.join(root, 'eng/land.sh'), 'utf8')
-  // Ticket 333: the nested verify must be the LAST command of its subshell (bash execs it in-process, so the
-  // gate lock's parent-pid re-entry admits it); the landing receipt check follows in its own subshell.
-  assert.equal((land.match(/bash eng\/verify\.sh \) && \( cd "\$(?:land_dir|verify_dir)" && node eng\/verify-receipt\.mjs --landing \)/g) ?? []).length, 2)
-  assert.equal((land.match(/bash eng\/verify\.sh &&/g) ?? []).length, 0)
+  // Ticket 333: the shared verifier execs the nested verify as the LAST command of its subshell; both
+  // landing routes invoke that helper and perform the receipt check only after it returns.
+  assert.match(land, /else exec bash eng\/verify\.sh; fi \)/)
+  assert.equal((land.match(/run_land_verify "\$(?:land_dir|verify_dir)" "\$verify_log"/g) ?? []).length, 2)
+  assert.equal((land.match(/exec bash eng\/verify\.sh.*&&/g) ?? []).length, 0)
 })
 test('receipt CLI records baseline, accepts macOS slices and refuses macOS landing', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))

@@ -16,13 +16,15 @@ NODE
 quality_baseline_compare() {
   local land_root=$1
   local baseline="$land_root/eng/baselines/quality-baseline.json" candidate counts new resolved
-  candidate=$(mktemp "$land_root/.quality-baseline.XXXXXX")
+  # The candidate stays relative to the land root: node resolves it against its own cwd, and an MSYS
+  # absolute path handed to a Windows node does not.
+  candidate=$(cd "$land_root" && mktemp "./.quality-baseline.XXXXXX")
   if ! ( cd "$land_root" && node eng/quality-step.mjs --write-baseline "$candidate" ); then
-    rm -f "$candidate"
+    rm -f "$land_root/$candidate"
     return 1
   fi
-  counts=$(quality_baseline_sets_compare "$candidate" "$baseline") || { rm -f "$candidate"; return 1; }
-  rm -f "$candidate"
+  counts=$(quality_baseline_sets_compare "$land_root/$candidate" "$baseline") || { rm -f "$land_root/$candidate"; return 1; }
+  rm -f "$land_root/$candidate"
   read -r new resolved <<<"$counts"
   if [ "$new" -eq 0 ] && [ "$resolved" -eq 0 ]; then
     echo 'land: quality baseline unchanged'
