@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -104,6 +105,21 @@ public sealed class AuthorizationModelArchTests
             + "Role(\"Manager\"); }");
 
         Assert.Equal(["AuthorizationSession.cs"], ScanGlobalRoleMembership(offender.Root));
+    }
+
+    [Fact]
+    public void AuthorizationScanners_IgnoreUntrackedFilesAndCatchTrackedFiles()
+    {
+        using var repository = ScratchRepository("tracked/Tracked.cs", "namespace Planted; public sealed class Tracked { }");
+        var untracked = Path.Combine(repository.Root, ".platform", "Untracked.cs");
+        Directory.CreateDirectory(Path.GetDirectoryName(untracked)!);
+        File.WriteAllText(untracked,
+            "namespace Planted; public sealed class Untracked { bool Allowed(IUserContext user) => user.HasRole(\"Manager\"); }");
+
+        Assert.Empty(ScanGlobalRoleMembership(repository.Root));
+
+        Track(repository.Root, ".platform/Untracked.cs");
+        Assert.Equal([".platform/Untracked.cs"], ScanGlobalRoleMembership(repository.Root));
     }
 
     [Fact]
@@ -234,7 +250,7 @@ public sealed class AuthorizationModelArchTests
             .ToArray();
         var compositionLeaks = compositionUses
             .Where(source => !source.RelativePath.EndsWith(
-                    Path.Combine("Permissions", "PermissionCompositions.cs"),
+                    "Permissions/PermissionCompositions.cs",
                     StringComparison.OrdinalIgnoreCase)
                 && (!Regex.IsMatch(source.Code,
                         @"\b(?:MemberRoster|RosterMember|RosterRecord|TeamMembership|grantedPermissions|founderPermissions|selectedSession)\b")
@@ -421,17 +437,38 @@ public sealed class AuthorizationModelArchTests
 
     private static IEnumerable<SourceFile> ProductionSources(string root)
     {
-        string[] excluded = ["tests", "obj", "bin", "node_modules", ".git", ".claude", "artifacts", "Migrations"];
-        return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+        return TrackedFiles(root, "*.cs", ":!**/tests/**")
             .Select(file => new
             {
                 File = file,
-                Relative = Path.GetRelativePath(root, file),
+                Relative = Path.GetRelativePath(root, file).Replace('\\', '/'),
             })
-            .Where(item => !item.Relative
-                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                .Any(segment => excluded.Contains(segment, StringComparer.OrdinalIgnoreCase)))
             .Select(item => new SourceFile(item.Relative, CodeOnly(File.ReadAllText(item.File))));
+    }
+
+    private static IEnumerable<string> TrackedFiles(string root, params string[] pathspecs)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("ls-files");
+        start.ArgumentList.Add("-z");
+        start.ArgumentList.Add("--");
+        foreach (var pathspec in pathspecs) start.ArgumentList.Add(pathspec);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0) throw new InvalidOperationException($"git ls-files failed: {error}");
+
+        return output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Select(relative => Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)))
+            .Where(File.Exists)
+            .ToArray();
     }
 
     private static string CodeOnly(string source)
@@ -460,7 +497,27 @@ public sealed class AuthorizationModelArchTests
         var file = Path.Combine(root, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, source);
+        InitializeGitRepository(root);
+        Track(root, relativePath);
         return new ScratchRoot(root);
+    }
+
+    private static void InitializeGitRepository(string root) => RunGit(root, "init", "--quiet");
+
+    private static void Track(string root, string relativePath) => RunGit(root, "add", "--", relativePath);
+
+    private static void RunGit(string root, params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = root,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
     }
 
     private sealed record SourceFile(string RelativePath, string Code);
@@ -468,7 +525,7 @@ public sealed class AuthorizationModelArchTests
     private sealed class ScratchRoot(string root) : IDisposable
     {
         public string Root { get; } = root;
-        public void Dispose() => Directory.Delete(Root, recursive: true);
+        public void Dispose() => ScratchTree.Delete(Root);
     }
 
     private sealed class UnusedSearchContextFactory : IDbContextFactory<NodeLocalSearchDbContext>
