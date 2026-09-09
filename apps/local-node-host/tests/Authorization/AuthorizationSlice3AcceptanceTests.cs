@@ -9,6 +9,7 @@ using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -18,6 +19,8 @@ using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
+using Harborline.Api.LocalNodeHost.Enrollment;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.ArchTests;
 using Harborline.Api.LocalNodeHost.Tests.Search;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -34,6 +37,15 @@ public sealed class AuthorizationSlice3AcceptanceTests
 {
     private static readonly TenantId Tenant = new("tenant-slice-3");
     private static readonly DateTimeOffset At = new(2026, 9, 2, 16, 30, 0, TimeSpan.Zero);
+
+    private static NodeTeamRoster DevelopmentIndexerRoster(NodePrincipalSigner signer) => new(
+        MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000031"),
+            AccessGrantAuthorizationSeed.DevIndexerPrincipal,
+            signer.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000032")));
 
     [Fact]
     public async Task JournalPosting_DeniedBeforeBeginImmediateOrJournalMutation()
@@ -513,11 +525,15 @@ public sealed class AuthorizationSlice3AcceptanceTests
         await eventStore.SaveAsync(firstEvent);
         var environment = Substitute.For<IHostEnvironment>();
         environment.EnvironmentName.Returns(Environments.Development);
+        using var nodeSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x53, 32).ToArray());
+        var roster = DevelopmentIndexerRoster(nodeSigner);
         var indexer = new KgCalendarDevIndexer(
             eventStore,
             authorization.GetRequiredService<IGrantStore>(),
             new NodeSearchIndexer(search.Factory),
             active,
+            roster,
+            nodeSigner,
             environment,
             NullLogger<KgCalendarDevIndexer>.Instance,
             authorization.GetRequiredService<AuthorizationGate>(),
@@ -546,7 +562,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             tenant, "must remain unindexed", new DateOnly(2026, 9, 3), new DateOnly(2026, 9, 3), Guid.NewGuid());
         await eventStore.SaveAsync(secondEvent);
         var revokedIndexer = new KgCalendarDevIndexer(
-            eventStore, grants, new NodeSearchIndexer(search.Factory), active, environment,
+            eventStore, grants, new NodeSearchIndexer(search.Factory), active, roster, nodeSigner, environment,
             NullLogger<KgCalendarDevIndexer>.Instance,
             authorization.GetRequiredService<AuthorizationGate>(),
             new FixedTimeProvider(At.AddMinutes(3)));
@@ -576,10 +592,12 @@ public sealed class AuthorizationSlice3AcceptanceTests
             tenant, "production seed", new DateOnly(2026, 9, 2), new DateOnly(2026, 9, 2), Guid.NewGuid()));
         var environment = Substitute.For<IHostEnvironment>();
         environment.EnvironmentName.Returns(Environments.Development);
+        using var nodeSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x54, 32).ToArray());
+        var roster = DevelopmentIndexerRoster(nodeSigner);
 
         await new KgCalendarDevIndexer(
             events, authorization.GetRequiredService<IGrantStore>(), new NodeSearchIndexer(search.Factory),
-            active, environment, NullLogger<KgCalendarDevIndexer>.Instance,
+            active, roster, nodeSigner, environment, NullLogger<KgCalendarDevIndexer>.Instance,
             authorization.GetRequiredService<AuthorizationGate>(), new FixedTimeProvider(At))
             .StartAsync(CancellationToken.None);
 

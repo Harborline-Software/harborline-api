@@ -11,6 +11,9 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
@@ -45,6 +48,7 @@ public sealed class NodeCallerSessionTokenTests : IAsyncLifetime
     private HttpClient _client = null!;
     private string _baseUrl = null!;
     private NodePrincipalSigner _nodeSigner = null!;
+    private NodeTeamRoster _roster = null!;
 
     // Fixed 32-byte seed → deterministic node identity (mirrors the sibling signing-route suite).
     private static readonly byte[] FixedSeed = Enumerable.Repeat((byte)0x07, 32).ToArray();
@@ -52,6 +56,13 @@ public sealed class NodeCallerSessionTokenTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _nodeSigner = new NodePrincipalSigner(FixedSeed);
+        _roster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000041"),
+            "canonical-token-test-principal-294",
+            _nodeSigner.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000042")));
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -61,7 +72,13 @@ public sealed class NodeCallerSessionTokenTests : IAsyncLifetime
         // The SAME production route the hosted endpoint maps — but WITH the caller-auth
         // guard ENFORCED (a configured token). One source of truth for the wire contract.
         var callerAuth = new NodeCallerSessionToken(Token);
-        CurrentPrincipalSignatureRoutes.Map(_app, _nodeSigner.Signer, _nodeSigner.NodePublicKey, callerAuth, TimeProvider.System);
+        CurrentPrincipalSignatureRoutes.Map(
+            _app,
+            _nodeSigner.Signer,
+            _nodeSigner.NodePublicKey,
+            callerAuth,
+            () => HostedCurrentPrincipalSignatureApiEndpoint.ResolveCurrentPrincipal(_roster, _nodeSigner),
+            TimeProvider.System);
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();

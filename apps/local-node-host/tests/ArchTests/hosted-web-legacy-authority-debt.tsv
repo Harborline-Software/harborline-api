@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	439
+# reviewed-aggregate-debt-ceiling	436
+# 2026-09-09 (294 s2b) ratchet	canonical roster-principal routing removed three legacy static-authority tokens
 Feed/ChannelFeedRoutes.cs	2	0
 Feed/HostedChannelFeedApiEndpoint.cs	2	0
 Health/AdmissionRoutes.cs	4	0
@@ -15,7 +16,6 @@ Health/CalendarRoutes.cs	6	0
 Health/ChartOfAccountsRoutes.cs	2	0
 Health/CommsRoutes.cs	19	1
 Health/ContactRoutes.cs	16	0
-Health/CurrentPrincipalSignatureRoutes.cs	0	2
 Health/DataExchangeDefinitionRoutes.cs	5	0
 Health/DeclarativeConfirmRoutes.cs	8	0
 Health/DocumentRoutes.cs	11	0
@@ -67,7 +67,7 @@ Health/InvoiceApprovalTaskRoutes.cs	8	0
 Health/InvoiceRoutes.cs	14	0
 Health/JournalEntryRoutes.cs	10	0
 Health/KgActionApprovalTaskRoutes.cs	8	0
-Health/KgSearchRoutes.cs	2	1
+Health/KgSearchRoutes.cs	2	0
 Health/LeaseSubLedgerRoutes.cs	6	0
 Health/LifecycleRoutes.cs	5	0
 Health/LocalNodeHealthCheck.cs	4	0

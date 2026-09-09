@@ -81,7 +81,7 @@ public sealed class RosterRebuildFaultTests
         await using (var db = await f.Factory.CreateDbContextAsync())
         {
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-            peer.WireFormatVersion = 0;
+            peer.WireFormatVersion = 3;
             peer.ReceivedAtUtc = forgedReceipt;
             peer.ReceivedByPartyId = string.Empty;
             peer.ReceivedByPublicKey = string.Empty;
@@ -92,11 +92,11 @@ public sealed class RosterRebuildFaultTests
         await f.RestartAsync();
         Assert.Equal(0, await f.Projection.HydrateFromStoreAsync(default));
         Assert.Empty(f.Projection.Snapshot());
-        await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "wire format version");
+        await f.AssertRefusalAsync("roster_wire_format_unsupported", "wire format version");
 
         await using var reopened = await f.Factory.CreateDbContextAsync();
         var refused = await reopened.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-        Assert.Equal(0, refused.WireFormatVersion);
+        Assert.Equal(3, refused.WireFormatVersion);
         Assert.Equal(forgedReceipt, refused.ReceivedAtUtc);
         Assert.Empty(refused.ReceiveAttestationSignatureB64Url);
     }

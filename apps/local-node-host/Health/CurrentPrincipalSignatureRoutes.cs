@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -32,8 +33,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </para>
 /// <para>
 /// <b>Bounded — it is NOT a signing oracle.</b> The route signs <i>ONLY</i> the
-/// host-resolved current OS-user principal (<see cref="ResolveCurrentPrincipal"/>:
-/// <c>Environment.UserName</c> → <c>os:&lt;user&gt;</c>, <c>kind: local-os-user</c>).
+/// host-resolved canonical tenant principal (<see cref="ResolveCurrentPrincipal"/>). The signed id is the
+/// same principal key the roster and grant store use, never an OS-account-derived authority key.
 /// There is NO request body and no query parameter that selects WHAT gets signed — a
 /// caller cannot ask the node to sign an arbitrary principal of its choosing. This is
 /// the load-bearing scope-fence: the node attests "the local OS user is X", it does not
@@ -84,9 +85,9 @@ public static class CurrentPrincipalSignatureRoutes
     /// null optional, matching how the TS side OMITS an undefined <c>displayName</c>/<c>kind</c>.
     /// </para>
     /// </remarks>
-    /// <param name="Id">Stable identity, namespaced by source — <c>os:&lt;user&gt;</c>.</param>
-    /// <param name="DisplayName">Human-readable name (the OS username today). Omitted when null.</param>
-    /// <param name="Kind">The identity SOURCE — <c>local-os-user</c> today. Omitted when null.</param>
+    /// <param name="Id">Canonical tenant principal id — the roster and grant-store authorization key.</param>
+    /// <param name="DisplayName">Human-readable name. Omitted when null.</param>
+    /// <param name="Kind">The identity source — <c>canonical-tenant-principal</c>. Omitted when null.</param>
     public sealed record SignedPrincipalPayload(
         [property: JsonPropertyName("id")] string Id,
         [property: JsonPropertyName("displayName")]
@@ -95,54 +96,39 @@ public static class CurrentPrincipalSignatureRoutes
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind);
 
     /// <summary>
-    /// Resolves the host's CURRENT OS-user principal — host-side, from the process
-    /// environment, NOT from any caller-supplied input. Mirrors the Harborline App
-    /// <c>principal.rs</c> <c>resolve_principal</c> + the SDK <c>currentOsPrincipal()</c>
-    /// so all three sources build an identical principal: <c>os:&lt;user&gt;</c> /
-    /// <c>local-os-user</c>, with a blank username falling back to <c>os:unknown</c> so the
-    /// attested principal is ALWAYS non-anonymous.
+    /// Resolves the current desktop session's canonical tenant principal. The roster's genesis-party
+    /// selection is already the canonical principal binding on this plane (ticket 294 slice 2a), so this
+    /// route signs that one authorization key instead of minting a second OS-account key.
     /// </summary>
-    public static SignedPrincipalPayload ResolveCurrentPrincipal() =>
-        ResolveCurrentPrincipal(Environment.UserName);
-
-    /// <summary>
-    /// The derivation itself, over an explicit raw OS-user name — the seam the tests drive
-    /// (the process OS account name cannot be set in-process).
-    /// </summary>
-    internal static SignedPrincipalPayload ResolveCurrentPrincipal(string? raw)
+    public static SignedPrincipalPayload ResolveCurrentPrincipal(ActorId canonicalPrincipal)
     {
-        var username = string.IsNullOrWhiteSpace(raw) ? "unknown" : raw.Trim();
         return new SignedPrincipalPayload(
-            // MINT, not wrap: this is a derivation from a shell value (ticket 274/296), so the OS
-            // account name is canonicalised here. Consumers wrap the result in ActorId, which refuses
-            // a decomposed spelling — a non-form-C account name would 500 the KG search route.
-            Id: ActorId.Mint($"os:{username}").Value,
-            DisplayName: username,
-            Kind: "local-os-user");
+            Id: canonicalPrincipal.Value,
+            // The canonical payload is a signed wire contract. Keep displayName present
+            // while making it derive from the same canonical authority key as Id.
+            DisplayName: canonicalPrincipal.Value,
+            Kind: "canonical-tenant-principal");
     }
 
     /// <summary>
-    /// Maps <c>GET <see cref="Route"/></c> on <paramref name="routes"/>, closing over the
-    /// node's canonical signing <paramref name="signer"/> + its <paramref name="nodePublicKey"/>.
-    /// The same registration the production hosted endpoint and the route tests both call —
-    /// one source of truth for the wire contract.
+    /// Resolves this node's canonical tenant principal from the one roster edge whose public key matches the
+    /// node signing key. The hosted adapters pass this result to the route; the route never invents a principal.
     /// </summary>
-    /// <param name="routes">The endpoint route builder (the shared <c>WebApplication</c>).</param>
-    /// <param name="signer">
-    /// The node's canonical Ed25519 signer — built from the host's <c>RootSeedHex</c>→keypair.
-    /// Its <see cref="IOperationSigner.IssuerId"/> IS the node public key the verifier pins.
-    /// </param>
-    /// <param name="nodePublicKey">
-    /// The node public key (base64url of the raw 32 pubkey bytes — the verifier's trust
-    /// anchor). Equals <c>signer.IssuerId.ToBase64Url()</c>; passed explicitly so the wire
-    /// shape is unambiguous.
-    /// </param>
-    public static void Map(
-        IEndpointRouteBuilder routes,
-        IOperationSigner signer,
-        string nodePublicKey,
-        TimeProvider timeProvider)
-        => Map(routes, signer, nodePublicKey, new NodeCallerSessionToken(null), timeProvider);
+    internal static ActorId ResolveRosterPrincipal(NodeTeamRoster roster, NodePrincipalSigner nodeSigner)
+    {
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(nodeSigner);
+
+        var matches = roster.Current.Members
+            .Where(member => member.PublicKey.Equals(nodeSigner.Signer.IssuerId))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            throw new InvalidOperationException("current_node_roster_edge_not_found");
+        }
+
+        return new ActorId(matches[0].PartyId);
+    }
 
     /// <summary>
     /// Maps <c>GET <see cref="Route"/></c> with the inc-4 cross-process CALLER-AUTH guard
@@ -166,12 +152,14 @@ public static class CurrentPrincipalSignatureRoutes
         IOperationSigner signer,
         string nodePublicKey,
         NodeCallerSessionToken callerAuth,
+        Func<ActorId> currentPrincipal,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(signer);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodePublicKey);
         ArgumentNullException.ThrowIfNull(callerAuth);
+        ArgumentNullException.ThrowIfNull(currentPrincipal);
 
         // GET /api/local-node/current-principal-signature
         routes.MapGet(Route, async (HttpRequest httpRequest, CancellationToken ct) =>
@@ -191,7 +179,7 @@ public static class CurrentPrincipalSignatureRoutes
 
             // BOUNDED: sign ONLY the host-resolved current principal. There is no request
             // body / query selecting the principal — this is not a signing oracle.
-            var principal = ResolveCurrentPrincipal();
+            var principal = ResolveCurrentPrincipal(currentPrincipal());
 
             // Sign over the cross-language canonical form (CanonicalJson.SerializeSignable,
             // #1254): {issuedAt, issuerId, nonce, payload} with the node identity. A fresh

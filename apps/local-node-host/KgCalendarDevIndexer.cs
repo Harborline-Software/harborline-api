@@ -18,6 +18,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost;
 
@@ -46,8 +47,7 @@ namespace Harborline.Api.LocalNodeHost;
 /// </para>
 /// <para>
 /// <b>The principal-id footgun — PINNED (survey open Q#1).</b> The KG search route resolves the acting
-/// principal SERVER-SIDE via <see cref="CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal"/> —
-/// <c>os:&lt;Environment.UserName&gt;</c>. The grant store keys grants on
+/// principal SERVER-SIDE from the roster's current node key. The grant store keys grants on
 /// <c>AccessGrant.Subject.Value</c> (ordinal string equality, both the in-memory and node-EF stores). So
 /// this seeder uses the SAME helper to derive the grant's <see cref="AccessGrant.Subject"/> — the grant
 /// and the route therefore key on the IDENTICAL string. If these two diverged, the clip would drop every
@@ -78,12 +78,14 @@ public sealed class KgCalendarDevIndexer : IHostedService
     public const string CalendarEventNodeType = "calendar-event";
 
     /// <summary>The deterministic dev grant-issuer (an opaque demo-data author id — not a real principal).</summary>
-    private static readonly ActorId SeedGranter = new("os:dev-seed-granter");
+    private static readonly ActorId SeedGranter = new("dev-seed-granter");
 
     private readonly ICalendarEventStore _eventStore;
     private readonly IGrantStore _grantStore;
     private readonly NodeSearchIndexer _indexer;
     private readonly IActiveTeamAccessor _activeTeam;
+    private readonly NodeTeamRoster _roster;
+    private readonly NodePrincipalSigner _nodeSigner;
     private readonly IHostEnvironment _environment;
     private readonly ILogger<KgCalendarDevIndexer> _logger;
     private readonly AuthorizationGate? _gate;
@@ -97,6 +99,8 @@ public sealed class KgCalendarDevIndexer : IHostedService
         IGrantStore grantStore,
         NodeSearchIndexer indexer,
         IActiveTeamAccessor activeTeam,
+        NodeTeamRoster roster,
+        NodePrincipalSigner nodeSigner,
         IHostEnvironment environment,
         ILogger<KgCalendarDevIndexer> logger,
         AuthorizationGate? gate = null,
@@ -106,6 +110,8 @@ public sealed class KgCalendarDevIndexer : IHostedService
         ArgumentNullException.ThrowIfNull(grantStore);
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(nodeSigner);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -113,6 +119,8 @@ public sealed class KgCalendarDevIndexer : IHostedService
         _grantStore = grantStore;
         _indexer = indexer;
         _activeTeam = activeTeam;
+        _roster = roster;
+        _nodeSigner = nodeSigner;
         _environment = environment;
         _logger = logger;
         _gate = gate;
@@ -236,8 +244,8 @@ public sealed class KgCalendarDevIndexer : IHostedService
         }
 
         // PINNED footgun: the grant's principal id MUST be the SAME string the KG search route resolves +
-        // passes to SearchAsync. Both derive it from ResolveCurrentPrincipal() — one source of truth.
-        var principalId = new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id);
+        // passes to SearchAsync. Both read the current node's roster edge by signing key — one source of truth.
+        var principalId = CurrentPrincipalSignatureRoutes.ResolveRosterPrincipal(_roster, _nodeSigner);
 
         // Idempotency: if an active grant for this principal already reaches every seeded event, do nothing.
         var existing = await _grantStore

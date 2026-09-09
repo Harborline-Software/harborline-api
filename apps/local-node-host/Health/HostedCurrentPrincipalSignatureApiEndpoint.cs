@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -31,6 +33,7 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
 {
     private readonly SharedHostedWebApp _sharedApp;
     private readonly NodePrincipalSigner _nodeSigner;
+    private readonly NodeTeamRoster _roster;
     private readonly NodeCallerSessionToken _callerAuth;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HostedCurrentPrincipalSignatureApiEndpoint> _logger;
@@ -39,17 +42,20 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
     public HostedCurrentPrincipalSignatureApiEndpoint(
         SharedHostedWebApp sharedApp,
         NodePrincipalSigner nodeSigner,
+        NodeTeamRoster roster,
         NodeCallerSessionToken callerAuth,
         TimeProvider timeProvider,
         ILogger<HostedCurrentPrincipalSignatureApiEndpoint> logger)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(nodeSigner);
+        ArgumentNullException.ThrowIfNull(roster);
         ArgumentNullException.ThrowIfNull(callerAuth);
         ArgumentNullException.ThrowIfNull(logger);
 
         _sharedApp = sharedApp;
         _nodeSigner = nodeSigner;
+        _roster = roster;
         _callerAuth = callerAuth;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger;
@@ -66,6 +72,7 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
                 _nodeSigner.Signer,
                 _nodeSigner.NodePublicKey,
                 _callerAuth,
+                () => ResolveCurrentPrincipal(_roster, _nodeSigner),
                 _timeProvider);
         });
 
@@ -83,4 +90,7 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    internal static ActorId ResolveCurrentPrincipal(NodeTeamRoster roster, NodePrincipalSigner nodeSigner) =>
+        CurrentPrincipalSignatureRoutes.ResolveRosterPrincipal(roster, nodeSigner);
 }

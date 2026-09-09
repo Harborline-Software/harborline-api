@@ -181,13 +181,13 @@ public sealed class RosterPreInsertVerificationTests
         await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
         var candidate = f.Admission(f.Founder, "founder", "old-peer", At.AddHours(2)) with
         {
-            WireFormatVersion = RosterWireFormat.CurrentVersion - 1,
+            WireFormatVersion = 3,
             UnmappedWireFields = PermissionField(),
         };
         candidate = JsonSerializer.Deserialize<RosterRecordCrdtState>(JsonSerializer.Serialize(candidate))!;
         await f.MergeRawAsync([candidate]);
         Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
-        Assert.Contains("roster.record.wire_version_unsupported",
+        Assert.Contains("roster_wire_format_unsupported",
             JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
     }
 

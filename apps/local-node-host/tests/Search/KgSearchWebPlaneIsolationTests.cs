@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Authorization;
@@ -16,6 +17,7 @@ using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
@@ -23,7 +25,7 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Search;
 
 /// <summary>
-/// Card #3384 — a selected-session KG search must not inherit the desktop OS operator's read clip.
+/// Card #3384 — a selected-session KG search must not inherit the desktop canonical-principal read clip.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -88,7 +90,7 @@ public sealed class KgSearchWebPlaneIsolationTests
     }
 
     [Fact(DisplayName =
-        "3384: a desktop-plane KG search still returns the OS operator's authorized row — the fix is " +
+        "294 s2b: HostedKgSearchApiEndpoint decides a desktop-plane KG search on the canonical tenant principal — the fix is " +
         "not a blanket empty result")]
     public async Task DesktopPlane_SearchStillReturnsTheOperatorClip()
     {
@@ -101,6 +103,37 @@ public sealed class KgSearchWebPlaneIsolationTests
         Assert.DoesNotContain(MemberARecordId, response.Body, StringComparison.Ordinal);
         Assert.DoesNotContain(MemberBRecordId, response.Body, StringComparison.Ordinal);
         Assert.Equal(new[] { OperatorRecordId }, ReadRecordIds(response.Body));
+    }
+
+    [Fact(DisplayName =
+        "294 s2b: HostedKgSearchApiEndpoint resolves its signing-key roster edge and names a missing edge")]
+    public void HostedKgSearchApiEndpoint_ResolvesRosterEdge_OrRefusesWithNamedReason()
+    {
+        using var nodeSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x34, 32).ToArray());
+        var roster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000021"),
+            "canonical-tenant-principal-kg-294",
+            nodeSigner.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000022")));
+
+        Assert.Equal(
+            "canonical-tenant-principal-kg-294",
+            HostedKgSearchApiEndpoint.ResolveCurrentPrincipal(roster, nodeSigner).Value);
+
+        using var foreignSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x35, 32).ToArray());
+        var noMatchRoster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000023"),
+            "other-canonical-principal-kg-294",
+            foreignSigner.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000024")));
+
+        var refusal = Assert.Throws<InvalidOperationException>(() =>
+            HostedKgSearchApiEndpoint.ResolveCurrentPrincipal(noMatchRoster, nodeSigner));
+        Assert.Equal("current_node_roster_edge_not_found", refusal.Message);
     }
 
     private static void AssertEmptyWebClip(RouteResponse response)
@@ -150,19 +183,22 @@ public sealed class KgSearchWebPlaneIsolationTests
         private readonly ServiceProvider _requestServices;
         private readonly ServiceProvider _teamServices;
         private readonly RouteEndpoint _endpoint;
+        private readonly NodePrincipalSigner _nodeSigner;
 
         private Fixture(
             TenantId tenantId,
             SearchTestStore searchStore,
             ServiceProvider requestServices,
             ServiceProvider teamServices,
-            RouteEndpoint endpoint)
+            RouteEndpoint endpoint,
+            NodePrincipalSigner nodeSigner)
         {
             TenantId = tenantId;
             _searchStore = searchStore;
             _requestServices = requestServices;
             _teamServices = teamServices;
             _endpoint = endpoint;
+            _nodeSigner = nodeSigner;
         }
 
         internal TenantId TenantId { get; }
@@ -170,8 +206,17 @@ public sealed class KgSearchWebPlaneIsolationTests
         internal static async Task<Fixture> CreateAsync()
         {
             var tenantId = ActiveTeamTenantContext.ProjectTenantId(ActiveTeam);
-            var operatorPrincipal =
-                new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id);
+            // The real desktop route receives this value from the current node's roster edge. It is
+            // intentionally unlike an OS spelling, so this search-read assertion fails if the route mints one.
+            var nodeSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x38, 32).ToArray());
+            var roster = new NodeTeamRoster(MemberRoster.Genesis(
+                Guid.Parse("33840000-0000-4000-8000-000000000001"),
+                "canonical-tenant-principal-3384",
+                nodeSigner.Signer,
+                new Ed25519Verifier(),
+                DateTimeOffset.UnixEpoch,
+                Guid.Parse("33840000-0000-4000-8000-000000000002")));
+            var operatorPrincipal = HostedKgSearchApiEndpoint.ResolveCurrentPrincipal(roster, nodeSigner);
 
             var searchStore = await SearchTestStore.CreateAsync();
             var indexer = new NodeSearchIndexer(searchStore.Factory);
@@ -202,6 +247,7 @@ public sealed class KgSearchWebPlaneIsolationTests
                 routes.MapDeviceReachableProductDataGroup(),
                 readService,
                 activeTeam,
+                () => HostedKgSearchApiEndpoint.ResolveCurrentPrincipal(roster, nodeSigner),
                 TimeProvider.System);
 
             var endpoint = routes.DataSources
@@ -210,7 +256,7 @@ public sealed class KgSearchWebPlaneIsolationTests
                 .Single(candidate =>
                     candidate.RoutePattern.RawText == $"{KgSearchRoutes.RouteBase}/search");
 
-            return new Fixture(tenantId, searchStore, requestServices, teamServices, endpoint);
+            return new Fixture(tenantId, searchStore, requestServices, teamServices, endpoint, nodeSigner);
         }
 
         internal async Task<RouteResponse> SearchAsMemberAsync(
@@ -227,6 +273,7 @@ public sealed class KgSearchWebPlaneIsolationTests
             await _requestServices.DisposeAsync();
             await _teamServices.DisposeAsync();
             await _searchStore.DisposeAsync();
+            _nodeSigner.Dispose();
         }
 
         private async Task<RouteResponse> InvokeSearchAsync(SelectedSessionRequestPrincipal? principal)
