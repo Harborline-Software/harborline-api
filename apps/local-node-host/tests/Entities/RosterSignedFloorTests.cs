@@ -223,7 +223,7 @@ public sealed class RosterSignedFloorTests
             var live = new NodeTeamRoster(roster);
             AuthorizationRefusalAudit? audit = null;
             var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
-                NullLogger<RosterCrdtProjection>.Instance, nodeRoster: live, refusalAudit: () => audit);
+                founder, NullLogger<RosterCrdtProjection>.Instance, nodeRoster: live, refusalAudit: () => audit);
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), CancellationToken.None);
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromRevocation(Removal(founder)), CancellationToken.None);
             await projection.DrainPendingReconcilesAsync();
@@ -235,7 +235,7 @@ public sealed class RosterSignedFloorTests
         {
             var factory = _provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
             await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
-                NullLogger<RosterCrdtProjection>.Instance);
+                Founder, NullLogger<RosterCrdtProjection>.Instance);
             await sender.PublishLocalAsync(Projection.Snapshot().Single(r => r.Kind == RosterRecordKind.Revocation),
                 CancellationToken.None);
             await sender.DrainPendingReconcilesAsync();
@@ -332,7 +332,7 @@ public sealed class RosterSignedFloorTests
         var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var db = await factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();
         await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
-            NullLogger<RosterCrdtProjection>.Instance);
+            founder, NullLogger<RosterCrdtProjection>.Instance);
         foreach (var record in records) await sender.PublishLocalAsync(record, CancellationToken.None);
         await sender.DrainPendingReconcilesAsync();
         var delta = await sender.EncodeOutboundDeltaAsync(RosterCrdtProjection.DocumentId,

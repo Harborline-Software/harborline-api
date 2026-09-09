@@ -136,7 +136,12 @@ public sealed record RosterRecordCrdtState(
     string DmPublicKeyB64Url = "",
     string XWingPublicKeyB64Url = "",
     string AdmittedViaTokenId = "",
-    string MintingSessionEvidence = "")
+    string MintingSessionEvidence = "",
+    int WireFormatVersion = 0,
+    string ReceivedAtIso = "",
+    string ReceivedByPartyId = "",
+    string ReceivedByPublicKey = "",
+    string ReceiveAttestationSignatureB64Url = "")
 {
     /// <summary>
     /// The X-Wing PUBLIC key length in bytes (1216 = ML-KEM-768 pk 1184 ‖ X25519 pk 32) — the length a carried
@@ -245,6 +250,30 @@ public sealed record RosterRecordCrdtState(
             SignatureB64Url: r.Signature,
             IsGenesis: false);
     }
+
+    /// <summary>Attach this node's canonical receive evidence before the record enters the synced document.</summary>
+    public RosterRecordCrdtState AttestReceipt(
+        IOperationSigner signer, string nodePartyId, DateTimeOffset receivedAt)
+    {
+        if (!Guid.TryParse(NonceGuid, out var nonce))
+            throw new ArgumentException("A roster record needs a valid nonce before receipt attestation.", nameof(NonceGuid));
+        var attestation = RosterReceiveAttestationSigning.Sign(signer, nodePartyId, RecordId, receivedAt, nonce);
+        return this with
+        {
+            WireFormatVersion = attestation.FormatVersion,
+            ReceivedAtIso = attestation.ReceivedAt.ToString("O"),
+            ReceivedByPartyId = attestation.NodePartyId,
+            ReceivedByPublicKey = attestation.NodePublicKey,
+            ReceiveAttestationSignatureB64Url = attestation.Signature,
+        };
+    }
+
+    /// <summary>Reconstruct the signed receive evidence, or null for an old/malformed wire shape.</summary>
+    public RosterReceiveAttestation? ReceiveAttestationOrNull() =>
+        WireFormatVersion == RosterWireFormat.CurrentVersion && DateTimeOffset.TryParse(ReceivedAtIso, null,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var receivedAt)
+            ? new(WireFormatVersion, ReceivedByPartyId, ReceivedByPublicKey, receivedAt,
+                ReceiveAttestationSignatureB64Url) : null;
 
     /// <summary>
     /// Reconstruct the foundation admission record from this wire form, or null when this is not a

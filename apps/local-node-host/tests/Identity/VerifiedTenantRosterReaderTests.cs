@@ -47,7 +47,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_RefusesPermissionOnlySubstitutionAsTampered(bool genesis)
     {
         var fixture = BuildRoster();
-        var rows = fixture.Admissions.Select(ToRow).ToArray();
+        var rows = fixture.Admissions.Select(admission => ToRow(admission, fixture)).ToArray();
         rows.Single(row => row.IsGenesis == genesis).SignedPermissionsJson = "[]";
         await SeedAsync(rows);
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.Tampered, Tenant());
@@ -58,7 +58,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_RebuildsVerifiedRoster_AfterStoreRestart()
     {
         var fixture = BuildRoster();
-        await SeedAsync(fixture.Admissions.Select(ToRow));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture)));
 
         var beforeRestart = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
         Assert.True(beforeRestart.Contains(fixture.MemberParty));
@@ -80,7 +80,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_RefusesTamperedSignature()
     {
         var fixture = BuildRoster();
-        var rows = fixture.Admissions.Select(ToRow).ToArray();
+        var rows = fixture.Admissions.Select(admission => ToRow(admission, fixture)).ToArray();
         rows.Single(row => row.PartyId == fixture.MemberParty).SignatureB64Url = "not-a-signature";
         await SeedAsync(rows);
 
@@ -99,7 +99,8 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
             Verifier,
             IssuedAt.AddMinutes(2),
             Guid.Parse("ad030000-0000-0000-0000-000000000023"));
-        await SeedAsync(fixture.Admissions.Select(ToRow).Append(ToRow(revocation)));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
+            .Append(ToRow(revocation, fixture)));
 
         var verified = await NewReader().ReadAsync(Tenant(), CancellationToken.None);
 
@@ -131,7 +132,8 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
             orphanMember.PrincipalId,
             PermissionCompositions.Member,
             orphanAdmission);
-        await SeedAsync(fixture.Admissions.Select(ToRow).Append(ToRow(orphan)));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
+            .Append(ToRow(orphan, fixture)));
 
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.Orphan, Tenant());
     }
@@ -141,10 +143,13 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_RefusesDuplicateValidAdmissionUnderAnotherDurableId()
     {
         var fixture = BuildRoster();
-        var rows = fixture.Admissions.Select(ToRow).ToList();
-        var duplicate = ToRow(fixture.Admissions.Single(admission => admission.PartyId == fixture.MemberParty));
-        duplicate.Id = $"{duplicate.Id}:duplicate";
-        rows.Add(duplicate);
+        var rows = fixture.Admissions.Select(admission => ToRow(admission, fixture)).ToList();
+        var duplicate = RosterRecordCrdtState.FromAdmission(
+            fixture.Admissions.Single(admission => admission.PartyId == fixture.MemberParty));
+        duplicate = (duplicate with { RecordId = $"{duplicate.RecordId}:duplicate" })
+            .AttestReceipt(fixture.FounderSigner, fixture.FounderParty,
+                DateTimeOffset.Parse(duplicate.IssuedAtIso));
+        rows.Add(NodeRosterRecord.FromCrdtState(duplicate));
         await SeedAsync(rows);
 
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.Orphan, Tenant());
@@ -157,7 +162,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
         var fixture = BuildRoster();
         await SeedAsync(fixture.Admissions
             .Where(admission => !admission.Admission.IsGenesis)
-            .Select(ToRow));
+            .Select(admission => ToRow(admission, fixture)));
 
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.MissingGenesis, Tenant());
     }
@@ -177,7 +182,8 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
                 Guid.Parse("ad030000-0000-0000-0000-000000000043"))
             .EnumerateAdmissions()
             .Single();
-        await SeedAsync(fixture.Admissions.Select(ToRow).Append(ToRow(secondGenesis)));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
+            .Append(ToRow(secondGenesis, fixture)));
 
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.MultipleGenesis, Tenant());
     }
@@ -187,7 +193,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_RefusesWrongTenant()
     {
         var fixture = BuildRoster();
-        await SeedAsync(fixture.Admissions.Select(ToRow));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture)));
 
         await AssertRefusalAsync(
             VerifiedTenantRosterRefusal.WrongTenant,
@@ -199,7 +205,7 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     public async Task ReadAsync_OneHundredActiveTeamFlips_DoNotAffectExplicitTenantResult()
     {
         var fixture = BuildRoster();
-        await SeedAsync(fixture.Admissions.Select(ToRow));
+        await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture)));
         var reader = NewReader();
         var activeTeam = new MutableActiveTeamAccessor(new RuntimeTeamId(OtherTeam));
 
@@ -234,11 +240,13 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
 
     private static TenantId Tenant() => new(Team.ToString("D"));
 
-    private static NodeRosterRecord ToRow(MemberAdmissionRecord admission) =>
-        NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission));
+    private static NodeRosterRecord ToRow(MemberAdmissionRecord admission, RosterFixture fixture) =>
+        NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+            .AttestReceipt(fixture.FounderSigner, fixture.FounderParty, admission.Admission.IssuedAt));
 
-    private static NodeRosterRecord ToRow(MemberRevocationRecord revocation) =>
-        NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(revocation));
+    private static NodeRosterRecord ToRow(MemberRevocationRecord revocation, RosterFixture fixture) =>
+        NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(revocation)
+            .AttestReceipt(fixture.FounderSigner, fixture.FounderParty, revocation.Signed.IssuedAt));
 
     private static RosterFixture BuildRoster()
     {

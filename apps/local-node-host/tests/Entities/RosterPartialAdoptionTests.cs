@@ -61,7 +61,8 @@ public sealed class RosterPartialAdoptionTests
             // Deliberately invert durable append order; the attacker's chain names our PUBLIC key.
             foreach (var admission in hostile.EnumerateAdmissions().Concat(f.Valid.EnumerateAdmissions()))
             {
-                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)));
+                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                    .AttestReceipt(f.Founder, "founder", admission.Admission.IssuedAt)));
                 await db.SaveChangesAsync();
             }
         }
@@ -362,7 +363,8 @@ public sealed class RosterPartialAdoptionTests
         var factory = f.Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var db = await factory.CreateDbContextAsync())
         {
-            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(candidate));
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(
+                candidate.AttestReceipt(f.Founder, "founder", At)));
             await db.SaveChangesAsync();
         }
         await f.Projection.DisposeAsync();
@@ -468,20 +470,37 @@ public sealed class RosterPartialAdoptionTests
             RosterSigning.SignRevocation(Founder, Tenant, party, "founder", At.AddHours(1), Guid.NewGuid()));
         public async Task PublishAsync(RosterRecordCrdtState record)
         {
+            if (record.AdmittedByPublicKey == Attacker.IssuerId.ToBase64Url())
+            {
+                await MergeAsync([record]);
+                return;
+            }
             await Projection.PublishLocalAsync(record, default);
             await Projection.DrainPendingReconcilesAsync();
         }
-        public async Task MergeAsync(IEnumerable<RosterRecordCrdtState> records)
+        public async Task MergeAsync(IEnumerable<RosterRecordCrdtState> records, bool drain = true)
         {
+            var materialized = records.ToArray();
             var factory = Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
-                NullLogger<RosterCrdtProjection>.Instance);
-            foreach (var record in records) await sender.PublishLocalAsync(record, default);
-            await sender.DrainPendingReconcilesAsync();
-            var delta = await sender.EncodeOutboundDeltaAsync(RosterCrdtProjection.DocumentId, ReadOnlyMemory<byte>.Empty, default);
-            Assert.NotNull(delta);
-            await Projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta.Value, default);
-            await Projection.DrainPendingReconcilesAsync();
+            var attested = materialized.Select(record =>
+            {
+                var signer = record.AdmittedByPublicKey == Attacker.IssuerId.ToBase64Url() ? Attacker : Founder;
+                return record.AttestReceipt(signer, ReferenceEquals(signer, Founder) ? "founder" : record.AdmittedByPartyId,
+                    NodeRosterRecord.FromCrdtState(record).IssuedAtUtc);
+            }).ToArray();
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var ids = await db.RosterRecords.Select(row => row.Id).ToListAsync();
+                db.RosterRecords.AddRange(attested.Where(record => !ids.Contains(record.RecordId))
+                    .Select(NodeRosterRecord.FromCrdtState));
+                await db.SaveChangesAsync();
+            }
+            await using var raw = new Harborline.Api.Kernel.Crdt.CrdtProjection<RosterCrdtSchema>(
+                new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+            raw.Mutate(schema => schema.PushMany(attested));
+            await Projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1,
+                raw.EncodeDelta(ReadOnlyMemory<byte>.Empty), default);
+            if (drain) await Projection.DrainPendingReconcilesAsync();
         }
         public async Task PoisonAsync(bool drain = true)
         {
@@ -491,9 +510,14 @@ public sealed class RosterPartialAdoptionTests
                     PermissionCompositions.Owner, Verifier, At, Guid.NewGuid())
                 .Admit("poison", Attacker, "peer", KeyPair.Generate().PrincipalId,
                     Floor, Verifier, At, Guid.NewGuid());
-            foreach (var a in poison.EnumerateAdmissions())
-                await Projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(a with { TransportPublicKey = PoisonTransport }), default);
-            if (drain) await Projection.DrainPendingReconcilesAsync();
+            var records = poison.EnumerateAdmissions().Select(a =>
+                RosterRecordCrdtState.FromAdmission(a with { TransportPublicKey = PoisonTransport })).ToArray();
+            if (!drain)
+            {
+                foreach (var record in records) await Projection.PublishLocalAsync(record, default);
+                return;
+            }
+            await MergeAsync(records);
         }
         public async Task<List<AuditRecord>> RowsAsync(Guid? tenant = null)
         {

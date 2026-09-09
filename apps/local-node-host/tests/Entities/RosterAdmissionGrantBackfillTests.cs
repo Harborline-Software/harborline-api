@@ -51,9 +51,10 @@ public sealed class RosterAdmissionGrantBackfillTests
     public async Task Production_boot_hook_converts_grants_before_hydrating_the_roster()
     {
         await using var store = await SearchTestStore.CreateAsync();
-        await SeedAsync(store, 3);
+        var (_, signer) = await SeedAsync(store, 3);
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IOperationSigner>(signer);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(store.Factory);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
@@ -145,7 +146,8 @@ public sealed class RosterAdmissionGrantBackfillTests
         var revoked = roster.SignRevoke("founder", signer, "member-1", new Ed25519Verifier(), At.AddSeconds(1), Guid.NewGuid());
         await using (var db = store.CreateRosterContext())
         {
-            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(revoked.Signed)));
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(revoked.Signed)
+                .AttestReceipt(signer, "founder", revoked.Signed.Signed.IssuedAt)));
             await db.SaveChangesAsync();
         }
         Assert.Equal(2, await Backfill(store).RunAsync());
@@ -184,7 +186,8 @@ public sealed class RosterAdmissionGrantBackfillTests
         await using (var roster = store.CreateRosterContext())
         {
             await roster.Database.MigrateAsync();
-            roster.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)));
+            roster.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                .AttestReceipt(signer, "founder", admission.Admission.IssuedAt)));
             await roster.SaveChangesAsync();
         }
         var verified = await new VerifiedTenantRosterReader(new RosterFactory(store), new Ed25519Verifier()).ReadAsync(Tenant, CancellationToken.None);
@@ -208,7 +211,8 @@ public sealed class RosterAdmissionGrantBackfillTests
         await using var db = store.CreateRosterContext();
         await db.Database.MigrateAsync();
         db.RosterRecords.AddRange(roster.EnumerateAdmissions()
-            .Select(record => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record))));
+            .Select(record => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)
+                .AttestReceipt(signer, "founder", record.Admission.IssuedAt))));
         await db.SaveChangesAsync();
         return (roster, signer);
     }
