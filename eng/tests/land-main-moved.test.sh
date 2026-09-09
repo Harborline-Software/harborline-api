@@ -9,6 +9,8 @@ scratch=$(mktemp -d ".claude/land-main-moved.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 real_node=$(command -v node)
 real_git=$(command -v git)
+# shellcheck source=fixture-git-retry.sh
+source "$source_root/eng/tests/fixture-git-retry.sh"
 
 write_baseline() {
   local path=$1 total=$2
@@ -44,10 +46,10 @@ make_case() {
   local case_dir="$scratch/$name" remote="$scratch/$name.git"
   local seed="$case_dir/seed" runner="$case_dir/runner"
   mkdir -p "$case_dir"
-  git init --bare -q "$remote"
-  git init -q -b main "$seed"
-  git -C "$seed" config user.name "Land Test"
-  git -C "$seed" config user.email "land-test@example.invalid"
+  git_r init --bare -q "$remote"
+  git_r init -q -b main "$seed"
+  git_r -C "$seed" config user.name "Land Test"
+  git_r -C "$seed" config user.email "land-test@example.invalid"
   mkdir -p "$seed/eng/tests"
   cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
     "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$seed/eng/"
@@ -69,29 +71,29 @@ echo "Failed: 0, Passed: $((MOCK_MEASURED_TOTAL - 2)), Skipped: 2, Total: $MOCK_
 EOF
   chmod +x "$seed/eng/test-verify-stub.sh"
   write_baseline "$seed/eng/baselines/host-test-baseline.json" 100
-  git -C "$seed" add .
-  git -C "$seed" commit -q -m seed
-  git -C "$seed" remote add origin "../../$name.git"
-  git -C "$seed" push -q -u origin main
-  git --git-dir="$remote" symbolic-ref HEAD refs/heads/main
+  git_r -C "$seed" add .
+  git_r -C "$seed" commit -q -m seed
+  git_r -C "$seed" remote add origin "../../$name.git"
+  git_r -C "$seed" push -q -u origin main
+  git_r --git-dir="$remote" symbolic-ref HEAD refs/heads/main
 
-  git -C "$seed" switch -q -c feature
+  git_r -C "$seed" switch -q -c feature
   write_baseline "$seed/eng/baselines/host-test-baseline.json" 102
   echo branch > "$seed/branch-case.txt"
-  git -C "$seed" add .
-  git -C "$seed" commit -q -m "branch adds two cases"
-  git -C "$seed" push -q -u origin feature
+  git_r -C "$seed" add .
+  git_r -C "$seed" commit -q -m "branch adds two cases"
+  git_r -C "$seed" push -q -u origin feature
 
-  git -C "$seed" switch -q main
+  git_r -C "$seed" switch -q main
   write_baseline "$seed/eng/baselines/host-test-baseline.json" 103
   echo main > "$seed/main-case.txt"
-  git -C "$seed" add .
-  git -C "$seed" commit -q -m "abc123 landing adds three cases"
-  git -C "$seed" push -q
+  git_r -C "$seed" add .
+  git_r -C "$seed" commit -q -m "abc123 landing adds three cases"
+  git_r -C "$seed" push -q
 
-  git clone -q "$remote" "$runner"
-  git -C "$runner" config user.name "Land Test"
-  git -C "$runner" config user.email "land-test@example.invalid"
+  git_r clone -q "$remote" "$runner"
+  git_r -C "$runner" config user.name "Land Test"
+  git_r -C "$runner" config user.email "land-test@example.invalid"
   local shim="$case_dir/shim" merged="../merged" admin="../admin"
   mkdir -p "$shim"
   cat > "$shim/node" <<'EOF'
@@ -123,12 +125,13 @@ case "$*" in
     ;;
   "pr view 7 --json state --jq .state") [ -f "$MOCK_MERGED" ] && echo MERGED || echo OPEN ;;
   "pr merge 7 --squash --match-head-commit "*)
-    git clone -q "$MOCK_REMOTE" "$MOCK_ADMIN"
-    git -C "$MOCK_ADMIN" config user.name "Land Test"
-    git -C "$MOCK_ADMIN" config user.email "land-test@example.invalid"
-    git -C "$MOCK_ADMIN" merge -q --squash origin/feature
-    git -C "$MOCK_ADMIN" commit -q -m landed
-    git -C "$MOCK_ADMIN" push -q origin main
+    source "$FIXTURE_GIT_RETRY"
+    git_r clone -q "$MOCK_REMOTE" "$MOCK_ADMIN"
+    git_r -C "$MOCK_ADMIN" config user.name "Land Test"
+    git_r -C "$MOCK_ADMIN" config user.email "land-test@example.invalid"
+    git_r -C "$MOCK_ADMIN" merge -q --squash origin/feature
+    git_r -C "$MOCK_ADMIN" commit -q -m landed
+    git_r -C "$MOCK_ADMIN" push -q origin main
     : > "$MOCK_MERGED"
     ;;
   *) echo "unexpected gh $*" >&2; exit 99 ;;
@@ -138,7 +141,7 @@ EOF
   local shim_path
   shim_path=$(cd "$shim" && pwd)
 
-  export REAL_NODE="$real_node" REAL_GIT="$real_git" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged" WRITE_EXACT_CLONE_EVIDENCE="$evidence"
+  export REAL_NODE="$real_node" REAL_GIT="$real_git" FIXTURE_GIT_RETRY="$source_root/eng/tests/fixture-git-retry.sh" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged" WRITE_EXACT_CLONE_EVIDENCE="$evidence"
   export MOCK_PR_HEAD_STALE_READS="$stale_reads" MOCK_PR_HEAD_READS="$(cd "$case_dir" && pwd)/pr-head-reads" MOCK_PR_HEAD_OLD="$(git -C "$runner" rev-parse origin/feature)"
   export HARBORLINE_LAND_VERIFY_CMD='bash eng/test-verify-stub.sh'
   export HARBORLINE_GATE_LOCK_PATH='../gate.lock'
@@ -150,17 +153,17 @@ EOF
   if [ "$name" = refuses-regression ]; then
     local feature_before policy_out policy_rc
     feature_before=$(git --git-dir="$remote" rev-parse feature)
-    git -C "$seed" switch -q feature
+    git_r -C "$seed" switch -q feature
     node -e "const fs=require('node:fs'); const p='$seed/eng/baselines/host-test-baseline.json'; const b=JSON.parse(fs.readFileSync(p)); b.branchPolicyFixture=true; fs.writeFileSync(p, JSON.stringify(b, null, 2)+'\n')"
-    git -C "$seed" add eng/baselines/host-test-baseline.json
-    git -C "$seed" commit -q -m "branch baseline policy change"
-    git -C "$seed" push -q origin feature
+    git_r -C "$seed" add eng/baselines/host-test-baseline.json
+    git_r -C "$seed" commit -q -m "branch baseline policy change"
+    git_r -C "$seed" push -q origin feature
     policy_out=$(cd "$runner" && PATH="$shim_path:$PATH" bash eng/land.sh feature --pr 7 2>&1); policy_rc=$?
     [ "$policy_rc" = 1 ] && grep -Fq 'branch changed host-baseline policy beyond its pin' <<<"$policy_out" || {
       echo "FAIL $name: branch baseline policy change was not refused"; printf '%s\n' "$policy_out"; return 1;
     }
-    git -C "$seed" push -q --force origin "$feature_before:feature"
-    git -C "$runner" fetch -q origin
+    git_r -C "$seed" push -q --force origin "$feature_before:feature"
+    git_r -C "$runner" fetch -q origin
   fi
   out=$(cd "$runner" && PATH="$shim_path:$PATH" bash eng/land.sh feature --pr 7 2>&1); rc=$?
   printf '%s\n' "$out" > "$case_dir/output.log"

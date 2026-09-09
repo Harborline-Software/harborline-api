@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE} from '../host-baseline.mjs'
+import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const baseline = {comparison: 'named', permittedFailures: [{test: 'Listed test'}]}
@@ -177,8 +178,9 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
     mkdirSync(path.join(dir, 'eng'))
     for (const file of ['verify-receipt.mjs', 'pre-push-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
     const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8'})
+    const git = args => gitRetry(gitArgs => run('git', gitArgs), args)
     for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Baseline Test', '-c', 'user.email=baseline@example.invalid', 'commit', '--no-verify', '-qm', 'fixture']]) {
-      const result = run('git', args)
+      const result = git(args)
       assert.equal(result.status, 0, result.stdout + result.stderr)
     }
     const source = readFileSync(path.join(dir, 'eng/verify-receipt.mjs'), 'utf8')
@@ -198,4 +200,20 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
       }
     }
   } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
+test('fixture git retry recovers one denied write and preserves the exhausted result', () => {
+  let calls = 0
+  const lines = []
+  const args = ['config', 'user.name', 'Fixture Test']
+  const recovered = gitRetry(() => (++calls === 1
+    ? {status: 128, stderr: 'error: could not write config file .git/config: Permission denied\n'}
+    : {status: 0, stderr: ''}), args, line => lines.push(line))
+  assert.equal(recovered.status, 0)
+  assert.equal(calls, 2)
+  assert.deepEqual(lines, ['fixture: retried git config user.name Fixture Test (1)'])
+  const original = 'fatal: unable to write new index file'
+  const exhausted = gitRetry(() => ({status: 128, stderr: original}), args, () => {})
+  assert.equal(exhausted.status, 128)
+  assert.equal(exhausted.stderr, original)
 })
