@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -50,7 +51,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                     var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
                     var migrationVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
                     await EnsureRoleAsync(db, role, ct, migrationVocabulary).ConfigureAwait(false);
-                    foreach (var permission in PermissionSet.From(signed.Permissions ?? []).Permissions)
+                    foreach (var permission in HistoricalSignedAtoms(group, admission.PartyId).Permissions)
                     {
                         var operation = AuthorizationOperation.Parse(permission);
                         var definition = new AuthorizationCapabilityDefinition(
@@ -84,6 +85,22 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return converted;
         }, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// What a pre-wire-version-3 install admitted a member with. A version-3 admission carries no permission
+    /// set at all (293 slice 3b2), so the durable <c>signed_permissions</c> column written by the earlier wire
+    /// versions is the only evidence this one-time migration can convert into grants. An install that never
+    /// held a signed set (a fresh one, or a member admitted after version 3) migrates a grant with no
+    /// capability definitions - grants, not the roster, then decide every act.
+    /// </summary>
+    private static PermissionSet HistoricalSignedAtoms(IEnumerable<NodeRosterRecord> rows, string partyId)
+    {
+        var json = rows.FirstOrDefault(row =>
+            row.Kind == (int)RosterRecordKind.Admission && row.PartyId == partyId)?.SignedPermissionsJson;
+        return string.IsNullOrWhiteSpace(json)
+            ? PermissionSet.Empty
+            : PermissionSet.From(JsonSerializer.Deserialize<string[]>(json) ?? []);
     }
 
     private static Guid StableId(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));

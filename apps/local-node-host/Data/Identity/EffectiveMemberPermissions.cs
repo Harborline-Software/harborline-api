@@ -28,10 +28,12 @@ internal static class EffectiveMemberPermissions
 
         var ejected = IsEjected(roster, partyId, principal);
 
+        // A member reconstructed from replicated records has NO roster permission set (293 s3b2) - membership
+        // is Contains, never "the roster answered a set" - so the read falls through to the grant closure.
         var rosterPermissions = roster.PermissionsOf(partyId);
         if (rosterPermissions is not null || ejected)
         {
-            return new(partyId, rosterPermissions is not null, ejected, rosterPermissions);
+            return new(partyId, roster.Contains(partyId), ejected, rosterPermissions);
         }
 
         var atoms = await authorization
@@ -41,11 +43,11 @@ internal static class EffectiveMemberPermissions
             .Where(atom => string.Equals(atom.Scope.Value, InstallRoot, StringComparison.Ordinal))
             .Select(atom => atom.Operation.Value));
 
-        return new(partyId, false, ejected, closure);
+        return new(partyId, roster.Contains(partyId), ejected, closure);
     }
 
     internal static AuthorizationRosterInputs Read(MemberRoster roster, string partyId, ActorId principal) =>
-        new(partyId, roster.PermissionsOf(partyId) is not null, IsEjected(roster, partyId, principal),
+        new(partyId, roster.Contains(partyId), IsEjected(roster, partyId, principal),
             roster.PermissionsOf(partyId));
 
     // During the identity migration, either existing key can carry the signed removal. Check the
@@ -54,5 +56,5 @@ internal static class EffectiveMemberPermissions
         roster.EnumerateAdmissions().Any(admission =>
             (string.Equals(admission.PartyId, partyId, StringComparison.Ordinal)
                 || string.Equals(admission.PartyId, principal.Value, StringComparison.Ordinal))
-            && roster.PermissionsOf(admission.PartyId) is null);
+            && !roster.Contains(admission.PartyId));
 }

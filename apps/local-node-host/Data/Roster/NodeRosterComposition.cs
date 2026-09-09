@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Crdt.DependencyInjection;
@@ -75,7 +76,12 @@ public static class NodeRosterComposition
             nodeRoster: sp.GetService<NodeTeamRoster>(),
             // Resolved lazily (ticket 290): the fold's removal leg, absent in a minimal DI test.
             administrators: () => sp.GetService<NodeAdministratorAuthority>(),
-            refusalAudit: () => sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>()));
+            refusalAudit: () => sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>(),
+            // 293 s3b2: no permission set rides the wire, so the replicated chain gates (admitter holds
+            // members:admit, revoker holds members:revoke, no-escalation) read a party's authority from the
+            // host's IRosterAuthority - the grant store's view. Unregistered → the fail-closed floor, where
+            // only the genesis chain root holds authority; slice 3c binds this to the grant closure.
+            rosterAuthority: () => sp.GetService<IRosterAuthority>()));
         services.AddSingleton<IRosterRevocationProjection, RosterRevocationProjection>();
 
         // The install-level id-routed delta plane — idempotent (TryAdd) with the other doctypes.

@@ -63,7 +63,7 @@ public sealed class RosterRebuildFaultTests
         await using (var db = await f.Factory.CreateDbContextAsync())
         {
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-            peer.SignedPermissionsJson = "[\"members:revoke\"]"; // Same id AND signature, different signed payload.
+            peer.MintingSessionEvidence = "tampered"; // Same id and signature, different signed payload.
             await db.SaveChangesAsync();
         }
         await f.Projection.ReconcileAsync(default);
@@ -239,16 +239,16 @@ public sealed class RosterRebuildFaultTests
         await using var f = await Fixture.CreateAsync();
         await f.CorruptAsync(malformed);
         await f.Projection.ReconcileAsync(default);
-        await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", malformed ? "JSON" : "invalid signature");
+        await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "invalid signature");
         await using var db = await f.Factory.CreateDbContextAsync();
         Assert.Equal(2, await db.RosterRecords.CountAsync());
         var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-        Assert.Equal(malformed ? "{" : "[]", peer.SignedPermissionsJson);
+        Assert.Equal(malformed ? "tampered" : string.Empty, peer.MintingSessionEvidence);
         Assert.DoesNotContain(f.Projection.RefusalReports, r => r.Code.StartsWith("roster.record.", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task BootRebuildFaultReconstructsAfterRestartAndDoesNotSeedStaleTrust()
+    public async Task BootRebuildFaultReconstructsAfterRestartAndRetainsDurableEvidence()
     {
         await using var f = await Fixture.CreateAsync();
         await f.CorruptAsync(true);
@@ -257,8 +257,8 @@ public sealed class RosterRebuildFaultTests
             await f.RestartAsync();
             var service = ActivatorUtilities.CreateInstance<RosterSyncBootstrapHostedService>(f.Provider);
             await service.StartAsync(default);
-            await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "JSON", boot + 1);
-            Assert.Equal(0, f.Projection.Count);
+            await f.AssertRefusalAsync("roster.rebuild.durable_verification_failed", "invalid signature", boot + 1);
+            Assert.Equal(2, f.Projection.Count);
             await using var db = await f.Factory.CreateDbContextAsync();
             Assert.Equal(2, await db.RosterRecords.CountAsync());
         }
@@ -328,6 +328,8 @@ public sealed class RosterRebuildFaultTests
             services.AddSingleton<IAuditTrail>(AuditGate);
             services.AddAuthorizationRefusalAudit();
             services.AddSingleton(TimeProvider.System);
+            // The successor's floor is a GRANT now, not something the record carries.
+            services.AddSingleton<IRosterAuthority>(new TestRosterAuthority(("successor", PermissionCompositions.Owner)));
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
@@ -368,7 +370,7 @@ public sealed class RosterRebuildFaultTests
         {
             await using var db = await Factory.CreateDbContextAsync();
             var peer = await db.RosterRecords.SingleAsync(r => r.PartyId == "peer");
-            peer.SignedPermissionsJson = malformed ? "{" : "[]";
+            if (malformed) peer.MintingSessionEvidence = "tampered";
             if (!malformed) peer.SignatureB64Url = "AA";
             await db.SaveChangesAsync();
         }
@@ -382,6 +384,7 @@ public sealed class RosterRebuildFaultTests
                 .AttestReceipt(_founder, "founder", removal.Signed.IssuedAt)));
             await db.SaveChangesAsync();
         }
+
         public async Task PublishSuccessorAsync()
         {
             var successor = _roster.Admit("founder", _founder, "successor", _founder.IssuerId,

@@ -170,14 +170,13 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Bootstrap_signature_carries_projected_membership_permissions()
+    public async Task Bootstrap_projects_permissions_without_placing_them_in_the_admission_signature()
     {
         await using var boot = await BootAsync();
         var membership = Assert.Single(await boot.Memberships.GetMembershipsAsync(BootResult.Operator));
         Assert.Equal(PermissionCompositions.ForRole(TeamRole.Admin), membership.Permissions);
         Assert.NotNull(membership.AdmissionSignature);
-        Assert.Equal(membership.Permissions,
-            PermissionSet.From(membership.AdmissionSignature.Permissions ?? Array.Empty<string>()));
+        Assert.DoesNotContain(typeof(AdmissionSignature).GetProperties(), property => property.Name == "Permissions");
     }
 
     [Fact]

@@ -469,14 +469,13 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         var forgedGenesis = RosterSigning.SignAdmission(
             signer: attacker.Signer, teamId: TeamA, admittedPartyId: attacker.PartyId,
             admittedPublicKey: attacker.Key.PrincipalId, admittedByPartyId: attacker.PartyId,
-            isGenesis: true, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid(),
-            admittedPermissions: PermissionCompositions.Member);
+            isGenesis: true, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid());
 
         var admissions = new List<MemberAdmissionRecord>
         {
             aGenesis.EnumerateAdmissions().Single(),
             new(TeamA.ToString("D"), attacker.PartyId, attacker.Key.PrincipalId,
-                PermissionCompositions.Member, forgedGenesis),
+                forgedGenesis),
         };
 
         // The guard bites: 2 genesis candidates (even for the SAME team) → FromSyncedRecords returns Empty.
