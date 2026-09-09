@@ -13,7 +13,7 @@
 //
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync, spawnSync} from 'node:child_process'
-import {mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
+import {mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget} from './exact-clone-evidence.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
@@ -117,7 +117,46 @@ try {
 
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
-  run('dotnet-build', 'dotnet', ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6'], clone)
+  // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
+  // invocation. Directory.Build.targets expands the project name per compiler
+  // invocation, so the single solution build cannot overwrite one global log.
+  const qualityDirectory = path.join(apiRoot, 'artifacts', 'quality')
+  const roslynDirectory = path.join(qualityDirectory, 'roslyn')
+  const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
+  const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
+  if (qualityEnabled) {
+    rmSync(roslynDirectory, {recursive: true, force: true})
+    mkdirSync(roslynDirectory, {recursive: true})
+    buildArgs.push(`-p:HarborlineRoslynSarifDirectory=${roslynDirectory}`)
+  }
+  run('dotnet-build', 'dotnet', buildArgs, clone)
+  if (qualityEnabled) {
+    const roslynSarifFiles = readdirSync(roslynDirectory)
+      .filter(file => /\.sarif$/i.test(file)).sort().map(file => path.join(roslynDirectory, file))
+    run('roslyn-sarif-normalize', process.execPath,
+      ['eng/normalize-roslyn-sarif.mjs', '--repo-root', clone, ...roslynSarifFiles], clone)
+    let roslynSarifCheck = {passed: false, reason: 'not written'}
+    try {
+      const sarifs = roslynSarifFiles.map(file => JSON.parse(readFileSync(file, 'utf8')))
+      const results = sarifs.flatMap(sarif => sarif.runs?.flatMap(run => run.results ?? []) ?? [])
+      const hasResultShape = results.every(result => typeof result.ruleId === 'string'
+        && /^[^/:]+(?:\/[^/:]+)*$/.test(result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? '')
+        && Number.isInteger(result.locations?.[0]?.physicalLocation?.region?.startLine)
+        && result.partialFingerprints && typeof result.partialFingerprints === 'object')
+      roslynSarifCheck = {
+        passed: roslynSarifFiles.length > 0
+          && sarifs.every(sarif => sarif.version === '2.1.0'
+            && typeof sarif.runs?.[0]?.tool?.driver?.name === 'string')
+          && hasResultShape,
+        resultCount: results.length,
+        sarifCount: roslynSarifFiles.length,
+        driver: sarifs[0]?.runs?.[0]?.tool?.driver?.name,
+      }
+    } catch (error) {
+      roslynSarifCheck = {passed: false, reason: String(error)}
+    }
+    steps.push({id: 'roslyn-sarif', ...roslynSarifCheck})
+  }
 
   // The capability lane's dependencies are installed BEFORE the host tests, not after. The two lanes are
   // not independent in one direction: CapabilityInvokeCorrelationTraceTests is a .NET test that spawns

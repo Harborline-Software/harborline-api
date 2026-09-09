@@ -1,5 +1,4 @@
 using System;
-using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Crypto;
 
 namespace Harborline.Api.Foundation.IdentityAtlas;
@@ -13,7 +12,7 @@ namespace Harborline.Api.Foundation.IdentityAtlas;
 /// <remarks>
 /// <para>
 /// The signature covers the canonical-JSON signable envelope over an <see cref="AdmissionRecord"/> = the
-/// versioned identity, key, provenance and permission-set fields. Because
+/// versioned identity, key and provenance fields. Because
 /// the admitted member's (party, key) binding is INSIDE the signed payload, no one can enroll a key under a
 /// party's name without an in-roster admitter signing that exact pair — which is what makes the party→pubkey map
 /// forge-proof (closing #1277 B1).
@@ -46,8 +45,7 @@ public static class RosterSigning
         string admittedDmPublicKey = "",
         string admittedXWingPublicKey = "",
         string admittedViaTokenId = "",
-        string admittedUnderSessionEvidence = "",
-        PermissionSet? admittedPermissions = null)
+        string admittedUnderSessionEvidence = "")
     {
         ArgumentNullException.ThrowIfNull(signer);
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedPartyId);
@@ -66,8 +64,6 @@ public static class RosterSigning
         var viaTokenId = admittedViaTokenId ?? string.Empty;
         var sessionEvidence = admittedUnderSessionEvidence ?? string.Empty;
 
-        // Clean format break: every admission, including genesis, signs a versioned permission set.
-        var permissions = admittedPermissions ?? PermissionSet.Empty;
         var admitterKey = signer.IssuerId;
         var record = new AdmissionRecord(
             TeamId: teamId.ToString("D"),
@@ -79,8 +75,7 @@ public static class RosterSigning
             AdmittedDmPublicKey: dmKey,
             AdmittedXWingPublicKey: xwingKey,
             AdmittedViaTokenId: viaTokenId,
-            AdmittedUnderSessionEvidence: sessionEvidence,
-            AdmittedPermissions: permissions.Permissions);
+            AdmittedUnderSessionEvidence: sessionEvidence);
 
         // The signing envelope's IssuerId is the admitter's key (set by the signer); IssuedAt is truncated to
         // epoch-ms to keep the stored instant and the signed instant byte-aligned (the same precaution
@@ -98,8 +93,7 @@ public static class RosterSigning
             DmPublicKey: dmKey,
             XWingPublicKey: xwingKey,
             AdmittedViaTokenId: viaTokenId,
-            MintingSessionEvidence: sessionEvidence,
-            Permissions: permissions.Permissions);
+            MintingSessionEvidence: sessionEvidence);
     }
 
     /// <summary>
@@ -146,8 +140,7 @@ public static class RosterSigning
                 // dropped. This is what makes "an admission whose signature does not bind the token identity is
                 // invalid on this path" enforceable rather than advisory.
                 AdmittedViaTokenId: admission.AdmittedViaTokenId ?? string.Empty,
-                AdmittedUnderSessionEvidence: admission.MintingSessionEvidence ?? string.Empty,
-                AdmittedPermissions: PermissionSet.From(admission.Permissions ?? Array.Empty<string>()).Permissions);
+                AdmittedUnderSessionEvidence: admission.MintingSessionEvidence ?? string.Empty);
 
             var op = new SignedOperation<AdmissionRecord>(
                 Payload: record,

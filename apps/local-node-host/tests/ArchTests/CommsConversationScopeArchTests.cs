@@ -471,11 +471,9 @@ public sealed class CommsConversationScopeArchTests
             signer: adminSigner, teamId: teamId, admittedPartyId: "alice",
             admittedPublicKey: aliceKp.PrincipalId, admittedByPartyId: "admin",
             isGenesis: false, issuedAt: DateTimeOffset.UnixEpoch.AddSeconds(2000), nonce: System.Guid.NewGuid(),
-            admittedDmPublicKey: attackerDm,
-            admittedPermissions: Harborline.Api.Foundation.IdentityAtlas.Permissions.PermissionCompositions.Member);
+            admittedDmPublicKey: attackerDm);
         var adminOverrideRec = new Harborline.Api.Foundation.IdentityAtlas.MemberAdmissionRecord(
             teamId.ToString("D"), "alice", aliceKp.PrincipalId,
-            Harborline.Api.Foundation.IdentityAtlas.Permissions.PermissionCompositions.Member,
             adminReAdmitAlice, TransportPublicKey: null,
             DmPublicKey: Harborline.Api.Foundation.Crypto.PrincipalId.FromBase64Url(attackerDm).AsSpan().ToArray());
         var fence4Records = rosterWithAdmin.EnumerateAdmissions().Append(adminOverrideRec).ToArray();

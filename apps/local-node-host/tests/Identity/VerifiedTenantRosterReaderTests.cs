@@ -44,11 +44,11 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReadAsync_RefusesPermissionOnlySubstitutionAsTampered(bool genesis)
+    public async Task ReadAsync_RefusesSignedProvenanceSubstitutionAsTampered(bool genesis)
     {
         var fixture = BuildRoster();
         var rows = fixture.Admissions.Select(admission => ToRow(admission, fixture)).ToArray();
-        rows.Single(row => row.IsGenesis == genesis).SignedPermissionsJson = "[]";
+        rows.Single(row => row.IsGenesis == genesis).MintingSessionEvidence = "tampered";
         await SeedAsync(rows);
         await AssertRefusalAsync(VerifiedTenantRosterRefusal.Tampered, Tenant());
     }
@@ -124,13 +124,11 @@ public sealed class VerifiedTenantRosterReaderTests : IAsyncLifetime
             "party:unreachable-admitter",
             isGenesis: false,
             IssuedAt.AddMinutes(3),
-            Guid.Parse("ad030000-0000-0000-0000-000000000033"),
-            admittedPermissions: PermissionCompositions.Member);
+            Guid.Parse("ad030000-0000-0000-0000-000000000033"));
         var orphan = new MemberAdmissionRecord(
             Team.ToString("D"),
             "party:orphan-child",
             orphanMember.PrincipalId,
-            PermissionCompositions.Member,
             orphanAdmission);
         await SeedAsync(fixture.Admissions.Select(admission => ToRow(admission, fixture))
             .Append(ToRow(orphan, fixture)));
