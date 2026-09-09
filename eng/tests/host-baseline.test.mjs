@@ -173,7 +173,7 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))
   try {
     mkdirSync(path.join(dir, 'eng'))
-    for (const file of ['verify-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
+    for (const file of ['verify-receipt.mjs', 'pre-push-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
     const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8'})
     for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Baseline Test', '-c', 'user.email=baseline@example.invalid', 'commit', '--no-verify', '-qm', 'fixture']]) {
       const result = run('git', args)

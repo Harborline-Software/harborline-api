@@ -17,7 +17,7 @@ trap cleanup EXIT
 mkdir -p "$fixture/eng/baselines" "$fixture/src" "$fixture/artifacts/quality"
 cp "$root/eng/quality-pin.json" "$fixture/eng/quality-pin.json"
 cp "$root/eng/quality-policy.yaml" "$fixture/eng/quality-policy.yaml"
-cp "$root/eng/verify-receipt.mjs" "$root/eng/host-baseline.mjs" "$fixture/eng/"
+cp "$root/eng/verify-receipt.mjs" "$root/eng/host-baseline.mjs" "$root/eng/pre-push-receipt.mjs" "$fixture/eng/"
 printf 'before\n' > "$fixture/src/example.cs"
 git -C "$fixture" init -q
 git -C "$fixture" config user.name QualityTest

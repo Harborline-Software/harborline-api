@@ -89,7 +89,7 @@ fi
 echo "land: gating tree ${tested_tree:0:12} (base $(git rev-parse --short "$base_sha"), head $(git rev-parse --short "$head_sha"))"
 run_land_verify() {
   local verify_root=$1 verify_log=$2
-  ( cd "$verify_root" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > "$verify_log" 2>&1
+  ( cd "$verify_root" && export HARBORLINE_GATE_QUALITY=1 && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj -nodeReuse:false -maxcpucount:6 >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && if [ -n "${HARBORLINE_LAND_VERIFY_CMD:-}" ]; then exec bash -c "$HARBORLINE_LAND_VERIFY_CMD"; else exec bash eng/verify.sh; fi ) > "$verify_log" 2>&1
   local verify_rc=$?
   cat "$verify_log"
   return "$verify_rc"
