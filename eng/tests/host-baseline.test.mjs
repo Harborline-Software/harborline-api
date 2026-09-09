@@ -143,15 +143,17 @@ test('every macOS identity is owned, dated, reasoned, distinct, and compared exa
     assert.deepEqual(renamed.missing, [row.test])
   }
 })
-test('all thirteen Ubuntu identities are owned, distinct, and compared exactly', () => {
+test('every Ubuntu identity is owned, dated, reasoned, distinct, and compared exactly', () => {
   const ubuntu = JSON.parse(readFileSync(path.join(root, UBUNTU_BASELINE)))
   const rows = ubuntu.permittedFailures
-  // 341 s2: the count is derived from the file (346's two behavioural rows joined the 13 environmental ones).
+  // 341 s2: the count is derived from the file; 302 s1 burned eleven rows down (13 environmental + 2 behavioural to 4).
   const n = rows.length
-  assert.ok(n >= 13, `ubuntu baseline has ${n} rows; the 341 measurement had 13`)
+  assert.ok(n >= 1 && n <= 4, `ubuntu baseline has ${n} rows; the 302 s1 measurement had 4`)
   assert.equal(new Set(rows.map(row => row.test)).size, n)
   for (const row of rows) {
-    assert.ok(['the controller', '302'].includes(row.owner), `row owner ${row.owner}`)
+    assert.ok(['the controller', '302', '360'].includes(row.owner), `row owner ${row.owner}`)
+    assert.match(row.dated ?? '', /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/, `row ${row.test} is undated`)
+    assert.ok((row.reason ?? '').length > 20, `row ${row.test} has no reason`)
     assert.ok(['environmental', 'behavioural'].includes(row.class), `row class ${row.class}`)
   }
   const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')
