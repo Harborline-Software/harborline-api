@@ -198,7 +198,8 @@ EOF
     [ "$feature_after" != "$feature_before" ] || { echo "FAIL $name: re-pinned head was not pushed"; return 1; }
     [ -f "$binding_sentinel" ] || { echo "FAIL $name: did not continue to PR binding"; return 1; }
     if [ "$post_merge_gate" = 1 ]; then
-      [ "$(wc -l < "$verify_sentinel")" = 1 ] || { echo "FAIL $name: post-merge verify calls=$(wc -l < "$verify_sentinel" 2>/dev/null || echo 0), want=1"; return 1; }
+      calls=$(tr -d ' ' < <(wc -l < "$verify_sentinel" 2>/dev/null || echo 0))  # BSD wc pads with spaces
+      [ "$calls" = 1 ] || { echo "FAIL $name: post-merge verify calls=$calls, want=1"; return 1; }
       grep -Fq 'land: main gated green after the fact' "$case_dir/output.log" || { echo "FAIL $name: post-merge gate did not turn green"; return 1; }
       ! grep -Fq 'run_land_verify: command not found' "$case_dir/output.log" || { echo "FAIL $name: post-merge gate lost run_land_verify"; return 1; }
     else
