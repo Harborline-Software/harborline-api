@@ -55,6 +55,7 @@ bash "$repo_root/eng/tests/gate-lock-reentry.test.sh" || exit 1
 bash "$repo_root/eng/tests/land-verify-last-in-subshell.test.sh" || exit 1
 bash "$repo_root/eng/tests/land-main-moved.test.sh" || exit 1
 bash "$repo_root/eng/tests/land-dirty-tree.test.sh" || exit 1
+bash "$repo_root/eng/tests/fixture-git-retry.test.sh" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
 node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1

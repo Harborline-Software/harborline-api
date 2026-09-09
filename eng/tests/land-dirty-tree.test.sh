@@ -9,6 +9,8 @@ scratch=$(mktemp -d ".claude/land-dirty-tree.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 real_node=$(command -v node)
 real_git=$(command -v git)
+# shellcheck source=fixture-git-retry.sh
+source "$source_root/eng/tests/fixture-git-retry.sh"
 
 write_baseline() {
   local path=$1 total=$2
@@ -42,10 +44,10 @@ EOF
 remote="$scratch/remote.git"
 seed="$scratch/seed"
 runner="$scratch/runner"
-git init --bare -q "$remote"
-git init -q -b main "$seed"
-git -C "$seed" config user.name 'Land Test'
-git -C "$seed" config user.email 'land-test@example.invalid'
+git_r init --bare -q "$remote"
+git_r init -q -b main "$seed"
+git_r -C "$seed" config user.name 'Land Test'
+git_r -C "$seed" config user.email 'land-test@example.invalid'
 mkdir -p "$seed/eng"
 cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
   "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$seed/eng/"
@@ -71,26 +73,26 @@ porcelain=$(git status --porcelain)
 EOF
 chmod +x "$seed/eng/test-clean-tree-gate.sh"
 write_baseline "$seed/eng/baselines/host-test-baseline.json" 100
-git -C "$seed" add .
-git -C "$seed" commit -q -m seed
-git -C "$seed" remote add origin "../remote.git"
-git -C "$seed" push -q -u origin main
-git --git-dir="$remote" symbolic-ref HEAD refs/heads/main
+git_r -C "$seed" add .
+git_r -C "$seed" commit -q -m seed
+git_r -C "$seed" remote add origin "../remote.git"
+git_r -C "$seed" push -q -u origin main
+git_r --git-dir="$remote" symbolic-ref HEAD refs/heads/main
 
-git -C "$seed" switch -q -c feature
+git_r -C "$seed" switch -q -c feature
 write_baseline "$seed/eng/baselines/host-test-baseline.json" 102
-git -C "$seed" add .
-git -C "$seed" commit -q -m feature
-git -C "$seed" push -q -u origin feature
-git -C "$seed" switch -q main
+git_r -C "$seed" add .
+git_r -C "$seed" commit -q -m feature
+git_r -C "$seed" push -q -u origin feature
+git_r -C "$seed" switch -q main
 write_baseline "$seed/eng/baselines/host-test-baseline.json" 103
-git -C "$seed" add .
-git -C "$seed" commit -q -m main
-git -C "$seed" push -q
+git_r -C "$seed" add .
+git_r -C "$seed" commit -q -m main
+git_r -C "$seed" push -q
 
-git clone -q "$remote" "$runner"
-git -C "$runner" config user.name 'Land Test'
-git -C "$runner" config user.email 'land-test@example.invalid'
+git_r clone -q "$remote" "$runner"
+git_r -C "$runner" config user.name 'Land Test'
+git_r -C "$runner" config user.email 'land-test@example.invalid'
 shim="$scratch/shim"
 mkdir -p "$shim"
 cat > "$shim/node" <<'EOF'

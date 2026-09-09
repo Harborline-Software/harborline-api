@@ -6,6 +6,7 @@ import path from 'node:path'
 import {test} from 'node:test'
 import {fileURLToPath} from 'node:url'
 import {receiptCheckForPushRefs} from '../pre-push-receipt.mjs'
+import {gitRetry} from './fixture-git-retry.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..', '..')
@@ -19,7 +20,7 @@ function withoutReceipt(input) {
     for (const file of ['verify-receipt.mjs', 'host-baseline.mjs', 'pre-push-receipt.mjs']) {
       copyFileSync(path.join(root, 'eng', file), path.join(directory, 'eng', file))
     }
-    const git = args => spawnSync('git', args, {cwd: directory, encoding: 'utf8'})
+    const git = args => gitRetry(gitArgs => spawnSync('git', gitArgs, {cwd: directory, encoding: 'utf8'}), args)
     for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Receipt Test', '-c', 'user.email=receipt@example.invalid', 'commit', '--no-verify', '-qm', 'fixture']]) {
       const result = git(args)
       assert.equal(result.status, 0, result.stdout + result.stderr)
