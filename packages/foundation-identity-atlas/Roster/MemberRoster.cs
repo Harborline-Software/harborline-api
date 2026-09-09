@@ -820,7 +820,8 @@ public sealed class MemberRoster
         IEnumerable<MemberRevocationRecord> revocations,
         IOperationVerifier verifier,
         Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null,
-        IRosterAuthority? authority = null)
+        IRosterAuthority? authority = null,
+        DateTimeOffset? at = null)
     {
         ArgumentNullException.ThrowIfNull(admissions);
         ArgumentNullException.ThrowIfNull(revocations);
@@ -862,10 +863,32 @@ public sealed class MemberRoster
         // No permission set rides the wire any more (293 s3b2), so the authority the chain gates read comes
         // from the local grant store through IRosterAuthority. The chain root is the one exception: the genesis
         // self-admission IS the root-authority evidence, so it keeps the owner floor.
-        PermissionSet AuthorityOf(string partyId) =>
-            string.Equals(partyId, genesis.PartyId, StringComparison.Ordinal)
-                ? PermissionCompositions.Owner
-                : authority?.PermissionsFor(genesis.TeamId, partyId) ?? PermissionSet.Empty;
+        // ONE tenant-key form for both authority readers (the projection's chain check already uses "D"): the
+        // parsed team id, never the record's arrival form. Read once per party per rebuild - a rebuild is a
+        // point-in-time evaluation, and the relaxation fixpoint asks for the same party many times.
+        var canonicalTeamId = teamId.ToString("D");
+        // ONE instant for the whole rebuild. The caller's `at` (the decision's At, the prefix read's bound) when it
+        // has one; otherwise the LATEST record order time in this set - deterministic and identical on every node,
+        // where a wall clock would make two nodes fold the same records into two different rosters. Never a clock:
+        // no reader of this method may introduce wall time (ticket 216).
+        var evaluatedAt = at ?? admissionList
+            .Select(a => orderTime?.Invoke(a.Admission.Signature, a.Admission.IssuedAt) ?? a.Admission.IssuedAt)
+            .Concat(revocationList
+                .Select(r => orderTime?.Invoke(r.Signed.Signature, r.Signed.IssuedAt) ?? r.Signed.IssuedAt))
+            .DefaultIfEmpty(DateTimeOffset.MinValue)
+            .Max();
+        var authorityByParty = new Dictionary<string, PermissionSet>(StringComparer.Ordinal);
+        PermissionSet AuthorityOf(string partyId)
+        {
+            if (string.Equals(partyId, genesis.PartyId, StringComparison.Ordinal))
+                return PermissionCompositions.Owner;
+            if (!authorityByParty.TryGetValue(partyId, out var held))
+            {
+                held = authority?.PermissionsFor(canonicalTeamId, partyId, evaluatedAt) ?? PermissionSet.Empty;
+                authorityByParty[partyId] = held;
+            }
+            return held;
+        }
 
         var live = new Dictionary<string, MemberState>(StringComparer.Ordinal)
         {
@@ -1062,10 +1085,13 @@ public sealed class MemberRoster
 /// </summary>
 public interface IRosterAuthority
 {
-    /// <summary>The permission set the local grant store holds for a party within a team.</summary>
+    /// <summary>The permission set the local grant store holds for a party within a team, AT an instant.</summary>
     /// <param name="teamId">The team (tenant) the roster belongs to.</param>
     /// <param name="partyId">The party whose authority is being read.</param>
-    PermissionSet PermissionsFor(string teamId, string partyId);
+    /// <param name="at">The instant the caller is evaluating at - the rebuild's / the decision's <c>At</c>, never
+    /// a wall clock the implementation reads for itself. One evaluation judges every party at ONE instant, so a
+    /// grant whose validity window closes mid-evaluation cannot flip half the answer.</param>
+    PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at);
 }
 
 /// <summary>
