@@ -9,20 +9,5 @@
 # receipt is keyed to HEAD's tree — and push is what CI triggered on anyway. Committing stays free.
 set -eu
 
-# A deletion carries no commits: git sends the all-zero sha for it, so there is nothing for a
-# receipt to attest to. Without this, deleting an already-merged branch is refused by a check that
-# has no subject -- and the only way past is --no-verify, which teaches the habit of skipping the
-# gate for real pushes too. Skipped only when EVERY ref in the push is a deletion; one ref carrying
-# commits still demands the receipt.
-pushes_content=0
-while read -r _local_ref local_sha _remote_ref _remote_sha; do
-  case "$local_sha" in
-    *[!0]*) pushes_content=1 ;;
-  esac
-done
-if [ "$pushes_content" -eq 0 ]; then
-  exit 0
-fi
-
 hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-node "$hook_dir/../eng/verify-receipt.mjs"
+node "$hook_dir/../eng/verify-receipt.mjs" --pre-push

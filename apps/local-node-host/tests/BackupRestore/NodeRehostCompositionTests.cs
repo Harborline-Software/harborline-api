@@ -157,7 +157,7 @@ public sealed class NodeRehostCompositionTests
                     (id, kind, team_id, party_id, public_key, permissions, admitted_by_key,
                      admitted_by_party, nonce, signature, is_genesis, issued_at)
                 VALUES ({admission.Id}, {admission.Kind}, {admission.TeamId}, {admission.PartyId},
-                    {admission.PublicKeyB64Url}, {admission.SignedPermissionsJson}, {admission.AdmittedByPublicKey},
+                    {admission.PublicKeyB64Url}, {admission.PermissionsJson}, {admission.AdmittedByPublicKey},
                     {admission.AdmittedByPartyId}, {admission.NonceGuid}, {admission.SignatureB64Url},
                     {admission.IsGenesis}, {admission.IssuedAtUtc.ToUnixTimeMilliseconds()})
                 """);

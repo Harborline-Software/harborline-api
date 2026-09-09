@@ -264,12 +264,43 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         await dst.Projection.DrainPendingReconcilesAsync();
     }
 
-    // ── Test 1: admit on A → SYNCS to B → B's live roster gains the member, validated ───────────────────
+    // ── Convergence property: local and replay must reach the SAME roster from the same record set ──────
 
     [Theory]
-    [InlineData(false)]
     [InlineData(true)]
-    public async Task PermissionOnlySubstitutionOnInboundDeltaRefusesMember(bool elevate)
+    [InlineData(false)]
+    public void LocalAndReplayAgreeOnEveryRevocationTheFloorDecides(bool successorHoldsTheFloor)
+    {
+        var floor = PermissionSet.Of(Permission.GrantPermissions, Permission.OrgTransferOwnership,
+            Permission.MembersAdmit);
+        var founder = Identity.New("founder");
+        var successor = Identity.New("successor");
+        var at = DateTimeOffset.UnixEpoch.AddDays(1);
+        var granted = successorHoldsTheFloor ? floor : PermissionSet.Empty;
+        var local = MemberRoster.Genesis(Team, "founder", founder.Signer, Verifier, at, Guid.NewGuid())
+            .Admit("founder", founder.Signer, "successor", successor.Key.PrincipalId, granted,
+                Verifier, at, Guid.NewGuid());
+        var removal = new MemberRevocationRecord(Team.ToString("D"), "founder",
+            RosterSigning.SignRevocation(founder.Signer, Team, "founder", "founder", at.AddMinutes(1), Guid.NewGuid()));
+
+        // The local answer: the floor refuses to remove the last root-grant holder.
+        var localRefused = false;
+        try { local = local.Revoke("founder", "founder"); }
+        catch (RosterGuardException ex) when (ex.Code == MemberRoster.NoBrickingFloorCode) { localRefused = true; }
+
+        // The replay answer, reading the SAME authority the local roster held (the grant store).
+        var replayed = MemberRoster.FromSyncedRecords(local.EnumerateAdmissions(), [removal], Verifier,
+            authority: new TestRosterAuthority(("successor", granted)));
+
+        Assert.Equal(!successorHoldsTheFloor, localRefused);
+        Assert.Equal(localRefused, replayed.Contains("founder"));
+        Assert.Equal(localRefused ? 1 : 0, replayed.RefusedRevocations.Count);
+    }
+
+    // ── Test 1: admit on A → SYNCS to B → B's live roster gains the member, validated ───────────────────
+
+    [Fact]
+    public async Task SignedProvenanceSubstitutionOnInboundDeltaRefusesMember()
     {
         var founder = Identity.New("founder");
         var member = Identity.New("member");
@@ -283,7 +314,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             admitted.EnumerateAdmissions().Single(a => a.PartyId == "member"));
         var forged = genuine with
         {
-            Permissions = (elevate ? PermissionCompositions.Owner : PermissionSet.Empty).Permissions.ToArray(),
+            MintingSessionEvidence = "tampered-session",
         };
         Assert.Equal(genuine.SignatureB64Url, forged.SignatureB64Url);
         await source.Projection.PublishLocalAsync(forged, CancellationToken.None);
@@ -298,7 +329,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var cleanTarget = await NewJoinerReplicaAsync("permission-control", source.NodeRoster.Current, founder.Signer);
         await cleanSource.Projection.PublishLocalAsync(genuine, CancellationToken.None);
         await SyncAsync(cleanSource, cleanTarget);
-        Assert.Equal(PermissionCompositions.Member, cleanTarget.NodeRoster.Current.PermissionsOf("member"));
+        Assert.True(cleanTarget.NodeRoster.Current.Contains("member"));
     }
 
     [Fact(DisplayName = "roster-sync: admit on A → delta → B's live NodeTeamRoster gains the member (validated)")]
@@ -344,10 +375,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var forged = RosterSigning.SignAdmission(
             signer: attacker.Signer, teamId: Team, admittedPartyId: "mallory",
             admittedPublicKey: mallory.Key.PrincipalId, admittedByPartyId: "attacker",
-            isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid(),
-            admittedPermissions: PermissionCompositions.Member);
+            isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid());
         var forgedRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "mallory", mallory.Key.PrincipalId, PermissionCompositions.Member, forged);
+            Team.ToString("D"), "mallory", mallory.Key.PrincipalId, forged);
         await a.Projection.PublishLocalAsync(
             RosterRecordCrdtState.FromAdmission(forgedRecord), CancellationToken.None);
 
@@ -860,9 +890,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             signer: mallory.Signer, teamId: Team, admittedPartyId: "alice",
             admittedPublicKey: alice.Key.PrincipalId, admittedByPartyId: "mallory",
             isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid(),
-            admittedDmPublicKey: malloryDm, admittedPermissions: PermissionCompositions.Member);
+            admittedDmPublicKey: malloryDm);
         var malloryRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "alice", alice.Key.PrincipalId, PermissionCompositions.Member,
+            Team.ToString("D"), "alice", alice.Key.PrincipalId,
             malloryForged, TransportPublicKey: null,
             DmPublicKey: PrincipalId.FromBase64Url(malloryDm).AsSpan().ToArray());
         await a.Projection.PublishLocalAsync(
@@ -940,9 +970,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             signer: mallory.Signer, teamId: Team, admittedPartyId: "alice",
             admittedPublicKey: alice.Key.PrincipalId, admittedByPartyId: "mallory",
             isGenesis: false, issuedAt: DateTimeOffset.UnixEpoch.AddSeconds(2000), nonce: Guid.NewGuid(),
-            admittedDmPublicKey: malloryDm, admittedPermissions: PermissionCompositions.Member);
+            admittedDmPublicKey: malloryDm);
         var malloryRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "alice", alice.Key.PrincipalId, PermissionCompositions.Member,
+            Team.ToString("D"), "alice", alice.Key.PrincipalId,
             malloryReAdmit, TransportPublicKey: null,
             DmPublicKey: PrincipalId.FromBase64Url(malloryDm).AsSpan().ToArray());
         await a.Projection.PublishLocalAsync(

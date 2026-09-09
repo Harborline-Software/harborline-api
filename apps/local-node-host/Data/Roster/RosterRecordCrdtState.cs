@@ -1,9 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
-using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
@@ -42,7 +43,6 @@ public enum RosterRecordKind
 /// <param name="TeamId">The team this record is into/within (string form of the Guid).</param>
 /// <param name="PartyId">The admitted (admission) or revoked (revocation) party id.</param>
 /// <param name="PublicKeyB64Url">base64url of the admitted member's public key (admission only; empty for revocation).</param>
-/// <param name="Permissions">The admitted member's permission set as strings (admission only; empty for revocation).</param>
 /// <param name="AdmittedByPublicKey">base64url of the admitter/revoker public key (the signer).</param>
 /// <param name="AdmittedByPartyId">The admitter/revoker party id.</param>
 /// <param name="IssuedAtIso">Round-trippable ISO-8601 issuance instant (UTC).</param>
@@ -125,7 +125,6 @@ public sealed record RosterRecordCrdtState(
     string TeamId,
     string PartyId,
     string PublicKeyB64Url,
-    IReadOnlyList<string> Permissions,
     string AdmittedByPublicKey,
     string AdmittedByPartyId,
     string IssuedAtIso,
@@ -143,6 +142,10 @@ public sealed record RosterRecordCrdtState(
     string ReceivedByPublicKey = "",
     string ReceiveAttestationSignatureB64Url = "")
 {
+    /// <summary>Unknown JSON fields retained solely so the inbound boundary can reject malformed current records.</summary>
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement>? UnmappedWireFields { get; init; }
+
     /// <summary>
     /// The X-Wing PUBLIC key length in bytes (1216 = ML-KEM-768 pk 1184 ‖ X25519 pk 32) — the length a carried
     /// <see cref="XWingPublicKeyB64Url"/> must decode to, or it is treated as ABSENT (fail-closed; never a
@@ -193,7 +196,6 @@ public sealed record RosterRecordCrdtState(
             TeamId: record.TeamId,
             PartyId: record.PartyId,
             PublicKeyB64Url: record.PublicKey.ToBase64Url(),
-            Permissions: record.Permissions.Permissions.ToArray(),
             AdmittedByPublicKey: a.AdmittedByPublicKey,
             AdmittedByPartyId: a.AdmittedByPartyId,
             IssuedAtIso: a.IssuedAt.ToString("O"),
@@ -242,7 +244,6 @@ public sealed record RosterRecordCrdtState(
             TeamId: record.TeamId,
             PartyId: record.RevokedPartyId,
             PublicKeyB64Url: string.Empty,
-            Permissions: System.Array.Empty<string>(),
             AdmittedByPublicKey: r.RevokedByPublicKey,
             AdmittedByPartyId: r.RevokedByPartyId,
             IssuedAtIso: r.IssuedAt.ToString("O"),
@@ -311,9 +312,7 @@ public sealed record RosterRecordCrdtState(
                 // the whole record is DROPPED on rebuild (this is what makes "an admission whose signature does not
                 // bind the token identity is invalid on this path" hold across the sync channel too).
                 AdmittedViaTokenId: AdmittedViaTokenId ?? string.Empty,
-                MintingSessionEvidence: MintingSessionEvidence ?? string.Empty,
-                // The carried set reconstructs the signed bytes, exactly as the two carried keys do.
-                Permissions: Permissions ?? System.Array.Empty<string>());
+                MintingSessionEvidence: MintingSessionEvidence ?? string.Empty);
             // INFO-2: reconstruct the carried team-scoped transport pubkey (empty/legacy → null; a malformed key
             // throws below and drops the WHOLE record fail-closed — the same discipline as the principal key).
             var transportKey = string.IsNullOrEmpty(TransportPublicKeyB64Url)
@@ -336,7 +335,6 @@ public sealed record RosterRecordCrdtState(
                 TeamId,
                 PartyId,
                 PrincipalId.FromBase64Url(PublicKeyB64Url),
-                PermissionSet.From(Permissions ?? System.Array.Empty<string>()),
                 admission,
                 transportKey,
                 dmKey,

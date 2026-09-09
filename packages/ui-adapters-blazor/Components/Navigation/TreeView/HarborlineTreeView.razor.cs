@@ -654,9 +654,9 @@ public partial class HarborlineTreeView : HarborlineComponentBase
                 builder.AddAttribute(53, "value", _editingText);
                 builder.AddAttribute(54, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, e => _editingText = e.Value?.ToString() ?? ""));
                 builder.AddAttribute(55, "onblur", EventCallback.Factory.Create<FocusEventArgs>(this, () => CommitEdit(editId)));
-                builder.AddAttribute(56, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, e =>
+                builder.AddAttribute(56, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async e =>
                 {
-                    if (e.Key == "Enter") CommitEdit(editId);
+                    if (e.Key == "Enter") await CommitEdit(editId);
                     else if (e.Key == "Escape") CancelEdit();
                 }));
                 builder.AddAttribute(57, "autofocus", true);
@@ -1048,7 +1048,7 @@ public partial class HarborlineTreeView : HarborlineComponentBase
         StateHasChanged();
     }
 
-    private async void CommitEdit(string nodeId)
+    private async Task CommitEdit(string nodeId)
     {
         if (_editingNodeId != nodeId) return;
         var newText = _editingText.Trim();

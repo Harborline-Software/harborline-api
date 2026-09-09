@@ -74,7 +74,10 @@ public sealed class RosterReceiveTimeTests
                 var rebuilt = MemberRoster.FromSyncedRecords(
                     states.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>(),
                     states.Select(s => s.ToRevocationOrNull()).OfType<MemberRevocationRecord>(),
-                    verifier, NodeRosterRecord.OrderTimes(shuffled));
+                    verifier, NodeRosterRecord.OrderTimes(shuffled),
+                    // "member" was admitted as an owner locally, so the grant store holds that for it; the
+                    // replay reads the revoker's authority from there, not from the record.
+                    new TestRosterAuthority(("member", PermissionCompositions.Owner)));
                 Assert.True(rebuilt.Contains(firstParty), $"seed={seed}, sample={sample}");
                 Assert.False(rebuilt.Contains(secondParty), $"seed={seed}, sample={sample}");
                 return rebuilt.EnumerateAdmissions().Where(a => rebuilt.Contains(a.PartyId))
