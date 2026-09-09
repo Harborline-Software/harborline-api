@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -532,18 +533,33 @@ public sealed class AdministratorRecoveryCommandTests
                         new TeamId(GenesisTeamId.Derive(seed).Value)),
                     InstallationFounderBootstrapCeremony.CorrelationId).Value,
                 authorityRecord.PartyId);
+            // UsableAsync is the production authority reader over the roster store RecoverAsync wrote to.
+            // The authorization closure reader uses the separate search-grant store, so a test gate cannot
+            // read this row without fabricating a closure snapshot. Read the authoritative production view.
             var recoveredAdministrator = Assert.Single(await authority.UsableAsync());
             Assert.Equal(authorityRecord.PartyId, recoveredAdministrator.PartyId);
+            Assert.Equal(candidate.PartyId, recoveredAdministrator.PartyId);
 
-            // The recovered authority is readable through the same principal key a gate decides on.
-            var gate = TestAuthorization.Gate(request =>
-                request.Principal.Value == recoveredAdministrator.PartyId);
-            var decision = await gate.DecideAsync(
-                TestAuthorization.Write(
-                    new TenantId(candidate.TeamId), recoveredAdministrator.PartyId)
-                .Request(
-                    AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "recovery"));
-            Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
+            // The old shell key is a different persisted administrator row, not an alias for the genesis
+            // party. The same production read that finds recovery must refuse to find genesis in that row.
+            var oldShellServices = new ServiceCollection();
+            oldShellServices.AddDbContextFactory<NodeLocalRosterDbContext>(options =>
+                options.UseSqlite($"Data Source={Path.Combine(directory, "old-shell-authority.db")};Pooling=False"));
+            await using var oldShellProvider = oldShellServices.BuildServiceProvider();
+            var oldShellContexts = oldShellProvider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+            await using (var oldShellContext = await oldShellContexts.CreateDbContextAsync())
+            {
+                await oldShellContext.Database.EnsureCreatedAsync();
+            }
+
+            var oldShellPartyId = OldShellMint(seed);
+            Assert.NotEqual(candidate.PartyId, oldShellPartyId);
+            await AppendEstablishedAuthorityAsync(oldShellContexts, candidate.TeamId, oldShellPartyId);
+            var oldShellAuthority = new NodeAdministratorAuthority(
+                oldShellContexts, TimeProvider.System, TestAuthorization.AllowGate());
+            var oldShellAdministrators = await oldShellAuthority.UsableAsync();
+            Assert.Single(oldShellAdministrators, administrator => administrator.PartyId == oldShellPartyId);
+            Assert.DoesNotContain(oldShellAdministrators, administrator => administrator.PartyId == candidate.PartyId);
             Assert.Equal(
                 AdministratorProvenance.Recovery,
                 recoveredAdministrator.Provenance);
@@ -597,6 +613,42 @@ public sealed class AdministratorRecoveryCommandTests
         }
 
         await context.SaveChangesAsync();
+    }
+
+    private static async Task AppendEstablishedAuthorityAsync(
+        IDbContextFactory<NodeLocalRosterDbContext> contexts,
+        string teamId,
+        string partyId)
+    {
+        await using var context = await contexts.CreateDbContextAsync();
+        var record = new AdministratorAuthorityRecord
+        {
+            Sequence = 1,
+            TeamId = teamId,
+            PartyId = partyId,
+            Event = AdministratorAuthorityEvent.Established,
+            Provenance = AdministratorProvenance.Recovery,
+            MemberPublicKey = "cHVibGljLWtleQ",
+            AdmissionSignature = "c2lnbmF0dXJl",
+            AdmittedByPublicKey = "cHVibGljLWtleQ",
+            AdmittedByPartyId = partyId,
+            OccurredAtUtc = DateTimeOffset.UtcNow,
+            Reason = "test-old-shell-key",
+            PreviousHash = AdministratorAuthorityRecord.ZeroHash,
+            Hash = string.Empty,
+        };
+        record.Hash = AdministratorAuthorityRecord.ComputeHash(record);
+        context.AdministratorAuthority.Add(record);
+        await context.SaveChangesAsync();
+    }
+
+    private static string OldShellMint(byte[] rootSeed)
+    {
+        using var signer = new NodePrincipalSigner(rootSeed);
+        var nodeKeyHex8 = Convert.ToHexString(signer.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
+        var osUserRaw = Environment.UserName;
+        var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
+        return ActorId.Mint($"os:{osUser}#{nodeKeyHex8}").Value;
     }
 
     private static string NewDirectory()
