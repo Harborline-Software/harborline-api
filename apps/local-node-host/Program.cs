@@ -1701,6 +1701,7 @@ builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.HomeEpoch.Ho
 // engine live on the schedule trigger.
 builder.Services.AddNodeWorkflowEngine();
 builder.Services.AddNodeWorkflowHandlers();
+builder.Services.AddAccessGrantFormSubmission();
 builder.Services.AddNodeWorkflowScheduleDaemon();
 
 // ── ADR 0135 invoice-approval VERTICAL FLOW — the CP human-task (Ask-bar Inbox) API ──────────────────

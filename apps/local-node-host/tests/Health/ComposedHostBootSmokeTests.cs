@@ -152,7 +152,7 @@ public sealed partial class ComposedHostBootSmokeTests
             await installed.Content.ReadAsStringAsync(host.Deadline));
         var accessPack = Assert.Single(installedDocument.RootElement.EnumerateArray(), pack =>
             pack.GetProperty("packKey").GetString() == "harborline.access-administration");
-        Assert.Equal("1.1.0", accessPack.GetProperty("version").GetString());
+        Assert.Equal("1.1.1", accessPack.GetProperty("version").GetString());
         Assert.Equal("Active", accessPack.GetProperty("lifecycle").GetString());
 
         using var export = await client.PostAsJsonAsync(
@@ -359,8 +359,7 @@ public sealed partial class ComposedHostBootSmokeTests
             // NOT NotEmpty. The raw roster set satisfied NotEmpty while 13 of 20
             // destinations were invisible, so that assertion could not see the defect it
             // was positioned to catch. Name destinations the desktop rail depends on.
-            Assert.Contains("inbox:read", served);
-            Assert.Contains("calendar:read", served);
+            Assert.Contains("assets:read", served);
             Assert.Contains("members:manage", served);
             Assert.Contains("org:manage-settings", served);
         }

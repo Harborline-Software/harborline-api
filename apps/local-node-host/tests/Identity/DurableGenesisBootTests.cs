@@ -65,6 +65,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         else
             services.AddSqlCipherLocalNodeDbContext(Convert.FromHexString(Seed), DatabasePath, new SqlCipherKeyDerivation());
         services.AddSingleton<IOperationVerifier, Ed25519Verifier>();
+        services.AddSingleton<IOperationSigner>(new Ed25519Signer(KeyPair.FromSeed(Convert.FromHexString(Seed))));
         if (roster is not null) services.AddSingleton(roster);
         services.AddSingleton(TimeProvider.System);
         services.AddNodeRoster();
@@ -162,7 +163,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         var first = await ComposeAsync(() => "original-account");
         await PublishBootAsync(first);
         await PersistOtherTenantAsync(first.Current.GenesisPartyId);
-        var before = JsonSerializer.Serialize(await RowsAsync());
+        var before = (await RowsAsync()).Select(row => (row.Id, row.SignatureB64Url)).ToArray();
         var reads = 0;
         var reboot = await ComposeAsync(() => { reads++; return "renamed-account"; });
         Assert.Equal(0, reads);
@@ -171,7 +172,13 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         Assert.Equal(JsonSerializer.Serialize(first.Current.EnumerateAdmissions().Single().Admission),
             JsonSerializer.Serialize(reboot.Current.EnumerateAdmissions().Single().Admission));
         await PublishBootAsync(reboot);
-        Assert.Equal(before, JsonSerializer.Serialize(await RowsAsync()));
+        var after = await RowsAsync();
+        Assert.Equal(before, after.Select(row => (row.Id, row.SignatureB64Url)));
+        Assert.All(after, row =>
+        {
+            Assert.Equal(RosterWireFormat.CurrentVersion, row.WireFormatVersion);
+            Assert.False(string.IsNullOrWhiteSpace(row.ReceiveAttestationSignatureB64Url));
+        });
     }
 
     [Fact]
@@ -207,14 +214,16 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         await using var provider = Store();
         await using var db = await provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>().CreateDbContextAsync();
         db.RosterRecords.AddRange(foreign.EnumerateAdmissions().Select(admission =>
-            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission))));
+            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                .AttestReceipt(founder.Signer, "other-founder", admission.Admission.IssuedAt))));
         if (revoked)
         {
             var removal = foreign.SignRevoke("other-founder", founder.Signer, admittedParty, verifier,
                 DateTimeOffset.Parse("2026-09-07T13:00:00Z"),
                 Guid.Parse("dddddddd-0000-0000-0000-000000000296"));
             db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(
-                RosterRecordCrdtState.FromRevocation(removal.Signed)));
+                RosterRecordCrdtState.FromRevocation(removal.Signed)
+                    .AttestReceipt(founder.Signer, "other-founder", removal.Signed.Signed.IssuedAt)));
         }
         await db.SaveChangesAsync();
     }

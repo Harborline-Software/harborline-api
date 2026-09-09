@@ -1,3 +1,5 @@
+using Harborline.Api.Foundation.IdentityAtlas;
+
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
 
 /// <summary>
@@ -112,8 +114,13 @@ public sealed class NodeRosterRecord
     /// <summary>Issuance instant (UTC). The chronological order of records.</summary>
     public DateTimeOffset IssuedAtUtc { get; set; }
 
-    /// <summary>Local first receipt, retained across restart; not yet a replicated attestation.</summary>
+    /// <summary>Attested first receipt, retained across restart and replicated verbatim.</summary>
     public DateTimeOffset? ReceivedAtUtc { get; set; }
+
+    public int WireFormatVersion { get; set; }
+    public string ReceivedByPartyId { get; set; } = string.Empty;
+    public string ReceivedByPublicKey { get; set; } = string.Empty;
+    public string ReceiveAttestationSignatureB64Url { get; set; } = string.Empty;
 
     /// <summary>The existing sync HELLO clock-skew allowance bounds retrospective ordering.</summary>
     public static readonly TimeSpan ReceiveTimeWindow = TimeSpan.FromSeconds(
@@ -126,7 +133,8 @@ public sealed class NodeRosterRecord
     internal static Func<string, DateTimeOffset, DateTimeOffset> OrderTimes(IEnumerable<NodeRosterRecord> rows)
     {
         var receipts = rows.GroupBy(r => r.SignatureB64Url, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First().ReceivedAtUtc, StringComparer.Ordinal);
+            .ToDictionary(g => g.Key, g => g.First() is { WireFormatVersion: RosterWireFormat.CurrentVersion } row
+                ? row.ReceivedAtUtc : null, StringComparer.Ordinal);
         return (signature, issued) => BoundedOrderTime(issued, receipts.GetValueOrDefault(signature));
     }
 
@@ -154,6 +162,11 @@ public sealed class NodeRosterRecord
             SignatureB64Url = s.SignatureB64Url,
             IsGenesis = s.IsGenesis,
             IssuedAtUtc = ParseInstant(s.IssuedAtIso),
+            ReceivedAtUtc = ParseOptionalInstant(s.ReceivedAtIso),
+            WireFormatVersion = s.WireFormatVersion,
+            ReceivedByPartyId = s.ReceivedByPartyId ?? string.Empty,
+            ReceivedByPublicKey = s.ReceivedByPublicKey ?? string.Empty,
+            ReceiveAttestationSignatureB64Url = s.ReceiveAttestationSignatureB64Url ?? string.Empty,
         };
     }
 
@@ -182,7 +195,12 @@ public sealed class NodeRosterRecord
             DmPublicKeyB64Url: row.DmPublicKeyB64Url ?? string.Empty,
             XWingPublicKeyB64Url: row.XWingPublicKeyB64Url ?? string.Empty,
             AdmittedViaTokenId: row.AdmittedViaTokenId ?? string.Empty,
-            MintingSessionEvidence: row.MintingSessionEvidence ?? string.Empty);
+            MintingSessionEvidence: row.MintingSessionEvidence ?? string.Empty,
+            WireFormatVersion: row.WireFormatVersion,
+            ReceivedAtIso: row.ReceivedAtUtc?.ToString("O") ?? string.Empty,
+            ReceivedByPartyId: row.ReceivedByPartyId ?? string.Empty,
+            ReceivedByPublicKey: row.ReceivedByPublicKey ?? string.Empty,
+            ReceiveAttestationSignatureB64Url: row.ReceiveAttestationSignatureB64Url ?? string.Empty);
     }
 
     private static DateTimeOffset ParseInstant(string iso) =>
@@ -190,4 +208,8 @@ public sealed class NodeRosterRecord
             System.Globalization.DateTimeStyles.RoundtripKind, out var dto)
             ? dto
             : DateTimeOffset.UtcNow;
+
+    private static DateTimeOffset? ParseOptionalInstant(string iso) =>
+        DateTimeOffset.TryParse(iso, null,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var dto) ? dto : null;
 }

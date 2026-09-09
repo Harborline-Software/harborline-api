@@ -92,10 +92,11 @@ internal static class NavigationPermissionProjection
         {
             // ── Identities: the roster's own vocabulary ──────────────────────────────────────────
             ["audit:read"] = [Permission.AuditRead],
-            ["calendar:read"] = [Permission.CalendarRead],
-            ["comms:read"] = [Permission.CommsRead],
             ["members:manage"] = [TeamRolePermissions.MembersManage],
             ["org:manage-settings"] = [Permission.OrgManageSettings],
+            // telemetry:read is a navigation destination (Run report rail item, Settings system health), not
+            // one of the retired atoms: with telemetry:export gone (332) it derives from org:manage-settings alone.
+            ["telemetry:read"] = [Permission.OrgManageSettings],
             ["packages:author"] = [Permission.PackagesAuthor],
             ["packages:operate"] = [Permission.PackagesOperate],
             // Settings-only: gates the Settings > Organization section and has NO rail entry, so it
@@ -105,9 +106,6 @@ internal static class NavigationPermissionProjection
             ["org:branding:write"] = [Permission.OrgBrandingWrite],
 
             // ── Everyday work: reading operational records ───────────────────────────────────────
-            // The inbox is the comms attention surface, so it follows comms:read rather than the
-            // record permissions.
-            ["inbox:read"] = [Permission.CommsRead],
             // records:read is the legacy coarse "read operational records" string, and its sibling
             // records:write names "contacts, invoices, bills, etc." — invoices are explicitly in it.
             ["invoices:read"] = [TeamRolePermissions.RecordsRead],
@@ -130,16 +128,6 @@ internal static class NavigationPermissionProjection
             // must become a conjunction rather than being quietly widened.
             ["scheduling:design"] = [Permission.SchedulingAuthor],
 
-            // ── Administration ──────────────────────────────────────────────────────────────────
-            // Exporting telemetry implies reading it — but the CONVERSE is what the navigation needs,
-            // and deriving from export alone collapsed a DATA-EGRESS control into a VISIBILITY one.
-            // PermissionCompositions.Admin deliberately withholds telemetry:export ("admin does NOT
-            // hold ... telemetry:export ... by default"), and Permission.cs says export is "held
-            // tighter than operational telemetry" — so the taxonomy treats the two as different
-            // things and this mapping was equating them. The effect: an Admin lost the Run report
-            // RAIL ITEM and the Settings System health entry, leaving that section half-populated.
-            // org:manage-settings is the operational-visibility permission Admin does hold.
-            ["telemetry:read"] = [Permission.TelemetryExport, Permission.OrgManageSettings],
         };
 
     /// <summary>Every navigation string this projection can produce. Ordered for deterministic output.</summary>

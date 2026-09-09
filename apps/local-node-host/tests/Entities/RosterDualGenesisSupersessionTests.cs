@@ -89,7 +89,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
     /// <summary>Build a node over a real SQLite roster store + real YDotNet engine, seeded with
     /// <paramref name="genesisRoster"/> as its local roster.</summary>
-    private async Task<Node> NewNodeAsync(string name, MemberRoster genesisRoster)
+    private async Task<Node> NewNodeAsync(string name, MemberRoster genesisRoster, IOperationSigner attestationSigner)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-dualgen-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -107,7 +107,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
         var nodeRoster = new NodeTeamRoster(genesisRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         var node = new Node
@@ -126,7 +126,8 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
     /// the node's in-memory boot roster (a fresh process re-seeds it from its OWN genesis exactly as the bootstrap
     /// does); the DURABLE store carries whatever a prior process left.
     /// </summary>
-    private async Task<Node> NewPersistentNodeAsync(string name, MemberRoster genesisRoster, string connectionString)
+    private async Task<Node> NewPersistentNodeAsync(
+        string name, MemberRoster genesisRoster, string connectionString, IOperationSigner attestationSigner)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -140,7 +141,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
         var nodeRoster = new NodeTeamRoster(genesisRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         // Dir is shared across reboots → not owned here; cleaned via _tempDirs. Use a no-cleanup Node wrapper.
@@ -206,7 +207,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         var foreignGenesis = MemberRoster.Genesis(
             Guid.Parse("cccc0000-0000-0000-0000-000000000003"), foreign.PartyId, foreign.Signer,
             Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var node = await NewNodeAsync("boot-reconcile", currentGenesis);
+        var node = await NewNodeAsync("boot-reconcile", currentGenesis, local.Signer);
 
         await node.Projection.PublishLocalAsync(
             RosterRecordCrdtState.FromAdmission(currentGenesis.EnumerateAdmissions().Single()),
@@ -242,7 +243,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         // ── A founds team A, seeds it, admits bob (B's principal), publishes the admission. ──
         var aGenesis = MemberRoster.Genesis(
             TeamA, founderA.PartyId, founderA.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var a = await NewNodeAsync("A", aGenesis);
+        var a = await NewNodeAsync("A", aGenesis, founderA.Signer);
         await SeedLocalAdmissionsAsync(a);
 
         var aWithBob = a.NodeRoster.Current.Admit(
@@ -258,7 +259,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         //    (exactly what RosterSyncBootstrapHostedService does at boot). ──
         var bGenesis = MemberRoster.Genesis(
             TeamB, founderB.PartyId, founderB.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var b = await NewNodeAsync("B", bGenesis);
+        var b = await NewNodeAsync("B", bGenesis, founderB.Signer);
         await SeedLocalAdmissionsAsync(b);
         Assert.Equal(1, GenesisCount(b.Projection));          // B's own genesis is on B's synced doctype
         Assert.Equal(1, DurableRowCount(b));                  // ...and in B's durable store
@@ -331,7 +332,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         // ── A founds team A, admits B (under B's own boot identity), publishes the admission (A's converged set). ──
         var aGenesis = MemberRoster.Genesis(
             TeamA, founderA.PartyId, founderA.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var a = await NewNodeAsync("A-reboot", aGenesis);
+        var a = await NewNodeAsync("A-reboot", aGenesis, founderA.Signer);
         await SeedLocalAdmissionsAsync(a);
         var aWithBob = a.NodeRoster.Current.Admit(
             founderA.PartyId, founderA.Signer, bobPrincipal.PartyId, bobPrincipal.Key.PrincipalId,
@@ -351,7 +352,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         _tempDirs.Add(bDir);
         var bConn = $"Data Source={Path.Combine(bDir, "roster.db")};Pooling=False";
 
-        var b1 = await NewPersistentNodeAsync("B1", bGenesis, bConn);
+        var b1 = await NewPersistentNodeAsync("B1", bGenesis, bConn, founderB.Signer);
         await SeedLocalAdmissionsAsync(b1);
         Assert.Equal(1, DurableRowCount(b1)); // B's own genesis is durable.
 
@@ -363,7 +364,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         // PROVE the precondition is genuinely poisoning: a fresh process over the SAME db, hydrated, with A's records
         // synced in, holds TWO genesis → FromSyncedRecords Empty → B would be stuck (the catastrophic state). ──
         await RebootDisposeAsync(b1); // close B1 (process exit) — release the projection, SP + the SQLite pool.
-        var bPoison = await NewPersistentNodeAsync("B-poison", bGenesis, bConn);
+        var bPoison = await NewPersistentNodeAsync("B-poison", bGenesis, bConn, founderB.Signer);
         await bPoison.Projection.HydrateFromStoreAsync(CancellationToken.None); // reload the surviving own genesis.
         await SyncAsync(a, bPoison);
         Assert.Equal(2, GenesisCount(bPoison.Projection));     // own + A's → poison.
@@ -372,7 +373,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
         // ── THE RECOVERY (retry): a fresh process re-runs the supersession (the join retry re-captures B's own team
         //    id + re-runs the purge) — this time it SUCCEEDS, removing B's own genesis from the durable store. ──
-        var bRetry = await NewPersistentNodeAsync("B-retry", bGenesis, bConn);
+        var bRetry = await NewPersistentNodeAsync("B-retry", bGenesis, bConn, founderB.Signer);
         await bRetry.Projection.HydrateFromStoreAsync(CancellationToken.None);
         var purged = await bRetry.Projection.SupersedeOwnTeamRecordsAsync(TeamB, CancellationToken.None);
         Assert.Equal(1, purged);                               // the retry purged B's own genesis...
@@ -384,7 +385,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         //    converged records (B's own genesis is durably gone). The cold-start hydration's reconcile rebuilds the
         //    live roster from the hydrated records alone → B CONVERGES to A's roster with NO further sync needed. No
         //    silent cross-reboot poison: B is on A's team, validates to A's genesis. ──
-        var b2 = await NewPersistentNodeAsync("B2", bGenesis, bConn);
+        var b2 = await NewPersistentNodeAsync("B2", bGenesis, bConn, founderB.Signer);
         await b2.Projection.HydrateFromStoreAsync(CancellationToken.None);
         await b2.Projection.DrainPendingReconcilesAsync(); // let the hydration-triggered rebuild settle.
 
@@ -411,7 +412,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
         var aGenesis = MemberRoster.Genesis(
             TeamA, founderA.PartyId, founderA.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var a = await NewNodeAsync("A", aGenesis);
+        var a = await NewNodeAsync("A", aGenesis, founderA.Signer);
         await SeedLocalAdmissionsAsync(a);
         var aWithBob = a.NodeRoster.Current.Admit(
             founderA.PartyId, founderA.Signer, bobPrincipal.PartyId, bobPrincipal.Key.PrincipalId,
@@ -423,7 +424,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
 
         var bGenesis = MemberRoster.Genesis(
             TeamB, founderB.PartyId, founderB.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
-        var b = await NewNodeAsync("B", bGenesis);
+        var b = await NewNodeAsync("B", bGenesis, founderB.Signer);
         await SeedLocalAdmissionsAsync(b);
 
         // PRE-FIX: B adopts A's roster IN MEMORY but does NOT supersede its own genesis on the synced doctype.
@@ -488,7 +489,7 @@ public sealed class RosterDualGenesisSupersessionTests : IAsyncLifetime
         // real projection path to prove the supersession is scoped to OWN-team records only.
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-dualgen-guard-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
-        var node = await NewNodeAsync("guard", aGenesis);
+        var node = await NewNodeAsync("guard", aGenesis, founderA.Signer);
         // Seed A's genesis + the forged 2nd genesis for team A onto the synced doctype.
         await node.Projection.PublishLocalAsync(
             RosterRecordCrdtState.FromAdmission(aGenesis.EnumerateAdmissions().Single()), CancellationToken.None);

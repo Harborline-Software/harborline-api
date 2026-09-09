@@ -19,9 +19,7 @@ namespace Harborline.Api.Foundation.IdentityAtlas.Permissions;
 /// IS the PBAC model working as intended.
 /// </para>
 /// <para>
-/// <b>member: data perms with GL read-only (taxonomy §2).</b> The baseline collaborator holds all data perms
-/// EXCEPT <c>gl:post</c> (posting is an accountant-grade grant — multi-org goal SC-2 "GL gated, calendar
-/// open"). An org grants <c>gl:post</c> to the members who keep the books.
+/// <b>member: data permissions (taxonomy §2).</b> The baseline collaborator holds the live data set.
 /// </para>
 /// <para>
 /// <b>support: the removable tech-support bootstrap bundle (taxonomy §2).</b> Holds the install/setup + grant
@@ -39,57 +37,32 @@ public static class PermissionCompositions
     private static readonly string[] ContactsAll =
         { Permission.ContactsRead, Permission.ContactsCreate, Permission.ContactsWrite, Permission.ContactsArchive };
 
-    private static readonly string[] CalendarAll =
-        { Permission.CalendarRead, Permission.CalendarCreate, Permission.CalendarWrite, Permission.CalendarArchive };
-
-    private static readonly string[] CommsAll = { Permission.CommsRead, Permission.CommsAppend };
-
     // Legacy coarse strings (TeamRolePermissions) emitted ALONGSIDE the PBAC vocabulary so existing
     // HasPermission("ledger:post"/"records:write"/...) consumers keep resolving without a rewrite.
     private static readonly string[] LegacyDataStrings =
         { TeamRolePermissions.RecordsRead, TeamRolePermissions.RecordsWrite };
 
-    /// <summary>The full Family-A data set across all enabled doctypes INCLUDING <c>gl:post</c> (the
-    /// privileged poster's superset). <c>member</c> gets this MINUS <c>gl:post</c>.</summary>
-    private static readonly string[] AllDataIncludingGlPost =
-        ContactsAll.Concat(CalendarAll).Concat(CommsAll)
-            .Append(Permission.GlRead).Append(Permission.GlPost)
+    /// <summary>The full live data set across enabled doctypes.</summary>
+    private static readonly string[] AllData =
+        ContactsAll
             // spatial:read rides the DATA sets (admin + member), NOT the Viewer floor — CIC [2026-08-06],
             // card 3777: site coordinates are CP-4 PII-class; the read-only floor never sees them.
             .Append(Permission.SpatialRead)
             .Concat(LegacyDataStrings).Append(TeamRolePermissions.LedgerPost)
             .ToArray();
 
-    /// <summary>The full Family-A data set with GL READ-ONLY (member's data floor — no <c>gl:post</c>).</summary>
-    private static readonly string[] AllDataGlReadOnly =
-        ContactsAll.Concat(CalendarAll).Concat(CommsAll)
-            .Append(Permission.GlRead)
-            .Append(Permission.SpatialRead)
-            .Concat(LegacyDataStrings)
-            .ToArray();
-
-    private static readonly string[] AllProviderConfig =
-    {
-        Permission.ProviderConfigureIdentity, Permission.ProviderConfigureEmail,
-        Permission.ProviderConfigureStorage, Permission.ProviderConfigurePayments,
-        Permission.ProviderConfigureBankFeed, Permission.ProviderConfigureTelemetry,
-        Permission.ProviderReadConfig,
-    };
-
     // ── owner — the grant-substrate holder (genesis default): everything ─────────────────────────────────
 
     /// <summary>
-    /// owner = ALL_DATA (incl. gl:post) ∪ full Family B (admit/revoke/set-role/grant/transfer) ∪ full Family C
-    /// (every provider:configure-* + read-config) ∪ full Family D (audit/telemetry/settings). The bootstrap /
+    /// owner = ALL_DATA ∪ full Family B (admit/revoke/grant/transfer) ∪ cross-cutting settings. The bootstrap /
     /// genesis composition. By the no-bricking floor ≥1 member must always hold {grant:permissions,
     /// org:transfer-ownership}; owner can only self-revoke after transferring ownership.
     /// </summary>
     public static PermissionSet Owner { get; } = PermissionSet.From(
-        AllDataIncludingGlPost
-            .Append(Permission.MembersAdmit).Append(Permission.MembersRevoke).Append(Permission.MembersSetRole)
+        AllData
+            .Append(Permission.MembersAdmit).Append(Permission.MembersRevoke)
             .Append(Permission.GrantPermissions).Append(Permission.OrgTransferOwnership)
-            .Concat(AllProviderConfig)
-            .Append(Permission.AuditRead).Append(Permission.TelemetryExport).Append(Permission.OrgManageSettings)
+            .Append(Permission.AuditRead).Append(Permission.OrgManageSettings)
             // Ticket 212: the member authorization seed offers own-decision trace reads. The genesis
             // admitter must hold that atom too, so pairing can transcribe it under the no-escalation guard.
             .Append(Permission.AuditTraceRead)
@@ -102,11 +75,9 @@ public static class PermissionCompositions
     // ── admin — composable governance subset (explicitly NOT god; taxonomy Q5) ───────────────────────────
 
     /// <summary>
-    /// admin = ALL_DATA (incl. gl:post) ∪ {members:admit, members:revoke, members:set-role}  [governance
-    /// EXCEPT grant/transfer] ∪ {provider:read-config}  [can SEE config, not re-point] ∪ {audit:read,
+    /// admin = ALL_DATA ∪ {members:admit, members:revoke} [governance EXCEPT grant/transfer] ∪ {audit:read,
     /// org:manage-settings} ∪ {packages:author, packages:operate}. Per CIC Q5 (accepted): admin does NOT
-    /// hold grant:permissions, org:transfer-ownership, telemetry:export, or any provider:configure-* by
-    /// default — all independently grantable, off in the template (most-restrictive-useful).
+    /// hold grant:permissions or org:transfer-ownership by default.
     /// <para><b>Packaging (ADR 0145 / council A-1).</b> admin holds BOTH packaging permissions because the
     /// single-office node enrolls its operator as admin, so this IS the "solo founder holds both via the
     /// informal default" posture the dogfood cut needs. At multi-principal / 0144 org-model fan-out,
@@ -114,9 +85,8 @@ public static class PermissionCompositions
     /// templates) — the council-named follow-up.</para>
     /// </summary>
     public static PermissionSet Admin { get; } = PermissionSet.From(
-        AllDataIncludingGlPost
-            .Append(Permission.MembersAdmit).Append(Permission.MembersRevoke).Append(Permission.MembersSetRole)
-            .Append(Permission.ProviderReadConfig)
+        AllData
+            .Append(Permission.MembersAdmit).Append(Permission.MembersRevoke)
             .Append(Permission.AuditRead).Append(Permission.OrgManageSettings)
             .Append(Permission.OrgBrandingWrite)
             .Append(Permission.PackagesAuthor).Append(Permission.PackagesOperate)
@@ -124,26 +94,24 @@ public static class PermissionCompositions
             .Append(Permission.FormsAuthor)
             .Append(TeamRolePermissions.MembersManage));
 
-    // ── member — everyday doctype perms (GL read-only) ───────────────────────────────────────────────────
+    // ── member — everyday doctype permissions ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// member = all data perms with GL READ-ONLY (NOT gl:post — posting is a privileged grant). No governance,
-    /// no provider-config, no cross-cutting. The baseline collaborator.
+    /// member = all data permissions. No governance or cross-cutting permissions. The baseline collaborator.
     /// </summary>
     public static PermissionSet Member { get; } = PermissionSet.From(
-        AllDataGlReadOnly.Append(Permission.SchedulingRead));
+        AllData.Append(Permission.SchedulingRead));
 
     // ── support — the tech-support bootstrap bundle (removable; NO data perms) ────────────────────────────
 
     /// <summary>
-    /// support = {members:admit, grant:permissions, org:transfer-ownership}  [can bootstrap + hand off] ∪ every
-    /// provider:configure-* + read-config  [install/setup the parts] ∪ {org:manage-settings, audit:read}.
+    /// support = {members:admit, grant:permissions, org:transfer-ownership} [can bootstrap + hand off] ∪
+    /// {org:manage-settings, audit:read}.
     /// Deliberately NO data perms — support installs, it does not run the books. Holding BOTH grant:permissions
     /// AND org:transfer-ownership is what lets the handoff satisfy the no-bricking floor at every step.
     /// </summary>
     public static PermissionSet Support { get; } = PermissionSet.From(
         new[] { Permission.MembersAdmit, Permission.GrantPermissions, Permission.OrgTransferOwnership }
-            .Concat(AllProviderConfig)
             .Append(Permission.OrgManageSettings).Append(Permission.AuditRead)
             // Support INSTALLS packs (part of setup) but does not AUTHOR them — operate only.
             .Append(Permission.PackagesOperate));
@@ -190,14 +158,13 @@ public static class PermissionCompositions
         return result;
     }
 
-    /// <summary>The read-only floor — every doctype's <c>read</c> verb (the <see cref="TeamRole.Viewer"/>
+    /// <summary>The read-only floor — live doctype read verbs (the <see cref="TeamRole.Viewer"/>
     /// seed). Distinct from <see cref="Member"/> (no create/write/archive/append). DELIBERATE OMISSION:
     /// <see cref="Permission.SpatialRead"/> is NOT here — site coordinates are CP-4 PII-class and the CIC
     /// ruled [2026-08-06] (card 3777) that the viewer floor never sees them; spatial reads are an
     /// admin/member data permission.</summary>
     public static PermissionSet Viewer { get; } = PermissionSet.Of(
-        Permission.ContactsRead, Permission.CalendarRead,
-        Permission.CommsRead, Permission.GlRead, TeamRolePermissions.RecordsRead);
+        Permission.ContactsRead, TeamRolePermissions.RecordsRead);
 
     /// <summary>
     /// Resolve a named composition by its conventional name ("owner"/"admin"/"member"/"support"/"viewer"),

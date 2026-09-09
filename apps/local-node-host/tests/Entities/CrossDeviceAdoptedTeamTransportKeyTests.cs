@@ -130,7 +130,7 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
         }
     }
 
-    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster)
+    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster, IOperationSigner attestationSigner)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-xdev-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -149,7 +149,7 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
 
         var nodeRoster = new NodeTeamRoster(seedRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         var replica = new Replica
@@ -279,12 +279,12 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
         var aTeam = a.OwnTeam; // A's genesis team is the team B will adopt.
 
         // ── A: founds A-team, seeds its own genesis CARRYING A's A-team transport key (boot). ──────────────────
-        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam));
+        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam), a.PrincipalSigner);
         await SeedOwnGenesisAsync(aReplica, a, aTeam);
 
         // ── B: BOOTS on its OWN DISTINCT genesis team (B-team), seeds B's own genesis CARRYING B's B-team key. ──
         // This is the crux the prior suite skipped: B has its OWN genesis on its OWN doctype BEFORE it joins.
-        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam));
+        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam), b.PrincipalSigner);
         await SeedOwnGenesisAsync(bReplica, b, b.OwnTeam);
         Assert.NotEqual(aTeam, b.OwnTeam);
 
@@ -358,9 +358,9 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
         var b = Node.New("os:B#bob", ownTeamSeed: "team-B-home");
         var aTeam = a.OwnTeam;
 
-        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam));
+        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam), a.PrincipalSigner);
         await SeedOwnGenesisAsync(aReplica, a, aTeam);
-        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam));
+        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam), b.PrincipalSigner);
         await SeedOwnGenesisAsync(bReplica, b, b.OwnTeam);
 
         await AdmitAndPublishAsync(aReplica, a, aTeam, b);
@@ -433,9 +433,9 @@ public sealed class CrossDeviceAdoptedTeamTransportKeyTests : IAsyncLifetime
         var mallory = Node.New("os:M#mallory", ownTeamSeed: "team-A-office"); // even with A's team SEED — never admitted.
         var aTeam = a.OwnTeam;
 
-        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam));
+        var aReplica = await NewReplicaAsync("A", GenesisFor(a, aTeam), a.PrincipalSigner);
         await SeedOwnGenesisAsync(aReplica, a, aTeam);
-        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam));
+        var bReplica = await NewReplicaAsync("B", GenesisFor(b, b.OwnTeam), b.PrincipalSigner);
         await SeedOwnGenesisAsync(bReplica, b, b.OwnTeam);
 
         // A admits ONLY B (mallory is never admitted — no invite, no signed admission).
