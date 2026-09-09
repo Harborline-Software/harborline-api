@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "suite": "Harborline.Api.LocalNodeHost.Tests",
+  "repository": "harborline-api",
+  "sourcePin": "af0ebd7b",
+  "recordedAt": "2026-09-08T00:00:00Z",
+  "comparison": "named",
+  "totals": {"total": 3687, "passed": 3652, "failed": 16, "notExecuted": 19},
+  "policy": [
+    "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
+    "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
+    "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
+    "Every permitted environmental row traces to LinuxLibsecretKeystore, a declared Wave-2 stub that throws PlatformNotSupportedException.",
+    "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green."
+  ],
+  "permittedFailures": [
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 3)",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"web client off (ADR 0161 Path-A desktop-only insta\"···, webClient: False, llmProxy: False, schedulingDogfood: False)",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"web host\", webClient: True, llmProxy: False, schedulingDogfood: False)",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootSmokeTests.Program_Composition_Starts_And_Serves_Health(profile: \"customer-zero (dogfood-appsettings.Production.json\"···, webClient: True, llmProxy: True, schedulingDogfood: True)",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootEventLogTests.ThrowingEventLogSink_DoesNotStopTheComposedHostAndIsReportedByHealth",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "260 S-I: the node reads its data directory from the same variable name this harness sets — renaming one side alone silently drops the test into the process-local default",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "D5: POST contact then GET contact proves persistence and audit envelope",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "B2: a composition failure surfaces quickly and the runtime can restart",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.AdministratorRecoveryCommandTests.ConfiguredDataDirectory_OwnsRecoveryIdentityAndKeystore",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.OperatorCli.CliCoverageReconciliationTests.Every_Operator_Route_Is_Covered_By_A_Verb_Or_An_Exemption_And_Nothing_Is_Stale",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "ticket 016: production host boots and form-submit outbox survives restart",
+      "class": "environmental", "owner": "the controller"
+    },
+    {
+      "test": "REAL composition: approving an issued invoice co-commits the admitting decision in the shipping audit row",
+      "class": "environmental", "owner": "the controller"
+    }
+  ],
+  "knownFlaky": [],
+  "skips": {"count": 19},
+  "measuredAt": {"apiCommit": "af0ebd7b", "platform": "ubuntu-latest (GitHub hosted)", "configuration": "Release; ticket 341 run 84 measurement"}
+}

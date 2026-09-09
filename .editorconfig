@@ -1,4 +1,5 @@
 # Formatting and analyzer severities. Editors, `dotnet format`, and builds read this.
+# TreatWarningsAsErrors and analyzer attachment remain in the MSBuild configuration.
 root = true
 
 [*]
@@ -24,6 +25,41 @@ dotnet_diagnostic.CA1311.severity = error
 dotnet_diagnostic.CA1816.severity = error
 dotnet_diagnostic.CA2016.severity = error
 dotnet_diagnostic.CA5398.severity = error
+
+
+# ADR 0085 D4 Preview-mode Roslyn evidence. The normalized CQG identities are
+# intentionally comments: SARIF carries upstream engine IDs, and CQG maps them.
+# HLQ.CS.1000 sync-over-async
+dotnet_diagnostic.VSTHRD002.severity = warning
+# HLQ.CS.1020 async void
+dotnet_diagnostic.VSTHRD100.severity = error
+# HLQ.CS.1100 empty catch (partial evidence)
+dotnet_diagnostic.CA1031.severity = warning
+# The rest of the threading analyzer package is outside the ADR 0085 preview set. Suggestion here
+# (several of these rules default to error, which no warnings property can demote); razor-generated
+# sources miss this section and are covered by WarningsNotAsErrors in Directory.Build.props.
+dotnet_diagnostic.VSTHRD001.severity = suggestion
+dotnet_diagnostic.VSTHRD003.severity = suggestion
+dotnet_diagnostic.VSTHRD004.severity = suggestion
+dotnet_diagnostic.VSTHRD010.severity = suggestion
+dotnet_diagnostic.VSTHRD011.severity = suggestion
+dotnet_diagnostic.VSTHRD012.severity = suggestion
+dotnet_diagnostic.VSTHRD101.severity = suggestion
+dotnet_diagnostic.VSTHRD102.severity = suggestion
+dotnet_diagnostic.VSTHRD103.severity = suggestion
+dotnet_diagnostic.VSTHRD104.severity = suggestion
+dotnet_diagnostic.VSTHRD105.severity = suggestion
+dotnet_diagnostic.VSTHRD106.severity = suggestion
+dotnet_diagnostic.VSTHRD107.severity = suggestion
+dotnet_diagnostic.VSTHRD108.severity = suggestion
+dotnet_diagnostic.VSTHRD109.severity = suggestion
+dotnet_diagnostic.VSTHRD110.severity = suggestion
+dotnet_diagnostic.VSTHRD111.severity = suggestion
+dotnet_diagnostic.VSTHRD112.severity = suggestion
+dotnet_diagnostic.VSTHRD113.severity = suggestion
+dotnet_diagnostic.VSTHRD114.severity = suggestion
+dotnet_diagnostic.VSTHRD115.severity = suggestion
+dotnet_diagnostic.VSTHRD200.severity = suggestion
 
 [**/tests/**/*.cs]
 dotnet_diagnostic.CA1001.severity = none

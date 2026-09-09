@@ -88,6 +88,9 @@
     <PackageVersion Include="YDotNet" Version="0.6.0"/>
     <PackageVersion Include="YDotNet.Native" Version="0.6.0"/>
     <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0"/>
+    <!-- ADR 0085 D4: provides VSTHRD002 (HLQ.CS.1000) and VSTHRD100
+         (HLQ.CS.1020). Keep in central package management with the other analyzers. -->
+    <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15"/>
     <PackageVersion Include="MailKit" Version="4.17.0"/>
     <PackageVersion Include="MimeKit" Version="4.17.0"/>
   </ItemGroup>
