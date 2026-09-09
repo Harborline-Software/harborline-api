@@ -434,8 +434,7 @@ public sealed class MultiTeamBootstrapHostedService : IHostedService
                 IssuedAt: administrator.EstablishedAtUtc,
                 Nonce: Guid.Empty,
                 Signature: administrator.AdmissionSignature,
-                IsGenesis: administrator.IsGenesisAdmission,
-                Permissions: founderPermissions.Permissions));
+                IsGenesis: administrator.IsGenesisAdmission));
 
         await _memberships.AddMembershipAsync(actor, membership, ct).ConfigureAwait(false);
         _logger.LogInformation(

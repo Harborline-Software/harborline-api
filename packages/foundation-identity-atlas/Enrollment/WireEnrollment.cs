@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Harborline.Api.Foundation.Crypto;
-using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 
@@ -249,7 +248,6 @@ public static class WireEnrollment
                 a.TeamId,
                 a.PartyId,
                 a.PublicKey.ToBase64Url(),
-                a.Permissions.Permissions.ToArray(),
                 a.Admission))
             .ToArray();
 
@@ -343,7 +341,6 @@ public static class WireEnrollment
                     a.TeamId,
                     a.PartyId,
                     PrincipalId.FromBase64Url(a.PublicKey),
-                    PermissionSet.From(a.Permissions ?? Array.Empty<string>()),
                     a.Admission,
                     TransportPublicKey: null,
                     // C5 — reconstruct the carried byte[] DM key from the SIGNED admission's DM key so the rebuild's
@@ -523,7 +520,6 @@ public sealed record WireAdmissionRecord(
     string TeamId,
     string PartyId,
     string PublicKey,
-    string[] Permissions,
     AdmissionSignature Admission);
 
 /// <summary>A wire-serializable revocation record for the enrollment response — the transport form of

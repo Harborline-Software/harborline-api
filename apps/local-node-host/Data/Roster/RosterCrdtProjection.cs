@@ -1004,6 +1004,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
         if (candidate.WireFormatVersion != RosterWireFormat.CurrentVersion)
             return "roster.record.wire_version_unsupported";
+        if (candidate.UnmappedWireFields is { Count: > 0 })
+            return "roster.record.malformed";
         var receiveAttestation = candidate.ReceiveAttestationOrNull();
         if (receiveAttestation is null || !Guid.TryParse(candidate.NonceGuid, out var recordNonce)
             || !RosterReceiveAttestationSigning.Verify(
@@ -1039,10 +1041,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
                     || (r.Signed.Nonce == nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
         var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime);
-        var permission = admission is not null ? Permission.MembersAdmit : Permission.MembersRevoke;
         if (!chain.Contains(candidate.AdmittedByPartyId)
-            || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
-            || chain.PermissionsOf(candidate.AdmittedByPartyId)?.Contains(permission) != true)
+            || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey)
             return "roster.record.chain_ineligible";
         if (!AttesterIsTrusted(chain, receiveAttestation))
             return "roster.record.receive_attestation_untrusted";

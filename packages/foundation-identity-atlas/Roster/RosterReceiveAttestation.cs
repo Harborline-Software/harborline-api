@@ -3,7 +3,8 @@ namespace Harborline.Api.Foundation.IdentityAtlas;
 /// <summary>The single roster record/wire format shared by admissions, revocations and receive attestations.</summary>
 public static class RosterWireFormat
 {
-    public const int CurrentVersion = 2;
+    /// <summary>Version 3 removes the permission set from roster records and admission signatures.</summary>
+    public const int CurrentVersion = 3;
 }
 public sealed record RosterReceiveAttestation(int FormatVersion, string NodePartyId, string NodePublicKey,
     DateTimeOffset ReceivedAt, string Signature);

@@ -50,7 +50,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                     var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
                     var migrationVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
                     await EnsureRoleAsync(db, role, ct, migrationVocabulary).ConfigureAwait(false);
-                    foreach (var permission in PermissionSet.From(signed.Permissions ?? []).Permissions)
+                    foreach (var permission in (roster.PermissionsOf(admission.PartyId) ?? PermissionSet.Empty).Permissions)
                     {
                         var operation = AuthorizationOperation.Parse(permission);
                         var definition = new AuthorizationCapabilityDefinition(

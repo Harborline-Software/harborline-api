@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Harborline.Api.Foundation.Crypto;
 
 namespace Harborline.Api.Foundation.IdentityAtlas;
@@ -76,7 +75,6 @@ namespace Harborline.Api.Foundation.IdentityAtlas;
 /// "admitted by token T minted under session S". This is an AUDIT provenance claim, NOT a verification claim
 /// (per admiral-ruling-amendment-2026-07-24T1210Z R1.2 — no verifiable web-session material enters the atlas
 /// envelope). Empty (default) for the non-pairing modes; the empty string is signed verbatim (byte-stable).</param>
-/// <param name="Permissions">The permission atoms signed at admission; null denotes an empty set.</param>
 public sealed record AdmissionSignature(
     string AdmittedByPublicKey,
     string AdmittedByPartyId,
@@ -87,8 +85,7 @@ public sealed record AdmissionSignature(
     string DmPublicKey = "",
     string XWingPublicKey = "",
     string AdmittedViaTokenId = "",
-    string MintingSessionEvidence = "",
-    IReadOnlyCollection<string>? Permissions = null);
+    string MintingSessionEvidence = "");
 
 /// <summary>
 /// The canonical signable payload an <see cref="AdmissionSignature"/> attests — the (team, admitted party,
@@ -122,8 +119,7 @@ public sealed record AdmissionSignature(
 /// <param name="AdmittedUnderSessionEvidence">
 /// MTW-2 #3167 (R1.2) — the opaque mint-time SessionCorrelationId (audit provenance, not a verification claim),
 /// signed INTO the envelope. The LAST signable field, defaulting empty (byte-stable).</param>
-/// <param name="AdmittedPermissions">Ordinally sorted, deduplicated permission atoms, including an explicit empty array.</param>
-/// <param name="FormatVersion">Version 2 binds permissions. Pre-versioned signatures are deliberately invalid.</param>
+/// <param name="FormatVersion">Version 3 removes permissions from membership evidence. Older signatures are invalid.</param>
 public sealed record AdmissionRecord(
     string TeamId,
     string AdmittedPartyId,
@@ -135,5 +131,4 @@ public sealed record AdmissionRecord(
     string AdmittedXWingPublicKey = "",
     string AdmittedViaTokenId = "",
     string AdmittedUnderSessionEvidence = "",
-    IReadOnlyCollection<string>? AdmittedPermissions = null,
     int FormatVersion = RosterWireFormat.CurrentVersion);

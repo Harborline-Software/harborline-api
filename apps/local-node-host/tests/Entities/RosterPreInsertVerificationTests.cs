@@ -21,24 +21,20 @@ public sealed class RosterPreInsertVerificationTests
     private static readonly IOperationVerifier Verifier = new Ed25519Verifier();
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task InvalidSignatureOrMissingAtomNeverReachesDurableStore(bool revoke, bool missingAtom)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvalidSignatureNeverReachesDurableStore(bool revoke)
     {
         await using var f = await Fixture.CreateAsync();
-        var signer = missingAtom ? f.Member : f.Founder;
-        var party = missingAtom ? "member" : "founder";
-        var record = revoke ? f.Revocation(signer, party, "member") : f.Admission(signer, party, "new");
-        if (!missingAtom) record = record with { SignatureB64Url = new string('A', 86) };
+        var record = revoke ? f.Revocation(f.Founder, "founder", "member")
+            : f.Admission(f.Founder, "founder", "new");
+        record = record with { SignatureB64Url = new string('A', 86) };
         await f.MergeAsync([record]);
         Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == record.RecordId);
         var rows = await f.AuditsAsync();
         var row = Assert.Single(rows);
         using var body = JsonDocument.Parse(JsonSerializer.Serialize(row.Payload.Payload.Body));
-        Assert.Equal(missingAtom ? "roster.record.chain_ineligible" : "roster.record.signature_invalid",
-            body.RootElement.GetProperty("code").GetString());
+        Assert.Equal("roster.record.signature_invalid", body.RootElement.GetProperty("code").GetString());
         Assert.True(body.RootElement.GetProperty("preDecision").GetBoolean());
         Assert.Contains(record.RecordId, body.RootElement.GetProperty("diagnostic").GetString());
         Assert.True(Verifier.Verify(row.Payload));
@@ -185,17 +181,38 @@ public sealed class RosterPreInsertVerificationTests
         await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
         var candidate = f.Admission(f.Founder, "founder", "old-peer", At.AddHours(2)) with
         {
-            WireFormatVersion = 0,
-            ReceivedAtIso = "",
-            ReceivedByPartyId = "",
-            ReceivedByPublicKey = "",
-            ReceiveAttestationSignatureB64Url = "",
+            WireFormatVersion = RosterWireFormat.CurrentVersion - 1,
+            UnmappedWireFields = PermissionField(),
         };
+        candidate = JsonSerializer.Deserialize<RosterRecordCrdtState>(JsonSerializer.Serialize(candidate))!;
         await f.MergeRawAsync([candidate]);
         Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
         Assert.Contains("roster.record.wire_version_unsupported",
             JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
     }
+
+    [Fact]
+    public async Task CurrentWireShapeWithPermissionFieldIsRefusedAsMalformed()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", "stray-permissions", At.AddHours(2))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(2)) with
+        {
+            UnmappedWireFields = PermissionField(),
+        };
+        var json = JsonSerializer.Serialize(candidate);
+        Assert.Contains("\"Permissions\"", json, StringComparison.Ordinal);
+        candidate = JsonSerializer.Deserialize<RosterRecordCrdtState>(json)!;
+        await f.MergeRawAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
+        Assert.Contains("roster.record.malformed",
+            JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
+    private static Dictionary<string, JsonElement> PermissionField() => new(StringComparer.Ordinal)
+    {
+        ["Permissions"] = JsonSerializer.Deserialize<JsonElement>("[\"records:read\"]"),
+    };
 
     private static RosterRecordCrdtState CopyReceipt(
         RosterRecordCrdtState target, RosterRecordCrdtState source) => target with
@@ -258,9 +275,10 @@ public sealed class RosterPreInsertVerificationTests
         public RosterRecordCrdtState Admission(Ed25519Signer signer, string party, string target, DateTimeOffset? at = null)
         {
             var key = KeyPair.Generate().PrincipalId;
-            var signed = RosterSigning.SignAdmission(signer, Tenant, target, key, party, false, at ?? At.AddHours(1), Guid.NewGuid(),
-                admittedPermissions: PermissionSet.Empty);
-            return RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), target, key, PermissionSet.Empty, signed));
+            var signed = RosterSigning.SignAdmission(signer, Tenant, target, key, party, false,
+                at ?? At.AddHours(1), Guid.NewGuid());
+            return RosterRecordCrdtState.FromAdmission(
+                new MemberAdmissionRecord(Tenant.ToString("D"), target, key, signed));
         }
         public RosterRecordCrdtState Revocation(Ed25519Signer signer, string party, string target, DateTimeOffset? at = null) =>
             RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), target,

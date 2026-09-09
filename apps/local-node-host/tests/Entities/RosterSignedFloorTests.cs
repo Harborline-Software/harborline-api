@@ -39,14 +39,14 @@ public sealed class RosterSignedFloorTests
     [InlineData(Permission.GrantPermissions)]
     [InlineData(Permission.OrgTransferOwnership)]
     [InlineData(Permission.MembersAdmit)]
-    public void ProjectedFloorAtomsCannotAuthorizeFounderRemoval(string missing)
+    public void ProjectedGrantCanAuthorizeFounderRemovalOnceLiveFloorExists(string missing)
     {
         var (roster, _) = Fixture(Floor.Without(missing));
         var projected = roster.Grant("founder", "successor", Floor);
-        var before = projected.Members.OrderBy(m => m.PartyId).ToArray();
-        var refusal = Assert.Throws<RosterGuardException>(() => projected.Revoke("founder", "founder"));
-        Assert.Equal("roster.revocation.no_bricking_floor", refusal.Code);
-        Assert.Equal(before, projected.Members.OrderBy(m => m.PartyId));
+        var removed = projected.Revoke("founder", "founder");
+        Assert.False(removed.Contains("founder"));
+        Assert.True(removed.Contains("successor"));
+        Assert.True(removed.HasRootGrantHolder());
     }
 
     [Fact]
@@ -261,34 +261,6 @@ public sealed class RosterSignedFloorTests
         }
     }
 
-    [Theory]
-    [InlineData(Permission.GrantPermissions)]
-    [InlineData(Permission.OrgTransferOwnership)]
-    [InlineData(Permission.MembersAdmit)]
-    public void CarriedFloorDoesNotCountAndBlockedRemovalReportsWithoutChangingState(string missing)
-    {
-        var (roster, founder) = Fixture(Floor.Without(missing));
-        var records = roster.EnumerateAdmissions().ToArray();
-        var root = records.Single(a => a.Admission.IsGenesis);
-        var member = records.Single(a => !a.Admission.IsGenesis);
-        var forged = member with { Permissions = Floor };
-        var removal = Removal(founder);
-        foreach (var admissions in new[] { new[] { root, forged }, new[] { forged, root },
-                     new[] { root, member }, new[] { member, root } })
-        {
-            var before = MemberRoster.FromSyncedRecords(admissions, [], Verifier);
-            var after = MemberRoster.FromSyncedRecords(admissions, [removal], Verifier);
-            Assert.Equal(before.Members.OrderBy(m => m.PartyId), after.Members.OrderBy(m => m.PartyId));
-            Assert.Equal(before.EnumerateAdmissions(), after.EnumerateAdmissions());
-            var report = Assert.Single(after.RefusedRevocations);
-            Assert.Equal("roster.revocation.no_bricking_floor", report.Code);
-            Assert.Equal(removal, report.Revocation);
-            Assert.True(after.Contains("founder"));
-            Assert.Equal(admissions.Contains(member), after.Contains("successor"));
-            Assert.True(after.ValidatesToGenesis(Verifier));
-        }
-    }
-
     [Fact]
     public void OrdinaryRemovalConvergesAndDoesNotLeaveAStaleRefusal()
     {
@@ -304,13 +276,13 @@ public sealed class RosterSignedFloorTests
             Assert.False(complete.Contains("founder"));
             Assert.True(complete.Contains("successor"));
             Assert.Empty(complete.RefusedRevocations);
-            Assert.Equal(Floor, complete.PermissionsOf("successor"));
+            Assert.Equal(PermissionSet.Empty, complete.PermissionsOf("successor"));
             Assert.True(complete.ValidatesToGenesis(Verifier));
         }
     }
 
     [Fact]
-    public async Task InboundRebuildCarriesTheFloorReportIntoTheExistingRefusalAudit()
+    public async Task InboundRebuildDoesNotSynthesizeAFormerPermissionFloorRefusal()
     {
         var (roster, founder) = Fixture(Floor.Without(Permission.MembersAdmit));
         var trail = new InMemoryAuditTrail();
@@ -341,19 +313,12 @@ public sealed class RosterSignedFloorTests
         await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta.Value, CancellationToken.None);
         await projection.DrainPendingReconcilesAsync();
         var current = provider.GetRequiredService<NodeTeamRoster>().Current;
-        Assert.Equal(roster.Members.Select(m => (m.PartyId, m.PublicKey, roster.PermissionsOf(m.PartyId))).OrderBy(m => m.PartyId),
-            current.Members.Select(m => (m.PartyId, m.PublicKey, current.PermissionsOf(m.PartyId))).OrderBy(m => m.PartyId));
-        var refusal = Assert.Single(current.RefusedRevocations);
+        Assert.True(current.Contains("founder"));
+        Assert.True(current.Contains("successor"));
+        Assert.Empty(current.RefusedRevocations);
         var rows = new List<AuditRecord>();
         await foreach (var row in trail.QueryAsync(new AuditQuery(new TenantId(Tenant.ToString("D")))))
             rows.Add(row);
-        var audit = Assert.Single(rows);
-        Assert.Equal(AuthorizationRefusalAudit.AuthorizationRefusedEventType, audit.EventType);
-        Assert.True(Verifier.Verify(audit.Payload));
-        using var body = JsonDocument.Parse(JsonSerializer.Serialize(audit.Payload.Payload.Body));
-        Assert.Equal(refusal.Code, body.RootElement.GetProperty("code").GetString());
-        Assert.True(body.RootElement.GetProperty("preDecision").GetBoolean());
-        Assert.Equal(JsonSerializer.Serialize(refusal), body.RootElement.GetProperty("diagnostic").GetString());
-        Assert.Equal("founder", audit.Actor?.Value);
+        Assert.Empty(rows);
     }
 }

@@ -15,6 +15,37 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 public sealed class RosterRecordRetirementTests
 {
     [Fact]
+    public void Permission_set_is_absent_from_every_roster_wire_and_signature_record()
+    {
+        Assert.DoesNotContain(typeof(RosterRecordCrdtState).GetProperties(),
+            property => property.Name == "Permissions");
+        Assert.DoesNotContain(typeof(MemberAdmissionRecord).GetProperties(),
+            property => property.Name == "Permissions");
+        Assert.DoesNotContain(typeof(AdmissionSignature).GetProperties(),
+            property => property.Name == "Permissions");
+        Assert.DoesNotContain(typeof(AdmissionRecord).GetProperties(),
+            property => property.Name == "AdmittedPermissions");
+
+        var record = Fixture().EnumerateAdmissions().Single(admission => !admission.Admission.IsGenesis);
+        var json = JsonSerializer.Serialize(RosterRecordCrdtState.FromAdmission(record));
+        Assert.DoesNotContain("permissions", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Current_roster_schema_drops_transitional_signed_permission_evidence()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        await using var db = store.CreateRosterContext();
+        await db.Database.MigrateAsync();
+        var columns = await db.Database.SqlQueryRaw<string>(
+            "SELECT name AS Value FROM pragma_table_info('roster_records')").ToArrayAsync();
+
+        Assert.DoesNotContain("signed_permissions", columns);
+        Assert.Null(typeof(NodeRosterRecord).GetProperty("SignedPermissionsJson"));
+        Assert.False(db.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
     public async Task Production_hydration_counts_legacy_rows_once_at_information()
     {
         await using var store = await SearchTestStore.CreateAsync();
@@ -61,7 +92,8 @@ public sealed class RosterRecordRetirementTests
         await projection.HydrateFromStoreAsync(default);
         await projection.HydrateFromStoreAsync(default);
         Assert.Equal(new[] { 2 }, logger.Counts);
-        Assert.All(projection.Snapshot(), state => Assert.Empty(state.Permissions));
+        Assert.All(projection.Snapshot(), state =>
+            Assert.DoesNotContain("permissions", JsonSerializer.Serialize(state), StringComparison.OrdinalIgnoreCase));
         await using var reopened = store.CreateRosterContext();
         Assert.False(reopened.Database.HasPendingModelChanges());
     }
@@ -88,24 +120,7 @@ public sealed class RosterRecordRetirementTests
         var restored = NodeRosterRecord.ToCrdtState(row).ToAdmissionOrNull()!;
         Assert.True(RosterSigning.VerifyAdmission(Guid.Parse(record.TeamId), record.PartyId,
             record.PublicKey, restored.Admission, new Ed25519Verifier()));
-        Assert.Equal(record.Permissions, restored.Permissions);
-    }
-
-    [Fact]
-    public void New_durable_evidence_round_trips_and_missing_evidence_cannot_reuse_legacy_atoms()
-    {
-        var record = Fixture().EnumerateAdmissions().Single(a => a.PartyId == "member");
-        var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record));
-        var evidence = typeof(NodeRosterRecord).GetProperty("SignedPermissionsJson");
-        Assert.NotNull(evidence);
-        var signed = JsonSerializer.Deserialize<string[]>((string)evidence.GetValue(row)!)!;
-        Assert.Equal(record.Permissions, PermissionSet.From(signed));
-        row.PermissionsJson = JsonSerializer.Serialize(record.Permissions.Permissions);
-        evidence.SetValue(row, "");
-        var restored = NodeRosterRecord.ToCrdtState(row).ToAdmissionOrNull()!;
-        Assert.Equal(PermissionSet.Empty, restored.Permissions);
-        Assert.False(RosterSigning.VerifyAdmission(Guid.Parse(record.TeamId), record.PartyId,
-            record.PublicKey, restored.Admission, new Ed25519Verifier()));
+        Assert.Null(typeof(NodeRosterRecord).GetProperty("SignedPermissionsJson"));
     }
 
     private static MemberRoster Fixture(IOperationSigner? localSigner = null)

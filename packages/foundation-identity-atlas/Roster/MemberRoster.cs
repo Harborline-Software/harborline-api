@@ -139,8 +139,7 @@ public sealed class MemberRoster
             issuedAt: issuedAt,
             nonce: nonce,
             admittedDmPublicKey: founderDmPublicKey ?? string.Empty,
-            admittedXWingPublicKey: founderXWingPublicKey ?? string.Empty,
-            admittedPermissions: PermissionCompositions.Owner);
+            admittedXWingPublicKey: founderXWingPublicKey ?? string.Empty);
 
         // Re-verify the genesis admission as a fail-closed sanity gate (a malformed founder signer must not
         // produce an "unverifiable genesis" that later breaks every chain check).
@@ -356,8 +355,7 @@ public sealed class MemberRoster
             // #3167 R1.2 — bind the pairing token id + mint-session evidence INTO the signed admission on the
             // web-admitted-member pairing path (empty for proximity / plain invite, which pass nothing).
             admittedViaTokenId: admittedViaTokenId ?? string.Empty,
-            admittedUnderSessionEvidence: admittedUnderSessionEvidence ?? string.Empty,
-            admittedPermissions: grantedPermissions);
+            admittedUnderSessionEvidence: admittedUnderSessionEvidence ?? string.Empty);
 
         if (!RosterSigning.VerifyAdmission(_teamId, newPartyId, newPublicKey, admission, verifier))
         {
@@ -545,12 +543,9 @@ public sealed class MemberRoster
         return reachable.Count == _admissionLog.Count;
     }
 
-    /// <summary>True iff a member holds all three root-authority atoms in BOTH its signed admission
-    /// and its live permissions. A local grant cannot supply missing signed evidence.</summary>
+    /// <summary>True iff a live member holds all three root-authority atoms.</summary>
     public bool HasRootGrantHolder() =>
-        _byParty.Values.Any(member => HoldsRootGrant(member.Permissions)
-            && _admissionLog.TryGetValue(member.PartyId, out var entry)
-            && HoldsRootGrant(PermissionSet.From(entry.Admission.Permissions ?? Array.Empty<string>())));
+        _byParty.Values.Any(member => HoldsRootGrant(member.Permissions));
 
     private static bool HoldsRootGrant(PermissionSet signedPermissions) =>
         signedPermissions.Contains(Permission.GrantPermissions)
@@ -573,8 +568,6 @@ public sealed class MemberRoster
         var list = new List<MemberAdmissionRecord>(_admissionLog.Count);
         foreach (var e in _admissionLog.Values)
         {
-            // Replicate the signed admission value, including after a local grant or revocation.
-            var permissions = PermissionSet.From(e.Admission.Permissions ?? Array.Empty<string>());
             // C5 — the DM public key on the emitted record comes from the SIGNED admission (e.Admission.DmPublicKey),
             // NOT an external stamp, so what rides the wire is exactly what the admitter signed (forge-proof). A
             // legacy admission with no signed DM key emits null (the field stays empty on the wire).
@@ -584,7 +577,7 @@ public sealed class MemberRoster
             // admission with no signed X-Wing key emits null (X-Wing-incapable on the wire → suite #1).
             var xwingKey = DecodeSignedXWingKeyOrNull(e.Admission.XWingPublicKey);
             list.Add(new MemberAdmissionRecord(
-                teamId, e.PartyId, e.PublicKey, permissions, e.Admission,
+                teamId, e.PartyId, e.PublicKey, e.Admission,
                 TransportPublicKey: null, DmPublicKey: dmKey, XWingPublicKey: xwingKey));
         }
         return list;
@@ -850,19 +843,12 @@ public sealed class MemberRoster
             return Empty();
         }
 
-        // Require the signed root-authority floor, independent of additions to the Owner composition.
-        var signedGenesisPermissions = PermissionSet.From(genesis.Admission.Permissions ?? Array.Empty<string>());
-        if (!genesis.Permissions.Equals(signedGenesisPermissions)
-            || !HoldsRootGrant(signedGenesisPermissions))
-        {
-            return Empty();
-        }
-
-        // Only the verified signed set seeds live authority; newer code cannot add unsigned permissions.
+        // Permissions no longer ride membership evidence. Keep only the transitional local root floor here;
+        // durable grants remain the authorization source outside this membership-chain reconstruction.
         var live = new Dictionary<string, MemberState>(StringComparer.Ordinal)
         {
             [genesis.PartyId] = new MemberState(
-                genesis.PartyId, genesis.PublicKey, signedGenesisPermissions, genesis.Admission),
+                genesis.PartyId, genesis.PublicKey, PermissionCompositions.Owner, genesis.Admission),
         };
         var log = new Dictionary<string, AdmissionEntry>(StringComparer.Ordinal)
         {
@@ -942,14 +928,7 @@ public sealed class MemberRoster
                     pending.RemoveAt(i);
                     continue;
                 }
-                // Same consistency gate as the two carried keys: only the signed set may bind.
-                if (!a.Permissions.Equals(PermissionSet.From(a.Admission.Permissions ?? Array.Empty<string>())))
-                {
-                    pending.RemoveAt(i);
-                    continue;
-                }
-                // The admitter must ALREADY be a validated member, hold members:admit, and its recorded key
-                // must match the admission's stamped admitter key (the admitter is itself rooted to genesis).
+                // The admitter must already be a validated member and its recorded key must match the stamped key.
                 if (!live.TryGetValue(a.Admission.AdmittedByPartyId, out var admitter)) continue; // not yet
                 if (!string.Equals(
                         admitter.PublicKey.ToBase64Url(), a.Admission.AdmittedByPublicKey, StringComparison.Ordinal))
@@ -957,18 +936,6 @@ public sealed class MemberRoster
                     pending.RemoveAt(i); // admitter key drift — not the recorded admitter
                     continue;
                 }
-                if (!admitter.Permissions.Contains(Permission.MembersAdmit))
-                {
-                    pending.RemoveAt(i); // admitter lacks the authority — reject
-                    continue;
-                }
-                // NO-ESCALATION: the admitted set must be a subset of the admitter's held set.
-                if (!a.Permissions.IsSubsetOf(admitter.Permissions))
-                {
-                    pending.RemoveAt(i);
-                    continue;
-                }
-
                 // Admissible — stage it under its party (don't bind yet; we pick the earliest per party below).
                 if (!admissibleByParty.TryGetValue(a.PartyId, out var bucket))
                 {
@@ -984,7 +951,7 @@ public sealed class MemberRoster
             {
                 if (live.ContainsKey(party)) continue; // defensive — should not happen (party was not-yet-bound)
                 var winner = InDeterministicOrder(candidates).First();
-                live[party] = new MemberState(winner.PartyId, winner.PublicKey, winner.Permissions, winner.Admission);
+                live[party] = new MemberState(winner.PartyId, winner.PublicKey, PermissionSet.Empty, winner.Admission);
                 log[party] = new AdmissionEntry(winner.PartyId, winner.PublicKey, winner.Admission);
                 grew = true;
             }
@@ -1004,14 +971,14 @@ public sealed class MemberRoster
         {
             if (!rebuilt.TryAuthorizeRevocation(rev, verifier)) continue; // forged/unauthorized → DROPPED
             if (!rebuilt._byParty.ContainsKey(rev.RevokedPartyId)) continue; // already gone / never a member
-            try
+            if (rebuilt._byParty.Count == 1)
             {
-                rebuilt = rebuilt.Revoke(rev.Signed.RevokedByPartyId, rev.RevokedPartyId);
+                refusedRevocations.Add(new RosterRevocationRefusal(NoBrickingFloorCode, rev));
+                continue;
             }
-            catch (RosterGuardException ex) when (ex.Code == NoBrickingFloorCode)
-            {
-                refusedRevocations.Add(new RosterRevocationRefusal(ex.Code, rev));
-            }
+            var next = new Dictionary<string, MemberState>(rebuilt._byParty, StringComparer.Ordinal);
+            next.Remove(rev.RevokedPartyId);
+            rebuilt = new MemberRoster(rebuilt._teamId, next, rebuilt._admissionLog, rebuilt._genesisPartyId);
         }
 
         rebuilt.RefusedRevocations = refusedRevocations.AsReadOnly();
@@ -1029,12 +996,9 @@ public sealed class MemberRoster
         // (a) Signature integrity: the stamped revoker key signed this (team, target) revocation.
         if (!RosterSigning.VerifyRevocation(_teamId, record.RevokedPartyId, record.Signed, verifier))
             return false;
-        // (b) Authority: the revoker is a CURRENT member whose recorded key matches the stamped key AND holds
-        //     members:revoke. A revocation signed by a non-member / non-admin / wrong key is rejected.
+        // (b) Membership: the revoker is current and its recorded key matches the stamped key.
         if (!_byParty.TryGetValue(record.Signed.RevokedByPartyId, out var revoker)) return false;
-        if (!string.Equals(revoker.PublicKey.ToBase64Url(), record.Signed.RevokedByPublicKey, StringComparison.Ordinal))
-            return false;
-        return revoker.Permissions.Contains(Permission.MembersRevoke);
+        return string.Equals(revoker.PublicKey.ToBase64Url(), record.Signed.RevokedByPublicKey, StringComparison.Ordinal);
     }
 
     /// <summary>An empty / invalid roster — the fail-closed result when synced records have no trustworthy
@@ -1049,14 +1013,13 @@ public sealed class MemberRoster
 
 /// <summary>
 /// A syncable ADMISSION record — one entry of the roster-sync doctype's append-log. Carries everything a peer
-/// needs to independently re-validate and rebuild the chain: the team, the admitted (party, key, permissions),
+/// needs to independently re-validate and rebuild the chain: the team, the admitted party and key,
 /// and the signed <see cref="AdmissionSignature"/>. Emitted by <see cref="MemberRoster.EnumerateAdmissions"/>;
 /// consumed by <see cref="MemberRoster.FromSyncedRecords"/>.
 /// </summary>
 /// <param name="TeamId">The team this admission is into (string form of the Guid).</param>
 /// <param name="PartyId">The admitted member's party id.</param>
 /// <param name="PublicKey">The admitted member's Ed25519 public key (the party→key binding).</param>
-/// <param name="Permissions">The member's permission set (live when a current member; admission-default else).</param>
 /// <param name="Admission">The signature that roots this admission in the genesis chain.</param>
 /// <param name="TransportPublicKey">
 /// The admitted member's TEAM-SCOPED transport public key (HKDF(member-root, teamId) public half) — the key it
@@ -1125,7 +1088,6 @@ public sealed record MemberAdmissionRecord(
     string TeamId,
     string PartyId,
     PrincipalId PublicKey,
-    PermissionSet Permissions,
     AdmissionSignature Admission,
     byte[]? TransportPublicKey = null,
     byte[]? DmPublicKey = null,

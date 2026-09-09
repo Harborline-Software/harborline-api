@@ -266,10 +266,8 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
 
     // ── Test 1: admit on A → SYNCS to B → B's live roster gains the member, validated ───────────────────
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PermissionOnlySubstitutionOnInboundDeltaRefusesMember(bool elevate)
+    [Fact]
+    public async Task SignedProvenanceSubstitutionOnInboundDeltaRefusesMember()
     {
         var founder = Identity.New("founder");
         var member = Identity.New("member");
@@ -283,7 +281,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             admitted.EnumerateAdmissions().Single(a => a.PartyId == "member"));
         var forged = genuine with
         {
-            Permissions = (elevate ? PermissionCompositions.Owner : PermissionSet.Empty).Permissions.ToArray(),
+            MintingSessionEvidence = "tampered-session",
         };
         Assert.Equal(genuine.SignatureB64Url, forged.SignatureB64Url);
         await source.Projection.PublishLocalAsync(forged, CancellationToken.None);
@@ -298,7 +296,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var cleanTarget = await NewJoinerReplicaAsync("permission-control", source.NodeRoster.Current, founder.Signer);
         await cleanSource.Projection.PublishLocalAsync(genuine, CancellationToken.None);
         await SyncAsync(cleanSource, cleanTarget);
-        Assert.Equal(PermissionCompositions.Member, cleanTarget.NodeRoster.Current.PermissionsOf("member"));
+        Assert.True(cleanTarget.NodeRoster.Current.Contains("member"));
     }
 
     [Fact(DisplayName = "roster-sync: admit on A → delta → B's live NodeTeamRoster gains the member (validated)")]
@@ -344,10 +342,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var forged = RosterSigning.SignAdmission(
             signer: attacker.Signer, teamId: Team, admittedPartyId: "mallory",
             admittedPublicKey: mallory.Key.PrincipalId, admittedByPartyId: "attacker",
-            isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid(),
-            admittedPermissions: PermissionCompositions.Member);
+            isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid());
         var forgedRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "mallory", mallory.Key.PrincipalId, PermissionCompositions.Member, forged);
+            Team.ToString("D"), "mallory", mallory.Key.PrincipalId, forged);
         await a.Projection.PublishLocalAsync(
             RosterRecordCrdtState.FromAdmission(forgedRecord), CancellationToken.None);
 
@@ -860,9 +857,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             signer: mallory.Signer, teamId: Team, admittedPartyId: "alice",
             admittedPublicKey: alice.Key.PrincipalId, admittedByPartyId: "mallory",
             isGenesis: false, issuedAt: DateTimeOffset.UtcNow, nonce: Guid.NewGuid(),
-            admittedDmPublicKey: malloryDm, admittedPermissions: PermissionCompositions.Member);
+            admittedDmPublicKey: malloryDm);
         var malloryRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "alice", alice.Key.PrincipalId, PermissionCompositions.Member,
+            Team.ToString("D"), "alice", alice.Key.PrincipalId,
             malloryForged, TransportPublicKey: null,
             DmPublicKey: PrincipalId.FromBase64Url(malloryDm).AsSpan().ToArray());
         await a.Projection.PublishLocalAsync(
@@ -940,9 +937,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             signer: mallory.Signer, teamId: Team, admittedPartyId: "alice",
             admittedPublicKey: alice.Key.PrincipalId, admittedByPartyId: "mallory",
             isGenesis: false, issuedAt: DateTimeOffset.UnixEpoch.AddSeconds(2000), nonce: Guid.NewGuid(),
-            admittedDmPublicKey: malloryDm, admittedPermissions: PermissionCompositions.Member);
+            admittedDmPublicKey: malloryDm);
         var malloryRecord = new MemberAdmissionRecord(
-            Team.ToString("D"), "alice", alice.Key.PrincipalId, PermissionCompositions.Member,
+            Team.ToString("D"), "alice", alice.Key.PrincipalId,
             malloryReAdmit, TransportPublicKey: null,
             DmPublicKey: PrincipalId.FromBase64Url(malloryDm).AsSpan().ToArray());
         await a.Projection.PublishLocalAsync(

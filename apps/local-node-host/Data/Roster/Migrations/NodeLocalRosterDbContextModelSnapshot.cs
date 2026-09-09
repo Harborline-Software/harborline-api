@@ -14,7 +14,7 @@ partial class NodeLocalRosterDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260908090000_RosterSeparateSignedPermissions";
+    public override string LastMigrationId => "20260908170000_RosterDropSignedPermissions";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -250,13 +250,6 @@ partial class NodeLocalRosterDbContextModelSnapshot : ModelSnapshot
                     .HasMaxLength(256)
                     .HasColumnType("TEXT")
                     .HasColumnName("party_id");
-
-                b.Property<string>("SignedPermissionsJson")
-                    .IsRequired()
-                    .ValueGeneratedOnAdd()
-                    .HasColumnType("TEXT")
-                    .HasColumnName("signed_permissions")
-                    .HasDefaultValue("");
 
                 b.Property<string>("PermissionsJson")
                     .IsRequired()
