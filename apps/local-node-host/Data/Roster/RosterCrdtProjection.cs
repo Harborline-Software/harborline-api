@@ -1046,13 +1046,15 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
                     || (r.Signed.Nonce == nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
         var authority = _rosterAuthority?.Invoke();
-        var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime, authority);
+        // `at` is this record's bounded order time (above) - the instant its eligibility is judged at, and the
+        // instant the admitter's grant authority is read at. Deterministic on every node; no clock read here.
+        var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime, authority, at);
         // The admitter/revoker must hold the operation's atom. The record no longer carries a permission set,
         // so the atom is read from the local grant store through IRosterAuthority (genesis keeps the root floor).
         var permission = admission is not null ? Permission.MembersAdmit : Permission.MembersRevoke;
         if (!chain.Contains(candidate.AdmittedByPartyId)
             || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
-            || !AuthorityFor(chain, authority, candidate.AdmittedByPartyId).Contains(permission))
+            || !AuthorityFor(chain, authority, candidate.AdmittedByPartyId, at).Contains(permission))
             return "roster.record.chain_ineligible";
         if (!AttesterIsTrusted(chain, receiveAttestation))
             return "roster.record.receive_attestation_untrusted";
@@ -1075,10 +1077,11 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     }
 
     // The chain root's authority is its genesis self-admission; every other party's comes from the grant store.
-    private static PermissionSet AuthorityFor(MemberRoster chain, IRosterAuthority? authority, string partyId) =>
+    private static PermissionSet AuthorityFor(
+        MemberRoster chain, IRosterAuthority? authority, string partyId, DateTimeOffset at) =>
         string.Equals(partyId, chain.GenesisPartyId, StringComparison.Ordinal)
             ? PermissionCompositions.Owner
-            : authority?.PermissionsFor(chain.TeamId.ToString("D"), partyId) ?? PermissionSet.Empty;
+            : authority?.PermissionsFor(chain.TeamId.ToString("D"), partyId, at) ?? PermissionSet.Empty;
 
     private static bool AttesterIsTrusted(MemberRoster roster, RosterReceiveAttestation attestation) =>
         roster.EnumerateAdmissions().Any(admission =>

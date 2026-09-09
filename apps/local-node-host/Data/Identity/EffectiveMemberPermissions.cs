@@ -1,4 +1,5 @@
 using Harborline.Api.Blocks.AccessGrant;
+using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -36,14 +37,29 @@ internal static class EffectiveMemberPermissions
             return new(partyId, roster.Contains(partyId), ejected, rosterPermissions);
         }
 
+        var closure = await InstallRootPermissionsAsync(
+            authorization, tenant, principal, at, cancellationToken).ConfigureAwait(false);
+
+        return new(partyId, roster.Contains(partyId), ejected, closure);
+    }
+
+    /// <summary>
+    /// The install-root grant derivation both readings answer from: the principal's closure atoms at the
+    /// install root, as a permission set. The gate decides an act; this only derives its grant input.
+    /// </summary>
+    internal static async ValueTask<PermissionSet> InstallRootPermissionsAsync(
+        IAuthorizationClosureReader authorization,
+        TenantId tenant,
+        ActorId principal,
+        DateTimeOffset at,
+        CancellationToken cancellationToken)
+    {
         var atoms = await authorization
             .UserPermissionsAsync(tenant, principal, at, cancellationToken)
             .ConfigureAwait(false);
-        var closure = PermissionSet.From(atoms.Atoms
+        return PermissionSet.From(atoms.Atoms
             .Where(atom => string.Equals(atom.Scope.Value, InstallRoot, StringComparison.Ordinal))
             .Select(atom => atom.Operation.Value));
-
-        return new(partyId, roster.Contains(partyId), ejected, closure);
     }
 
     internal static AuthorizationRosterInputs Read(MemberRoster roster, string partyId, ActorId principal) =>
@@ -57,4 +73,50 @@ internal static class EffectiveMemberPermissions
             (string.Equals(admission.PartyId, partyId, StringComparison.Ordinal)
                 || string.Equals(admission.PartyId, principal.Value, StringComparison.Ordinal))
             && !roster.Contains(admission.PartyId));
+}
+
+/// <summary>
+/// The production <see cref="IRosterAuthority"/> (ticket 293 slice 3c). No permission set rides the wire, so the
+/// replicated path's admitter, revoker, no-escalation and never-brick gates read a party's authority from the
+/// local grant store - through the SAME install-root derivation
+/// <see cref="EffectiveMemberPermissions.ReadAsync"/> uses, in the one file the gate fence sanctions as the
+/// roster-edge-then-closure reading. No verdict is computed here: a permission SET is the gate's roster input,
+/// and every act is still decided by <c>AuthorizationGate.DecideAsync</c>.
+/// </summary>
+/// <remarks>
+/// A composition with no grant store (a minimal DI test) answers the empty set, which is the fail-closed floor
+/// the interface documents - only the genesis chain root holds authority. The synchronous
+/// <see cref="IRosterAuthority.PermissionsFor"/> contract, called from inside the synchronous rebuild, forces the
+/// same single bridge <c>ActiveTeamAuthorizationContext</c> already uses; the rebuild reads each party once.
+/// </remarks>
+internal sealed class GrantStoreRosterAuthority(IAuthorizationClosureReader? authorization) : IRosterAuthority
+{
+    /// <summary>
+    /// The composition seam: the grant store is resolved HERE, in the fence's sanctioned reading, so no
+    /// composition file names the closure reader. Absent (a minimal DI test) - the fail-closed floor.
+    /// </summary>
+    internal static IRosterAuthority FromServices(IServiceProvider services) =>
+        new GrantStoreRosterAuthority(services.GetService<IAuthorizationClosureReader>());
+
+    // NO clock. The instant is the caller's - the rebuild's / the decision's At (ticket 216: only the host
+    // composition root introduces wall time, and a grant read at a LATER instant than the act it feeds can flip
+    // the answer mid-act).
+    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+    {
+        // One tenant-key form: the canonical "D" Guid. A team id that is not one is not a roster-backed team.
+        if (authorization is null
+            || string.IsNullOrWhiteSpace(partyId)
+            || !Guid.TryParse(teamId, out var team))
+        {
+            return PermissionSet.Empty;
+        }
+
+        var pending = EffectiveMemberPermissions.InstallRootPermissionsAsync(
+            authorization,
+            new TenantId(team.ToString("D")),
+            new ActorId(partyId),
+            at,
+            CancellationToken.None);
+        return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
+    }
 }
