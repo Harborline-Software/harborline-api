@@ -6,7 +6,7 @@ set -uo pipefail
 source_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$source_root"
 scratch=$(mktemp -d ".claude/land-main-moved.XXXXXX")
-trap 'rm -rf "$scratch"' EXIT
+[ -n "${KEEP_SCRATCH:-}" ] || trap 'rm -rf "$scratch"' EXIT
 real_node=$(command -v node)
 real_git=$(command -v git)
 # shellcheck source=fixture-git-retry.sh
@@ -54,7 +54,7 @@ make_case() {
   mkdir -p "$seed/eng/tests"
   cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
     "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" \
-    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$source_root/eng/pre-push-receipt.mjs" "$source_root/eng/quality-baseline-landing.sh" "$seed/eng/"
+    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$source_root/eng/pre-push-receipt.mjs" "$source_root/eng/quality-baseline-landing.sh" "$source_root/eng/coverage.mjs" "$seed/eng/"
   cat > "$seed/eng/gate-lock.sh" <<'EOF'
 gate_lock_acquire() { :; }
 gate_lock_release() { :; }
@@ -131,7 +131,7 @@ for arg in "$@"; do
         receipt_ref=${arg#+}
         tree=${receipt_ref#refs/receipts/tree/}
         tree=${tree%%:*}
-        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","exact-clone","packages"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","exact-clone","packages","quality"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
         blob=$(printf '%s' "$receipt" | "$REAL_GIT" --git-dir="$MOCK_REMOTE" hash-object -w --stdin)
         "$REAL_GIT" --git-dir="$MOCK_REMOTE" update-ref "refs/receipts/tree/$tree" "$blob"
       fi
@@ -265,5 +265,5 @@ make_case receipt-accepted 105 0 0 1 || fails=$((fails + 1))
 make_case receipt-accepted-post-merge-safety 105 3 0 1 1 || fails=$((fails + 1))
 make_case retries-stale-pr-head 105 0 0 0 0 2 || fails=$((fails + 1))
 make_case refuses-permanently-stale-pr-head 105 1 0 0 0 3 || fails=$((fails + 1))
-echo "5 cases, $fails failures"
+echo "7 cases, $fails failures"
 [ "$fails" -eq 0 ]
