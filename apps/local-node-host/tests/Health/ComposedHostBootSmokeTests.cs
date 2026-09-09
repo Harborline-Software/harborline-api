@@ -152,7 +152,7 @@ public sealed partial class ComposedHostBootSmokeTests
             await installed.Content.ReadAsStringAsync(host.Deadline));
         var accessPack = Assert.Single(installedDocument.RootElement.EnumerateArray(), pack =>
             pack.GetProperty("packKey").GetString() == "harborline.access-administration");
-        Assert.Equal("1.1.0", accessPack.GetProperty("version").GetString());
+        Assert.Equal("1.1.1", accessPack.GetProperty("version").GetString());
         Assert.Equal("Active", accessPack.GetProperty("lifecycle").GetString());
 
         using var export = await client.PostAsJsonAsync(

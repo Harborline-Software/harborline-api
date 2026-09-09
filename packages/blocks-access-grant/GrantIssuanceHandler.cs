@@ -7,7 +7,7 @@ namespace Harborline.Api.Blocks.AccessGrant;
 
 public static class GrantIssuanceSteps
 {
-    public const string DefinitionKey = "grant-issuance";
+    public const string DefinitionKey = "access.privileged-grant-review";
     public const string Decide = "decide";
     public const string Approve = "approve";
     public const string Granted = "granted";

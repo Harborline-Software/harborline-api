@@ -3,6 +3,7 @@ using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 
+using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.FinancialAr.Models;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
@@ -53,6 +54,45 @@ public sealed class NodeWorkflowInstantiationService
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  access-grant issuance — the admitted instance-creation path used after
+    //  the Forms authorization gate has allowed the submission.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Creates the Access pack's typed grant-issuance Process for a submitted form, pinning the pack's
+    /// workflow revision. The submission instance id makes creation idempotent.
+    /// </summary>
+    internal async Task<string> StartAccessGrantIssuanceAsync(
+        TenantId tenantId,
+        string submissionInstanceId,
+        GrantIssuanceRequest request,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(submissionInstanceId);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var instanceId = "access-grant-form:" + submissionInstanceId;
+        if (await _store.LoadAsync(instanceId, ct).ConfigureAwait(false) is not null)
+        {
+            return instanceId;
+        }
+
+        await _store.CreateInstanceAsync(new WorkflowInstanceRecord
+        {
+            Id = instanceId,
+            TenantId = tenantId.Value,
+            DefinitionKey = GrantIssuanceSteps.DefinitionKey,
+            DefinitionVersion = "1.0.1",
+            CurrentStep = GrantIssuanceSteps.Approve,
+            Status = WorkflowStatus.Running,
+            StateJson = GrantIssuanceHandler.SerializeRequest(request),
+        }, at, ct).ConfigureAwait(false);
+
+        return instanceId;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
