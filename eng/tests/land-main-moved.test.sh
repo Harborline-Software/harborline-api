@@ -42,7 +42,7 @@ EOF
 }
 
 make_case() {
-  local name=$1 measured=$2 want_rc=$3 evidence=$4
+  local name=$1 measured=$2 want_rc=$3 evidence=$4 stale_reads=${5:-0}
   local case_dir="$scratch/$name" remote="$scratch/$name.git"
   local seed="$case_dir/seed" runner="$case_dir/runner"
   mkdir -p "$case_dir"
@@ -124,7 +124,13 @@ EOF
 case "$*" in
   "pr view 7 --json baseRefName --jq .baseRefName") echo main ;;
   "pr view 7 --json headRefName --jq .headRefName") echo feature ;;
-  "pr view 7 --json headRefOid --jq .headRefOid") git rev-parse origin/feature ;;
+  "pr view 7 --json headRefOid --jq .headRefOid")
+    reads=0
+    [ -f "$MOCK_PR_HEAD_READS" ] && reads=$(cat "$MOCK_PR_HEAD_READS")
+    reads=$((reads + 1))
+    printf '%s\n' "$reads" > "$MOCK_PR_HEAD_READS"
+    if [ "$reads" -le "$MOCK_PR_HEAD_STALE_READS" ]; then echo "$MOCK_PR_HEAD_OLD"; else git --git-dir="$MOCK_REMOTE" rev-parse refs/heads/feature; fi
+    ;;
   "pr view 7 --json state --jq .state") [ -f "$MOCK_MERGED" ] && echo MERGED || echo OPEN ;;
   "pr merge 7 --squash --match-head-commit "*)
     source "$FIXTURE_GIT_RETRY"
@@ -144,8 +150,14 @@ EOF
   shim_path=$(cd "$shim" && pwd)
 
   export REAL_NODE="$real_node" REAL_GIT="$real_git" FIXTURE_GIT_RETRY="$source_root/eng/tests/fixture-git-retry.sh" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged" WRITE_EXACT_CLONE_EVIDENCE="$evidence"
+  export MOCK_PR_HEAD_STALE_READS="$stale_reads" MOCK_PR_HEAD_READS="$(cd "$case_dir" && pwd)/pr-head-reads" MOCK_PR_HEAD_OLD="$(git -C "$runner" rev-parse origin/feature)"
   export HARBORLINE_LAND_VERIFY_CMD='bash eng/test-verify-stub.sh'
   export HARBORLINE_GATE_LOCK_PATH='../gate.lock'
+  if [ "$name" = retries-stale-pr-head ] || [ "$name" = refuses-permanently-stale-pr-head ]; then
+    export LAND_PR_HEAD_RETRIES=3 LAND_PR_HEAD_DELAY=0
+  else
+    unset LAND_PR_HEAD_RETRIES LAND_PR_HEAD_DELAY
+  fi
   if [ "$name" = refuses-regression ]; then
     local feature_before policy_out policy_rc
     feature_before=$(git --git-dir="$remote" rev-parse feature)
@@ -175,6 +187,15 @@ EOF
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
     [ "$main_total/$branch_total" = "105/105" ] || { echo "FAIL $name: totals main/branch=$main_total/$branch_total"; return 1; }
     grep -Fq 'main moved, measured matches: re-pinned' "$case_dir/output.log" || { echo "FAIL $name: missing re-pin reason"; return 1; }
+    if [ "$name" = retries-stale-pr-head ]; then
+      [ "$(grep -Fc 'land: waiting for GitHub to see the pushed head' "$case_dir/output.log")" = 2 ] || { echo "FAIL $name: waiting line count was not 2"; return 1; }
+      grep -Fxq 'land: waiting for GitHub to see the pushed head (1)' "$case_dir/output.log" || { echo "FAIL $name: missing first waiting line"; return 1; }
+      grep -Fxq 'land: waiting for GitHub to see the pushed head (2)' "$case_dir/output.log" || { echo "FAIL $name: missing second waiting line"; return 1; }
+    fi
+  elif [ "$name" = refuses-permanently-stale-pr-head ]; then
+    local pushed_head
+    pushed_head=$(git --git-dir="$remote" rev-parse feature)
+    grep -Fq "land: PR #7 head ($MOCK_PR_HEAD_OLD) is not the pushed head ($pushed_head); GitHub is stale after 3 reads. Rerun land.sh." "$case_dir/output.log" || { echo "FAIL $name: missing stale GitHub refusal"; return 1; }
   elif [ "$name" = refuses-regression ]; then
     local branch_total
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
@@ -192,5 +213,7 @@ fails=0
 make_case repins-and-lands 105 0 0 || fails=$((fails + 1))
 make_case refuses-regression 104 1 1 || fails=$((fails + 1))
 make_case no-measurement 104 1 0 || fails=$((fails + 1))
-echo "3 cases, $fails failures"
+make_case retries-stale-pr-head 105 0 0 2 || fails=$((fails + 1))
+make_case refuses-permanently-stale-pr-head 105 1 0 3 || fails=$((fails + 1))
+echo "5 cases, $fails failures"
 [ "$fails" -eq 0 ]

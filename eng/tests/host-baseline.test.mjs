@@ -43,12 +43,13 @@ test('named: missing, skipped, miscounted or unparsed results cannot pass', () =
 
 const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
 const macNames = mac.permittedFailures.map(row => row.test)
-const n = macNames.length // 15 from ticket 302 plus the two ticket 346 lifecycle rows
+const n = macNames.length // derived: 302 slice 1 burned eleven of the seventeen rows down
+const k = n - 1 // an arbitrary but existing row, whatever the file's length is
 const macOutput = macNames.map(name => `  Failed ${name} [12 ms]\n`).join('')
 const macInput = {baseline: mac, counts: {total: n, failed: n}, adjustedFailed: n, newFailures: [], trx: trxOf(macOutput, {total: n, failed: n})}
 
 test('named: macOS duplicate permitted cases count individually', () => {
-  const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[6]} [< 1 ms]\n`
+  const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[k]} [< 1 ms]\n`
   const result = compareHostBaseline({...macInput, trx: trxOf(output, {total: n + 1, failed: n + 1}), adjustedFailed: n + 1})
   assert.deepEqual(result.burnDown, [])
   assert.deepEqual(result.missing, [])
@@ -57,9 +58,9 @@ test('named: macOS duplicate permitted cases count individually', () => {
 
 test('result parser preserves real display names across outcomes and duration formats', () => {
   for (const ending of ['\n', '\r\n']) for (const outcome of ['Passed', 'Failed', 'Skipped']) {
-    const lines = ['12 ms', '1 s', '< 1 ms'].map((duration, index) => `  ${outcome} ${macNames[index + 6]} [${duration}]${ending}`)
+    const lines = ['12 ms', '1 s', '< 1 ms'].map((duration, index) => `  ${outcome} ${macNames[index]} [${duration}]${ending}`)
     const output = `[xUnit.net 00:00:01.00] runner diagnostic${ending}` + lines.join('')
-    assert.deepEqual(resultNamesIn(output, outcome), macNames.slice(6, 9))
+    assert.deepEqual(resultNamesIn(output, outcome), macNames.slice(0, 3))
     for (const other of ['Passed', 'Failed', 'Skipped'].filter(value => value !== outcome)) {
       assert.deepEqual(resultNamesIn(output, other), [])
     }
@@ -73,14 +74,14 @@ test('named: every false verdict supplies actionable console and evidence detail
     [{counts: null}, 'host baseline incomplete: TRX counters unavailable; inspect the host test output'],
     [{counts: {total: 0, failed: n}}, 'host baseline incomplete: TRX counted no tests; check test discovery'],
     [{output: `Failed: ${n}, Passed: 3476, Skipped: 19, Total: 3510`}, noLines],
-    [{baseline: {...mac, permittedFailures: [...mac.permittedFailures, mac.permittedFailures[6]]}},
-      `host baseline duplicate permitted row: remove duplicate row: ${macNames[6]}`],
+    [{baseline: {...mac, permittedFailures: [...mac.permittedFailures, mac.permittedFailures[k]]}},
+      `host baseline duplicate permitted row: remove duplicate row: ${macNames[k]}`],
     [{output: macOutput + '  Failed Regression [1 s]\n', counts: {total: n + 1, failed: n + 1}, newFailures: ['Regression']},
       'host baseline unlisted failure: investigate: Regression'],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Passed ${macNames[6]}`), counts: {total: n, failed: n - 1}},
-      `host baseline burn-down: remove row: ${macNames[6]}`],
-    [{output: macOutput.replace(`Failed ${macNames[6]}`, `Skipped ${macNames[6]}`), counts: {total: n, failed: n - 1}},
-      `host baseline missing result: ${macNames[6]}`],
+    [{output: macOutput.replace(`Failed ${macNames[k]}`, `Passed ${macNames[k]}`), counts: {total: n, failed: n - 1}},
+      `host baseline burn-down: remove row: ${macNames[k]}`],
+    [{output: macOutput.replace(`Failed ${macNames[k]}`, `Skipped ${macNames[k]}`), counts: {total: n, failed: n - 1}},
+      `host baseline missing result: ${macNames[k]}`],
     [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, 'host baseline incomplete: TRX has 0 total results but its counter is 1'],
   ]
   const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
@@ -113,38 +114,47 @@ test('Windows comparison preserves the original count and identity truth table',
     }
   }
 })
-test('all seventeen macOS identities are owned, distinct, and compared exactly', () => {
+test('every macOS identity is owned, dated, reasoned, distinct, and compared exactly', () => {
   const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
   const rows = mac.permittedFailures
-  assert.equal(rows.length, 17)
-  assert.equal(new Set(rows.map(row => row.test)).size, 17)
+  // 302 s1: the count is derived from the file (the composed-host health fix burned eleven of the
+  // seventeen rows down); a row that stays red carries the reason it stays red.
+  const n = rows.length
+  assert.ok(n <= 6, `macOS baseline has ${n} rows; the 302 slice 1 measurement had 6`)
+  assert.equal(new Set(rows.map(row => row.test)).size, n)
   for (const row of rows) {
     assert.equal(row.owner, '302')
     assert.ok(['behavioural', 'environmental'].includes(row.class))
+    assert.match(row.dated ?? '', /^\d{4}-\d{2}-\d{2}$/, `row ${row.test} is undated`)
+    assert.ok((row.reason ?? '').length > 40, `row ${row.test} has no reason`)
+    // A behavioural row is a defect, never an OS gap, so it may only stay by naming its follow-up.
+    if (row.class === 'behavioural') assert.match(row.reason, /follow-up ticket/, `row ${row.test}`)
   }
   const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')
-  const input = {baseline: mac, counts: {total: 17, failed: 17}, adjustedFailed: 17, newFailures: [], trx: trxOf(output, {total: 17, failed: 17})}
+  const input = {baseline: mac, counts: {total: n, failed: n}, adjustedFailed: n, newFailures: [], trx: trxOf(output, {total: n, failed: n})}
   assert.equal(compareHostBaseline(input).passed, true)
   for (const row of rows) {
-    const result = compareHostBaseline({...input, counts: {total: 17, failed: 16},
-      trx: trxOf(output.replace(`Failed ${row.test}`, `Passed ${row.test}`), {total: 17, failed: 16})})
+    const result = compareHostBaseline({...input, counts: {total: n, failed: n - 1},
+      trx: trxOf(output.replace(`Failed ${row.test}`, `Passed ${row.test}`), {total: n, failed: n - 1})})
     assert.equal(result.passed, false)
     assert.deepEqual(result.burnDown, [row.test])
     const renamed = compareHostBaseline({...input, newFailures: [row.test + ' renamed'],
-      trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: 17, failed: 17})})
+      trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: n, failed: n})})
     assert.equal(renamed.passed, false)
     assert.deepEqual(renamed.missing, [row.test])
   }
 })
-test('all thirteen Ubuntu identities are owned, distinct, and compared exactly', () => {
+test('every Ubuntu identity is owned, dated, reasoned, distinct, and compared exactly', () => {
   const ubuntu = JSON.parse(readFileSync(path.join(root, UBUNTU_BASELINE)))
   const rows = ubuntu.permittedFailures
-  // 341 s2: the count is derived from the file (346's two behavioural rows joined the 13 environmental ones).
+  // 341 s2: the count is derived from the file; 302 s1 burned eleven rows down (13 environmental + 2 behavioural to 4).
   const n = rows.length
-  assert.ok(n >= 13, `ubuntu baseline has ${n} rows; the 341 measurement had 13`)
+  assert.ok(n >= 1 && n <= 4, `ubuntu baseline has ${n} rows; the 302 s1 measurement had 4`)
   assert.equal(new Set(rows.map(row => row.test)).size, n)
   for (const row of rows) {
-    assert.ok(['the controller', '302'].includes(row.owner), `row owner ${row.owner}`)
+    assert.ok(['the controller', '302', '360'].includes(row.owner), `row owner ${row.owner}`)
+    assert.match(row.dated ?? '', /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/, `row ${row.test} is undated`)
+    assert.ok((row.reason ?? '').length > 20, `row ${row.test} has no reason`)
     assert.ok(['environmental', 'behavioural'].includes(row.class), `row class ${row.class}`)
   }
   const output = rows.map(row => `  Failed ${row.test} [1 ms]\n`).join('')

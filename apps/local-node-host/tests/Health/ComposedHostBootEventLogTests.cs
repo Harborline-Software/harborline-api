@@ -47,6 +47,24 @@ public sealed class ComposedHostBootEventLogTests
         Assert.Equal([LogLevel.Warning], failureEvents);
     }
 
+    /// <summary>
+    /// Ticket 302: the health chain registers this check on every platform, but the sink is registered on
+    /// Windows only. Activation is exactly what the framework's health service does
+    /// (<c>GetServiceOrCreateInstance</c>), so a required constructor dependency threw inside the health
+    /// middleware — every /health request on macOS and Linux answered 500 on a healthy host.
+    /// </summary>
+    [Fact]
+    public async Task Availability_check_activates_and_is_healthy_when_no_sink_is_registered()
+    {
+        await using var provider = new ServiceCollection().BuildServiceProvider();
+
+        var health = await ActivatorUtilities
+            .GetServiceOrCreateInstance<WindowsEventLogAvailabilityHealthCheck>(provider)
+            .CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, health.Status);
+    }
+
     [Fact]
     public async Task ThrowingEventLogSink_DoesNotStopTheComposedHostAndIsReportedByHealth()
     {
