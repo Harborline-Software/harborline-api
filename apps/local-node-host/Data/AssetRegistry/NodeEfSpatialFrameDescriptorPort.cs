@@ -37,7 +37,7 @@ namespace Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 /// the defence against two in-flight mints racing the same tip read within the process; the
 /// IMMEDIATE lock serializes across connections; the composite PK is the storage backstop.</para>
 /// </remarks>
-public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPort
+public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPort, IDisposable
 {
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
     private readonly IRegistryAuditLog _audit;
@@ -427,4 +427,9 @@ public sealed class NodeEfSpatialFrameDescriptorPort : ISpatialFrameDescriptorPo
 
     private static SpatialFrameGeoreference? DeserializeGeoreference(string? json) =>
         json is null ? null : JsonSerializer.Deserialize<SpatialFrameGeoreference>(json);
+
+    public void Dispose()
+    {
+        _gate.Dispose();
+    }
 }

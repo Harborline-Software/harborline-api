@@ -131,7 +131,7 @@ public sealed class NodeAuditEventReader
             q = q.Where(r =>
                 r.OccurredAt < cursor.OccurredAt ||
                 (r.OccurredAt == cursor.OccurredAt &&
-                 string.Compare(r.AuditId, cursorAuditId) < 0));
+                 string.Compare(r.AuditId, cursorAuditId, StringComparison.Ordinal) < 0));
         }
 
         var ordered = q

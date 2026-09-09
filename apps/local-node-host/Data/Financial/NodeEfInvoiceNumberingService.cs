@@ -60,7 +60,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// read path, no explicit transaction) when no home-epoch scope is active (every single-device mint today).
 /// </para>
 /// </remarks>
-public sealed class NodeEfInvoiceNumberingService : IInvoiceNumberingService
+public sealed class NodeEfInvoiceNumberingService : IInvoiceNumberingService, IDisposable
 {
     private readonly IDbContextFactory<LocalNodeDbContext> _contextFactory;
     private readonly ReplicaId _localReplica;
@@ -207,5 +207,10 @@ public sealed class NodeEfInvoiceNumberingService : IInvoiceNumberingService
         }
 
         return Task.FromResult(mustRekey);
+    }
+
+    public void Dispose()
+    {
+        throw new NotImplementedException();
     }
 }

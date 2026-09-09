@@ -111,9 +111,8 @@ public static class AdministratorRecoveryCommand
         // something else.
         if (!confirmed)
         {
-            await stderr.WriteLineAsync(
-                "administrator.recovery_not_confirmed: this command establishes ADMINISTRATIVE AUTHORITY on " +
-                "this installation and is permanently recorded. Re-run with --confirm to proceed.")
+            await stderr.WriteLineAsync("administrator.recovery_not_confirmed: this command establishes ADMINISTRATIVE AUTHORITY on " +
+                "this installation and is permanently recorded. Re-run with --confirm to proceed.", cancellationToken)
                 .ConfigureAwait(false);
             return 2;
         }
@@ -133,11 +132,10 @@ public static class AdministratorRecoveryCommand
             // Malformed appsettings, an unbindable value, an unreadable install footprint. The host would
             // fail on the same input — but this command's whole contract is a code and a sentence, so it
             // does not get to be the one place that prints a stack trace at an operator mid-incident.
-            await stderr.WriteLineAsync(
-                "administrator.recovery_configuration_unreadable: the node's LocalNode configuration could " +
+            await stderr.WriteLineAsync("administrator.recovery_configuration_unreadable: the node's LocalNode configuration could " +
                 $"not be resolved, so recovery cannot tell which installation it would repair. " +
                 $"{exception.GetType().Name}. Check appsettings and the LocalNode__ environment variables, " +
-                "or pass --data-dir explicitly.")
+                "or pass --data-dir explicitly.", cancellationToken)
                 .ConfigureAwait(false);
             return 9;
         }
@@ -151,10 +149,9 @@ public static class AdministratorRecoveryCommand
         // success — while the real node stayed locked out.
         if (!File.Exists(storePath))
         {
-            await stderr.WriteLineAsync(
-                $"administrator.recovery_store_missing: resolved data directory '{dataDirectory}', expected " +
+            await stderr.WriteLineAsync($"administrator.recovery_store_missing: resolved data directory '{dataDirectory}', expected " +
                 $"the node store at '{storePath}', and there is none. Recovery repairs an existing " +
-                "installation and will not create one. Pass --data-dir with the node's real data directory.")
+                "installation and will not create one. Pass --data-dir with the node's real data directory.", cancellationToken)
                 .ConfigureAwait(false);
             return 6;
         }
@@ -180,7 +177,7 @@ public static class AdministratorRecoveryCommand
                     "administrator.recovery_node_running: another process holds " +
                     $"{NodeRunLock.PathFor(dataDirectory)}. Stop the node before recovering an administrator."),
             };
-            await stderr.WriteLineAsync(text).ConfigureAwait(false);
+            await stderr.WriteLineAsync(text, cancellationToken).ConfigureAwait(false);
             return code;
         }
 
@@ -192,17 +189,15 @@ public static class AdministratorRecoveryCommand
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await stderr.WriteLineAsync(
-                "administrator.recovery_root_seed_unavailable: the installation root seed could not be " +
-                $"resolved, so the encrypted store cannot be opened. {exception.GetType().Name}")
+            await stderr.WriteLineAsync("administrator.recovery_root_seed_unavailable: the installation root seed could not be " +
+                $"resolved, so the encrypted store cannot be opened. {exception.GetType().Name}", cancellationToken)
                 .ConfigureAwait(false);
             return 4;
         }
 
         if (rootSeed.Length != 32)
         {
-            await stderr.WriteLineAsync(
-                $"administrator.recovery_root_seed_invalid: expected a 32-byte root seed, got {rootSeed.Length}.")
+            await stderr.WriteLineAsync($"administrator.recovery_root_seed_invalid: expected a 32-byte root seed, got {rootSeed.Length}.", cancellationToken)
                 .ConfigureAwait(false);
             return 4;
         }
@@ -224,9 +219,8 @@ public static class AdministratorRecoveryCommand
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await stderr.WriteLineAsync(
-                "administrator.recovery_store_key_invalid: LocalNode:StoreDekHex is configured but could not " +
-                $"be used as a store key. {exception.GetType().Name}")
+            await stderr.WriteLineAsync("administrator.recovery_store_key_invalid: LocalNode:StoreDekHex is configured but could not " +
+                $"be used as a store key. {exception.GetType().Name}", cancellationToken)
                 .ConfigureAwait(false);
             return 4;
         }
@@ -271,30 +265,27 @@ public static class AdministratorRecoveryCommand
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await stderr.WriteLineAsync(
-                $"administrator.recovery_store_unusable: '{storePath}' could not be opened, migrated or " +
+            await stderr.WriteLineAsync($"administrator.recovery_store_unusable: '{storePath}' could not be opened, migrated or " +
                 $"written. {exception.GetType().Name}. Check that this is the node's real data directory and " +
-                "that the installation's key material is available to this account.")
+                "that the installation's key material is available to this account.", cancellationToken)
                 .ConfigureAwait(false);
             return 8;
         }
 
         if (!result.Applied)
         {
-            await stderr.WriteLineAsync(
-                $"administrator.recovery_declined: {result.Code}. Nothing was written. Tenant " +
+            await stderr.WriteLineAsync($"administrator.recovery_declined: {result.Code}. Nothing was written. Tenant " +
                 $"{candidate.TeamId} already has a usable administrator, or the candidate carried no signed " +
-                "admission.")
+                "admission.", cancellationToken)
                 .ConfigureAwait(false);
             return 5;
         }
 
-        await stdout.WriteLineAsync(
-            $"administrator.recovered: '{candidate.PartyId}' now holds administrative authority over tenant " +
+        await stdout.WriteLineAsync($"administrator.recovered: '{candidate.PartyId}' now holds administrative authority over tenant " +
             $"{candidate.TeamId} in '{storePath}' with provenance RECOVERY (sequence {result.Sequence}). " +
             "This is permanently recorded in the node's administrator-authority log and cannot be removed " +
             "while it is that tenant's last usable administrator. The installer principal remains sealed " +
-            "and was NOT re-armed.")
+            "and was NOT re-armed.", cancellationToken)
             .ConfigureAwait(false);
         return 0;
     }

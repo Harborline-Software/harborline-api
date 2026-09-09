@@ -248,7 +248,7 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
         }
 
         var (schemaJson, buildDef) = SchemaFor(formId);
-        var schema = await _schemaRegistry.RegisterAsync(schemaJson).ConfigureAwait(false);
+        var schema = await _schemaRegistry.RegisterAsync(schemaJson, ct: ct).ConfigureAwait(false);
         var definition = build(tenant, schema.Id, now);
 
         await _formStore.RegisterAndPublishAsync(definition, decision, ct).ConfigureAwait(false);

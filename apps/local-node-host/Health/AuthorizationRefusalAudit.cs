@@ -111,7 +111,7 @@ public sealed class AuthorizationRefusalAudit
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),
             };
-            var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid())
+            var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid(), ct)
                 .ConfigureAwait(false);
             var record = new AuditRecord(
                 AuditId: Guid.NewGuid(),

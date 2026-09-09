@@ -171,7 +171,7 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
             .AsNoTracking()
             .Where(p => p.TenantId == tenantId
                 && p.DeletedAt == null
-                && p.DisplayName.ToLower() == displayName.ToLower())
+                && p.DisplayName.ToLower(System.Globalization.CultureInfo.CurrentCulture) == displayName.ToLower(System.Globalization.CultureInfo.CurrentCulture))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -191,7 +191,7 @@ public sealed class NodeEfPartyRepository : IPartyReadModel, IPartyWriteService
             .Where(ea => ea.TenantId == tenantId
                 && ea.ReplacedAt == null
                 && ea.DeletedAt == null
-                && ea.Address.ToLower() == emailLower)
+                && ea.Address.ToLower(System.Globalization.CultureInfo.CurrentCulture) == emailLower)
             .Select(ea => ea.PartyId.Value)
             .Distinct()
             .ToListAsync(cancellationToken)

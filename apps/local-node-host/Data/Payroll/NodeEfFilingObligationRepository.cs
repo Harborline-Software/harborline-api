@@ -73,8 +73,8 @@ public sealed class NodeEfFilingObligationRepository : IFilingObligationReposito
         var records = await ctx.FilingObligations
             .AsNoTracking()
             .Where(o => o.TenantId == tenantValue
-                && string.Compare(o.DueDate, fromStr) >= 0
-                && string.Compare(o.DueDate, toStr) <= 0)
+                && string.Compare(o.DueDate, fromStr, StringComparison.Ordinal) >= 0
+                && string.Compare(o.DueDate, toStr, StringComparison.Ordinal) <= 0)
             .OrderBy(o => o.DueDate)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
