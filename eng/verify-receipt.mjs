@@ -21,8 +21,8 @@ import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
 
-const REPOSITORY = 'harborline-api'
-const SCHEMA_VERSION = 1
+export const REPOSITORY = 'harborline-api'
+export const SCHEMA_VERSION = 1
 
 // The steps eng/verify.sh must have run and passed. A receipt missing any of these is refused, so
 // commenting a step out of verify.sh does not silently narrow what the hook accepts — the two
@@ -42,6 +42,10 @@ export const requiredStepIds = [
   'packages',
 ]
 
+// Ticket 350: eng/receipt-accept.mjs imports REPOSITORY, SCHEMA_VERSION and requiredStepIds from here so a
+// landing cannot accept a receipt this file would refuse. Importing must therefore not run git or verify
+// anything, so everything below is the entry-point body and nothing else.
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/verify-receipt.mjs')) {
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {encoding: 'utf8'}).trim()
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()
 const receiptPath = path.resolve(root, git('rev-parse', '--git-common-dir'), 'harborline-api-verify-receipt.json')
@@ -115,3 +119,4 @@ const missing = requiredStepIds.filter(id => !(receipt.steps ?? []).includes(id)
 if (missing.length > 0) refuse(`the receipt does not cover: ${missing.join(', ')}`)
 
 console.log(`${REPOSITORY}: verification receipt matches HEAD ${head.slice(0, 12)} — ${receipt.steps.length} steps`)
+}

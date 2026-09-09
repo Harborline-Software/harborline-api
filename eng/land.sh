@@ -41,7 +41,25 @@ tested_tree=$(git -C "$land_dir" rev-parse 'HEAD^{tree}')
 head_tree=$(git rev-parse "$head_sha^{tree}")
 [ "$tested_tree" = "$head_tree" ] || { echo "land: internal: merge tree != head tree although head is a descendant of main"; exit 1; }
 echo "land: gating tree ${tested_tree:0:12} (base $(git rev-parse --short "$base_sha"), head $(git rev-parse --short "$head_sha"))"
+# Ticket 350: the mac slice gate publishes a receipt for the MERGE tree as refs/receipts/tree/<tree>.
+# If one exists for exactly this tree, is schema-current, covers every step eng/verify-receipt.mjs
+# requires and is younger than HARBORLINE_RECEIPT_MAX_AGE_HOURS, the twelve steps have already run on
+# this exact tree and re-running them here buys nothing but an hour. Everything AFTER the gate — the
+# baseline re-pin, the PR binding, the merge and the landing resolution — is unchanged and still runs.
+# eng/receipt-accept.mjs owns the decision (and prints the reason either way) so it is testable
+# without a repository.
+receipt_ref="refs/receipts/tree/$tested_tree"
+receipt_file=$(mktemp "${TMPDIR:-/tmp}/land-receipt-XXXXXX")
+receipt_accepted=0
+if git fetch -q --no-tags origin "+$receipt_ref:$receipt_ref" 2>/dev/null && git cat-file blob "$receipt_ref" >"$receipt_file" 2>/dev/null; then
+  if node eng/receipt-accept.mjs "$tested_tree" "$receipt_file"; then receipt_accepted=1; fi
+else
+  echo "land: no verification receipt published for tree ${tested_tree:0:12}; gating here"
+fi
+rm -f "$receipt_file"
+if [ $receipt_accepted -eq 0 ]; then
 ( cd "$land_dir" && node eng/build-local-feed.mjs >/dev/null 2>&1 && dotnet restore apps/local-node-host/tests/tests.csproj >/dev/null 2>&1 && ( for d in apps/capability-host; do [ -d "$d" ] && ( cd "$d" && npm ci --silent --no-audit --no-fund >/dev/null 2>&1 ) || true; done ) && bash eng/verify.sh ) && ( cd "$land_dir" && node eng/verify-receipt.mjs --landing ) || { preserve_land_evidence "$root" "$land_dir" "$head_sha" || echo "land: WARNING could not preserve exact-clone evidence" >&2; echo "land: gate RED on the merge commit; nothing landed"; exit 1; }
+fi
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ -z "$pr" ]; then
   pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
