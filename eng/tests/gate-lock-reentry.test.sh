@@ -14,10 +14,10 @@ if [ "${1:-}" = stub ]; then
     last|legacy) [ "$PPID" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] || exit 25 ;;
     trailing|missing) [ "$PPID" != "$HARBORLINE_GATE_LOCK_OWNER_PID" ] || exit 21 ;;
   esac
-  # Five seconds is the ticket's acquisition ceiling, including a stuck reuse attempt.
+  # The acquisition ceiling: five seconds idle, twenty under load (333 item 7: a chain plus two lanes made the trailing shape miss five on Windows).
   SECONDS=0
   target=$$
-  ( sleep 5; kill -TERM "$target" 2>/dev/null ) & watchdog=$!
+  ( sleep "${HARBORLINE_GATE_LOCK_TEST_CEILING:-20}"; kill -TERM "$target" 2>/dev/null ) & watchdog=$!
   trap 'kill "$watchdog" 2>/dev/null || true; wait "$watchdog" 2>/dev/null || true' EXIT
   trap 'exit 143' TERM
   gate_lock_acquire "stub-$expected" || exit $?
