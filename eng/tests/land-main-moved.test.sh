@@ -52,7 +52,7 @@ make_case() {
   mkdir -p "$seed/eng/tests"
   cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
     "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" \
-    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$seed/eng/"
+    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$source_root/eng/pre-push-receipt.mjs" "$seed/eng/"
   cat > "$seed/eng/gate-lock.sh" <<'EOF'
 gate_lock_acquire() { :; }
 gate_lock_release() { :; }
