@@ -70,7 +70,7 @@ public sealed class RosterPermissionSignatureTests
         var nonce = Guid.NewGuid();
         var admission = RosterSigning.SignAdmission(signer, Tenant, "member", signer.IssuerId,
             "founder", false, Now, nonce);
-        Assert.Contains("\"FormatVersion\":3", signer.CanonicalBytes);
+        Assert.Contains("\"FormatVersion\":4", signer.CanonicalBytes);
         Assert.DoesNotContain("AdmittedPermissions", signer.CanonicalBytes, StringComparison.Ordinal);
         Assert.True(RosterSigning.VerifyAdmission(Tenant, "member", signer.IssuerId, admission, Verifier));
         var record = Assert.IsType<AdmissionRecord>(signer.Payload);
@@ -83,7 +83,7 @@ public sealed class RosterPermissionSignatureTests
             record.TeamId, record.AdmittedPartyId, record.AdmittedPublicKey, record.AdmittedByPartyId,
             record.AdmittedByPublicKey, record.IsGenesis, record.AdmittedDmPublicKey,
             record.AdmittedXWingPublicKey, record.AdmittedViaTokenId, record.AdmittedUnderSessionEvidence,
-            AdmittedPermissions = new[] { "records:read" }, FormatVersion = 2,
+            AdmittedPermissions = new[] { "records:read" }, FormatVersion = 3,
         }, Now, nonce);
         Assert.False(RosterSigning.VerifyAdmission(Tenant, "member", signer.IssuerId,
             admission with { Signature = old.Signature.ToBase64Url() }, Verifier));
