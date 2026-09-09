@@ -465,7 +465,9 @@ public sealed class KernelClockIntegrationTests
             var admin = roster.Members.Single(member =>
                 roster.PermissionsOf(member.PartyId)!.Contains(TeamRolePermissions.MembersManage));
             var adminParty = new PartyId(admin.PartyId);
-            var adminPrincipal = new ActorId("ticket-216-identity-admin");
+            // Ticket 294 slice 2a — ONE key: the admin's canonical tenant principal IS its roster party
+            // id, so the grant it holds and the roster edge it signs with are found under one string.
+            var adminPrincipal = new ActorId(admin.PartyId);
             var people = Services.GetRequiredService<IPartyReadModel>();
             var peopleWrites = Services.GetRequiredService<IPartyWriteService>();
             if (await people.GetByIdAsync(adminParty, CancellationToken.None) is null)
@@ -614,7 +616,11 @@ public sealed class KernelClockIntegrationTests
             var targetBinding = await Services.GetRequiredService<ICanonicalPrincipalPartyReader>()
                 .ResolveAsync(tenant, targetPrincipal);
             Assert.NotNull(targetBinding);
+            // The People PartyId stays the ATTRIBUTION the web session carries.
             var targetParty = new PartyId(targetBinding!.PartyId.Value);
+            // Ticket 294 slice 2a — the ROSTER edge is keyed by the canonical tenant PRINCIPAL id, the
+            // same key the grant store issues to, so the revocation leg finds the edge it must remove.
+            var rosterParty = new PartyId(targetPrincipal.Value);
             _identityTargetGrantId = targetMembership.GrantId;
 
             _identityTargetHandle = "ticket-238-selected-handle";
@@ -646,32 +652,32 @@ public sealed class KernelClockIntegrationTests
             var (transportPublicKey, transportPrivateKey) = transportSigner.GenerateKeyPair();
             _identityTargetTransportIdentity = new NodeIdentity(
                 "23823823823823823823823823823823", transportPublicKey, transportPrivateKey);
-            _identityTargetPartyId = targetParty.Value;
+            _identityTargetPartyId = rosterParty.Value;
             var dmKey = RandomNumberGenerator.GetBytes(PrincipalId.LengthInBytes);
             var xwingKey = RandomNumberGenerator.GetBytes(RosterRecordCrdtState.XWingPublicKeyLength);
             var operationSigner = Services.GetRequiredService<IOperationSigner>();
             var operationVerifier = Services.GetRequiredService<IOperationVerifier>();
             var nodeRoster = Services.GetRequiredService<NodeTeamRoster>();
             var withTarget = nodeRoster.Current.Admit(
-                admin.PartyId, operationSigner, targetParty.Value, PrincipalId.FromBytes(transportPublicKey),
+                admin.PartyId, operationSigner, rosterParty.Value, PrincipalId.FromBytes(transportPublicKey),
                 PermissionCompositions.Member, operationVerifier, FrozenAt.AddMinutes(-1), Guid.NewGuid(),
                 newDmPublicKey: PrincipalId.FromBytes(dmKey).ToBase64Url(),
                 newXWingPublicKey: RawBase64Url(xwingKey));
-            var admission = withTarget.EnumerateAdmissions().Single(item => item.PartyId == targetParty.Value);
+            var admission = withTarget.EnumerateAdmissions().Single(item => item.PartyId == rosterParty.Value);
             await Services.GetRequiredService<RosterCrdtProjection>().PublishLocalAsync(
                 RosterRecordCrdtState.FromAdmission(admission, transportPublicKey, dmKey, xwingKey),
                 CancellationToken.None);
             nodeRoster.AdoptSyncedRoster(
                 withTarget,
-                new Dictionary<string, byte[]> { [targetParty.Value] = transportPublicKey },
-                new Dictionary<string, byte[]> { [targetParty.Value] = dmKey },
-                new Dictionary<string, byte[]> { [targetParty.Value] = xwingKey });
+                new Dictionary<string, byte[]> { [rosterParty.Value] = transportPublicKey },
+                new Dictionary<string, byte[]> { [rosterParty.Value] = dmKey },
+                new Dictionary<string, byte[]> { [rosterParty.Value] = xwingKey });
 
             Assert.NotNull(await Services.GetRequiredService<IWebSelectedSessionPrincipalAuthority>()
                 .AuthenticateAsync(_identityTargetHandle));
             Assert.Contains(nodeRoster.TrustedTransportKeys(), key => key.AsSpan().SequenceEqual(transportPublicKey));
-            Assert.NotNull(nodeRoster.DmPublicKeyOf(targetParty.Value));
-            Assert.NotNull(nodeRoster.XWingPublicKeyOf(targetParty.Value));
+            Assert.NotNull(nodeRoster.DmPublicKeyOf(rosterParty.Value));
+            Assert.NotNull(nodeRoster.XWingPublicKeyOf(rosterParty.Value));
         }
 
         internal async Task<DateTimeOffset[]> IdentityAdministrationAsync(bool assertRevocationEffects = false)

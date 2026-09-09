@@ -25,6 +25,13 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader
 {
     /// <summary>Boot-only publication: signed roster provenance and completion commit under one fence.</summary>
+    /// <remarks>
+    /// Ticket 294 slice 2a: <c>new ActorId(admission.PartyId)</c> below is correct BY CONSTRUCTION now that
+    /// the roster's <c>PartyId</c> is the canonical tenant principal id — it is the same key this store's
+    /// own <c>SubjectId</c> column and every closure read use, so the backfilled grant lands under the key
+    /// the gate reads. No column, index, migration or backfill row changes for that; only the meaning of
+    /// the value already being written.
+    /// </remarks>
     internal async Task<int> CommitRosterAdmissionMigrationAsync(
         IDbContextFactory<NodeLocalRosterDbContext> rosterFactory, IOperationVerifier verifier, CancellationToken ct)
     {

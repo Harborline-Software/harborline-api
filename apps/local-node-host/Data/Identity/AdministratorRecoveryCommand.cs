@@ -10,6 +10,8 @@ using Harborline.Api.Foundation.LocalFirst.Installation;
 using Harborline.Api.Kernel.Security.Crypto;
 using Harborline.Api.Kernel.Security.DependencyInjection;
 using Harborline.Api.Kernel.Security.Keys;
+using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -398,11 +400,13 @@ public static class AdministratorRecoveryCommand
     {
         ArgumentNullException.ThrowIfNull(rootSeed);
         using var signer = new NodePrincipalSigner(rootSeed);
-        var nodeKeyHex8 = Convert.ToHexString(signer.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
-        var osUserRaw = Environment.UserName;
-        var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
-        // 274: same derivation as Program.cs — minted (canonicalised), not merely interpolated.
-        var partyId = ActorId.Mint($"os:{osUser}#{nodeKeyHex8}").Value;
+        // The SAME pure derivation Program.cs uses for an unseeded install: project the resolved genesis
+        // team to its tenant, then derive the founder's canonical tenant principal from the founder ceremony.
+        // Recovery receives the team resolved by GenesisTeamId.Resolve above; it never derives a party from
+        // the shell account or node signing key, because no reader grants authority to either key.
+        var genesisTenant = ActiveTeamTenantContext.ProjectTenantId(new TeamId(teamId));
+        var partyId = FounderTenantMembershipAttachService.DerivePrincipal(
+            genesisTenant, InstallationFounderBootstrapCeremony.CorrelationId).Value;
 
         // The founder's own team-scoped DM public key is SIGNED INTO the genesis admission envelope in
         // production (Program.cs ~518). Omitting it produced a record with the same RecordId and a DIFFERENT

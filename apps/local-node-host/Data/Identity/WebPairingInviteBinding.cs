@@ -31,7 +31,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// </remarks>
 /// <param name="TokenId">The opaque single-use invite token id the mint issued (the redemption key).</param>
 /// <param name="Membership">The four web-plane pins captured off the session-derived principal at mint.</param>
-/// <param name="BoundPartyId">The People PartyId the token was minted for (the session principal's
+/// <param name="BoundPartyId">Ticket 294 slice 2a — the CANONICAL TENANT PRINCIPAL id the token was minted
+/// for; the one party key the roster edge and the grant store share (the session principal's
 /// canonical party). The enrollment must present exactly this party or the redemption refuses.</param>
 /// <param name="Anchor">The token's immutable team scope; the receipt independently supplies it at commit.</param>
 /// <param name="SessionCorrelationId">#3167 R1.2 — the opaque mint-time SessionCorrelationId captured off the

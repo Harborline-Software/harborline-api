@@ -289,13 +289,16 @@ internal sealed class AdminTeamAccessAuthority(
                     "No unique live party binding in this tenant: missing, tombstoned, detached, duplicated or wrong-tenant."));
                 continue;
             }
-            if (!seenParties.Add(party.PartyId.Value))
+            // Ticket 294 slice 2a — ONE key. The live Party binding still proves attributability (a null
+            // reader result is UNATTRIBUTED above); the id surfaced and de-duplicated against the roster is
+            // the canonical tenant principal, which is what the roster edge is keyed by.
+            if (!seenParties.Add(grant.Subject.Value))
             {
                 continue;
             }
 
             members.Add(new TeamMemberView(
-                party.PartyId.Value,
+                grant.Subject.Value,
                 TeamMemberSource.Grant,
                 await ProjectGrantCapabilitiesAsync(grant, now, cancellationToken).ConfigureAwait(false),
                 grant.GrantId.Value.ToString()));
@@ -471,8 +474,9 @@ internal sealed class AdminTeamAccessAuthority(
         // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
         if (revokedParty is not null)
         {
+            // Ticket 294 slice 2a — the roster edge is keyed by the principal, so the signed removal names it.
             await _memberRevocations.RevokeAsync(
-                    tenant, grantId, revokedParty.PartyId.Value, context.CallerPartyId,
+                    tenant, grantId, existing.Subject.Value, context.CallerPartyId,
                     MemberRevocationReasons.Offboarding, correlationId: null, decision, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -581,13 +585,14 @@ internal sealed class AdminTeamAccessAuthority(
         // authoritative where it exists, so a successor the roster narrows or has ejected is refused here
         // rather than handed a role that does nothing.
         var successorInputs = successorParty is null ? null : EffectiveMemberPermissions.Read(
-            context.Roster, successorParty.PartyId.Value, successorPrincipal);
+            context.Roster, successorPrincipal.Value, successorPrincipal);
         var successorDecision = successorInputs is null ? null : await _gate.DecideAsync(
             new AuthorizationWriteContext(successorPrincipal, tenant, at)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
-                with { Roster = successorInputs with
-                    { ProspectiveAdministratorGrant = true,
-                        Permissions = successorInputs.Permissions ?? PermissionSet.Of(TeamRolePermissions.MembersManage) } },
+                // Ticket 294 slice 2a — the flag is the whole question; the gate answers it. The caller no
+                // longer substitutes a members:manage set for a successor the roster reports nothing about,
+                // which silently made every successor look capable.
+                with { Roster = successorInputs with { ProspectiveAdministratorGrant = true } },
             cancellationToken).ConfigureAwait(false);
         if (successorDecision is not null && refusalAudit is not null)
             await refusalAudit.RecordAsync(successorDecision, cancellationToken).ConfigureAwait(false);
@@ -622,7 +627,7 @@ internal sealed class AdminTeamAccessAuthority(
         if (revokedParty is not null)
         {
             await _memberRevocations.RevokeAsync(
-                    tenant, target.ToString(), revokedParty.PartyId.Value, context.CallerPartyId,
+                    tenant, target.ToString(), existing.Subject.Value, context.CallerPartyId,
                     MemberRevocationReasons.Offboarding, correlationId.ToString("D"), decision, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -748,8 +753,10 @@ internal sealed class AdminTeamAccessAuthority(
             return null;
         }
 
+        // Ticket 294 slice 2a — the roster is read by the ONE key. `party` above is still required and
+        // still pinned to the session's canonical party reference (attribution); it is not the roster key.
         var inputs = await EffectiveMemberPermissions.ReadAsync(
-            _authorization, roster, party.PartyId.Value, tenant,
+            _authorization, roster, session.TenantPrincipalId, tenant,
             new ActorId(session.TenantPrincipalId), now, cancellationToken).ConfigureAwait(false);
         request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, now)
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "list");
@@ -760,7 +767,7 @@ internal sealed class AdminTeamAccessAuthority(
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
         if (requireGrantCoverage) decision.RequireAllowed();
         if (decision.Verdict == AuthorizationVerdict.Denied) return null;
-        return new AdminSessionContext(session, canonicalTenantId, party.PartyId.Value, roster,
+        return new AdminSessionContext(session, canonicalTenantId, session.TenantPrincipalId, roster,
             PermissionSet.From(decision.AtomsConsidered.Select(atom => atom.Operation.Value)), decision);
     }
 

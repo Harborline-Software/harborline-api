@@ -60,6 +60,14 @@ namespace Harborline.Api.LocalNodeHost.Enrollment;
 /// <em>transport</em>, not this core) and does NOT require the joiner to be in the roster (B is JOINING). That is
 /// what lets the SAME core serve the cross-machine pre-trust network channel where B has neither.
 /// </para>
+/// <para>
+/// <b>Ticket 294 slice 2a — what <c>JoiningPartyId</c> means on this wire.</b> It is the joiner's
+/// CANONICAL TENANT PRINCIPAL id (<c>CanonicalPartyBinding.PrincipalUserId.Value</c>), which is the one
+/// party key the signed roster edge, the grant store's <c>AccessGrant.Subject</c> and every closure read
+/// share. It is NOT the People <c>PartyId</c>; that reference keeps its own job as the attribution
+/// stamped on what an act writes. The field is deliberately NOT renamed — the wire record shape is
+/// unchanged and only its meaning moved, which is what the roster wire-format version records.
+/// </para>
 /// </remarks>
 public sealed class WireEnrollmentAdmitter
 {
