@@ -196,7 +196,7 @@ public sealed class SelectedSessionPepTests
         Assert.False(context.HasPermission("records:read"));
     }
 
-    [Fact(DisplayName = "25-member permission-free roster rebuild timing is recorded")]
+    [Fact(DisplayName = "25-member roster rebuild timing is recorded")]
     public async Task TwentyFive_Member_Roster_Rebuild_Is_Measured()
     {
         using var founder = KeyPair.Generate();
@@ -256,7 +256,8 @@ public sealed class SelectedSessionPepTests
         var permissions = await resolver.ResolveAsync(principal);
         stopwatch.Stop();
 
-        Assert.Null(permissions);
+        Assert.NotNull(permissions);
+        Assert.True(permissions!.Contains(Permission.ContactsRead));
         _output.WriteLine($"25-member cryptographic roster rebuild: {stopwatch.Elapsed.TotalMilliseconds:F2} ms");
     }
 

@@ -223,7 +223,10 @@ public sealed class RosterSignedFloorTests
             var live = new NodeTeamRoster(roster);
             AuthorizationRefusalAudit? audit = null;
             var projection = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier,
-                founder, NullLogger<RosterCrdtProjection>.Instance, nodeRoster: live, refusalAudit: () => audit);
+                founder, NullLogger<RosterCrdtProjection>.Instance, nodeRoster: live, refusalAudit: () => audit,
+                // The successor admitted later ("third") holds the floor as a GRANT - that is what clears the
+                // refusal now that no permission set rides the wire.
+                rosterAuthority: () => new TestRosterAuthority(("third", Floor), ("own", Floor)));
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(genesis), CancellationToken.None);
             await projection.PublishLocalAsync(RosterRecordCrdtState.FromRevocation(Removal(founder)), CancellationToken.None);
             await projection.DrainPendingReconcilesAsync();
@@ -272,17 +275,45 @@ public sealed class RosterSignedFloorTests
         Assert.Single(pending.RefusedRevocations);
         foreach (var ordered in new[] { admissions, admissions.Reverse().ToArray() })
         {
-            var complete = MemberRoster.FromSyncedRecords(ordered, [removal, removal], Verifier);
+            // The successor's floor is a GRANT now - nothing on the wire says it - so the replay reads it from
+            // the grant store, and only then does the no-bricking floor let the founder go.
+            var complete = MemberRoster.FromSyncedRecords(ordered, [removal, removal], Verifier,
+                authority: new TestRosterAuthority(("successor", Floor)));
             Assert.False(complete.Contains("founder"));
             Assert.True(complete.Contains("successor"));
             Assert.Empty(complete.RefusedRevocations);
-            Assert.Equal(PermissionSet.Empty, complete.PermissionsOf("successor"));
+            Assert.Null(complete.PermissionsOf("successor"));
             Assert.True(complete.ValidatesToGenesis(Verifier));
         }
     }
 
     [Fact]
-    public async Task InboundRebuildDoesNotSynthesizeAFormerPermissionFloorRefusal()
+    public void NothingCarriedOnTheWireSuppliesTheFloorOrTheRevokerAuthority()
+    {
+        var (roster, founder) = Fixture(Floor);
+        var admissions = roster.EnumerateAdmissions().ToArray();
+        var removal = Removal(founder);
+        // No grant for the successor: the replay must refuse the removal that would leave no root-grant
+        // holder, exactly as the local path refuses it, and must not silently drop the founder.
+        var refused = MemberRoster.FromSyncedRecords(admissions, [removal], Verifier);
+        Assert.True(refused.Contains("founder"));
+        Assert.Equal(MemberRoster.NoBrickingFloorCode, Assert.Single(refused.RefusedRevocations).Code);
+
+        // A revocation signed by a member who holds no members:revoke grant is DROPPED, not refused.
+        var successorSigner = new Ed25519Signer(KeyPair.Generate());
+        var founderSigner = new Ed25519Signer(KeyPair.Generate());
+        var team = MemberRoster.Genesis(Tenant, "founder", founderSigner, Verifier, At, Guid.NewGuid())
+            .Admit("founder", founderSigner, "successor", successorSigner.IssuerId, Floor, Verifier, At, Guid.NewGuid());
+        var successorSigned = new MemberRevocationRecord(Tenant.ToString("D"), "founder",
+            RosterSigning.SignRevocation(successorSigner, Tenant, "founder", "successor",
+                At.AddMinutes(2), Guid.NewGuid()));
+        var dropped = MemberRoster.FromSyncedRecords(team.EnumerateAdmissions(), [successorSigned], Verifier);
+        Assert.True(dropped.Contains("founder"));
+        Assert.Empty(dropped.RefusedRevocations);
+    }
+
+    [Fact]
+    public async Task InboundRebuildCarriesTheFloorReportIntoTheExistingRefusalAudit()
     {
         var (roster, founder) = Fixture(Floor.Without(Permission.MembersAdmit));
         var trail = new InMemoryAuditTrail();
@@ -296,6 +327,10 @@ public sealed class RosterSignedFloorTests
         services.AddSingleton<IAuditTrail>(trail);
         services.AddAuthorizationRefusalAudit();
         services.AddSingleton(TimeProvider.System);
+        // The grant store holds exactly what the founder granted the successor - short of the root floor - so
+        // the replay refuses the founder's removal and the refusal reaches the audit.
+        services.AddSingleton<IRosterAuthority>(
+            new TestRosterAuthority(("successor", Floor.Without(Permission.MembersAdmit))));
         services.AddNodeRoster();
         await using var provider = services.BuildServiceProvider();
         var projection = provider.GetRequiredService<RosterCrdtProjection>();
@@ -313,12 +348,19 @@ public sealed class RosterSignedFloorTests
         await projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta.Value, CancellationToken.None);
         await projection.DrainPendingReconcilesAsync();
         var current = provider.GetRequiredService<NodeTeamRoster>().Current;
-        Assert.True(current.Contains("founder"));
-        Assert.True(current.Contains("successor"));
-        Assert.Empty(current.RefusedRevocations);
+        Assert.Equal(roster.Members.Select(m => (m.PartyId, m.PublicKey)).OrderBy(m => m.PartyId),
+            current.Members.Select(m => (m.PartyId, m.PublicKey)).OrderBy(m => m.PartyId));
+        var refusal = Assert.Single(current.RefusedRevocations);
         var rows = new List<AuditRecord>();
         await foreach (var row in trail.QueryAsync(new AuditQuery(new TenantId(Tenant.ToString("D")))))
             rows.Add(row);
-        Assert.Empty(rows);
+        var audit = Assert.Single(rows);
+        Assert.Equal(AuthorizationRefusalAudit.AuthorizationRefusedEventType, audit.EventType);
+        Assert.True(Verifier.Verify(audit.Payload));
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(audit.Payload.Payload.Body));
+        Assert.Equal(refusal.Code, body.RootElement.GetProperty("code").GetString());
+        Assert.True(body.RootElement.GetProperty("preDecision").GetBoolean());
+        Assert.Equal(JsonSerializer.Serialize(refusal), body.RootElement.GetProperty("diagnostic").GetString());
+        Assert.Equal("founder", audit.Actor?.Value);
     }
 }

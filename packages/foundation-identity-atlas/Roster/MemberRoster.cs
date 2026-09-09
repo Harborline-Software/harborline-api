@@ -59,8 +59,11 @@ public sealed class MemberRoster
 
     // Transitional live permission state for the 291 guards; slice 3c replaces this with grant derivation.
     // It is deliberately outside the membership record and is never serialized as membership evidence.
+    // Permissions is NULL for a member reconstructed from replicated records: no permission set rides the
+    // wire any more (293 s3b2), so the roster reports NO set for that member and every reader falls through to
+    // the grant closure. It is never PermissionSet.Empty - an empty set would answer, and shadow the grants.
     private sealed record MemberState(string PartyId, PrincipalId PublicKey,
-        PermissionSet Permissions, AdmissionSignature Admission)
+        PermissionSet? Permissions, AdmissionSignature Admission)
     {
         public RosterMember Member { get; } = new(PartyId, PublicKey, Admission);
     }
@@ -282,7 +285,7 @@ public sealed class MemberRoster
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(partyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(permission);
-        return _byParty.TryGetValue(partyId, out var m) && m.Permissions.Contains(permission);
+        return _byParty.TryGetValue(partyId, out var m) && m.Permissions?.Contains(permission) == true;
     }
 
     /// <summary>
@@ -321,13 +324,13 @@ public sealed class MemberRoster
             throw new RosterGuardException(
                 $"Admitter signing key does not match the roster binding for '{admitterPartyId}'.");
         }
-        if (!admitter.Permissions.Contains(Permission.MembersAdmit))
+        if (Held(admitter).Contains(Permission.MembersAdmit) is false)
         {
             throw new RosterGuardException(
                 $"Admitter '{admitterPartyId}' does not hold '{Permission.MembersAdmit}'.");
         }
         // NO-ESCALATION: the admitted set must be a subset of the admitter's held set.
-        if (!grantedPermissions.IsSubsetOf(admitter.Permissions))
+        if (!grantedPermissions.IsSubsetOf(Held(admitter)))
         {
             throw new RosterGuardException(
                 "No-escalation violated: the admitted permission set exceeds the admitter's held set.");
@@ -395,7 +398,7 @@ public sealed class MemberRoster
         {
             throw new RosterGuardException($"Granter '{granterPartyId}' is not a member.");
         }
-        if (!granter.Permissions.Contains(Permission.GrantPermissions))
+        if (Held(granter).Contains(Permission.GrantPermissions) is false)
         {
             throw new RosterGuardException(
                 $"Granter '{granterPartyId}' does not hold '{Permission.GrantPermissions}'.");
@@ -405,7 +408,7 @@ public sealed class MemberRoster
             throw new RosterGuardException($"Target '{targetPartyId}' is not a member.");
         }
         // NO-ESCALATION: the new set must be a subset of the granter's held set.
-        if (!newPermissions.IsSubsetOf(granter.Permissions))
+        if (!newPermissions.IsSubsetOf(Held(granter)))
         {
             throw new RosterGuardException(
                 "No-escalation violated: the granted set exceeds the granter's held set.");
@@ -435,7 +438,15 @@ public sealed class MemberRoster
     /// member stays in the immutable admission CHAIN (genesis-vs-live); removal only drops them from live
     /// membership/permission state. Throws <see cref="RosterGuardException"/> on violation.
     /// </summary>
-    public MemberRoster Revoke(string revokerPartyId, string targetPartyId)
+    /// <param name="revokerPartyId">The revoking member.</param>
+    /// <param name="targetPartyId">The member to remove from live state.</param>
+    /// <param name="authority">
+    /// Where a party's authority comes from on the REPLICATED path (the local grant store) - the replay runs
+    /// this same method, so a revocation refused locally is refused on replay. Null on the local path: the
+    /// roster's own live sets answer.
+    /// </param>
+    public MemberRoster Revoke(
+        string revokerPartyId, string targetPartyId, Func<string, PermissionSet>? authority = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(revokerPartyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPartyId);
@@ -444,7 +455,7 @@ public sealed class MemberRoster
         {
             throw new RosterGuardException($"Revoker '{revokerPartyId}' is not a member.");
         }
-        if (!revoker.Permissions.Contains(Permission.MembersRevoke))
+        if ((authority?.Invoke(revokerPartyId) ?? Held(revoker)).Contains(Permission.MembersRevoke) is false)
         {
             throw new RosterGuardException(
                 $"Revoker '{revokerPartyId}' does not hold '{Permission.MembersRevoke}'.");
@@ -462,7 +473,7 @@ public sealed class MemberRoster
         var candidate = new MemberRoster(_teamId, next, _admissionLog, _genesisPartyId);
 
         // NO-BRICKING FLOOR: revoking the last root-grant holder is forbidden — transfer ownership first.
-        if (!candidate.HasRootGrantHolder())
+        if (!candidate.HasRootGrantHolder(authority))
         {
             throw new RosterGuardException(
                 "No-bricking floor violated: cannot revoke the last holder of the root-grant "
@@ -544,8 +555,12 @@ public sealed class MemberRoster
     }
 
     /// <summary>True iff a live member holds all three root-authority atoms.</summary>
-    public bool HasRootGrantHolder() =>
-        _byParty.Values.Any(member => HoldsRootGrant(member.Permissions));
+    public bool HasRootGrantHolder(Func<string, PermissionSet>? authority = null) =>
+        _byParty.Values.Any(member =>
+            (authority?.Invoke(member.PartyId) ?? member.Permissions) is { } held && HoldsRootGrant(held));
+
+    // Fail-closed read of a member's live set: a member the roster holds no set for holds nothing locally.
+    private static PermissionSet Held(MemberState member) => member.Permissions ?? PermissionSet.Empty;
 
     private static bool HoldsRootGrant(PermissionSet signedPermissions) =>
         signedPermissions.Contains(Permission.GrantPermissions)
@@ -804,7 +819,8 @@ public sealed class MemberRoster
         IEnumerable<MemberAdmissionRecord> admissions,
         IEnumerable<MemberRevocationRecord> revocations,
         IOperationVerifier verifier,
-        Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null)
+        Func<string, DateTimeOffset, DateTimeOffset>? orderTime = null,
+        IRosterAuthority? authority = null)
     {
         ArgumentNullException.ThrowIfNull(admissions);
         ArgumentNullException.ThrowIfNull(revocations);
@@ -843,8 +859,14 @@ public sealed class MemberRoster
             return Empty();
         }
 
-        // Permissions no longer ride membership evidence. Keep only the transitional local root floor here;
-        // durable grants remain the authorization source outside this membership-chain reconstruction.
+        // No permission set rides the wire any more (293 s3b2), so the authority the chain gates read comes
+        // from the local grant store through IRosterAuthority. The chain root is the one exception: the genesis
+        // self-admission IS the root-authority evidence, so it keeps the owner floor.
+        PermissionSet AuthorityOf(string partyId) =>
+            string.Equals(partyId, genesis.PartyId, StringComparison.Ordinal)
+                ? PermissionCompositions.Owner
+                : authority?.PermissionsFor(genesis.TeamId, partyId) ?? PermissionSet.Empty;
+
         var live = new Dictionary<string, MemberState>(StringComparer.Ordinal)
         {
             [genesis.PartyId] = new MemberState(
@@ -928,12 +950,24 @@ public sealed class MemberRoster
                     pending.RemoveAt(i);
                     continue;
                 }
-                // The admitter must already be a validated member and its recorded key must match the stamped key.
+                // The admitter must ALREADY be a validated member, hold members:admit, and its recorded key
+                // must match the admission's stamped admitter key (the admitter is itself rooted to genesis).
                 if (!live.TryGetValue(a.Admission.AdmittedByPartyId, out var admitter)) continue; // not yet
                 if (!string.Equals(
                         admitter.PublicKey.ToBase64Url(), a.Admission.AdmittedByPublicKey, StringComparison.Ordinal))
                 {
                     pending.RemoveAt(i); // admitter key drift — not the recorded admitter
+                    continue;
+                }
+                if (!AuthorityOf(admitter.PartyId).Contains(Permission.MembersAdmit))
+                {
+                    pending.RemoveAt(i); // admitter holds no members:admit in the grant store — reject
+                    continue;
+                }
+                // NO-ESCALATION: the admitted party's held authority must be a subset of the admitter's.
+                if (!AuthorityOf(a.PartyId).IsSubsetOf(AuthorityOf(admitter.PartyId)))
+                {
+                    pending.RemoveAt(i);
                     continue;
                 }
                 // Admissible — stage it under its party (don't bind yet; we pick the earliest per party below).
@@ -951,7 +985,9 @@ public sealed class MemberRoster
             {
                 if (live.ContainsKey(party)) continue; // defensive — should not happen (party was not-yet-bound)
                 var winner = InDeterministicOrder(candidates).First();
-                live[party] = new MemberState(winner.PartyId, winner.PublicKey, PermissionSet.Empty, winner.Admission);
+                // NO live permission set for a replicated member: PermissionsOf answers null, so every reader
+                // falls through to the grant closure. An empty set would answer, and shadow the grants.
+                live[party] = new MemberState(winner.PartyId, winner.PublicKey, null, winner.Admission);
                 log[party] = new AdmissionEntry(winner.PartyId, winner.PublicKey, winner.Admission);
                 grew = true;
             }
@@ -969,16 +1005,18 @@ public sealed class MemberRoster
                      .OrderBy(r => orderTime?.Invoke(r.Signed.Signature, r.Signed.IssuedAt) ?? r.Signed.IssuedAt)
                      .ThenBy(r => r.Signed.Nonce).ThenBy(r => r.Signed.Signature, StringComparer.Ordinal))
         {
-            if (!rebuilt.TryAuthorizeRevocation(rev, verifier)) continue; // forged/unauthorized → DROPPED
+            if (!rebuilt.TryAuthorizeRevocation(rev, verifier, AuthorityOf)) continue; // forged/unauthorized → DROPPED
             if (!rebuilt._byParty.ContainsKey(rev.RevokedPartyId)) continue; // already gone / never a member
-            if (rebuilt._byParty.Count == 1)
+            try
             {
-                refusedRevocations.Add(new RosterRevocationRefusal(NoBrickingFloorCode, rev));
-                continue;
+                // The SAME floor the local path runs — a revocation refused locally must be refused on replay,
+                // or two nodes reach different rosters from one record set.
+                rebuilt = rebuilt.Revoke(rev.Signed.RevokedByPartyId, rev.RevokedPartyId, AuthorityOf);
             }
-            var next = new Dictionary<string, MemberState>(rebuilt._byParty, StringComparer.Ordinal);
-            next.Remove(rev.RevokedPartyId);
-            rebuilt = new MemberRoster(rebuilt._teamId, next, rebuilt._admissionLog, rebuilt._genesisPartyId);
+            catch (RosterGuardException ex) when (ex.Code == NoBrickingFloorCode)
+            {
+                refusedRevocations.Add(new RosterRevocationRefusal(ex.Code, rev));
+            }
         }
 
         rebuilt.RefusedRevocations = refusedRevocations.AsReadOnly();
@@ -990,15 +1028,20 @@ public sealed class MemberRoster
     /// <see cref="FromSyncedRecords"/>. The signature re-verifies for the stamped revoker key, and that key is a
     /// current member holding <c>members:revoke</c>. Fail-closed.
     /// </summary>
-    private bool TryAuthorizeRevocation(MemberRevocationRecord record, IOperationVerifier verifier)
+    private bool TryAuthorizeRevocation(
+        MemberRevocationRecord record, IOperationVerifier verifier, Func<string, PermissionSet>? authority = null)
     {
         if (record is null) return false;
         // (a) Signature integrity: the stamped revoker key signed this (team, target) revocation.
         if (!RosterSigning.VerifyRevocation(_teamId, record.RevokedPartyId, record.Signed, verifier))
             return false;
-        // (b) Membership: the revoker is current and its recorded key matches the stamped key.
+        // (b) Authority: the revoker is a CURRENT member whose recorded key matches the stamped key AND holds
+        //     members:revoke (from the grant store on the replicated path). A revocation signed by a
+        //     non-member / non-admin / wrong key is rejected.
         if (!_byParty.TryGetValue(record.Signed.RevokedByPartyId, out var revoker)) return false;
-        return string.Equals(revoker.PublicKey.ToBase64Url(), record.Signed.RevokedByPublicKey, StringComparison.Ordinal);
+        if (!string.Equals(revoker.PublicKey.ToBase64Url(), record.Signed.RevokedByPublicKey, StringComparison.Ordinal))
+            return false;
+        return (authority?.Invoke(revoker.PartyId) ?? Held(revoker)).Contains(Permission.MembersRevoke);
     }
 
     /// <summary>An empty / invalid roster — the fail-closed result when synced records have no trustworthy
@@ -1009,6 +1052,20 @@ public sealed class MemberRoster
         new Dictionary<string, MemberState>(StringComparer.Ordinal),
         new Dictionary<string, AdmissionEntry>(StringComparer.Ordinal),
         string.Empty);
+}
+
+/// <summary>
+/// Where the REPLICATED path reads a party's authority now that no permission set rides the wire (ticket 293
+/// slice 3b2). The host implements it over the local grant store and hands it to
+/// <see cref="MemberRoster.FromSyncedRecords"/>; a caller that supplies none gets the fail-closed floor, where
+/// only the genesis chain root holds authority.
+/// </summary>
+public interface IRosterAuthority
+{
+    /// <summary>The permission set the local grant store holds for a party within a team.</summary>
+    /// <param name="teamId">The team (tenant) the roster belongs to.</param>
+    /// <param name="partyId">The party whose authority is being read.</param>
+    PermissionSet PermissionsFor(string teamId, string partyId);
 }
 
 /// <summary>

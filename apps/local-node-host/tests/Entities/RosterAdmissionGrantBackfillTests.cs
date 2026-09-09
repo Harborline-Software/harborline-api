@@ -22,7 +22,7 @@ public sealed class RosterAdmissionGrantBackfillTests
     private static readonly DateTimeOffset At = DateTimeOffset.UnixEpoch.AddDays(1);
 
     [Fact]
-    public async Task Permission_free_restart_does_not_rehydrate_roster_permissions_from_migrated_grants()
+    public async Task Effective_permissions_equal_backfilled_grants_before_and_after_durable_restart()
     {
         await using var store = await SearchTestStore.CreateAsync();
         var (before, _) = await SeedAsync(store, 7);
@@ -35,17 +35,48 @@ public sealed class RosterAdmissionGrantBackfillTests
         foreach (var member in before.Members)
         {
             var principal = new ActorId(member.PartyId);
-            var local = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
+            // `before` is the LIVE local roster (it still holds the set the founder granted); `after` is the
+            // reconstruction from durable records, which carries NO permission set for a non-genesis member -
+            // so the read falls through to the grant closure and must land on the same answer.
+            var expected = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
                 closure, before, member.PartyId, Tenant, principal, At.AddDays(1), default);
-            var restarted = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
+            var actual = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
                 closure, after, member.PartyId, Tenant, principal, At.AddDays(1), default);
             var grants = await closure.UserPermissionsAsync(Tenant, principal, At.AddDays(1), default);
             var grantPermissions = PermissionSet.From(grants.Atoms.Where(a => a.Scope.Value == "/")
                 .Select(a => a.Operation.Value));
-            Assert.True(local.Member);
-            Assert.True(restarted.Member);
-            Assert.Equal(restarted.Permissions, grantPermissions);
-            if (member.PartyId != "founder") Assert.Equal(PermissionSet.Empty, restarted.Permissions);
+            Assert.True(actual.Member);
+            Assert.Equal(expected, actual);
+            Assert.Equal(expected.Permissions, grantPermissions);
+            if (member.PartyId != "founder") Assert.Null(after.PermissionsOf(member.PartyId));
+        }
+    }
+
+    [Fact]
+    public async Task A_synced_member_answers_from_its_grant_and_one_without_a_grant_is_denied()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        await SeedAsync(store, 3);
+        Assert.Equal(3, await Backfill(store).RunAsync());
+        var grants = new NodeEfGrantStore(store.Factory);
+        var grant = Assert.Single(await grants.FindByPrincipalAsync(Tenant, new ActorId("member-2")));
+        await grants.RevokeAsync(Tenant, grant.GrantId, new GrantRevocation(new ActorId("founder"), At,
+            new GrantReason(GrantReasonCodes.RevocationReview)));
+        await using var provider = GateProvider(store);
+        var closure = provider.GetRequiredService<IAuthorizationClosureReader>();
+        var roster = await new VerifiedTenantRosterReader(new RosterFactory(store), new Ed25519Verifier())
+            .ReadAsync(Tenant, default);
+
+        // Both are members of the reconstruction and neither carries a roster permission set - the grant is
+        // the whole difference between them.
+        Assert.Null(roster.PermissionsOf("member-1"));
+        Assert.Null(roster.PermissionsOf("member-2"));
+        foreach (var (party, allowed) in new[] { ("member-1", true), ("member-2", false) })
+        {
+            var inputs = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
+                closure, roster, party, Tenant, new ActorId(party), At.AddDays(1), default);
+            Assert.True(inputs.Member);
+            Assert.Equal(allowed, inputs.Permissions?.Contains(TeamRolePermissions.RecordsRead) == true);
         }
     }
 
@@ -110,7 +141,7 @@ public sealed class RosterAdmissionGrantBackfillTests
         {
             var principal = i == 0 ? "founder" : "member-" + i;
             var decision = await DecideAsync(provider, principal, "records:read");
-            Assert.Equal(i == 0 ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied, decision.Verdict);
+            Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
             Assert.Single(await new NodeEfGrantStore(reopened.Factory).FindByPrincipalAsync(Tenant, new ActorId(principal)));
             if (i > 0) Assert.Equal(AuthorizationVerdict.Denied,
                 (await DecideAsync(provider, principal, "records:write")).Verdict);
@@ -177,29 +208,33 @@ public sealed class RosterAdmissionGrantBackfillTests
     }
 
     [Fact]
-    public async Task Permission_free_genesis_publication_uses_the_reconstructed_root_floor()
+    public async Task Historical_atom_publication_requires_definition_validation_and_rolls_back_every_row()
     {
         await using var store = await SearchTestStore.CreateAsync();
         var signer = new Ed25519Signer(KeyPair.Generate());
+        var permissions = PermissionCompositions.Owner.With("migration:unknown");
         var signature = RosterSigning.SignAdmission(signer, Team, "founder", signer.IssuerId,
             "founder", true, At, Guid.NewGuid());
         var admission = new MemberAdmissionRecord(Tenant.Value, "founder", signer.IssuerId, signature);
         await using (var roster = store.CreateRosterContext())
         {
             await roster.Database.MigrateAsync();
-            roster.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
-                .AttestReceipt(signer, "founder", admission.Admission.IssuedAt)));
+            var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(admission)
+                .AttestReceipt(signer, "founder", admission.Admission.IssuedAt));
+            row.SignedPermissionsJson = System.Text.Json.JsonSerializer.Serialize(permissions.Permissions.ToArray());
+            roster.RosterRecords.Add(row);
             await roster.SaveChangesAsync();
         }
         var verified = await new VerifiedTenantRosterReader(new RosterFactory(store), new Ed25519Verifier()).ReadAsync(Tenant, CancellationToken.None);
         Assert.Single(verified.EnumerateAdmissions());
-        Assert.Equal(1, await Backfill(store).RunAsync());
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => Backfill(store).RunAsync());
+        Assert.Contains("code operation catalogue", refusal.Message);
         await using var db = store.CreateContext();
-        Assert.Single(await db.Grants.ToArrayAsync());
-        Assert.Single(await db.AuthorizationRoles.ToArrayAsync());
-        Assert.NotEmpty(await db.AuthorizationDefinitions.ToArrayAsync());
-        Assert.NotEmpty(await db.AuthorizationOfferedRoles.ToArrayAsync());
-        Assert.Single(await db.Set<RosterAdmissionGrantBackfillRow>().ToArrayAsync());
+        Assert.Empty(await db.Grants.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationRoles.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationDefinitions.ToArrayAsync());
+        Assert.Empty(await db.AuthorizationOfferedRoles.ToArrayAsync());
+        Assert.Empty(await db.Set<RosterAdmissionGrantBackfillRow>().ToArrayAsync());
     }
 
     private static async Task<(MemberRoster Roster, Ed25519Signer Signer)> SeedAsync(SearchTestStore store, int count)
@@ -210,9 +245,17 @@ public sealed class RosterAdmissionGrantBackfillTests
             KeyPair.Generate().PrincipalId, PermissionSet.Of("records:read"), new Ed25519Verifier(), At, Guid.NewGuid());
         await using var db = store.CreateRosterContext();
         await db.Database.MigrateAsync();
+        // A pre-wire-version-3 install: the durable rows still carry the signed atoms each member was
+        // admitted with. That column is what the one-time boot backfill converts into grants.
         db.RosterRecords.AddRange(roster.EnumerateAdmissions()
-            .Select(record => NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)
-                .AttestReceipt(signer, "founder", record.Admission.IssuedAt))));
+            .Select(record =>
+            {
+                var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)
+                    .AttestReceipt(signer, "founder", record.Admission.IssuedAt));
+                row.SignedPermissionsJson = System.Text.Json.JsonSerializer.Serialize(
+                    (roster.PermissionsOf(record.PartyId) ?? PermissionSet.Empty).Permissions.ToArray());
+                return row;
+            }));
         await db.SaveChangesAsync();
         return (roster, signer);
     }

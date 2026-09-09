@@ -93,6 +93,15 @@ public sealed class NodeRosterRecord
     /// <summary>Legacy carried permission field. Retained for storage compatibility and ignored on read.</summary>
     public required string PermissionsJson { get; set; }
 
+    /// <summary>
+    /// Historical signed atoms from roster wire versions &lt;= 2. NOTHING writes this any more (a version-3
+    /// admission carries no permission set), and the reconstruction ignores it: the ONE remaining reader is the
+    /// ticket 293 slice 3a boot backfill, which converts a pre-version-3 install's signed admissions into
+    /// ordinary durable grants. Dropping the column would erase that install's only record of what each member
+    /// was admitted with, so it stays for one more release; its removal is a carried follow-up.
+    /// </summary>
+    public string SignedPermissionsJson { get; set; } = string.Empty;
+
     /// <summary>base64url of the admitter/revoker public key (the signer).</summary>
     public required string AdmittedByPublicKey { get; set; }
 

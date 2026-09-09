@@ -40,7 +40,7 @@ public sealed class RosterRebuildFaultTests
             f.AuditGate.Release.TrySetResult();
             await f.Projection.DrainPendingReconcilesAsync();
         }
-        Assert.Equal(4, await hydration);
+        Assert.Equal(3, await hydration);
         Assert.Single(f.Live.Current.RefusedRevocations);
         Assert.Equal(MemberRoster.NoBrickingFloorCode, Assert.Single(f.Projection.RefusalReports).Code);
         Assert.Single(await f.AuditsAsync());
@@ -328,6 +328,8 @@ public sealed class RosterRebuildFaultTests
             services.AddSingleton<IAuditTrail>(AuditGate);
             services.AddAuthorizationRefusalAudit();
             services.AddSingleton(TimeProvider.System);
+            // The successor's floor is a GRANT now, not something the record carries.
+            services.AddSingleton<IRosterAuthority>(new TestRosterAuthority(("successor", PermissionCompositions.Owner)));
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
@@ -375,14 +377,11 @@ public sealed class RosterRebuildFaultTests
         public async Task StoreFloorRemovalAsync()
         {
             await using var db = await Factory.CreateDbContextAsync();
-            foreach (var target in new[] { "peer", "founder" })
-            {
-                var removal = new MemberRevocationRecord(Tenant.ToString("D"), target,
-                    RosterSigning.SignRevocation(
-                        _founder, Tenant, target, "founder", At.AddHours(target == "peer" ? 1 : 2), Guid.NewGuid()));
-                db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(removal)
-                    .AttestReceipt(_founder, "founder", removal.Signed.IssuedAt)));
-            }
+            var removal = new MemberRevocationRecord(Tenant.ToString("D"), "founder",
+                RosterSigning.SignRevocation(
+                    _founder, Tenant, "founder", "founder", At.AddHours(1), Guid.NewGuid()));
+            db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(removal)
+                .AttestReceipt(_founder, "founder", removal.Signed.IssuedAt)));
             await db.SaveChangesAsync();
         }
 

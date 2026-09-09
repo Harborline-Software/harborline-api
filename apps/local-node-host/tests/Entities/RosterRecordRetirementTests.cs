@@ -32,7 +32,7 @@ public sealed class RosterRecordRetirementTests
     }
 
     [Fact]
-    public async Task Current_roster_schema_drops_transitional_signed_permission_evidence()
+    public async Task Historical_signed_evidence_survives_for_the_boot_backfill_and_no_new_row_writes_it()
     {
         await using var store = await SearchTestStore.CreateAsync();
         await using var db = store.CreateRosterContext();
@@ -40,8 +40,13 @@ public sealed class RosterRecordRetirementTests
         var columns = await db.Database.SqlQueryRaw<string>(
             "SELECT name AS Value FROM pragma_table_info('roster_records')").ToArrayAsync();
 
-        Assert.DoesNotContain("signed_permissions", columns);
-        Assert.Null(typeof(NodeRosterRecord).GetProperty("SignedPermissionsJson"));
+        // The column is the ONLY record a pre-version-3 install keeps of what a member was admitted with, and
+        // the slice 3a boot backfill converts exactly that into grants. It stays one more release; nothing
+        // writes it any more.
+        Assert.Contains("signed_permissions", columns);
+        var record = Fixture().EnumerateAdmissions().Single(a => a.PartyId == "member");
+        Assert.Equal(string.Empty,
+            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)).SignedPermissionsJson);
         Assert.False(db.Database.HasPendingModelChanges());
     }
 
@@ -120,7 +125,6 @@ public sealed class RosterRecordRetirementTests
         var restored = NodeRosterRecord.ToCrdtState(row).ToAdmissionOrNull()!;
         Assert.True(RosterSigning.VerifyAdmission(Guid.Parse(record.TeamId), record.PartyId,
             record.PublicKey, restored.Admission, new Ed25519Verifier()));
-        Assert.Null(typeof(NodeRosterRecord).GetProperty("SignedPermissionsJson"));
     }
 
     private static MemberRoster Fixture(IOperationSigner? localSigner = null)

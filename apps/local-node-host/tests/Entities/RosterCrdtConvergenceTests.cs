@@ -264,6 +264,39 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         await dst.Projection.DrainPendingReconcilesAsync();
     }
 
+    // ── Convergence property: local and replay must reach the SAME roster from the same record set ──────
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LocalAndReplayAgreeOnEveryRevocationTheFloorDecides(bool successorHoldsTheFloor)
+    {
+        var floor = PermissionSet.Of(Permission.GrantPermissions, Permission.OrgTransferOwnership,
+            Permission.MembersAdmit);
+        var founder = Identity.New("founder");
+        var successor = Identity.New("successor");
+        var at = DateTimeOffset.UnixEpoch.AddDays(1);
+        var granted = successorHoldsTheFloor ? floor : PermissionSet.Empty;
+        var local = MemberRoster.Genesis(Team, "founder", founder.Signer, Verifier, at, Guid.NewGuid())
+            .Admit("founder", founder.Signer, "successor", successor.Key.PrincipalId, granted,
+                Verifier, at, Guid.NewGuid());
+        var removal = new MemberRevocationRecord(Team.ToString("D"), "founder",
+            RosterSigning.SignRevocation(founder.Signer, Team, "founder", "founder", at.AddMinutes(1), Guid.NewGuid()));
+
+        // The local answer: the floor refuses to remove the last root-grant holder.
+        var localRefused = false;
+        try { local = local.Revoke("founder", "founder"); }
+        catch (RosterGuardException ex) when (ex.Code == MemberRoster.NoBrickingFloorCode) { localRefused = true; }
+
+        // The replay answer, reading the SAME authority the local roster held (the grant store).
+        var replayed = MemberRoster.FromSyncedRecords(local.EnumerateAdmissions(), [removal], Verifier,
+            authority: new TestRosterAuthority(("successor", granted)));
+
+        Assert.Equal(!successorHoldsTheFloor, localRefused);
+        Assert.Equal(localRefused, replayed.Contains("founder"));
+        Assert.Equal(localRefused ? 1 : 0, replayed.RefusedRevocations.Count);
+    }
+
     // ── Test 1: admit on A → SYNCS to B → B's live roster gains the member, validated ───────────────────
 
     [Fact]

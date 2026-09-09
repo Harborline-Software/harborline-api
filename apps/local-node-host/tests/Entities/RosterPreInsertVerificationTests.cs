@@ -247,6 +247,9 @@ public sealed class RosterPreInsertVerificationTests
         public ServiceProvider Provider { get; private set; } = null!;
         public RosterCrdtProjection Projection => Provider.GetRequiredService<RosterCrdtProjection>();
         public IDbContextFactory<NodeLocalRosterDbContext> Factory => Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        // What the grant store holds for "member" - the replicated chain gates read authority from here now.
+        private PermissionSet _memberAuthority = PermissionSet.Empty;
+
         private ServiceProvider NewProvider()
         {
             var services = new ServiceCollection();
@@ -256,12 +259,14 @@ public sealed class RosterPreInsertVerificationTests
             services.AddSingleton(_trail);
             services.AddAuthorizationRefusalAudit();
             services.AddSingleton(TimeProvider.System);
+            services.AddSingleton<IRosterAuthority>(new TestRosterAuthority(("member", _memberAuthority)));
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
         public static async Task<Fixture> CreateAsync(PermissionSet? permissions = null, IAuditTrail? trail = null)
         {
-            var f = new Fixture { _trail = trail ?? new InMemoryAuditTrail() };
+            var f = new Fixture { _trail = trail ?? new InMemoryAuditTrail(),
+                _memberAuthority = permissions ?? PermissionSet.Empty };
             Directory.CreateDirectory(f._directory);
             f.Provider = f.NewProvider();
             await using (var db = await f.Factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();

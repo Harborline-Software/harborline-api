@@ -14,14 +14,20 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
 {
     private readonly IDbContextFactory<NodeLocalRosterDbContext> _contextFactory;
     private readonly IOperationVerifier _verifier;
+    // 293 s3b2: no permission set rides a roster record, so the chain gates (admitter holds members:admit,
+    // revoker holds members:revoke, no-escalation) read a party's authority from the host's grant view.
+    // Absent → the fail-closed floor, where only the genesis chain root holds authority.
+    private readonly IRosterAuthority? _authority;
 
     /// <summary>Construct the reader from the durable roster context and canonical operation verifier.</summary>
     public VerifiedTenantRosterReader(
         IDbContextFactory<NodeLocalRosterDbContext> contextFactory,
-        IOperationVerifier verifier)
+        IOperationVerifier verifier,
+        IRosterAuthority? authority = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
+        _authority = authority;
     }
 
     /// <inheritdoc />
@@ -180,7 +186,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                 "The durable log cannot name an earlier verified genesis signed by this install.");
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime);
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _authority);
         if (rebuilt.TeamId != teamId || string.IsNullOrEmpty(rebuilt.GenesisPartyId) ||
             !rebuilt.ValidatesToGenesis(_verifier))
         {
@@ -191,7 +197,7 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         if (partial && genesisCount > 1)
             chainAdmissions.AddRange(admissions.Where(a => a.Admission.IsGenesis).SelectMany(root =>
                 MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
-                    || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime)
+                    || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime, _authority)
                     .EnumerateAdmissions()));
         if (attestations.Any(attestation => !chainAdmissions.Any(admission =>
                 admission.PartyId == attestation.NodePartyId
@@ -210,7 +216,8 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             // (including one that merely claims a dropped party as its signer) must still alarm.
             var dropped = admissions.Where(a => a.Admission.IsGenesis && a.Admission.Signature != anchor.Admission.Signature)
                 .SelectMany(root => MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
-                    || a.Admission.Signature == root.Admission.Signature), [], _verifier).EnumerateAdmissions())
+                    || a.Admission.Signature == root.Admission.Signature), [], _verifier, authority: _authority)
+                    .EnumerateAdmissions())
                 .Select(a => (a.PartyId, a.Admission.Nonce, a.Admission.Signature)).ToHashSet();
             expectedAdmissions = admissions.Where(a => !dropped.Contains((a.PartyId, a.Admission.Nonce, a.Admission.Signature))
                 || acceptedAdmissions.Contains((a.PartyId, a.Admission.Nonce, a.Admission.Signature)));

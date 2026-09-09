@@ -77,6 +77,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     private readonly Func<NodeAdministratorAuthority?>? _administrators;
     private readonly ILogger<RosterCrdtProjection> _logger;
     private readonly Func<AuthorizationRefusalAudit?>? _refusalAudit;
+    // Where the replicated path reads authority now that no permission set rides the wire (293 s3b2): the
+    // local grant store. Absent → the fail-closed floor (only the genesis chain root holds authority).
+    private readonly Func<IRosterAuthority?>? _rosterAuthority;
     // Accessed only under the CRDT projection's async reconcile gate.
     // Replaced wholesale on every reconcile (never mutated in place): the AM-16/G1 fence counts every
     // `.Remove(` in this file as a roster-record deletion, and this bookkeeping is not one.
@@ -151,7 +154,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         ICrdtProjectionRegistry? projectionRegistry = null,
         Func<NodeAdministratorAuthority?>? administrators = null,
         Func<AuthorizationRefusalAudit?>? refusalAudit = null,
-        string? attestationPartyId = null)
+        string? attestationPartyId = null,
+        Func<IRosterAuthority?>? rosterAuthority = null)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _verifier = new HydrationRosterVerifier(verifier ?? throw new ArgumentNullException(nameof(verifier)));
@@ -160,6 +164,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         _nodeRoster = nodeRoster;
         _administrators = administrators;
         _refusalAudit = refusalAudit;
+        _rosterAuthority = rosterAuthority;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _schema = new RosterCrdtSchema(ReconcileSchemaAsync);
@@ -560,7 +565,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                         .ConfigureAwait(false);
 
                     // Durable rows are evidence for this fold, never fresh inbound refusal targets.
-                    var reader = new VerifiedTenantRosterReader(_contextFactory, _verifier);
+                    var reader = new VerifiedTenantRosterReader(_contextFactory, _verifier, _rosterAuthority?.Invoke());
                     foreach (var tenant in existing.Values.Select(r => r.TeamId).Distinct(StringComparer.Ordinal))
                         await reader.ReadForRebuildAsync(new TenantId(tenant), ct).ConfigureAwait(false);
 
@@ -826,7 +831,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         // THE TRUST ANCHOR: rebuild + validate. Forged/unsigned/orphan records are dropped here.
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime);
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _rosterAuthority?.Invoke());
 
         // Only the accepted admission may carry a live party's transport key. A dropped chain can name
         // the same party, but that does not let its unsigned routing field replace the valid binding.
@@ -1040,9 +1045,14 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             .Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at
                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
                     || (r.Signed.Nonce == nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
-        var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime);
+        var authority = _rosterAuthority?.Invoke();
+        var chain = MemberRoster.FromSyncedRecords(admissions, preceding, _verifier, orderTime, authority);
+        // The admitter/revoker must hold the operation's atom. The record no longer carries a permission set,
+        // so the atom is read from the local grant store through IRosterAuthority (genesis keeps the root floor).
+        var permission = admission is not null ? Permission.MembersAdmit : Permission.MembersRevoke;
         if (!chain.Contains(candidate.AdmittedByPartyId)
-            || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey)
+            || chain.PublicKeyOf(candidate.AdmittedByPartyId)?.ToBase64Url() != candidate.AdmittedByPublicKey
+            || !AuthorityFor(chain, authority, candidate.AdmittedByPartyId).Contains(permission))
             return "roster.record.chain_ineligible";
         if (!AttesterIsTrusted(chain, receiveAttestation))
             return "roster.record.receive_attestation_untrusted";
@@ -1063,6 +1073,12 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             return record.AdmittedByPartyId;
         throw new InvalidOperationException("The local receive-attestation signer is not in this roster chain.");
     }
+
+    // The chain root's authority is its genesis self-admission; every other party's comes from the grant store.
+    private static PermissionSet AuthorityFor(MemberRoster chain, IRosterAuthority? authority, string partyId) =>
+        string.Equals(partyId, chain.GenesisPartyId, StringComparison.Ordinal)
+            ? PermissionCompositions.Owner
+            : authority?.PermissionsFor(chain.TeamId.ToString("D"), partyId) ?? PermissionSet.Empty;
 
     private static bool AttesterIsTrusted(MemberRoster roster, RosterReceiveAttestation attestation) =>
         roster.EnumerateAdmissions().Any(admission =>

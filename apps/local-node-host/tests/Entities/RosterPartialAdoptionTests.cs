@@ -177,16 +177,16 @@ public sealed class RosterPartialAdoptionTests
     [InlineData(Permission.GrantPermissions)]
     [InlineData(Permission.OrgTransferOwnership)]
     [InlineData(Permission.MembersAdmit)]
-    public async Task PartialAdoptionDropsTheMutationWithoutAFormerPermissionFloorRefusal(string missing)
+    public async Task PartialAdoptionCannotUseDroppedFloorHolder(string missing)
     {
         await using var f = await Fixture.CreateAsync(Floor.Without(missing));
         await f.PoisonAsync();
         await f.PublishAsync(RosterRecordCrdtState.FromRevocation(f.Removal("founder")));
-        Assert.Empty(f.Live.Current.RefusedRevocations);
+        var refusal = Assert.Single(f.Live.Current.RefusedRevocations);
+        Assert.Equal(MemberRoster.NoBrickingFloorCode, refusal.Code);
         Assert.True(f.Live.Current.Contains("founder"));
-        Assert.True(f.Live.Current.Contains("peer"));
         Assert.True(f.Live.Current.HasRootGrantHolder());
-        Assert.Single(await f.RowsAsync());
+        Assert.Equal(2, (await f.RowsAsync()).Count);
     }
 
     [Fact]
