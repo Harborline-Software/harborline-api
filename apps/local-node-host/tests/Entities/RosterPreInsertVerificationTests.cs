@@ -129,22 +129,25 @@ public sealed class RosterPreInsertVerificationTests
         var first = earlierLegitimate
             ? f.Revocation(f.Member, "member", "founder", At.AddMinutes(2))
             : f.Revocation(f.Founder, "founder", "member", At.AddHours(1));
-        await f.MergeAsync([first]);
+        first = first.AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        await f.MergeRawAsync([first]);
         DateTimeOffset? receipt;
         await using (var db = await f.Factory.CreateDbContextAsync())
         {
             var rows = await db.RosterRecords.AsNoTracking().ToListAsync();
             Assert.All(rows, row => Assert.NotNull(row.ReceivedAtUtc));
+            Assert.All(rows, row => Assert.False(string.IsNullOrWhiteSpace(row.ReceiveAttestationSignatureB64Url)));
             receipt = rows.Single(row => row.Id == first.RecordId).ReceivedAtUtc;
         }
         await f.RestartAsync();
-        await f.MergeAsync([first]);
+        await f.MergeRawAsync([first]);
         await using (var db = await f.Factory.CreateDbContextAsync())
             Assert.Equal(receipt, (await db.RosterRecords.SingleAsync(row => row.Id == first.RecordId)).ReceivedAtUtc);
         var late = earlierLegitimate
             ? f.Revocation(f.Founder, "founder", "member", At.AddMinutes(1))
             : f.Revocation(f.Member, "member", "founder", At.AddMinutes(2));
-        await f.MergeAsync([late]);
+        late = late.AttestReceipt(f.Founder, "founder", At.AddHours(2).AddSeconds(1));
+        await f.MergeRawAsync([late]);
         Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == late.RecordId);
         var reader = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
         var rebuilt = await reader.ReadAsync(new TenantId(Tenant.ToString("D")), default);
@@ -152,6 +155,57 @@ public sealed class RosterPreInsertVerificationTests
         Assert.Equal(!earlierLegitimate, rebuilt.Contains("founder"));
         Assert.Contains("roster.record.chain_ineligible", JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
     }
+
+    [Theory]
+    [InlineData("wrong-key")]
+    [InlineData("wrong-record")]
+    [InlineData("altered-time")]
+    public async Task ForgedReceiveAttestationIsRefusedBeforeDurableInsert(string mutation)
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", $"candidate-{mutation}", At.AddHours(2))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        candidate = mutation switch
+        {
+            "wrong-key" => candidate with { ReceivedByPublicKey = f.Member.IssuerId.ToBase64Url() },
+            "wrong-record" => CopyReceipt(candidate,
+                f.Admission(f.Founder, "founder", "other-record", At.AddHours(2))
+                    .AttestReceipt(f.Founder, "founder", At.AddHours(2))),
+            _ => candidate with { ReceivedAtIso = At.AddHours(3).ToString("O") },
+        };
+        await f.MergeRawAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
+        Assert.Contains("roster.record.receive_attestation_invalid",
+            JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
+    [Fact]
+    public async Task OldWireShapeIsRefusedAtTheVersionBoundary()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", "old-peer", At.AddHours(2)) with
+        {
+            WireFormatVersion = 0,
+            ReceivedAtIso = "",
+            ReceivedByPartyId = "",
+            ReceivedByPublicKey = "",
+            ReceiveAttestationSignatureB64Url = "",
+        };
+        await f.MergeRawAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
+        Assert.Contains("roster.record.wire_version_unsupported",
+            JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
+    private static RosterRecordCrdtState CopyReceipt(
+        RosterRecordCrdtState target, RosterRecordCrdtState source) => target with
+    {
+        WireFormatVersion = source.WireFormatVersion,
+        ReceivedAtIso = source.ReceivedAtIso,
+        ReceivedByPartyId = source.ReceivedByPartyId,
+        ReceivedByPublicKey = source.ReceivedByPublicKey,
+        ReceiveAttestationSignatureB64Url = source.ReceiveAttestationSignatureB64Url,
+    };
 
     private sealed class DelayedTrail : IAuditTrail
     {
@@ -219,11 +273,20 @@ public sealed class RosterPreInsertVerificationTests
             await using var provider = services.BuildServiceProvider();
             var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
             await using (var db = await factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();
-            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory, Verifier, NullLogger<RosterCrdtProjection>.Instance);
+            await using var sender = new RosterCrdtProjection(TimeProvider.System, new YDotNetCrdtEngine(), factory,
+                Verifier, Founder, NullLogger<RosterCrdtProjection>.Instance, attestationPartyId: "founder");
             foreach (var record in records) await sender.PublishLocalAsync(record, default);
             await sender.DrainPendingReconcilesAsync();
             var delta = await sender.EncodeOutboundDeltaAsync(RosterCrdtProjection.DocumentId, ReadOnlyMemory<byte>.Empty, default);
             await Projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta!.Value, default);
+        }
+        public async Task MergeRawAsync(IEnumerable<RosterRecordCrdtState> records)
+        {
+            await using var raw = new Harborline.Api.Kernel.Crdt.CrdtProjection<RosterCrdtSchema>(
+                new YDotNetCrdtEngine(), new RosterCrdtSchema(_ => Task.CompletedTask));
+            raw.Mutate(schema => schema.PushMany(records));
+            var delta = raw.EncodeDelta(ReadOnlyMemory<byte>.Empty);
+            await Projection.ApplyInboundDeltaAsync(RosterCrdtProjection.DocumentId, 1, delta, default);
         }
         public async Task<List<RosterRecordCrdtState>> StoredAsync()
         {
