@@ -24,7 +24,12 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
 {
     private const string TenantRaw = "7e57aaaa-0000-0000-0000-000000000001";
     private const string PrincipalId = "principal-1";
-    private const string PartyId = "party-1";
+    /// <summary>Ticket 294 slice 2a — the mint binds the token to the canonical tenant PRINCIPAL id, and
+    /// the enrollment presents that same value as its JoiningPartyId.</summary>
+    private const string PartyId = PrincipalId;
+
+    /// <summary>The People PartyId behind it — a different string, so no test passes by coincidence.</summary>
+    private const string PeoplePartyId = "party-1";
     private const string GrantId = "grant-1";
     private const string FounderPartyId = "founder";
     private static readonly System.Guid TeamId =
@@ -43,7 +48,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         var minted = mint.MintForSession(Session(), roster);
         Assert.True(minted.Minted);
@@ -73,7 +78,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var imposter = NewIdentity("party-imposter");
         var roster = GenesisRoster(founder);
-        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         var minted = mint.MintForSession(Session(), roster);
 
@@ -92,7 +97,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (_, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (_, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         // A token id no mint ever bound.
         var outcome = await bridge.AdmitFromPairingTokenAsync(
@@ -114,7 +119,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         var minted = mint.MintForSession(Session(), roster);
         Assert.True(minted.Minted);
@@ -136,7 +141,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         var minted = mint.MintForSession(Session(grantOwnerVersion: 4), roster);
 
@@ -155,7 +160,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PartyId));
+        var (mint, bridge) = CreatePair(store, new FixedPartyReader(PeoplePartyId));
 
         var minted = mint.MintForSession(Session(), roster);
 
@@ -219,7 +224,7 @@ public sealed class WebAdmittedMemberPairingTokenMintTests
             accountId: "account-1",
             tenantId: new TenantId(System.Guid.Parse(TenantRaw).ToString("D")),
             principalUserId: new PrincipalUserId(PrincipalId),
-            canonicalParty: new CanonicalPartyReference(PartyId),
+            canonicalParty: new CanonicalPartyReference(PeoplePartyId),
             membershipId: "membership-1",
             membershipOwnerVersion: 3,
             pinnedGrantOwnerVersions: pinnedGrants

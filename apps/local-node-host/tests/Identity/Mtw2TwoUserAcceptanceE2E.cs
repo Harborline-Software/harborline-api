@@ -167,7 +167,11 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             new[] { Permission.ContactsRead, Permission.ContactsCreate },
             FounderAuthority(setup.TenantId));
 
-        Assert.Null(result);
+        // Ticket 294 slice 2a: the founder's admin session now resolves under the ONE key, so the refusal
+        // is the ticket-204 retired-mutation refusal itself rather than a denied session. Either way the
+        // escalation is refused and NOTHING is written -- which is what this test claims.
+        Assert.NotNull(result);
+        Assert.Equal(AdminUpdateMemberPermissionsStatus.NotFound, result!.Status);
         var after = await h.ReadGrantRowAsync(setup.JoinerGrantId);
         Assert.Equal(before.OwnerVersion, after.OwnerVersion);
         Assert.Equal(before.RoleName, after.RoleName);

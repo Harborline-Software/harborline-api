@@ -58,7 +58,7 @@ public sealed class AdminTeamAccessAuthorityTests
         using var capture = new RosterDecisionCapture();
         await using var fixture = await Fixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, refusalAudit: capture.Audit);
         Assert.Equal(allowed, await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId) is not null);
-        Assert.Equal("party-admin", capture.AssertSingle(allowed).Roster!.PartyId);
+        Assert.Equal("principal-admin", capture.AssertSingle(allowed).Roster!.PartyId);
         await capture.AssertAuditAsync(new TenantId(TenantId));
     }
 
@@ -99,11 +99,11 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.NotNull(result);
         var byParty = result!.Members.ToDictionary(m => m.PartyId);
         // Signed roster member (the admin), surfaced from the roster plane.
-        Assert.Equal(TeamMemberSource.Roster, byParty["party-admin"].Source);
+        Assert.Equal(TeamMemberSource.Roster, byParty["principal-admin"].Source);
         // Grant-anchored web member: roster-ABSENT but grant-valid (Option A) — surfaced from the grant.
-        Assert.True(byParty.ContainsKey("party-web"));
-        Assert.Equal(TeamMemberSource.Grant, byParty["party-web"].Source);
-        Assert.Equal(WebGrantId, byParty["party-web"].GrantId);
+        Assert.True(byParty.ContainsKey("principal-web"));
+        Assert.Equal(TeamMemberSource.Grant, byParty["principal-web"].Source);
+        Assert.Equal(WebGrantId, byParty["principal-web"].GrantId);
         // No party is double-counted across the two planes.
         Assert.Equal(result.Members.Count, byParty.Count);
     }
@@ -119,7 +119,7 @@ public sealed class AdminTeamAccessAuthorityTests
 
         var result = await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId);
 
-        var webMember = Assert.Single(result!.Members, member => member.PartyId == "party-web");
+        var webMember = Assert.Single(result!.Members, member => member.PartyId == "principal-web");
         Assert.Equal(["members:manage"], webMember.Capabilities);
     }
 
@@ -802,7 +802,8 @@ public sealed class AdminTeamAccessAuthorityTests
             var roster = MemberRoster.Genesis(
                 tenantId, "party-founder", founderSigner, verifier, Now,
                 Guid.Parse("33333333-3333-3333-3333-333333333333")).Admit(
-                "party-founder", founderSigner, "party-admin", adminKey.PrincipalId,
+                // Ticket 294 slice 2a — the roster edge is keyed by the canonical tenant principal id.
+                "party-founder", founderSigner, "principal-admin", adminKey.PrincipalId,
                 callerPermissions, verifier, Now, Guid.Parse("44444444-4444-4444-4444-444444444444"));
             if (successorPermissions is null && !ejectSuccessor)
             {
@@ -810,10 +811,10 @@ public sealed class AdminTeamAccessAuthorityTests
             }
 
             roster = roster.Admit(
-                "party-founder", founderSigner, "party-third", thirdKey.PrincipalId,
+                "party-founder", founderSigner, "principal-third", thirdKey.PrincipalId,
                 successorPermissions ?? PermissionCompositions.Admin, verifier, Now,
                 Guid.Parse("88888888-8888-8888-8888-888888888888"));
-            return ejectSuccessor ? roster.Revoke("party-founder", "party-third") : roster;
+            return ejectSuccessor ? roster.Revoke("party-founder", "principal-third") : roster;
         }
 
         private static string TempPath(string kind) =>

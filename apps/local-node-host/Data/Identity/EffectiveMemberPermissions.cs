@@ -8,6 +8,15 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
 /// <summary>Derives roster and install-root grant inputs. AuthorizationGate alone decides an act.</summary>
+/// <remarks>
+/// <b>Ticket 294 slice 2a — a grant whose subject holds no roster edge is INERT AT READ TIME, never
+/// refused at write time.</b> That is already what this reading produces: <c>RequireMember</c> constrains
+/// the gate, an ejected subject reads the empty set, and a subject with no edge falls through to its
+/// grant closure and is then denied by whatever the act requires. Refusing such a grant when it is
+/// WRITTEN would re-hide it from the holders list and from revocation, which is exactly the defect
+/// ticket 294 slice 1 fixed by keeping an unattributed grant listed and revocable. So: write it, list
+/// it, revoke it — and let the roster decide what it reaches.
+/// </remarks>
 internal static class EffectiveMemberPermissions
 {
     private const string InstallRoot = "/";

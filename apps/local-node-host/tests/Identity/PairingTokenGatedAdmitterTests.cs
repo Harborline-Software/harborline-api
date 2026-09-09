@@ -53,7 +53,10 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
 {
     private const string TenantId = "7e57aaaa-0000-0000-0000-000000000001";
     private const string PrincipalId = "principal-1";
-    private const string JoinerPartyId = "party-1";
+    // Ticket 294 slice 2a — the joiner presents its CANONICAL TENANT PRINCIPAL id as JoiningPartyId.
+    private const string JoinerPartyId = PrincipalId;
+    // The People PartyId behind it: a different string, so no test passes by the two coinciding.
+    private const string JoinerPeoplePartyId = "party-1";
     private const string GrantId = "grant-1";
     private const string FounderPartyId = "founder";
     private static readonly Guid Team = Guid.Parse("7e57bbbb-0000-0000-0000-000000000002");
@@ -359,7 +362,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
 
         var coordinator = new AdmissionCoordinator(Verifier, durableTokenStore, new FixedTimeProvider(Now));
         var bridge = new WebAdmittedMemberAtlasBridge(
-            new FixedPartyReader(JoinerPartyId), search.Factory, coordinator, bindings, new FixedTimeProvider(Now),
+            new FixedPartyReader(JoinerPeoplePartyId), search.Factory, coordinator, bindings, new FixedTimeProvider(Now),
             new FixedAuthorizationClosure());
 
         var teamContexts = BuildTeamContexts();

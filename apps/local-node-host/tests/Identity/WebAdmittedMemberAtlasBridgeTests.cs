@@ -28,7 +28,13 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
 {
     private const string TenantId = "7e57aaaa-0000-0000-0000-000000000001";
     private const string PrincipalId = "principal-1";
-    private const string PartyId = "party-1";
+    /// <summary>Ticket 294 slice 2a — the roster edge and the enrollment are keyed by the CANONICAL
+    /// TENANT PRINCIPAL id, so the party the enrollment presents is the principal.</summary>
+    private const string PartyId = PrincipalId;
+
+    /// <summary>The People PartyId behind that principal — deliberately a DIFFERENT string, so no test
+    /// here can pass merely because the two key spaces coincide.</summary>
+    private const string PeoplePartyId = "party-1";
     private const string GrantId = "grant-1";
     private const string FounderPartyId = "founder";
     private static readonly System.Guid TeamId =
@@ -47,7 +53,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -107,7 +113,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId), selected);
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId), selected);
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -127,7 +133,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId,
@@ -146,7 +152,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity("party-imposter");
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -184,7 +190,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -201,7 +207,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -218,7 +224,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -244,7 +250,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var tokenStore = new InMemoryAdmissionTokenStore();
         var coordinator = new AdmissionCoordinator(Verifier, tokenStore, new FixedTimeProvider(Now));
         var bridge = new WebAdmittedMemberAtlasBridge(
-            new FixedPartyReader(PartyId), store.Factory, coordinator,
+            new FixedPartyReader(PeoplePartyId), store.Factory, coordinator,
             new InMemoryWebPairingInviteBindingStore(), new FixedTimeProvider(Now), new FixedAuthorizationClosure());
         var token = coordinator.CreateInvite(TeamTrustAnchor.FromRoster(roster));
 
@@ -280,7 +286,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var dmKeyB64 = DmKeyB64(0x40);       // the enrolling device's team-scoped DM public key
         var xwingKeyB64 = XWingKeyB64(0x40); // the enrolling device's team-scoped X-Wing public key
@@ -314,7 +320,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
@@ -344,7 +350,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var tokenStore = new InMemoryAdmissionTokenStore();
         var coordinator = new AdmissionCoordinator(Verifier, tokenStore, new FixedTimeProvider(Now));
         var bridge = new WebAdmittedMemberAtlasBridge(
-            new FixedPartyReader(PartyId), store.Factory, coordinator,
+            new FixedPartyReader(PeoplePartyId), store.Factory, coordinator,
             new InMemoryWebPairingInviteBindingStore(), new FixedTimeProvider(Now), new FixedAuthorizationClosure());
         var anchor = TeamTrustAnchor.FromRoster(roster);
 
@@ -385,7 +391,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var joiner = NewIdentity(PartyId);
         var wrongKeySigner = NewIdentity(FounderPartyId); // claims founder's party, but a DIFFERENT key
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, wrongKeySigner.Signer, tokenId, Membership(),
@@ -414,13 +420,13 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         //     roster key) but produces a signature that does NOT verify (it signs with a different key). This is
         //     the :341 "signature did not verify" throw, NOT the :304 key-mismatch guard.
         var brokenSigner = new BrokenSignatureSigner(founder.Key.PrincipalId, NewIdentity("other").Signer);
-        var (bridgeA, tokenA) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridgeA, tokenA) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
         var cryptoFail = await bridgeA.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, brokenSigner, tokenA, Membership(),
             PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None);
 
         // (b) the benign fallback — a wrong-key admitter (:304 guard).
-        var (bridgeB, tokenB) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridgeB, tokenB) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
         var fallback = await bridgeB.AdmitOnFirstEnrollmentAsync(
             roster, FounderPartyId, NewIdentity(FounderPartyId).Signer, tokenB, Membership(),
             PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None);
@@ -458,7 +464,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         var founder = NewIdentity(FounderPartyId);
         var joiner = NewIdentity(PartyId);
         var roster = GenesisRoster(founder);
-        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PartyId));
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId));
 
         // Admit PartyId, then the founder (root-grant holder — no-bricking floor satisfied) revokes it.
         var admitted = await bridge.AdmitOnFirstEnrollmentAsync(
@@ -473,7 +479,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
         Assert.False(afterRevoke.Contains(PartyId));
 
         // End-to-end: a fresh token re-admits the revoked party (the pre-check permits it). Re-enrollment works.
-        var (bridge2, tokenId2) = CreateBridge(store, afterRevoke, new FixedPartyReader(PartyId));
+        var (bridge2, tokenId2) = CreateBridge(store, afterRevoke, new FixedPartyReader(PeoplePartyId));
         var reEnroll = await bridge2.AdmitOnFirstEnrollmentAsync(
             afterRevoke, FounderPartyId, founder.Signer, tokenId2, Membership(),
             PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None);
@@ -533,7 +539,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
             var tokenStore = new InMemoryAdmissionTokenStore();
             var coordinator = new AdmissionCoordinator(Verifier, tokenStore, new FixedTimeProvider(Now));
             var bridge = new WebAdmittedMemberAtlasBridge(
-                new FixedPartyReader(PartyId), store.Factory, coordinator, bindings, new FixedTimeProvider(Now),
+                new FixedPartyReader(PeoplePartyId), store.Factory, coordinator, bindings, new FixedTimeProvider(Now),
                 new FixedAuthorizationClosure());
             var anchor = TeamTrustAnchor.FromRoster(roster);
 
@@ -594,7 +600,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
             ownerVersion: 4, authorizationEpoch: 7, revokedAtUnixMs: Now.AddMinutes(-1).ToUnixTimeMilliseconds()))
         {
             var roster = GenesisRoster(founder);
-            var (bridge, tokenId) = CreateBridge(revokedStore, roster, new FixedPartyReader(PartyId));
+            var (bridge, tokenId) = CreateBridge(revokedStore, roster, new FixedPartyReader(PeoplePartyId));
             outcomes.Add(await bridge.AdmitOnFirstEnrollmentAsync(
                 roster, FounderPartyId, founder.Signer, tokenId, Membership(),
                 PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None));

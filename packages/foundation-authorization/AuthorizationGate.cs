@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.Authorization;
@@ -69,7 +70,21 @@ public sealed class AuthorizationGate(
         if (request.Roster is { } roster)
         {
             var grantAllowed = atomCoverageAllowed;
-            atoms = (roster.Ejected ? PermissionSet.Empty : roster.Permissions ?? PermissionSet.Empty)
+            var held = roster.Ejected ? PermissionSet.Empty : roster.Permissions ?? PermissionSet.Empty;
+
+            // Ticket 294 slice 2a — the prospective-Administrator rule. When the caller declares that the
+            // Administrator role is ABOUT to be conferred on this subject, the decision is made against the
+            // atoms that role confers ONLY where the subject holds no roster edge. Where a roster edge
+            // exists it is the authority the signed plane already published, so the decision is made
+            // against the subject's OWN conferred grants and the prospective atoms are not added — a
+            // successor the roster has narrowed is refused rather than handed a role that does nothing
+            // (ticket 211 slice 3). An ejected subject is empty either way: ejection outranks a prospect.
+            if (roster is { ProspectiveAdministratorGrant: true, Member: false, Ejected: false })
+            {
+                held = held.Union(PermissionSet.From(TeamRolePermissions.ForRole(TeamRole.Admin)));
+            }
+
+            atoms = held
                 .Permissions.Select(permission => PermissionAtom.Parse($"{permission}@/"))
                 .ToImmutableArray();
             atomCoverageAllowed = atoms.Any(atom => atom.Covers(request.Act))

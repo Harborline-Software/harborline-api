@@ -25,6 +25,15 @@ public sealed record AuthorizationRosterInputs(
     string PartyId, bool Member, bool Ejected, PermissionSet? Permissions)
 {
     public bool? RegistryMember { get; init; }
+
+    /// <summary>
+    /// The Administrator role is ABOUT to be conferred on this subject (an in-flight handover), and no
+    /// grant carries it yet. Ticket 294 slice 2a: the gate adds the atoms that role confers ONLY where
+    /// <see cref="Member"/> is false — a subject with no roster edge is decided on what it is about to
+    /// hold, a subject WITH a roster edge is decided on its own conferred grants, so a successor the
+    /// signed roster has narrowed is refused instead of being handed a role that does nothing. Read by
+    /// <c>AuthorizationGate</c> alone; a caller must never substitute the atoms itself.
+    /// </summary>
     public bool ProspectiveAdministratorGrant { get; init; }
     public bool RequireMember { get; init; }
     public bool RequireGrantCoverage { get; init; }

@@ -20,6 +20,16 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// member (ticket 205 slice 4 review 1, F1).
 /// </para>
 /// <para>
+/// <b>Ticket 294 slice 2a — this is now THE party key, not just the grant key.</b> The signed roster's
+/// <c>RosterMember.PartyId</c> and the wire's <c>JoiningPartyId</c> carry
+/// <c>CanonicalPartyBinding.PrincipalUserId.Value</c> as well, so the roster plane and the grant plane
+/// answer about one actor id. The direction was chosen rather than reversed because the grant plane is
+/// already unanimous on the principal (~248 <c>SubjectId</c> sites and five EF migrations), and because
+/// reversing it would re-open the decided defect this type's own remark names. The People
+/// <c>CanonicalPartyReference</c> keeps its existing job — attribution stamped on what an act writes —
+/// and is no longer an authorization key.
+/// </para>
+/// <para>
 /// Both places that name a caller to the authorization side resolve it HERE — the shared route guard
 /// (<c>RequestAuthorization</c>) and the production PEP (<c>SelectedSessionPermissionResolver</c>) — so
 /// the two cannot drift onto different keys again. <c>SharedGatePrincipalResolutionArchTests</c> is the
