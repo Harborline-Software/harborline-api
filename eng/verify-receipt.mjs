@@ -20,6 +20,7 @@ import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
+import {receiptCheckForPushRefs} from './pre-push-receipt.mjs'
 
 const REPOSITORY = 'harborline-api'
 const SCHEMA_VERSION = 1
@@ -41,6 +42,14 @@ export const requiredStepIds = [
   'exact-clone',
   'packages',
 ]
+
+if (process.argv.includes('--pre-push')) {
+  const decision = receiptCheckForPushRefs(readFileSync(0, 'utf8'))
+  if (!decision.verify) {
+    if (decision.skipped) console.log(`${REPOSITORY}: receipt check was skipped for a feature branch`)
+    process.exit(0)
+  }
+}
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {encoding: 'utf8'}).trim()
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()

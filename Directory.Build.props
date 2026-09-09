@@ -43,7 +43,14 @@
       warning; it only declines to fail the build on an advisory the source chose to suppress.
       The bare-NoWarn projects are a source defect: cleanup register C-004.
     -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1510</WarningsNotAsErrors>
+    <!-- HLQ.CS.1000 / VSTHRD002 and HLQ.CS.1100 / CA1031 are Preview-mode
+         evidence for CQG. Keep these two warnings visible in ErrorLog without
+         weakening warning-as-error handling for any other analyzer rule. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1510;VSTHRD002;CA1031</WarningsNotAsErrors>
+    <!-- The threading package rules outside the ADR 0085 preview set stay warnings, never errors: an MSBuild
+         property reaches every checkout shape, where a repository .globalconfig did not (a detached worktree
+         nested under another worktree compiled without it; 340 s1). -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);VSTHRD001;VSTHRD003;VSTHRD004;VSTHRD010;VSTHRD011;VSTHRD012;VSTHRD101;VSTHRD102;VSTHRD103;VSTHRD104;VSTHRD105;VSTHRD106;VSTHRD107;VSTHRD108;VSTHRD109;VSTHRD110;VSTHRD111;VSTHRD112;VSTHRD113;VSTHRD114;VSTHRD115;VSTHRD200</WarningsNotAsErrors>
     <Authors>Harborline Software Contributors</Authors>
     <Company>Harborline Software</Company>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
@@ -211,6 +218,15 @@
          Harborline.Wayfinder.Analyzers per W#42 P3b). Future analyzer projects
          under any namespace inherit this exclusion automatically. -->
     <_HarborlineBannedApiTarget Condition="$(MSBuildProjectName.EndsWith('.Analyzers'))">false</_HarborlineBannedApiTarget>
+
+    <!-- ADR 0085 D4 / HLQ.CS.1000 and HLQ.CS.1020: attach the upstream VS
+         threading analyzer to every production project while keeping tests and
+         analyzer projects outside the measured population. -->
+    <_HarborlineThreadingAnalyzersTarget Condition="'$(_HarborlineThreadingAnalyzersTarget)' == ''">true</_HarborlineThreadingAnalyzersTarget>
+    <_HarborlineThreadingAnalyzersTarget Condition="$(MSBuildProjectName.EndsWith('.Tests'))">false</_HarborlineThreadingAnalyzersTarget>
+    <_HarborlineThreadingAnalyzersTarget Condition="'$(MSBuildProjectName)' == 'tests'">false</_HarborlineThreadingAnalyzersTarget>
+    <_HarborlineThreadingAnalyzersTarget Condition="$(MSBuildProjectName.StartsWith('Harborline.Analyzers.'))">false</_HarborlineThreadingAnalyzersTarget>
+    <_HarborlineThreadingAnalyzersTarget Condition="$(MSBuildProjectName.EndsWith('.Analyzers'))">false</_HarborlineThreadingAnalyzersTarget>
   </PropertyGroup>
 
   <!--
@@ -281,4 +297,5 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
+
 </Project>

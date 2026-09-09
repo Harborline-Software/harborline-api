@@ -5,8 +5,8 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-05T00:00:00Z",
   "totals": {
-    "total": 3696,
-    "passed": 3678,
+    "total": 3698,
+    "passed": 3680,
     "failed": 0,
     "notExecuted": 18
   },
@@ -56,6 +56,12 @@
       "cause": "the 30 s window the assertion allows for the blocked writer to be observed is not enough when the box is saturated.",
       "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
       "retryLimit": 1
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
+      "owner": "348",
+      "firstSeen": "2026-09-08",
+      "expires": "2026-10-08"
     }
   ],
   "skips": {
@@ -66,15 +72,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3688,
-      "passed": 3670,
+      "total": 3696,
+      "passed": 3678,
       "failed": 0,
       "notExecuted": 18
     },
-    "change": "total 3688 -> 3696; passed 3670 -> 3678; failed unchanged at 0; notExecuted 18 -> 18",
+    "change": "total 3696 -> 3698; passed 3678 -> 3680; failed unchanged at 0; notExecuted 18 -> 18",
     "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
     "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3688 + 8 = 3696; passed = total - notExecuted = 3696 - 18 = 3678."
+    "arithmeticCrossCheck": "3696 + 2 = 3698; passed = total - notExecuted = 3698 - 18 = 3680."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

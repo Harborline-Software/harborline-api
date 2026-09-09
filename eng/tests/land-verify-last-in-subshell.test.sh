@@ -7,8 +7,10 @@
 # as belt and braces. Red on 6ee7c98a, green after the split.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-bad=$(grep -n 'bash eng/verify.sh &&' "$root/eng/land.sh" || true)
+bad=$(grep -n 'exec bash eng/verify.sh.*&&' "$root/eng/land.sh" || true)
 if [ -n "$bad" ]; then echo "FAIL: verify.sh is followed by another command in its subshell:"; echo "$bad"; exit 1; fi
-count=$(grep -c 'bash eng/verify.sh )' "$root/eng/land.sh")
-[ "$count" -ge 2 ] || { echo "FAIL: expected verify.sh to close its subshell in land.sh twice (land worktree and gate_main), found $count"; exit 1; }
-echo "PASS land-verify-last-in-subshell ($count nested verify runs close their subshell)"
+count=$(grep -c 'else exec bash eng/verify.sh; fi )' "$root/eng/land.sh")
+[ "$count" -eq 1 ] || { echo "FAIL: expected the shared landing verifier to exec verify.sh as its subshell's last command, found $count"; exit 1; }
+calls=$(grep -Ec 'run_land_verify "\$(land_dir|verify_dir)" "\$verify_log"' "$root/eng/land.sh")
+[ "$calls" -eq 2 ] || { echo "FAIL: expected both landing routes to use the shared verifier, found $calls"; exit 1; }
+echo "PASS land-verify-last-in-subshell ($calls landing routes exec the nested verify)"
