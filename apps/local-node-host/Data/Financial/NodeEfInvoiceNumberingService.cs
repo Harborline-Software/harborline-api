@@ -133,7 +133,7 @@ public sealed class NodeEfInvoiceNumberingService : IInvoiceNumberingService, ID
                     {
                         continue; // ignore any non-canonical number defensively
                     }
-                    var lastDash = number.LastIndexOf('-');
+                    var lastDash = number.LastIndexOf('-', StringComparison.Ordinal);
                     if (lastDash < 0 || lastDash == number.Length - 1)
                     {
                         continue;

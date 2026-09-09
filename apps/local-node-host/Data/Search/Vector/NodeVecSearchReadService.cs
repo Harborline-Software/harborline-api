@@ -358,11 +358,11 @@ public sealed class NodeVecSearchReadService
             (char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (tokens.Length == 0)
         {
-            return "\"" + queryText.Replace("\"", "\"\"") + "\"*";
+            return "\"" + queryText.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"*";
         }
         for (var i = 0; i < tokens.Length; i++)
         {
-            tokens[i] = "\"" + tokens[i].Replace("\"", "\"\"") + "\"*";
+            tokens[i] = "\"" + tokens[i].Replace("\"", "\"\"", StringComparison.Ordinal) + "\"*";
         }
         return string.Join(" ", tokens);
     }

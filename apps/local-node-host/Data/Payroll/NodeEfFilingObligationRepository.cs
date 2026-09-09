@@ -67,8 +67,8 @@ public sealed class NodeEfFilingObligationRepository : IFilingObligationReposito
     {
         await using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var tenantValue = tenantId.Value;
-        var fromStr = from.ToString("yyyy-MM-dd");
-        var toStr = to.ToString("yyyy-MM-dd");
+        var fromStr = from.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var toStr = to.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         // due_date is stored as a sortable ISO date string (yyyy-MM-dd), so a lexical range == a date range.
         var records = await ctx.FilingObligations
             .AsNoTracking()

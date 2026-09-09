@@ -246,7 +246,7 @@ public static class PackComposeRoutes
         }
 
         var regulatoryClass = Enum.TryParse<RegulatoryClass>(
-            (dto.RegulatoryClass ?? string.Empty).Replace("-", string.Empty), ignoreCase: true, out var rc)
+            (dto.RegulatoryClass ?? string.Empty).Replace("-", string.Empty, StringComparison.Ordinal), ignoreCase: true, out var rc)
             ? rc
             : general.RegulatoryClass;
         var dataSensitivity = Enum.TryParse<DataSensitivityClass>(dto.DataSensitivity, ignoreCase: true, out var ds)

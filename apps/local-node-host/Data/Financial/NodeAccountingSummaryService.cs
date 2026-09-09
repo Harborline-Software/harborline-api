@@ -156,7 +156,7 @@ public sealed class NodeAccountingSummaryService
                 Name:              i.InvoiceNumber,
                 Customer:          i.CustomerId.Value,
                 OutstandingAmount: i.Balance,
-                DueDate:           i.DueDate.ToString("O"),
+                DueDate:           i.DueDate.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
                 Status:            i.Status.ToString()))
             .ToList();
     }

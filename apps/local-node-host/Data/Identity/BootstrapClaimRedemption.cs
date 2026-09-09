@@ -542,8 +542,8 @@ internal sealed class BootstrapClaimRedemptionService
                     "bootstrap-claim-command/v1",
                     claim.InstallationId,
                     claim.IssuerIdentity,
-                    claim.IssuedAt.ToUnixTimeMilliseconds().ToString(),
-                    claim.ExpiresAt.ToUnixTimeMilliseconds().ToString(),
+                    claim.IssuedAt.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    claim.ExpiresAt.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture),
                     nonceDigest),
                 InstallationAuditIntegrity.Hash(
                     "bootstrap-claim-redemption/v1",
@@ -716,7 +716,9 @@ internal sealed class BootstrapClaimRedemptionService
             """);
         Add(read, "@tenant_id", grant.TenantId.Value);
         Add(read, "@principal_id", grant.Subject.Value);
-        return Convert.ToInt64(await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        return Convert.ToInt64(
+            await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static DbCommand CreateCommand(

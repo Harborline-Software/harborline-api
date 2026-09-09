@@ -56,9 +56,9 @@ internal sealed class AccessGrantFormSubmissionProjection(
             "online-only" => GrantResidency.OnlineOnly,
             var value => Enum.Parse<GrantResidency>(value, ignoreCase: true),
         };
-        var validFrom = DateTimeOffset.Parse(Required(values, "effectiveFrom"));
+        var validFrom = DateTimeOffset.Parse(Required(values, "effectiveFrom"), System.Globalization.CultureInfo.InvariantCulture);
         DateTimeOffset? validUntil = values.TryGetProperty("effectiveTo", out var until) && until.GetString() is { Length: > 0 } text
-            ? DateTimeOffset.Parse(text) : null;
+            ? DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : null;
         var roleName = Required(values, "role");
         var role = roleName == RoleReference.Administrator.Name
             ? RoleReference.Administrator : new RoleReference(RoleVocabularies.Domain, roleName);
