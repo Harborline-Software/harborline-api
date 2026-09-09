@@ -136,4 +136,4 @@ public sealed record AdmissionRecord(
     string AdmittedViaTokenId = "",
     string AdmittedUnderSessionEvidence = "",
     IReadOnlyCollection<string>? AdmittedPermissions = null,
-    int FormatVersion = 2);
+    int FormatVersion = RosterWireFormat.CurrentVersion);

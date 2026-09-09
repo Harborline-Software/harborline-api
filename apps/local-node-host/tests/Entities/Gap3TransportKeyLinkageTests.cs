@@ -102,7 +102,7 @@ public sealed class Gap3TransportKeyLinkageTests : IAsyncLifetime
         }
     }
 
-    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster)
+    private async Task<Replica> NewReplicaAsync(string name, MemberRoster seedRoster, IOperationSigner attestationSigner)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-gap3-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -120,7 +120,7 @@ public sealed class Gap3TransportKeyLinkageTests : IAsyncLifetime
 
         var nodeRoster = new NodeTeamRoster(seedRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         var replica = new Replica { Dir = dir, Sp = sp, Factory = factory, Projection = projection, NodeRoster = nodeRoster };
@@ -201,10 +201,10 @@ public sealed class Gap3TransportKeyLinkageTests : IAsyncLifetime
         var bob = Member.New("bob");
 
         // A = the admin/founder node; B = a third converging node that learns of bob via sync.
-        var a = await NewReplicaAsync("A", GenesisFor(founder));
+        var a = await NewReplicaAsync("A", GenesisFor(founder), founder.PrincipalSigner);
         await SeedLocalAsync(a);
         // B joins the team (trust root = A's genesis) — mirrors a node that adopts the team genesis on admission.
-        var b = await NewReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewReplicaAsync("B", a.NodeRoster.Current, founder.PrincipalSigner);
 
         // A admits bob (gap-#3 wiring: principal sign + transport-key record), publishes the admission, syncs to B.
         var withBob = a.NodeRoster.Current.Admit(

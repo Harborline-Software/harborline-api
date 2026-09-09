@@ -98,7 +98,8 @@ public static class FormsRoutes
         IFormCapabilityVerifier verifier,
         IActiveTeamAccessor activeTeam,
         IReadOnlyList<string> operatorRoles,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IFormSubmissionGate? submissionGate = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(engine);
@@ -196,15 +197,43 @@ public static class FormsRoutes
                 timeProvider, ct)
                 .ConfigureAwait(false);
 
+            var definition = new Harborline.Api.Foundation.Forms.Models.FormDefinitionId(formId);
+
+            // The pre-save validate and the pack gate live INSIDE the same try as the save: the engine's
+            // rule evaluation runs in ValidateAsync too, so a rule-engine timeout raised here must reach
+            // the structured 503 below rather than escaping as a bodyless 500.
             try
             {
+                var validation = await engine.ValidateAsync(definition, candidate, token, ct).ConfigureAwait(false);
+                if (!validation.IsValid)
+                {
+                    return Results.UnprocessableEntity(ValidationResultDto.From(validation));
+                }
+
+                if (submissionGate?.RequiredPermission(definition) is { } permission)
+                {
+                    var gateAuthority = RequestAuthorization.Authority(request.HttpContext, token.Tenant, timeProvider);
+                    var denied = await RequestAuthorization.RefusalAsync(
+                        request.HttpContext, gateAuthority, permission, RouteRecord.TheInstall, ct).ConfigureAwait(false);
+                    if (denied is not null) return denied;
+
+                    var capabilityRoles = submissionGate.CapabilityRoles(definition);
+                    if (capabilityRoles.Count > 0)
+                    {
+                        token = await MintTokenAsync(
+                            issuer, verifier, activeTeam, ActingSubject(request.HttpContext),
+                            roles.Concat(capabilityRoles).Distinct(StringComparer.Ordinal).ToArray(),
+                            FormCapabilityAction.Write, timeProvider, ct).ConfigureAwait(false);
+                    }
+                }
+
                 var at = timeProvider.GetUtcNow();
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
                     token.Tenant,
                     at);
                 var receipt = await engine
-                    .SaveWithReceiptAsync(new Harborline.Api.Foundation.Forms.Models.FormDefinitionId(formId), candidate, token, authority, ct, idempotencyKey, caseRef)
+                    .SaveWithReceiptAsync(definition, candidate, token, authority, ct, idempotencyKey, caseRef)
                     .ConfigureAwait(false);
 
                 var location =
@@ -389,6 +418,14 @@ public static class FormsRoutes
             .ConfigureAwait(false);
         return await verifier.VerifyAsync(bearer, now, ct).ConfigureAwait(false);
     }
+}
+
+/// <summary>Declares the route-level authority a pack-bound post-submit projection requires.</summary>
+public interface IFormSubmissionGate
+{
+    string? RequiredPermission(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form);
+
+    IReadOnlyList<string> CapabilityRoles(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form);
 }
 
 // ── Wire shapes (mirror @harborline-software/api-contracts forms.ts) ───────────────────────────

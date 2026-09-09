@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Blocks.Workflow.Interpreter;
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Scheduling;
@@ -35,6 +37,17 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 /// </remarks>
 public static class NodeWorkflowComposition
 {
+    /// <summary>Wires the pack-declared Access grant submission projection to its typed workflow handler.</summary>
+    public static IServiceCollection AddAccessGrantFormSubmission(this IServiceCollection services)
+    {
+        services.AddSingleton<AccessGrantFormSubmissionProjection>();
+        services.AddSingleton<IFormSubmitProjection>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
+        services.AddSingleton<Health.IFormSubmissionGate>(sp => sp.GetRequiredService<AccessGrantFormSubmissionProjection>());
+        services.AddSingleton<IGrantIssuanceContext>(sp =>
+            new NodeGrantIssuanceContext(sp.GetRequiredService<IGrantStore>()));
+        services.AddSingleton<IWorkflowStepHandler, GrantIssuanceHandler>();
+        return services;
+    }
     /// <summary>
     /// Registers the durable workflow ENGINE: the workflow entity module (3-table schema into
     /// <c>LocalNodeDbContext</c>), the recoverable <see cref="NodeEfWorkflowStore"/> as
