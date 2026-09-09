@@ -13,6 +13,8 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
@@ -52,6 +54,9 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
     private HttpClient _client = null!;
     private string _baseUrl = null!;
     private NodePrincipalSigner _nodeSigner = null!;
+    private NodeTeamRoster _roster = null!;
+
+    private const string CanonicalPrincipal = "canonical-tenant-principal-294";
 
     // A fixed 32-byte seed (all 0x07) → a deterministic node identity for assertions.
     private static readonly byte[] FixedSeed = Enumerable.Repeat((byte)0x07, 32).ToArray();
@@ -61,6 +66,13 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _nodeSigner = new NodePrincipalSigner(FixedSeed);
+        _roster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000011"),
+            CanonicalPrincipal,
+            _nodeSigner.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000012")));
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -69,7 +81,13 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         _app = builder.Build();
 
         // Map the SAME production route the hosted endpoint maps — one source of truth.
-        CurrentPrincipalSignatureRoutes.Map(_app, _nodeSigner.Signer, _nodeSigner.NodePublicKey, TimeProvider.System);
+        CurrentPrincipalSignatureRoutes.Map(
+            _app,
+            _nodeSigner.Signer,
+            _nodeSigner.NodePublicKey,
+            new NodeCallerSessionToken(null),
+            () => HostedCurrentPrincipalSignatureApiEndpoint.ResolveCurrentPrincipal(_roster, _nodeSigner),
+            TimeProvider.System);
 
         await _app.StartAsync();
 
@@ -124,42 +142,32 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         var doc = await _client.GetFromJsonAsync<JsonElement>(Route);
         var principal = doc.GetProperty("principal");
 
-        // Host-resolved — matches ResolveCurrentPrincipal() (Environment.UserName).
-        var expected = CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal();
-        Assert.Equal(expected.Id, principal.GetProperty("id").GetString());
-        Assert.Equal("current-principal", principal.GetProperty("id").GetString());
+        // This is the canonical party carried by the real roster edge selected by this node's signing key.
+        Assert.Equal(CanonicalPrincipal, principal.GetProperty("id").GetString());
         Assert.Equal("canonical-tenant-principal", principal.GetProperty("kind").GetString());
         // Non-anonymous — the gate never signs an anonymous principal.
         Assert.True(principal.GetProperty("id").GetString()!.Length > "os:".Length);
     }
 
-    [Fact(DisplayName = "294 s2b: an explicit canonical principal remains canonical for both consumers")]
-    public async Task DecomposedOsUserName_IsMinted_AndReachesBothConsumers()
+    [Fact(DisplayName = "294 s2b: HostedCurrentPrincipalSignatureApiEndpoint resolves its signing-key roster edge and names a missing edge")]
+    public void HostedCurrentPrincipalSignatureApiEndpoint_ResolvesRosterEdge_OrRefusesWithNamedReason()
     {
-        // macOS stores account names decomposed: "jose" + U+0301 rather than precomposed "josé".
-        const string Decomposed = "josé";
-        const string Composed = "josé";
-        Assert.NotEqual(Composed, Decomposed);            // different strings...
-        Assert.Equal(Composed, Decomposed.Normalize());   // ...one account name.
+        Assert.Equal(
+            CanonicalPrincipal,
+            HostedCurrentPrincipalSignatureApiEndpoint.ResolveCurrentPrincipal(_roster, _nodeSigner).Value);
 
-        var decomposedPrincipal = CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal(Decomposed);
-        var composedPrincipal = CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal(Composed);
+        using var foreignSigner = new NodePrincipalSigner(Enumerable.Repeat((byte)0x08, 32).ToArray());
+        var noMatchRoster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000013"),
+            "other-canonical-principal-294",
+            foreignSigner.Signer,
+            new Ed25519Verifier(),
+            DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000014")));
 
-        // The EXACT expression KgSearchRoutes.cs:111 and KgCalendarDevIndexer.cs:240 evaluate. Before the
-        // mint at the derivation site this threw ArgumentException out of the GET handler -> 500.
-        var decomposedActor = new ActorId(decomposedPrincipal.Id);
-        var composedActor = new ActorId(composedPrincipal.Id);
-        Assert.Equal(composedActor, decomposedActor);
-        Assert.Equal("principal:" + Composed, decomposedActor.Value);
-
-        // And a padded name still trims (the pre-274 behaviour the mint must preserve).
-        Assert.Equal(composedActor, new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal("  " + Decomposed + " ").Id));
-
-        // Route level: the signed principal id is itself a wrappable ActorId, on this host.
-        var doc = await _client.GetFromJsonAsync<JsonElement>(Route);
-        var signedId = doc.GetProperty("principal").GetProperty("id").GetString()!;
-        Assert.True(ActorId.IsCanonical(signedId), $"The route signed a non-canonical principal id '{signedId}'.");
-        _ = new ActorId(signedId);
+        var refusal = Assert.Throws<InvalidOperationException>(() =>
+            HostedCurrentPrincipalSignatureApiEndpoint.ResolveCurrentPrincipal(noMatchRoster, _nodeSigner));
+        Assert.Equal("current_node_roster_edge_not_found", refusal.Message);
     }
 
     [Fact(DisplayName = "Route: BOUNDED — a request body cannot select an arbitrary principal (no signing oracle)")]
@@ -178,8 +186,7 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         // And a GET with an attacker query string still signs ONLY the host principal.
         var doc = await _client.GetFromJsonAsync<JsonElement>($"{Route}?id=os:root&kind=spoofed");
         var signedId = doc.GetProperty("principal").GetProperty("id").GetString();
-        var hostId = CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id;
-        Assert.Equal(hostId, signedId);
+        Assert.Equal(CanonicalPrincipal, signedId);
         Assert.NotEqual("os:root", signedId);
     }
 

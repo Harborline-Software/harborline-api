@@ -84,8 +84,8 @@ public sealed class KgCalendarDevIndexer : IHostedService
     private readonly IGrantStore _grantStore;
     private readonly NodeSearchIndexer _indexer;
     private readonly IActiveTeamAccessor _activeTeam;
-    private readonly NodeTeamRoster? _roster;
-    private readonly NodePrincipalSigner? _nodeSigner;
+    private readonly NodeTeamRoster _roster;
+    private readonly NodePrincipalSigner _nodeSigner;
     private readonly IHostEnvironment _environment;
     private readonly ILogger<KgCalendarDevIndexer> _logger;
     private readonly AuthorizationGate? _gate;
@@ -99,17 +99,19 @@ public sealed class KgCalendarDevIndexer : IHostedService
         IGrantStore grantStore,
         NodeSearchIndexer indexer,
         IActiveTeamAccessor activeTeam,
+        NodeTeamRoster roster,
+        NodePrincipalSigner nodeSigner,
         IHostEnvironment environment,
         ILogger<KgCalendarDevIndexer> logger,
         AuthorizationGate? gate = null,
-        TimeProvider? time = null,
-        NodeTeamRoster? roster = null,
-        NodePrincipalSigner? nodeSigner = null)
+        TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(eventStore);
         ArgumentNullException.ThrowIfNull(grantStore);
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(nodeSigner);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -243,10 +245,7 @@ public sealed class KgCalendarDevIndexer : IHostedService
 
         // PINNED footgun: the grant's principal id MUST be the SAME string the KG search route resolves +
         // passes to SearchAsync. Both read the current node's roster edge by signing key — one source of truth.
-        var principalId = _roster is not null && _nodeSigner is not null
-            ? new ActorId(_roster.Current.Members
-                .Single(member => member.PublicKey.Equals(_nodeSigner.Signer.IssuerId)).PartyId)
-            : new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id);
+        var principalId = CurrentPrincipalSignatureRoutes.ResolveRosterPrincipal(_roster, _nodeSigner);
 
         // Idempotency: if an active grant for this principal already reaches every seeded event, do nothing.
         var existing = await _grantStore

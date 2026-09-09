@@ -547,7 +547,6 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
     {
         await using var boot = await BootAsync();
         var ejectedPrincipal = boot.PartyId;
-        const string LegacyPeopleParty = "people-party-ejected-294";
         var successor = ForeignSigner();
         const string SuccessorParty = "people-party-successor-294";
         boot.Roster.AdoptSyncedRoster(GenesisRoster()
@@ -566,10 +565,10 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
 
         // The desktop surface reads live roster membership, not its boot-time projection.
         Assert.False(boot.DesktopPlane.HasPermission(Permission.GrantPermissions));
-        // The web-plane reader receives both the canonical principal and the old People-party spelling;
-        // neither can recover authority after the canonical roster edge is ejected.
+        // The replicated roster plane receives the synced revocation before either consumer reads it.
+        Assert.Null(boot.Roster.Current.PublicKeyOf(ejectedPrincipal));
+        // The web-plane reader cannot recover authority from the ejected canonical roster edge.
         Assert.Null(await boot.WebPlaneReadingAsync(ejectedPrincipal));
-        Assert.Null(await boot.WebPlaneReadingAsync(LegacyPeopleParty));
     }
 
     [Fact]

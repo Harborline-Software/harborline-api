@@ -72,7 +72,7 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
                 _nodeSigner.Signer,
                 _nodeSigner.NodePublicKey,
                 _callerAuth,
-                ResolveCurrentPrincipal,
+                () => ResolveCurrentPrincipal(_roster, _nodeSigner),
                 _timeProvider);
         });
 
@@ -91,6 +91,6 @@ public sealed class HostedCurrentPrincipalSignatureApiEndpoint : IHostedService
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private ActorId ResolveCurrentPrincipal() => new(_roster.Current.Members
-        .Single(member => member.PublicKey.Equals(_nodeSigner.Signer.IssuerId)).PartyId);
+    internal static ActorId ResolveCurrentPrincipal(NodeTeamRoster roster, NodePrincipalSigner nodeSigner) =>
+        CurrentPrincipalSignatureRoutes.ResolveRosterPrincipal(roster, nodeSigner);
 }

@@ -2424,7 +2424,7 @@ builder.Services.AddHostedService<FormsShowcaseDevSeeder>();
 // for that principal, and ONLY that principal. The dev gate is the SAME airtight CalendarDevSeeder.ShouldSeed
 // gate (IsDevelopment() only) — it NEVER runs in Production, so no index is polluted
 // and no principal is auto-granted there. The grant's principal id is derived from the SAME
-// ResolveCurrentPrincipal() helper the KG search route uses (os:<user>), so the grant and the route key on
+// roster-edge resolver the KG search route uses (the canonical tenant principal), so the grant and the route key on
 // the IDENTICAL string (the pinned footgun). It resolves IGrantStore from DI, so it seeds into the LIVE
 // store (the NodeEfGrantStore the vector composition above Replace'd in, not a dead InMemoryGrantStore).
 // Registered AFTER CalendarDevSeeder (StartAsync runs in registration order → events exist first) and AFTER
@@ -2437,7 +2437,7 @@ builder.Services.AddHostedService<KgCalendarDevIndexer>();
 //
 // GET /api/local-node/kg/search?q=<term>&limit=<n> — the FIRST production caller of the clipped KG read
 // service. It resolves the tenant + the acting principal SERVER-SIDE (NodeTenant.Resolve + the same
-// ResolveCurrentPrincipal() helper the dev grant seed uses), then goes THROUGH NodeSearchReadService.
+// roster-edge resolver the dev grant seed uses), then goes THROUGH NodeSearchReadService.
 // SearchAsync — the clipped path (the clip resolves the AuthorizedRecordScope FIRST and builds the query
 // WHERE exclusively from it). It NEVER issues a raw search_nodes read (SearchClipArchFence forbids it; a
 // bypass would be the no-mock-crypto anti-pattern). A principal without a grant gets ZERO hits (fail-closed).

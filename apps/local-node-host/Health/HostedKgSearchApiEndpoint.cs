@@ -74,7 +74,7 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
                 app.MapDeviceReachableProductDataGroup(),
                 _readService,
                 _activeTeam,
-                ResolveCurrentPrincipal,
+                () => ResolveCurrentPrincipal(_roster, _nodeSigner),
                 _timeProvider));
 
         _logger.LogInformation(
@@ -88,6 +88,6 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    private ActorId ResolveCurrentPrincipal() => new(_roster.Current.Members
-        .Single(member => member.PublicKey.Equals(_nodeSigner.Signer.IssuerId)).PartyId);
+    internal static ActorId ResolveCurrentPrincipal(NodeTeamRoster roster, NodePrincipalSigner nodeSigner) =>
+        CurrentPrincipalSignatureRoutes.ResolveRosterPrincipal(roster, nodeSigner);
 }

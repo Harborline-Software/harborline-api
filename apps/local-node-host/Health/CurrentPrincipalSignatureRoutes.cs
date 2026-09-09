@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -109,22 +110,25 @@ public static class CurrentPrincipalSignatureRoutes
             Kind: "canonical-tenant-principal");
     }
 
-    // The parameterless seams are retained for isolated route tests. Production supplies the roster-bound
-    // resolver below; neither seam mints an OS-account authority key.
-    public static SignedPrincipalPayload ResolveCurrentPrincipal() =>
-        ResolveCurrentPrincipal(new ActorId("current-principal"));
+    /// <summary>
+    /// Resolves this node's canonical tenant principal from the one roster edge whose public key matches the
+    /// node signing key. The hosted adapters pass this result to the route; the route never invents a principal.
+    /// </summary>
+    internal static ActorId ResolveRosterPrincipal(NodeTeamRoster roster, NodePrincipalSigner nodeSigner)
+    {
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(nodeSigner);
 
-    internal static SignedPrincipalPayload ResolveCurrentPrincipal(string? raw) =>
-        ResolveCurrentPrincipal(ActorId.Mint($"principal:{(string.IsNullOrWhiteSpace(raw) ? "unknown" : raw.Trim())}"));
+        var matches = roster.Current.Members
+            .Where(member => member.PublicKey.Equals(nodeSigner.Signer.IssuerId))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            throw new InvalidOperationException("current_node_roster_edge_not_found");
+        }
 
-    /// <summary>Maps the test/dev route with a deterministic non-shell principal.</summary>
-    public static void Map(
-        IEndpointRouteBuilder routes,
-        IOperationSigner signer,
-        string nodePublicKey,
-        TimeProvider timeProvider) =>
-        Map(routes, signer, nodePublicKey, new NodeCallerSessionToken(null),
-            () => new ActorId("current-principal"), timeProvider);
+        return new ActorId(matches[0].PartyId);
+    }
 
     /// <summary>
     /// Maps <c>GET <see cref="Route"/></c> with the inc-4 cross-process CALLER-AUTH guard
@@ -199,15 +203,6 @@ public static class CurrentPrincipalSignatureRoutes
                 NodePublicKey: nodePublicKey));
         });
     }
-
-    /// <summary>Maps the caller-auth route with the isolated-test principal seam.</summary>
-    public static void Map(
-        IEndpointRouteBuilder routes,
-        IOperationSigner signer,
-        string nodePublicKey,
-        NodeCallerSessionToken callerAuth,
-        TimeProvider timeProvider) =>
-        Map(routes, signer, nodePublicKey, callerAuth, () => new ActorId("current-principal"), timeProvider);
 
     /// <summary>
     /// The wire DTO — the signed-principal envelope the route returns. camelCase
