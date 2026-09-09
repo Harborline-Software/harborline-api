@@ -20,6 +20,7 @@ import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
+import {receiptCoverage} from './coverage.mjs'
 import {receiptCheckForPushRefs} from './pre-push-receipt.mjs'
 
 const REPOSITORY = 'harborline-api'
@@ -81,6 +82,7 @@ if (process.argv.includes('--record')) {
     schemaVersion: SCHEMA_VERSION,
     repository: REPOSITORY,
     hostBaseline,
+    coverage: receiptCoverage(root),
     baseHead: head,
     testedTree: tree,
     steps: passed,

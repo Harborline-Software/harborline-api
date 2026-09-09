@@ -16,7 +16,7 @@ function withoutReceipt(input) {
   const directory = mkdtempSync(path.join(tmpdir(), 'verify-receipt-pre-push-'))
   try {
     mkdirSync(path.join(directory, 'eng'))
-    for (const file of ['verify-receipt.mjs', 'host-baseline.mjs', 'pre-push-receipt.mjs']) {
+    for (const file of ['verify-receipt.mjs', 'host-baseline.mjs', 'pre-push-receipt.mjs', 'coverage.mjs']) {
       copyFileSync(path.join(root, 'eng', file), path.join(directory, 'eng', file))
     }
     const git = args => spawnSync('git', args, {cwd: directory, encoding: 'utf8'})
