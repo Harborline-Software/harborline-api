@@ -70,6 +70,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private IFormDefinitionStore _forms = null!;
     private IWorkflowDefinitionStore _workflows = null!;
     private AccessAdministrationPreloadHostedService _preload = null!;
+    private InMemoryRoleVocabulary _roles = null!;
 
     public Task InitializeAsync()
     {
@@ -96,7 +97,11 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _forms = _app.Services.GetRequiredService<IFormDefinitionStore>();
         _workflows = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
         var schemas = _app.Services.GetRequiredService<ISchemaRegistry>();
-        var roleGate = _app.Services.GetRequiredService<IRoleGateAdmission>();
+        _roles = new InMemoryRoleVocabulary(
+        [
+            AccessGrantAuthorizationSeed.MemberDefinition,
+        ]);
+        var roleGate = new RoleGateAdmission(_roles, _forms, _workflows);
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
@@ -124,7 +129,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             reportDefinitions: _reports,
             viewDefinitions: _views,
             authorizedForms: TestAuthorization.FormLifecycle(_forms, TestAuthorization.AllowGate(), roleGate),
-            authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate));
+            authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
+            roleVocabulary: _roles);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
 
         _preload = new AccessAdministrationPreloadHostedService(
@@ -169,6 +175,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(
             new[]
             {
+                (PackContentKind.RoleDefinition, "access.form-submitter"),
                 (PackContentKind.FormDefinition, "access.grant-a-role"),
                 (PackContentKind.NavWorkspaceConfig, "access.navigation"),
                 (PackContentKind.WorkflowDefinition, "access.privileged-grant-review"),
@@ -178,10 +185,10 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         // Both content keys resolve through the ordinary catalogue reads — over the REAL registries, so
         // "projected, not refused" is a claim about the composed host.
         var form = await _forms.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.0"), CancellationToken.None);
+            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
         Assert.NotNull(form);
         var workflow = await _workflows.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.0"), CancellationToken.None);
+            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None);
         Assert.NotNull(workflow);
     }
 
@@ -231,7 +238,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotEqual(PackLifecycleState.Active, pending.Lifecycle);
         // The form that DID project is retracted with the reversal — nothing of the package stays live.
         var retracted = await _forms.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.0"), CancellationToken.None);
+            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
         Assert.Equal(FormDefinitionStatus.Withdrawn, retracted!.Status);
 
         // The next boot — the host now admitting what it refused — retries from that pending state and
@@ -242,7 +249,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(active);
         Assert.Equal(PackLifecycleState.Active, active!.Lifecycle);
         Assert.NotNull(await _workflows.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.0"), CancellationToken.None));
+            new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None));
     }
 
     [Fact]
@@ -355,7 +362,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         var installer = _installer;
         if (refuseWorkflows)
         {
-            var roleGate = _app.Services.GetRequiredService<IRoleGateAdmission>();
+            var roleGate = new RoleGateAdmission(_roles, _forms, _workflows);
             var codec = new PackFileCodec();
             installer = new PackInstaller(
                 new PackVerifier(new Ed25519Verifier(), codec),
@@ -377,7 +384,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 // The one difference: the workflow writer's role gate refuses, so the workflow is REFUSED
                 // by projection while the form projects — a partial projection, which must not stand.
                 authorizedWorkflows: TestAuthorization.WorkflowLifecycle(
-                    _workflows, TestAuthorization.AllowGate(), new RefusingRoleGate())));
+                    _workflows, TestAuthorization.AllowGate(), new RefusingRoleGate()),
+                roleVocabulary: _roles));
         }
 
         return new AccessAdministrationPreloadHostedService(

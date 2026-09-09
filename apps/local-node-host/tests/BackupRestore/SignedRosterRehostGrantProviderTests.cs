@@ -42,7 +42,8 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
             .Admit("founder", founder, "member", member.IssuerId, PermissionCompositions.Member,
                 verifier, At.AddHours(-1), Guid.NewGuid());
         db.RosterRecords.AddRange(roster.EnumerateAdmissions().Select(a =>
-            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a))));
+            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a)
+                .AttestReceipt(founder, "founder", a.Admission.IssuedAt))));
         await db.SaveChangesAsync();
     }
 
@@ -182,7 +183,8 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
     {
         var (_, signed) = roster.SignRevoke("founder", founder, "member", verifier, at, Guid.NewGuid());
         await using var db = factory.CreateDbContext();
-        db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(signed)));
+        db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromRevocation(signed)
+            .AttestReceipt(founder, "founder", signed.Signed.IssuedAt)));
         await db.SaveChangesAsync();
     }
 

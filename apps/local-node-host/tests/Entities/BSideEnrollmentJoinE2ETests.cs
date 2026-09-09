@@ -485,7 +485,7 @@ public sealed class BSideEnrollmentJoinE2ETests : IAsyncLifetime
         var rosterFactory = rosterSp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         using (var rctx = rosterFactory.CreateDbContext()) rctx.Database.EnsureCreated();
         var rosterProjection = new RosterCrdtProjection(TimeProvider.System,
-            rosterSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier,
+            rosterSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier, signer.Signer,
             NullLogger<RosterCrdtProjection>.Instance, roster);
         _cleanup.Add(new RosterProjectionCleanup(rosterProjection, rosterSp));
 

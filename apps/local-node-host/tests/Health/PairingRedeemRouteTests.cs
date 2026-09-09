@@ -655,7 +655,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         _providers.Add(crdtSp);
         await using (var ctx = await rosterFactory.CreateDbContextAsync()) await ctx.Database.EnsureCreatedAsync();
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            crdtSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier,
+            crdtSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier, founder.Signer,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);
 

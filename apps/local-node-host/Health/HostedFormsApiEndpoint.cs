@@ -96,6 +96,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
     private readonly ISchemaRegistry _schemaRegistry;
     private readonly ICurrentUser? _currentUser;
     private readonly TimeProvider _timeProvider;
+    private readonly IFormSubmissionGate? _submissionGate;
     private readonly IRestrictingDefinitionKindValidator _restrictingKinds;
     private readonly ILogger<HostedFormsApiEndpoint> _logger;
 
@@ -111,7 +112,8 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         ILogger<HostedFormsApiEndpoint> logger,
         ICurrentUser? currentUser = null,
         TimeProvider? timeProvider = null,
-        IRestrictingDefinitionKindValidator? restrictingKinds = null)
+        IRestrictingDefinitionKindValidator? restrictingKinds = null,
+        IFormSubmissionGate? submissionGate = null)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(engine);
@@ -132,6 +134,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         _currentUser = currentUser;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _restrictingKinds = restrictingKinds ?? RestrictingDefinitionKindValidator.Shared;
+        _submissionGate = submissionGate;
         _logger = logger;
     }
 
@@ -174,7 +177,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
             // deliberately left open because per-member permissions are MTW-3. Keeping only the fence
             // half re-introduces the constant identity #3437 removed. In a diff those two mistakes and
             // the correct merge look nearly identical, so this comment is the guard.
-            FormsRoutes.Map(desktopPlaneOnly, _engine, _issuer, _verifier, _activeTeam, roles, _timeProvider);
+            FormsRoutes.Map(desktopPlaneOnly, _engine, _issuer, _verifier, _activeTeam, roles, _timeProvider, _submissionGate);
             // Authoring surface: save + load + list a FormDefinition (the tenant ADMIN authors it
             // in the Harborline App form builder). Real persistence over IFormDefinitionStore — production
             // slice 1 (2026-06-27).
