@@ -57,7 +57,9 @@ export function qualityArtifacts(apiRoot = root) {
   const files = walk(path.join(apiRoot, 'artifacts', 'quality')).sort()
   return {
     sarif: files.filter(file => /\.sarif(?:\.json)?$/i.test(file)),
-    cobertura: files.filter(file => /cobertura.*\.xml$/i.test(path.basename(file))),
+    // Only the merged reports eng/coverage.mjs writes at the top level; the raw per-run coverlet files under
+    // coverage/ are the same data unmerged (30 MB each on the Windows landing, over cqg's 16 MB input cap).
+    cobertura: files.filter(file => /cobertura.*\.xml$/i.test(path.basename(file)) && path.dirname(file) === path.join(apiRoot, 'artifacts', 'quality')),
   }
 }
 

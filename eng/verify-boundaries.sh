@@ -63,6 +63,8 @@ node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
+node --test "$repo_root/eng/tests/quality-artifacts.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/receipt-accept.test.mjs" || exit 1
 bash "$repo_root/eng/tests/quality-baseline-landing.test.sh" || exit 1
 
 echo "Harborline API consumer-neutral boundary: PASS"
