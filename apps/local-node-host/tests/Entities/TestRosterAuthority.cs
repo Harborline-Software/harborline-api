@@ -10,8 +10,12 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// </summary>
 internal sealed class TestRosterAuthority(params (string Party, PermissionSet Set)[] rows) : IRosterAuthority
 {
-    public PermissionSet PermissionsFor(string teamId, string partyId)
+    /// <summary>Every (party, instant) this authority was asked for, in call order.</summary>
+    internal List<(string Party, DateTimeOffset At)> Reads { get; } = [];
+
+    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
     {
+        Reads.Add((partyId, at));
         foreach (var row in rows) if (string.Equals(row.Party, partyId, StringComparison.Ordinal)) return row.Set;
         return PermissionSet.Empty;
     }
