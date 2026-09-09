@@ -266,6 +266,7 @@ public partial class HarborlineFileUpload : HarborlineComponentBase, IAsyncDispo
             catch (JSDisconnectedException) { }
             _dropZoneHandleId = -1;
         }
+        GC.SuppressFinalize(this);
     }
 
     // -- Public API (programmatic methods) ----------------------------------
@@ -635,9 +636,9 @@ public partial class HarborlineFileUpload : HarborlineComponentBase, IAsyncDispo
             if (!string.IsNullOrEmpty(file.ContentType))
                 byteContent.Headers.TryAddWithoutValidation("Content-Type", file.ContentType);
             chunkContent.Add(byteContent, SaveField, file.Name);
-            chunkContent.Add(new StringContent(chunkIndex.ToString()), "chunkIndex");
-            chunkContent.Add(new StringContent(totalChunks.ToString()), "totalChunks");
-            chunkContent.Add(new StringContent(total.ToString()), "totalSize");
+            chunkContent.Add(new StringContent(chunkIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chunkIndex");
+            chunkContent.Add(new StringContent(totalChunks.ToString(System.Globalization.CultureInfo.InvariantCulture)), "totalChunks");
+            chunkContent.Add(new StringContent(total.ToString(System.Globalization.CultureInfo.InvariantCulture)), "totalSize");
             chunkContent.Add(new StringContent(file.Name), "fileName");
             foreach (var kv in requestData)
                 chunkContent.Add(new StringContent(kv.Value?.ToString() ?? string.Empty), kv.Key);

@@ -66,5 +66,6 @@ public partial class AllocationResourceColumn<TResource> : ComponentBase, IDispo
     public void Dispose()
     {
         Parent?.RemoveColumn(this);
+        GC.SuppressFinalize(this);
     }
 }

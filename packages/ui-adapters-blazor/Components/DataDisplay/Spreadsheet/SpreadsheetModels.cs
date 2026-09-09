@@ -49,7 +49,7 @@ public sealed class SpreadsheetCell
 
     /// <summary>Returns a new <see cref="SpreadsheetCell"/> containing a formula expression.</summary>
     public static SpreadsheetCell FormulaExpr(string expression)
-        => new() { Type = SpreadsheetCellType.Formula, Formula = expression.StartsWith('=') ? expression : "=" + expression };
+        => new() { Type = SpreadsheetCellType.Formula, Formula = expression.StartsWith('=', StringComparison.Ordinal) ? expression : "=" + expression };
 }
 
 /// <summary>A single row in a spreadsheet's ordered cell grid.</summary>

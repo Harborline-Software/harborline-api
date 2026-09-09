@@ -164,5 +164,6 @@ public partial class HarborlineMap : HarborlineComponentBase, IAsyncDisposable
         catch (JSDisconnectedException) { }
         catch (JSException) { }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

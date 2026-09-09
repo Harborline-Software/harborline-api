@@ -122,14 +122,14 @@ internal static class CsvExportWriter
     {
         if (string.IsNullOrEmpty(value)) return "";
 
-        var needsQuoting = value.Contains(',')
-                        || value.Contains('"')
-                        || value.Contains('\r')
-                        || value.Contains('\n');
+        var needsQuoting = value.Contains(',', StringComparison.Ordinal)
+                        || value.Contains('"', StringComparison.Ordinal)
+                        || value.Contains('\r', StringComparison.Ordinal)
+                        || value.Contains('\n', StringComparison.Ordinal);
 
         if (!needsQuoting) return value;
 
         // Double any existing double-quotes then wrap in outer quotes.
-        return $"\"{value.Replace("\"", "\"\"")}\"";
+        return $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
     }
 }

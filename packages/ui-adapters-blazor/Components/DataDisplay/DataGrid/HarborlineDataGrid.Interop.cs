@@ -144,7 +144,7 @@ public partial class HarborlineDataGrid<TItem> : IAsyncDisposable
         catch (Exception ex) when (ex is JSDisconnectedException
                                        || ex is InvalidOperationException
                                        || ex is JSException
-                                       || ex.GetType().Name.Contains("JSRuntime"))
+                                       || ex.GetType().Name.Contains("JSRuntime", StringComparison.Ordinal))
         {
             // Tolerate: circuit down (JSDisconnectedException), SSR/pre-rendering
             // (InvalidOperationException), module unavailable (JSException), or test-harness
@@ -364,6 +364,7 @@ public partial class HarborlineDataGrid<TItem> : IAsyncDisposable
 
         // Dispose the lazily-created CSV download module (see HarborlineDataGrid.Export.cs).
         await DisposeExportModuleAsync();
+        GC.SuppressFinalize(this);
     }
 
     private string GetGridScript() => $$"""

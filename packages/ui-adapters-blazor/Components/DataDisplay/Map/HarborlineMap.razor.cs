@@ -201,5 +201,6 @@ public partial class HarborlineMap : HarborlineComponentBase, IAsyncDisposable, 
         _dotNetRef?.Dispose();
         _dotNetRef = null;
         _adapterInitialized = false;
+        GC.SuppressFinalize(this);
     }
 }

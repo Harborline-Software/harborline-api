@@ -233,12 +233,12 @@ public partial class HarborlinePivotGrid<TItem> : HarborlineComponentBase
 
         if (!string.IsNullOrEmpty(measure.Format))
         {
-            return string.Format($"{{0:{measure.Format}}}", value.Value);
+            return string.Format(System.Globalization.CultureInfo.CurrentCulture, $"{{0:{measure.Format}}}", value.Value);
         }
 
         return value.Value == Math.Floor(value.Value)
-            ? value.Value.ToString("N0")
-            : value.Value.ToString("N2");
+            ? value.Value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture)
+            : value.Value.ToString("N2", System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private static string? ReadField(TItem? item, string fieldName)

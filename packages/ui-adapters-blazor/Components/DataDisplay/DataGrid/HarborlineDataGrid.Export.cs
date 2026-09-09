@@ -137,7 +137,7 @@ public partial class HarborlineDataGrid<TItem>
 
             await _clipboardDownloadModule.InvokeVoidAsync("downloadText", fileName, mimeType, content);
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("JavaScript interop"))
+        catch (InvalidOperationException ex) when (ex.Message.Contains("JavaScript interop", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 $"{nameof(ExportToCsvAsync)} requires interactive rendering (InteractiveServer or " +
