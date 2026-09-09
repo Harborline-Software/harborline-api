@@ -77,6 +77,13 @@ public sealed class LocalNodeHealthCheck : IHealthCheck
             return Task.FromResult(HealthCheckResult.Unhealthy(
                 $"Roster refused: {failure.Code}. {failure.Detail} {failure.Remediation}"));
 
+        // Ticket 294 slice 2b: an incompatible peer record is a named compatibility refusal, not a
+        // transient gossip degradation. Keep the no-active-tenant branch above first (296 s3 ordering).
+        if (_roster?.RefusalReports.FirstOrDefault(report =>
+                report.Code == RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal) is { } wireRefusal)
+            return Task.FromResult(HealthCheckResult.Unhealthy(
+                $"Roster refused: {wireRefusal.Code}. {wireRefusal.Remediation}"));
+
         if (_roster?.RefusalReports is { Count: > 0 } reports)
             return Task.FromResult(HealthCheckResult.Degraded(string.Join(Environment.NewLine,
                 reports.Select(r => r.Code == MemberRoster.NoBrickingFloorCode

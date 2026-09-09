@@ -542,6 +542,36 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
     }
 
     [Fact]
+    [Trait("PlanCard", "294-s2b")]
+    public async Task An_ejected_member_is_refused_on_every_plane_regardless_of_which_identity_the_session_presents()
+    {
+        await using var boot = await BootAsync();
+        var ejectedPrincipal = boot.PartyId;
+        var successor = ForeignSigner();
+        const string SuccessorParty = "people-party-successor-294";
+        boot.Roster.AdoptSyncedRoster(GenesisRoster()
+            // Production rightly refuses to revoke the final root-grant holder. Admit a
+            // successor first, then exercise the ejection against the live founder edge.
+            .Admit(
+                admitterPartyId: boot.PartyId,
+                admitterSigner: NodeSigner().Signer,
+                newPartyId: SuccessorParty,
+                newPublicKey: successor.Signer.IssuerId,
+                grantedPermissions: PermissionCompositions.Owner,
+                verifier: new Ed25519Verifier(),
+                issuedAt: DateTimeOffset.UnixEpoch,
+                nonce: Guid.Parse("29400000-0000-4000-8000-000000000001"))
+            .Revoke(SuccessorParty, ejectedPrincipal));
+
+        // The desktop surface reads live roster membership, not its boot-time projection.
+        Assert.False(boot.DesktopPlane.HasPermission(Permission.GrantPermissions));
+        // The replicated roster plane receives the synced revocation before either consumer reads it.
+        Assert.Null(boot.Roster.Current.PublicKeyOf(ejectedPrincipal));
+        // The web-plane reader cannot recover authority from the ejected canonical roster edge.
+        Assert.Null(await boot.WebPlaneReadingAsync(ejectedPrincipal));
+    }
+
+    [Fact]
     public async Task Both_planes_answer_the_same_for_a_set_of_acts_when_the_roster_edge_narrows()
     {
         // Ticket 290 slice 3 — parity. The boot projected this node as Admin into the registry; the signed

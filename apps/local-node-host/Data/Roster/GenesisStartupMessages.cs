@@ -6,6 +6,17 @@ namespace Harborline.Api.LocalNodeHost.Data.Roster;
 /// </summary>
 public static class GenesisStartupMessages
 {
+    /// <summary>Ticket 294 slice 2b: a signed roster record predates the unified-party-key wire format.</summary>
+    public const string RosterWireFormatPre294Code = "ROSTER_WIRE_FORMAT_PRE_294";
+
+    /// <summary>
+    /// This install's signed admission log predates the unified-party key; re-found the install (no production
+    /// installs exist — ADR 0066) or re-enrol every device against a fresh genesis.
+    /// </summary>
+    public const string RosterWireFormatPre294 = RosterWireFormatPre294Code +
+        ": this install's signed admission log predates the unified-party key; re-found the install (no production " +
+        "installs exist — ADR 0066) or re-enrol every device against a fresh genesis.";
+
     /// <summary>The current verifier rejected an admission that verifies in the pre-291 format.</summary>
     public const string LegacyFormatCode = "genesis_log_legacy_format";
 
