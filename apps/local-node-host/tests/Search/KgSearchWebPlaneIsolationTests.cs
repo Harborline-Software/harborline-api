@@ -23,7 +23,7 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Search;
 
 /// <summary>
-/// Card #3384 — a selected-session KG search must not inherit the desktop OS operator's read clip.
+/// Card #3384 — a selected-session KG search must not inherit the desktop canonical-principal read clip.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -88,7 +88,7 @@ public sealed class KgSearchWebPlaneIsolationTests
     }
 
     [Fact(DisplayName =
-        "3384: a desktop-plane KG search still returns the OS operator's authorized row — the fix is " +
+        "294 s2b: a desktop-plane KG search is decided on the canonical tenant principal — the fix is " +
         "not a blanket empty result")]
     public async Task DesktopPlane_SearchStillReturnsTheOperatorClip()
     {
@@ -170,8 +170,9 @@ public sealed class KgSearchWebPlaneIsolationTests
         internal static async Task<Fixture> CreateAsync()
         {
             var tenantId = ActiveTeamTenantContext.ProjectTenantId(ActiveTeam);
-            var operatorPrincipal =
-                new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id);
+            // The real desktop route receives this value from the current node's roster edge. It is
+            // intentionally unlike an OS spelling, so this search-read assertion fails if the route mints one.
+            var operatorPrincipal = new ActorId("canonical-tenant-principal-3384");
 
             var searchStore = await SearchTestStore.CreateAsync();
             var indexer = new NodeSearchIndexer(searchStore.Factory);
@@ -202,6 +203,7 @@ public sealed class KgSearchWebPlaneIsolationTests
                 routes.MapDeviceReachableProductDataGroup(),
                 readService,
                 activeTeam,
+                () => operatorPrincipal,
                 TimeProvider.System);
 
             var endpoint = routes.DataSources

@@ -92,7 +92,9 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // One exception, by user ruling of 2026-09-07 (ticket 213 slice 2): until the ADR 0160 R3-D request-principal
         // retrofit lands, a genuinely new hosted route family may add its minimum inventory (one resolution point per
         // file) and this ceiling moves with it in the same commit, with the reason on the row; never for any other cause.
-        Assert.Equal(439, ledger.ReviewedAggregateDebtCeiling);
+        // 294 s2b routes the current principal through the canonical roster key, removing
+        // three static-authority tokens (two signing-route, one KG-route) and ratcheting 439 -> 436.
+        Assert.Equal(436, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));

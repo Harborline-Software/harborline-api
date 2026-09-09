@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -32,6 +34,8 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
     private readonly SharedHostedWebApp _sharedApp;
     private readonly NodeSearchReadService _readService;
     private readonly IActiveTeamAccessor _activeTeam;
+    private readonly NodeTeamRoster _roster;
+    private readonly NodePrincipalSigner _nodeSigner;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HostedKgSearchApiEndpoint> _logger;
 
@@ -40,18 +44,24 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
         SharedHostedWebApp sharedApp,
         NodeSearchReadService readService,
         IActiveTeamAccessor activeTeam,
+        NodeTeamRoster roster,
+        NodePrincipalSigner nodeSigner,
         TimeProvider timeProvider,
         ILogger<HostedKgSearchApiEndpoint> logger)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(readService);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(nodeSigner);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         _sharedApp = sharedApp;
         _readService = readService;
         _activeTeam = activeTeam;
+        _roster = roster;
+        _nodeSigner = nodeSigner;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -64,6 +74,7 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
                 app.MapDeviceReachableProductDataGroup(),
                 _readService,
                 _activeTeam,
+                ResolveCurrentPrincipal,
                 _timeProvider));
 
         _logger.LogInformation(
@@ -76,4 +87,7 @@ public sealed class HostedKgSearchApiEndpoint : IHostedService
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private ActorId ResolveCurrentPrincipal() => new(_roster.Current.Members
+        .Single(member => member.PublicKey.Equals(_nodeSigner.Signer.IssuerId)).PartyId);
 }

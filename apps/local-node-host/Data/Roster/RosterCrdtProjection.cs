@@ -664,7 +664,13 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             _ => code == "roster.insert.failed" ? "The roster insert failed; the node has not converged."
                 : "The roster rebuild failed; the retained roster is not a converged trust reading."
         };
-        var report = new AuthorizationRefusal(code, "Roster convergence refused", detail,
+        var reportCode = cause is VerifiedTenantRosterRefusedException
+            {
+                Refusal: VerifiedTenantRosterRefusal.WireVersionUnsupported
+            }
+            ? RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal
+            : code;
+        var report = new AuthorizationRefusal(reportCode, "Roster convergence refused", detail,
             "Repair the roster store or verifier fault and retry the rebuild; preserve the durable log as evidence.",
             JsonSerializer.Serialize(new { reason = cause.Message, exception = cause.GetType().FullName }));
         var evidence = _nodeRoster?.Current.EnumerateAdmissions().FirstOrDefault();
@@ -1008,14 +1014,15 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
         if (candidate.WireFormatVersion != RosterWireFormat.CurrentVersion)
-            return "roster.record.wire_version_unsupported";
+            return RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal;
         if (candidate.UnmappedWireFields is { Count: > 0 })
             return "roster.record.malformed";
         var receiveAttestation = candidate.ReceiveAttestationOrNull();
-        if (receiveAttestation is null || !Guid.TryParse(candidate.NonceGuid, out var recordNonce)
-            || !RosterReceiveAttestationSigning.Verify(
-                candidate.RecordId, recordNonce, receiveAttestation, _verifier))
+        if (receiveAttestation is null || !Guid.TryParse(candidate.NonceGuid, out var recordNonce))
             return "roster.record.receive_attestation_invalid";
+        if (!RosterReceiveAttestationSigning.Verify(
+                candidate.RecordId, recordNonce, receiveAttestation, _verifier, out var attestationRefusal))
+            return attestationRefusal ?? "roster.record.receive_attestation_invalid";
         var admission = candidate.ToAdmissionOrNull();
         var revocation = candidate.ToRevocationOrNull();
         var signatureValid = admission is not null

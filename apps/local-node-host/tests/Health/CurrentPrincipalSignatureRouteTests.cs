@@ -118,7 +118,7 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         Assert.Equal(64, sigBytes.Length);
     }
 
-    [Fact(DisplayName = "Route: the signed principal is the HOST-RESOLVED OS user (os:<user>, local-os-user)")]
+    [Fact(DisplayName = "Route: the signed principal is the canonical tenant principal")]
     public async Task Get_SignsHostResolvedPrincipal()
     {
         var doc = await _client.GetFromJsonAsync<JsonElement>(Route);
@@ -127,13 +127,13 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         // Host-resolved — matches ResolveCurrentPrincipal() (Environment.UserName).
         var expected = CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal();
         Assert.Equal(expected.Id, principal.GetProperty("id").GetString());
-        Assert.StartsWith("os:", principal.GetProperty("id").GetString());
-        Assert.Equal("local-os-user", principal.GetProperty("kind").GetString());
+        Assert.Equal("current-principal", principal.GetProperty("id").GetString());
+        Assert.Equal("canonical-tenant-principal", principal.GetProperty("kind").GetString());
         // Non-anonymous — the gate never signs an anonymous principal.
         Assert.True(principal.GetProperty("id").GetString()!.Length > "os:".Length);
     }
 
-    [Fact(DisplayName = "274: a DECOMPOSED OS user name is minted at the derivation, so both consumers wrap it without throwing")]
+    [Fact(DisplayName = "294 s2b: an explicit canonical principal remains canonical for both consumers")]
     public async Task DecomposedOsUserName_IsMinted_AndReachesBothConsumers()
     {
         // macOS stores account names decomposed: "jose" + U+0301 rather than precomposed "josé".
@@ -150,7 +150,7 @@ public sealed class CurrentPrincipalSignatureRouteTests : IAsyncLifetime
         var decomposedActor = new ActorId(decomposedPrincipal.Id);
         var composedActor = new ActorId(composedPrincipal.Id);
         Assert.Equal(composedActor, decomposedActor);
-        Assert.Equal("os:" + Composed, decomposedActor.Value);
+        Assert.Equal("principal:" + Composed, decomposedActor.Value);
 
         // And a padded name still trims (the pre-274 behaviour the mint must preserve).
         Assert.Equal(composedActor, new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal("  " + Decomposed + " ").Id));

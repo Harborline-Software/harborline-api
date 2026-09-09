@@ -4,5 +4,6 @@
 # path	match-count	reason
 # 2026-09-09 (294 s2a): AdministratorRecoveryCommand derives through the composition root's
 # founder-principal function; it no longer reads or mints a shell-derived party key.
+# 2026-09-09 (294 s2b): CurrentPrincipalSignatureRoutes now receives the canonical
+# tenant principal from composition and no longer derives a shell identity.
 apps/local-node-host/Data/Identity/BootstrapClaimRedemption.cs	7	owner/desktop bootstrap-claim issuer identities, minted at :316 and :370 (plus the owner ACL probe and the evidence seams)
-apps/local-node-host/Health/CurrentPrincipalSignatureRoutes.cs	1	current-principal signature payload id, minted in ResolveCurrentPrincipal

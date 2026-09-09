@@ -533,8 +533,23 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
     AddInstallStore(genesisStoreServices, pooling: false);
     await using (var genesisStore = genesisStoreServices.BuildServiceProvider())
     {
+        // Ticket 294 slice 2b — signed roster records cannot be migrated honestly: changing PartyId would
+        // invalidate the admission signature. Inspect this install tenant once on the probe composition before
+        // any genesis can publish, and require a re-found current-format log rather than mixing key spaces.
+        var rosterFactory = genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
+        await using (var rosterStore = await rosterFactory.CreateDbContextAsync(CancellationToken.None))
+        {
+            await rosterStore.Database.MigrateAsync(CancellationToken.None).ConfigureAwait(false);
+            var maximumWireFormat = await rosterStore.RosterRecords.AsNoTracking()
+                .Where(row => row.TeamId == genesisTeamId.ToString("D"))
+                .Select(row => (int?)row.WireFormatVersion)
+                .MaxAsync(CancellationToken.None).ConfigureAwait(false);
+            if (maximumWireFormat is <= 3)
+                throw new InvalidOperationException(GenesisStartupMessages.RosterWireFormatPre294);
+        }
+
         storedGenesisRoster = await DurableGenesisIdentity.ReadAsync(
-            genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
+            rosterFactory,
             genesisTeamId, genesisSigner.Signer.IssuerId, genesisVerifier, CancellationToken.None);
 
         if (storedGenesisRoster is null)
