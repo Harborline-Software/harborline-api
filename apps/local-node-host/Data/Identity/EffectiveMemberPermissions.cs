@@ -89,20 +89,19 @@ internal static class EffectiveMemberPermissions
 /// <see cref="IRosterAuthority.PermissionsFor"/> contract, called from inside the synchronous rebuild, forces the
 /// same single bridge <c>ActiveTeamAuthorizationContext</c> already uses; the rebuild reads each party once.
 /// </remarks>
-internal sealed class GrantStoreRosterAuthority(
-    IAuthorizationClosureReader? authorization,
-    TimeProvider clock) : IRosterAuthority
+internal sealed class GrantStoreRosterAuthority(IAuthorizationClosureReader? authorization) : IRosterAuthority
 {
     /// <summary>
     /// The composition seam: the grant store is resolved HERE, in the fence's sanctioned reading, so no
     /// composition file names the closure reader. Absent (a minimal DI test) - the fail-closed floor.
     /// </summary>
     internal static IRosterAuthority FromServices(IServiceProvider services) =>
-        new GrantStoreRosterAuthority(
-            services.GetService<IAuthorizationClosureReader>(),
-            services.GetService<TimeProvider>() ?? TimeProvider.System);
+        new GrantStoreRosterAuthority(services.GetService<IAuthorizationClosureReader>());
 
-    public PermissionSet PermissionsFor(string teamId, string partyId)
+    // NO clock. The instant is the caller's - the rebuild's / the decision's At (ticket 216: only the host
+    // composition root introduces wall time, and a grant read at a LATER instant than the act it feeds can flip
+    // the answer mid-act).
+    public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
     {
         // One tenant-key form: the canonical "D" Guid. A team id that is not one is not a roster-backed team.
         if (authorization is null
@@ -116,7 +115,7 @@ internal sealed class GrantStoreRosterAuthority(
             authorization,
             new TenantId(team.ToString("D")),
             new ActorId(partyId),
-            clock.GetUtcNow(),
+            at,
             CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }

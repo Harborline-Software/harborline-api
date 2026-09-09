@@ -185,8 +185,10 @@ public sealed class NodeWireEnrollmentClient
 
         // 2) Build + sign the enroll request. The principal signature covers token id + DM + X-Wing key bytes,
         // which is the R4-a binding that prevents an on-path caller from substituting either confidentiality key.
+        // ONE instant for this enrollment: the request is signed at it and B's grant authority is read at it.
+        var at = _clock.GetUtcNow();
         var request = WireEnrollment.BuildRequest(
-            tokenId, joiningPartyId, myTransportKey, _principalSigner, _clock.GetUtcNow(), Guid.NewGuid(),
+            tokenId, joiningPartyId, myTransportKey, _principalSigner, at, Guid.NewGuid(),
             joiningDmPublicKey: myDmKey,
             joiningXWingPublicKey: Convert.ToBase64String(myXWingKey)
                 .TrimEnd('=')
@@ -202,7 +204,7 @@ public sealed class NodeWireEnrollmentClient
 
         // 4) Validate A's response against the OUT-OF-BAND invite anchor → the adoption plan (fail-closed).
         var plan = WireEnrollment.ValidateAndPlanAdoption(
-            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier, _rosterAuthority);
+            response, inviteAnchor, _principalSigner.IssuerId, joiningPartyId, _verifier, _rosterAuthority, at);
         if (!plan.Succeeded || plan.Roster is null)
         {
             return EnrollmentOutcome.Failed(plan.FailureReason ?? "validation_failed");

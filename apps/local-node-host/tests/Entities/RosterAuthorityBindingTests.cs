@@ -101,6 +101,36 @@ public sealed class RosterAuthorityBindingTests
         if (!admitterGranted) Assert.Equal("joiner_not_in_roster", plan.FailureReason);
     }
 
+    /// <summary>
+    /// Ticket 216 + 293 s3c. TWO parties are judged in ONE rebuild, so they must be judged at ONE instant. The
+    /// composed clock ADVANCES on every read: if any production reader on this path took the instant from a clock
+    /// instead of the rebuild's, the two parties would be evaluated against two different times (and a grant whose
+    /// window closes in between would flip half the answer). The composed authority is the real one; only the
+    /// recorder around it is a test object.
+    /// </summary>
+    [Fact]
+    public async Task One_rebuild_reads_every_partys_authority_at_one_instant_under_an_advancing_clock()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        var clock = new AdvancingClock(At);
+        await using var host = ComposedHost(store, signers.Founder, clock);
+
+        var recorder = new RecordingRosterAuthority(host.GetRequiredService<IRosterAuthority>());
+        var rebuilt = MemberRoster.FromSyncedRecords(
+            signers.Local.EnumerateAdmissions(), [], new Ed25519Verifier(), authority: recorder);
+
+        // The chained party is live, so the authority really was load-bearing for this rebuild.
+        Assert.Contains(rebuilt.Members, m => m.PartyId == "chain");
+        // Both non-genesis parties were asked for (genesis keeps the root floor), each exactly once (the memo)...
+        Assert.Equal(
+            ["admin", "chain"],
+            recorder.Reads.Select(read => read.Party).Order(StringComparer.Ordinal));
+        // ...and at ONE instant, which no clock supplied.
+        Assert.Single(recorder.Reads.Select(read => read.At).Distinct());
+        Assert.Equal(0, clock.Reads);
+    }
+
     // ---- fixture ------------------------------------------------------------------------------------------
 
     private sealed record Signers(Ed25519Signer Founder, Ed25519Signer Admin, PrincipalId ChainKey, MemberRoster Local);
@@ -169,12 +199,33 @@ public sealed class RosterAuthorityBindingTests
         return new Signers(founder, admin, chainKey, roster);
     }
 
-    private static ServiceProvider ComposedHost(SearchTestStore store, Ed25519Signer signer)
+    /// <summary>Every read returns a LATER instant - so a per-party clock read cannot look like one instant.</summary>
+    private sealed class AdvancingClock(DateTimeOffset start) : TimeProvider
+    {
+        private int _reads;
+        internal int Reads => _reads;
+        public override DateTimeOffset GetUtcNow() => start.AddMinutes(Interlocked.Increment(ref _reads));
+    }
+
+    /// <summary>Records what the REAL composed authority was asked, and passes the call straight through.</summary>
+    private sealed class RecordingRosterAuthority(IRosterAuthority inner) : IRosterAuthority
+    {
+        internal List<(string Party, DateTimeOffset At)> Reads { get; } = [];
+
+        public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
+        {
+            Reads.Add((partyId, at));
+            return inner.PermissionsFor(teamId, partyId, at);
+        }
+    }
+
+    private static ServiceProvider ComposedHost(
+        SearchTestStore store, Ed25519Signer signer, TimeProvider? clock = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IOperationSigner>(signer);
-        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(clock ?? TimeProvider.System);
         services.AddSingleton(store.Factory);
         services.AddSingleton<IDbContextFactory<NodeLocalRosterDbContext>>(new RosterFactory(store));
         services.AddNodeRoster();

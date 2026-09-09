@@ -186,7 +186,9 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
                 "The durable log cannot name an earlier verified genesis signed by this install.");
         var selected = anchor is null ? admissions : admissions.Where(a => !a.Admission.IsGenesis
             || a.Admission.Signature == anchor.Admission.Signature);
-        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _authority);
+        // ReadAtAsync's bound IS the instant the caller is evaluating at; ReadAsync has none, and the rebuild
+        // then judges every party at its own latest record time (never a clock).
+        var rebuilt = MemberRoster.FromSyncedRecords(selected, revocations, _verifier, orderTime, _authority, at);
         if (rebuilt.TeamId != teamId || string.IsNullOrEmpty(rebuilt.GenesisPartyId) ||
             !rebuilt.ValidatesToGenesis(_verifier))
         {
@@ -197,7 +199,8 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
         if (partial && genesisCount > 1)
             chainAdmissions.AddRange(admissions.Where(a => a.Admission.IsGenesis).SelectMany(root =>
                 MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
-                    || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime, _authority)
+                    || a.Admission.Signature == root.Admission.Signature), revocations, _verifier, orderTime,
+                    _authority, at)
                     .EnumerateAdmissions()));
         if (attestations.Any(attestation => !chainAdmissions.Any(admission =>
                 admission.PartyId == attestation.NodePartyId
@@ -216,7 +219,8 @@ public sealed class VerifiedTenantRosterReader : IVerifiedTenantRosterReader
             // (including one that merely claims a dropped party as its signer) must still alarm.
             var dropped = admissions.Where(a => a.Admission.IsGenesis && a.Admission.Signature != anchor.Admission.Signature)
                 .SelectMany(root => MemberRoster.FromSyncedRecords(admissions.Where(a => !a.Admission.IsGenesis
-                    || a.Admission.Signature == root.Admission.Signature), [], _verifier, authority: _authority)
+                    || a.Admission.Signature == root.Admission.Signature), [], _verifier, authority: _authority,
+                    at: at)
                     .EnumerateAdmissions())
                 .Select(a => (a.PartyId, a.Admission.Nonce, a.Admission.Signature)).ToHashSet();
             expectedAdmissions = admissions.Where(a => !dropped.Contains((a.PartyId, a.Admission.Nonce, a.Admission.Signature))

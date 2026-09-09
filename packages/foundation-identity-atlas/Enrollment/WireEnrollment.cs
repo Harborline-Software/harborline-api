@@ -309,13 +309,16 @@ public static class WireEnrollment
     /// <param name="authority">The joiner's own grant view (ticket 293 slice 3c). No permission set rides the
     /// wire, so B reads each admitter's authority from its LOCAL grant store rather than from A's say-so. Absent
     /// - the fail-closed floor, where only the genesis chain root may admit.</param>
+    /// <param name="at">The instant B is enrolling at - the SAME instant its request was signed with, so the
+    /// authority read and the enrollment share one time. Omitted: the rebuild judges at its latest record time.</param>
     public static EnrollmentAdoptionPlan ValidateAndPlanAdoption(
         EnrollmentResponse response,
         TeamTrustAnchor inviteAnchor,
         PrincipalId joinerPrincipalPublicKey,
         string joinerPartyId,
         IOperationVerifier verifier,
-        IRosterAuthority? authority = null)
+        IRosterAuthority? authority = null,
+        DateTimeOffset? at = null)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(inviteAnchor);
@@ -359,7 +362,7 @@ public static class WireEnrollment
             var revocations = response.Revocations
                 .Select(r => new MemberRevocationRecord(r.TeamId, r.RevokedPartyId, r.Signed))
                 .ToArray();
-            rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, verifier, authority: authority);
+            rebuilt = MemberRoster.FromSyncedRecords(admissions, revocations, verifier, authority: authority, at: at);
         }
         catch (FormatException)
         {
