@@ -147,10 +147,11 @@ test('OS selection and the actual gate and landing routes carry the baseline', (
   assert.match(runner, /compareHostBaseline\(/)
   assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
   const land = readFileSync(path.join(root, 'eng/land.sh'), 'utf8')
-  // Ticket 333: the nested verify must be the LAST command of its subshell (bash execs it in-process, so the
-  // gate lock's parent-pid re-entry admits it); the landing receipt check follows in its own subshell.
-  assert.equal((land.match(/bash eng\/verify\.sh \) && \( cd "\$(?:land_dir|verify_dir)" && node eng\/verify-receipt\.mjs --landing \)/g) ?? []).length, 2)
-  assert.equal((land.match(/bash eng\/verify\.sh &&/g) ?? []).length, 0)
+  // Ticket 333: the shared verifier execs the nested verify as the LAST command of its subshell; both
+  // landing routes invoke that helper and perform the receipt check only after it returns.
+  assert.match(land, /else exec bash eng\/verify\.sh; fi \)/)
+  assert.equal((land.match(/run_land_verify "\$(?:land_dir|verify_dir)" "\$verify_log"/g) ?? []).length, 2)
+  assert.equal((land.match(/exec bash eng\/verify\.sh.*&&/g) ?? []).length, 0)
 })
 test('receipt CLI records baseline, accepts macOS slices and refuses macOS landing', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))
