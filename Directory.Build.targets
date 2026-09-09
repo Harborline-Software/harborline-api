@@ -74,4 +74,30 @@
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt"
                      Visible="false" />
   </ItemGroup>
+
+  <!--
+    ADR 0085 D4 — install Microsoft.VisualStudio.Threading.Analyzers in the
+    same late-import phase as BannedApiAnalyzers. Central package management is
+    unavailable when Directory.Build.props is imported, so the PackageReference
+    belongs here. It is analyzer-only and cannot become a runtime dependency.
+
+    The package supplies VSTHRD002 (HLQ.CS.1000) and VSTHRD100
+    (HLQ.CS.1020). CA1031 (partial evidence for HLQ.CS.1100) remains supplied
+    by the SDK analyzers and is configured in .editorconfig.
+  -->
+  <ItemGroup Condition="'$(_HarborlineThreadingAnalyzersTarget)' == 'true' And '$(ManagePackageVersionsCentrally)' == 'true'">
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- The landing gate's one clean-clone solution build emits one SARIF per
+       production project. Keeping this property behind the landing-only flag
+       leaves slice-gate compilation unchanged. -->
+  <PropertyGroup Condition="'$(HARBORLINE_GATE_QUALITY)' == '1'
+                            And '$(_HarborlineThreadingAnalyzersTarget)' == 'true'
+                            And '$(HarborlineRoslynSarifDirectory)' != ''">
+    <ErrorLog>$([System.IO.Path]::Combine('$(HarborlineRoslynSarifDirectory)', '$(MSBuildProjectName).sarif')),version=2.1</ErrorLog>
+  </PropertyGroup>
 </Project>
