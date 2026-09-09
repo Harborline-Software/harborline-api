@@ -4,11 +4,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -383,10 +388,11 @@ public sealed class AdministratorRecoveryCommandTests
         var team = GenesisTeamId.Derive(seed).Value;
 
         using var signer = new NodePrincipalSigner(seed);
-        var nodeKeyHex8 = Convert.ToHexString(signer.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
-        var osUserRaw = Environment.UserName;
-        var osUser = string.IsNullOrWhiteSpace(osUserRaw) ? "unknown" : osUserRaw.Trim();
-        var partyId = $"os:{osUser}#{nodeKeyHex8}";
+        // This is the composition root's first-boot party derivation.  The signed roster is constructed
+        // from it and persisted by the recovery fixture below; it is deliberately not two matching literals.
+        var partyId = FounderTenantMembershipAttachService.DerivePrincipal(
+            ActiveTeamTenantContext.ProjectTenantId(new TeamId(team)),
+            InstallationFounderBootstrapCeremony.CorrelationId).Value;
         var founderDmPublicKey = PrincipalId
             .FromBytes(NodeDmKeyDerivation.DeriveDmPublicKey(seed, team.ToString("D")))
             .ToBase64Url();
@@ -514,9 +520,33 @@ public sealed class AdministratorRecoveryCommandTests
             Assert.Equal(NodeRunLockFailure.None, recoveryFailure);
             var recovered = await recovery!.RecoverAsync(contexts, TimeProvider.System, candidate);
             Assert.True(recovered.Applied);
+            await using var authorityContext = await contexts.CreateDbContextAsync();
+            var authorityRecord = await authorityContext.AdministratorAuthority.AsNoTracking()
+                .SingleAsync(record =>
+                    record.Event == AdministratorAuthorityEvent.Established &&
+                    record.Provenance == AdministratorProvenance.Recovery);
+            Assert.Equal(candidate.PartyId, authorityRecord.PartyId);
+            Assert.Equal(
+                FounderTenantMembershipAttachService.DerivePrincipal(
+                    ActiveTeamTenantContext.ProjectTenantId(
+                        new TeamId(GenesisTeamId.Derive(seed).Value)),
+                    InstallationFounderBootstrapCeremony.CorrelationId).Value,
+                authorityRecord.PartyId);
+            var recoveredAdministrator = Assert.Single(await authority.UsableAsync());
+            Assert.Equal(authorityRecord.PartyId, recoveredAdministrator.PartyId);
+
+            // The recovered authority is readable through the same principal key a gate decides on.
+            var gate = TestAuthorization.Gate(request =>
+                request.Principal.Value == recoveredAdministrator.PartyId);
+            var decision = await gate.DecideAsync(
+                TestAuthorization.Write(
+                    new TenantId(candidate.TeamId), recoveredAdministrator.PartyId)
+                .Request(
+                    AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "recovery"));
+            Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
             Assert.Equal(
                 AdministratorProvenance.Recovery,
-                Assert.Single(await authority.UsableAsync()).Provenance);
+                recoveredAdministrator.Provenance);
 
             // And it did NOT re-arm the installer.
             Assert.True(await authority.InstallerHasRunAsync());
