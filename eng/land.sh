@@ -131,6 +131,9 @@ if [ $main_moved -eq 1 ]; then
   echo "land: intervening landings:"
   printf '%s\n' "$intervening_landings"
 fi
+# Ticket 335 re-pins the host baseline above; the quality baseline follows the same gated tree.
+source "$root/eng/quality-baseline-landing.sh"
+quality_baseline_compare "$land_dir" || exit 1
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ $main_moved -eq 1 ]; then
   git -C "$land_dir" push --no-verify origin "$repinned_head:refs/heads/$branch" || { echo "land: could not push the re-pinned merge head; nothing landed"; exit 1; }

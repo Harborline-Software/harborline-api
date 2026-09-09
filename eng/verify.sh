@@ -91,6 +91,10 @@ case "$(uname -s)" in
 esac
 step exact-clone             node eng/run-exact-clone.mjs --host-baseline "$host_baseline"
 
+# Ticket 339: analysis is always run from the pinned checkout.  It records neutral/evaluate evidence
+# even before tickets 337 and 340 produce Cobertura and SARIF artifacts.
+step quality                 node eng/quality-step.mjs
+
 # pack-consume
 step packages                bash eng/verify-packages.sh
 

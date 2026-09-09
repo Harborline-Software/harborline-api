@@ -48,11 +48,19 @@ git -C "$seed" config user.name 'Land Test'
 git -C "$seed" config user.email 'land-test@example.invalid'
 mkdir -p "$seed/eng"
 cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
-  "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$seed/eng/"
+  "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$source_root/eng/quality-baseline-landing.sh" "$seed/eng/"
 cat > "$seed/eng/gate-lock.sh" <<'EOF'
 gate_lock_acquire() { :; }
 gate_lock_release() { :; }
 EOF
+cat > "$seed/eng/quality-step.mjs" <<'EOF'
+// Fixture stand-in for the quality tool: 339 s4's landing comparison runs it on the merged tree.
+import {writeFileSync} from 'node:fs'
+writeFileSync(process.argv[process.argv.indexOf('--write-baseline') + 1], JSON.stringify({findings: []}))
+EOF
+mkdir -p "$seed/eng/baselines"
+printf '{"findings": []}
+' > "$seed/eng/baselines/quality-baseline.json"
 cat > "$seed/eng/test-clean-tree-gate.sh" <<'EOF'
 #!/usr/bin/env bash
 land_worktree=$(git rev-parse --show-toplevel)
