@@ -36,7 +36,7 @@ public static class MigrationReportRenderer
         var sb = new StringBuilder();
         sb.AppendLine("# ERPNext → Harborline Migration Report");
         sb.AppendLine();
-        sb.AppendLine($"**Overall result:** {OutcomeLabel(input.Verification.Outcome)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"**Overall result:** {OutcomeLabel(input.Verification.Outcome)}");
         sb.AppendLine();
 
         RenderRunSummary(sb, input.RunSummary);
@@ -56,9 +56,9 @@ public static class MigrationReportRenderer
     {
         sb.AppendLine("## 1. Run Summary");
         sb.AppendLine();
-        sb.AppendLine($"- Run ID: `{run.RunId}`");
-        sb.AppendLine($"- Generated: {run.GeneratedAt.UtcDateTime.ToString("u", CultureInfo.InvariantCulture)}");
-        sb.AppendLine($"- Source access mode: {run.SourceInventory.SourceMode}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Run ID: `{run.RunId}`");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Generated: {run.GeneratedAt.UtcDateTime.ToString("u", CultureInfo.InvariantCulture)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Source access mode: {run.SourceInventory.SourceMode}");
         sb.AppendLine();
 
         sb.AppendLine("### Pass durations");
@@ -73,7 +73,7 @@ public static class MigrationReportRenderer
             sb.AppendLine("|---|---|");
             foreach (var pass in run.PassDurations)
             {
-                sb.AppendLine($"| {pass.PassName} | {FormatDuration(pass.Duration)} |");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {pass.PassName} | {FormatDuration(pass.Duration)} |");
             }
         }
         sb.AppendLine();
@@ -94,13 +94,13 @@ public static class MigrationReportRenderer
             sb.AppendLine("|---|---|---|");
             foreach (var entry in entries)
             {
-                sb.AppendLine($"| {entry.DocType} | {entry.Classification} | {entry.SourceRowCount.ToString(CultureInfo.InvariantCulture)} |");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {entry.DocType} | {entry.Classification} | {entry.SourceRowCount.ToString(CultureInfo.InvariantCulture)} |");
             }
         }
         sb.AppendLine();
-        sb.AppendLine($"- Mapped DocTypes: {run.SourceInventory.Mapped.Count().ToString(CultureInfo.InvariantCulture)}");
-        sb.AppendLine($"- Known-irrelevant DocTypes: {run.SourceInventory.KnownIrrelevant.Count().ToString(CultureInfo.InvariantCulture)}");
-        sb.AppendLine($"- Unmapped-unknown DocTypes (see `_unmapped/`): {run.SourceInventory.UnmappedUnknownCount.ToString(CultureInfo.InvariantCulture)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Mapped DocTypes: {run.SourceInventory.Mapped.Count().ToString(CultureInfo.InvariantCulture)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Known-irrelevant DocTypes: {run.SourceInventory.KnownIrrelevant.Count().ToString(CultureInfo.InvariantCulture)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"- Unmapped-unknown DocTypes (see `_unmapped/`): {run.SourceInventory.UnmappedUnknownCount.ToString(CultureInfo.InvariantCulture)}");
         sb.AppendLine();
     }
 
@@ -111,11 +111,11 @@ public static class MigrationReportRenderer
         sb.AppendLine();
         if (tb.IsBalanced)
         {
-            sb.AppendLine($"**BALANCED** — signed total {Money(tb.SignedTotal)} (spec mandates exact $0).");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"**BALANCED** — signed total {Money(tb.SignedTotal)} (spec mandates exact $0).");
         }
         else
         {
-            sb.AppendLine($"**MISMATCH** — signed total {Money(tb.SignedTotal)} (expected exactly $0).");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"**MISMATCH** — signed total {Money(tb.SignedTotal)} (expected exactly $0).");
             sb.AppendLine();
             sb.AppendLine("> Hard halt: the importer rolls back the entire run (spec §4.6 failure mode 1).");
         }
@@ -125,19 +125,19 @@ public static class MigrationReportRenderer
         sb.AppendLine("|---|---|");
         foreach (var subtotal in tb.Subtotals)
         {
-            sb.AppendLine($"| {subtotal.Type} | {Money(subtotal.SignedTotal)} |");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {subtotal.Type} | {Money(subtotal.SignedTotal)} |");
         }
         sb.AppendLine();
         if (tb.UnclassifiedAccountCount > 0)
         {
-            sb.AppendLine($"- Unclassified accounts (type unresolved; balances still counted): {tb.UnclassifiedAccountCount.ToString(CultureInfo.InvariantCulture)}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- Unclassified accounts (type unresolved; balances still counted): {tb.UnclassifiedAccountCount.ToString(CultureInfo.InvariantCulture)}");
             sb.AppendLine();
         }
 
         var inv = verification.InvoiceBalances;
         sb.AppendLine("### Invoice balance reconciliation");
         sb.AppendLine();
-        sb.AppendLine($"Invoices checked (Issued / PartiallyPaid / Paid): {inv.InvoicesChecked.ToString(CultureInfo.InvariantCulture)}.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Invoices checked (Issued / PartiallyPaid / Paid): {inv.InvoicesChecked.ToString(CultureInfo.InvariantCulture)}.");
         sb.AppendLine();
         if (inv.Discrepancies.Count == 0)
         {
@@ -149,7 +149,7 @@ public static class MigrationReportRenderer
             sb.AppendLine("|---|---|---|---|---|");
             foreach (var d in inv.Discrepancies.OrderBy(d => d.InvoiceNumber, StringComparer.Ordinal))
             {
-                sb.AppendLine($"| {d.InvoiceNumber} | {Money(d.Total)} | {Money(d.AmountPaid)} | {Money(d.RecordedBalance)} | {Money(d.ExpectedBalance)} |");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {d.InvoiceNumber} | {Money(d.Total)} | {Money(d.AmountPaid)} | {Money(d.RecordedBalance)} | {Money(d.ExpectedBalance)} |");
             }
         }
         sb.AppendLine();
@@ -157,22 +157,22 @@ public static class MigrationReportRenderer
 
     private static void RenderAging(StringBuilder sb, string heading, AgingDiffResult aging, string snapshotFile)
     {
-        sb.AppendLine($"## {heading}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"## {heading}");
         sb.AppendLine();
         if (!aging.Checked)
         {
-            sb.AppendLine($"_Not checked — no `{snapshotFile}` supplied in the export root._");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"_Not checked — no `{snapshotFile}` supplied in the export root._");
             sb.AppendLine();
             return;
         }
         if (aging.WithinThreshold)
         {
-            sb.AppendLine($"Within {ThresholdNote} for every party/bucket.");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Within {ThresholdNote} for every party/bucket.");
             sb.AppendLine();
             return;
         }
 
-        sb.AppendLine($"Diffs exceeding {ThresholdNote}:");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Diffs exceeding {ThresholdNote}:");
         sb.AppendLine();
         sb.AppendLine("| Party | Bucket | Expected | Actual | Diff |");
         sb.AppendLine("|---|---|---|---|---|");
@@ -180,7 +180,7 @@ public static class MigrationReportRenderer
         {
             foreach (var bucket in party.Buckets)
             {
-                sb.AppendLine($"| {party.PartyId.Value} | {bucket.Bucket} | {Money(bucket.Expected)} | {Money(bucket.Actual)} | {Money(bucket.Diff)} |");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {party.PartyId.Value} | {bucket.Bucket} | {Money(bucket.Expected)} | {Money(bucket.Actual)} | {Money(bucket.Diff)} |");
             }
         }
         sb.AppendLine();
@@ -198,12 +198,12 @@ public static class MigrationReportRenderer
         }
         if (balances.WithinThreshold)
         {
-            sb.AppendLine($"Within {ThresholdNote} for every account.");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Within {ThresholdNote} for every account.");
             sb.AppendLine();
             return;
         }
 
-        sb.AppendLine($"Diffs exceeding {ThresholdNote}, sorted by absolute difference:");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Diffs exceeding {ThresholdNote}, sorted by absolute difference:");
         sb.AppendLine();
         sb.AppendLine("| Account code | Expected | Actual | Diff |");
         sb.AppendLine("|---|---|---|---|");
@@ -212,7 +212,7 @@ public static class MigrationReportRenderer
             .ThenBy(d => d.AccountCode, StringComparer.Ordinal);
         foreach (var d in sorted)
         {
-            sb.AppendLine($"| {d.AccountCode} | {MoneyOrAbsent(d.Expected)} | {MoneyOrAbsent(d.Actual)} | {Money(d.Diff)} |");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {d.AccountCode} | {MoneyOrAbsent(d.Expected)} | {MoneyOrAbsent(d.Actual)} | {Money(d.Diff)} |");
         }
         sb.AppendLine();
     }
@@ -235,10 +235,10 @@ public static class MigrationReportRenderer
         sb.AppendLine("|---|---|");
         foreach (var group in byReason)
         {
-            sb.AppendLine($"| {group.Key} | {group.Count().ToString(CultureInfo.InvariantCulture)} |");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {group.Key} | {group.Count().ToString(CultureInfo.InvariantCulture)} |");
         }
         sb.AppendLine();
-        sb.AppendLine($"Total rejected: {rejectBin.Count.ToString(CultureInfo.InvariantCulture)}.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Total rejected: {rejectBin.Count.ToString(CultureInfo.InvariantCulture)}.");
         sb.AppendLine();
     }
 
@@ -247,7 +247,7 @@ public static class MigrationReportRenderer
         sb.AppendLine("## 7. Unapplied Payments");
         sb.AppendLine();
         sb.AppendLine(
-            $"Pass 5 processed {reconciliation.TotalProcessed.ToString(CultureInfo.InvariantCulture)} unapplied payments: " +
+            CultureInfo.InvariantCulture, $"Pass 5 processed {reconciliation.TotalProcessed.ToString(CultureInfo.InvariantCulture)} unapplied payments: " +
             $"{reconciliation.AppliedCount.ToString(CultureInfo.InvariantCulture)} applied, " +
             $"{reconciliation.AmbiguousCount.ToString(CultureInfo.InvariantCulture)} ambiguous, " +
             $"{reconciliation.UnmatchedCount.ToString(CultureInfo.InvariantCulture)} unmatched.");
@@ -273,7 +273,7 @@ public static class MigrationReportRenderer
             var candidates = o.AmbiguousCandidateIds is { Count: > 0 }
                 ? string.Join(", ", o.AmbiguousCandidateIds)
                 : "—";
-            sb.AppendLine($"| {o.PaymentId.Value} | {o.Kind} | {candidates} |");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {o.PaymentId.Value} | {o.Kind} | {candidates} |");
         }
         sb.AppendLine();
     }
@@ -285,7 +285,7 @@ public static class MigrationReportRenderer
         var toProperty = resolutions.Count(r => r.Kind == CostCenterResolutionKind.ResolvedToProperty);
         var toClassification = resolutions.Count(r => r.Kind == CostCenterResolutionKind.CreatedClassification);
         sb.AppendLine(
-            $"{resolutions.Count.ToString(CultureInfo.InvariantCulture)} cost-centers resolved: " +
+            CultureInfo.InvariantCulture, $"{resolutions.Count.ToString(CultureInfo.InvariantCulture)} cost-centers resolved: " +
             $"{toProperty.ToString(CultureInfo.InvariantCulture)} → existing property, " +
             $"{toClassification.ToString(CultureInfo.InvariantCulture)} → new classification.");
         sb.AppendLine();
@@ -303,7 +303,7 @@ public static class MigrationReportRenderer
             var target = r.Kind == CostCenterResolutionKind.ResolvedToProperty
                 ? $"Property `{r.PropertyId?.Value}`"
                 : $"Classification `{r.Classification?.Id.Value}` (created)";
-            sb.AppendLine($"| {r.ExternalRef} | {target} |");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {r.ExternalRef} | {target} |");
         }
         sb.AppendLine();
     }
@@ -322,7 +322,7 @@ public static class MigrationReportRenderer
         foreach (var w in warnings)
         {
             var count = w.Count > 0 ? $" ({w.Count.ToString(CultureInfo.InvariantCulture)})" : string.Empty;
-            sb.AppendLine($"- **{w.Code}**{count}: {w.Description}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- **{w.Code}**{count}: {w.Description}");
         }
         sb.AppendLine();
     }

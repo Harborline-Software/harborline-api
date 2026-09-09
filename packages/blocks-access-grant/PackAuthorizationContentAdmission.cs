@@ -115,7 +115,7 @@ public static class PackAuthorizationContentAdmission
             foreach (var entry in offered)
             {
                 var qualified = entry?.GetValue<string>();
-                var separator = qualified?.IndexOf('/') ?? -1;
+                var separator = qualified?.IndexOf('/', StringComparison.Ordinal) ?? -1;
                 if (qualified is null || separator <= 0 || separator == qualified.Length - 1) return false;
                 roles.Add(new RoleReference(qualified[..separator], qualified[(separator + 1)..]));
             }

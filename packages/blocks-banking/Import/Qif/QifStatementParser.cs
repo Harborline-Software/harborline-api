@@ -122,7 +122,7 @@ public sealed class QifStatementParser : IStatementFileParser
         if (!TryParseQifDate(date, out DateTimeOffset parsedDate))
             return null;  // lossy: skip unparseable dates
 
-        string cleanAmount = amount.Replace(",", "").Trim();
+        string cleanAmount = amount.Replace(",", "", StringComparison.Ordinal).Trim();
         if (!decimal.TryParse(cleanAmount, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal parsedAmount))
             return null;  // lossy: skip unparseable amounts
 
@@ -143,7 +143,7 @@ public sealed class QifStatementParser : IStatementFileParser
         if (string.IsNullOrWhiteSpace(value)) return false;
 
         // QIF date formats: M/D/Y, M/D'Y, D/M/Y, various separators
-        string v = value.Replace("'", "/").Replace("-", "/").Replace(".", "/").Trim();
+        string v = value.Replace("'", "/", StringComparison.Ordinal).Replace("-", "/", StringComparison.Ordinal).Replace(".", "/", StringComparison.Ordinal).Trim();
 
         string[] formats =
         [
