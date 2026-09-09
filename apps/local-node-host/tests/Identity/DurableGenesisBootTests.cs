@@ -2,12 +2,14 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.Kernel.Sync.Application;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -35,7 +37,14 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     private string DatabasePath => Path.Combine(_directory, "local-node.db");
     private sealed class CompositionCaptured : Exception;
 
-    private async Task<NodeTeamRoster> ComposeAsync(Func<string> account, bool recoverable = true, string seed = Seed,
+    /// <summary>Ticket 294 slice 2a — the one party key: the founder's canonical tenant principal id,
+    /// derived from exactly the coordinates FounderTenantMembershipAttachService derives it from.</summary>
+    private static string FounderPrincipal(string tenant) =>
+        FounderTenantMembershipAttachService.DerivePrincipal(
+            new TenantId(tenant),
+            InstallationFounderBootstrapCeremony.CorrelationId).Value;
+
+    private async Task<NodeTeamRoster> ComposeAsync(bool recoverable = true, string seed = Seed,
         string tenant = Tenant)
     {
         NodeTeamRoster? roster = null;
@@ -45,7 +54,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
              "--LocalNode:MultiTeam:Enabled=false", "--LocalNode:Sync:ListenForPeers=true",
              "--LocalNode:Sync:BindAddress=tcp://127.0.0.1:7303", "--urls=http://127.0.0.1:7302"],
             sessionTokenOverride: "s296-composition", dataDirectory: _directory,
-            installFootprintRootOverride: _directory, genesisAccountName: account,
+            installFootprintRootOverride: _directory,
             finalServiceRegistration: services =>
             {
                 _compositionCompleted++;
@@ -92,14 +101,16 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FirstBootMintsShellIdentityOnceAndPublishesOneSignedGenesis(bool recoverable)
+    public async Task FirstBootMintsTheFounderCanonicalPrincipalAndPublishesOneSignedGenesis(bool recoverable)
     {
-        var reads = 0;
-        var roster = await ComposeAsync(() => { reads++; return "  Jose\u0301  "; }, recoverable);
+        var roster = await ComposeAsync(recoverable);
         using var signer = new NodePrincipalSigner(Convert.FromHexString(Seed));
         var suffix = Convert.ToHexString(signer.Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant();
-        Assert.Equal("os:Jos\u00e9#" + suffix, roster.Current.GenesisPartyId);
-        Assert.Equal(1, reads);
+        // Ticket 294 slice 2a: the genesis party id IS the founder's canonical tenant principal id.
+        // No shell account label and no node-key suffix participate; nothing is minted from the OS user.
+        Assert.Equal(FounderPrincipal(Tenant), roster.Current.GenesisPartyId);
+        Assert.DoesNotContain("os:", roster.Current.GenesisPartyId, StringComparison.Ordinal);
+        Assert.DoesNotContain(suffix, roster.Current.GenesisPartyId, StringComparison.Ordinal);
         Assert.Empty(await RowsAsync(recoverable));
         await PublishBootAsync(roster, recoverable);
         var row = Assert.Single(await RowsAsync(recoverable));
@@ -113,12 +124,10 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [InlineData(true)]
     public async Task AccountRenameReadsBackOriginalSignedRecordWithoutConsultingShell(bool recoverable)
     {
-        var first = await ComposeAsync(() => "original-account", recoverable);
+        var first = await ComposeAsync(recoverable);
         await PublishBootAsync(first, recoverable);
         var before = JsonSerializer.Serialize(await RowsAsync(recoverable));
-        var renamedAccountReads = 0;
-        var second = await ComposeAsync(() => { renamedAccountReads++; return "renamed-service-account"; }, recoverable);
-        Assert.Equal(0, renamedAccountReads);
+        var second = await ComposeAsync(recoverable);
         Assert.Equal(first.Current.GenesisPartyId, second.Current.GenesisPartyId);
         Assert.Equal(JsonSerializer.Serialize(first.Current.EnumerateAdmissions().Single().Admission),
             JsonSerializer.Serialize(second.Current.EnumerateAdmissions().Single().Admission));
@@ -130,7 +139,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Fact]
     public async Task EnrolledNodeWithoutOwnTenantLogMintsOnBoot()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PublishBootAsync(first);
         await using (var provider = Store(roster: first))
             await provider.GetRequiredService<RosterCrdtProjection>()
@@ -140,9 +149,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         var foreignBefore = JsonSerializer.Serialize(foreignRows);
         Assert.All(foreignRows, row => Assert.Equal(OtherTenant, row.TeamId));
 
-        var reads = 0;
-        var reboot = await ComposeAsync(() => { reads++; return "original-account"; });
-        Assert.Equal(1, reads);
+        var reboot = await ComposeAsync();
         Assert.Equal(Guid.Parse(Tenant), reboot.Current.TeamId);
         Assert.Equal(first.Current.GenesisPartyId, reboot.Current.GenesisPartyId);
         Assert.Equal(foreignBefore, JsonSerializer.Serialize(await RowsAsync()));
@@ -160,13 +167,11 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Fact]
     public async Task OwnGenesisWithOtherTenantRecordsReadsBackOnlyOwnLog()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PublishBootAsync(first);
         await PersistOtherTenantAsync(first.Current.GenesisPartyId);
         var before = (await RowsAsync()).Select(row => (row.Id, row.SignatureB64Url)).ToArray();
-        var reads = 0;
-        var reboot = await ComposeAsync(() => { reads++; return "renamed-account"; });
-        Assert.Equal(0, reads);
+        var reboot = await ComposeAsync();
         Assert.Equal(Guid.Parse(Tenant), reboot.Current.TeamId);
         Assert.Equal(first.Current.GenesisPartyId, reboot.Current.GenesisPartyId);
         Assert.Equal(JsonSerializer.Serialize(first.Current.EnumerateAdmissions().Single().Admission),
@@ -184,13 +189,11 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Fact]
     public async Task EnrolledNodeConfiguredForJoinedTenantReadsItsAdmittedIdentity()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         var admittedParty = first.Current.GenesisPartyId;
         await PersistOtherTenantAsync(admittedParty);
         var before = JsonSerializer.Serialize(await RowsAsync());
-        var reads = 0;
-        var reboot = await ComposeAsync(() => { reads++; return "renamed-account"; }, tenant: OtherTenant);
-        Assert.Equal(0, reads);
+        var reboot = await ComposeAsync(tenant: OtherTenant);
         Assert.Equal(Guid.Parse(OtherTenant), reboot.Current.TeamId);
         Assert.Equal("other-founder", reboot.Current.GenesisPartyId);
         using var signer = new NodePrincipalSigner(Convert.FromHexString(Seed));
@@ -231,25 +234,22 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Fact]
     public async Task RevokedNodeNamesRemovalAndReadmissionByCurrentMember()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PersistOtherTenantAsync(first.Current.GenesisPartyId, revoked: true);
         var before = JsonSerializer.Serialize(await RowsAsync());
         var completed = _compositionCompleted;
-        var shellReads = 0;
-        var error = await Record.ExceptionAsync(() => ComposeAsync(
-            () => { shellReads++; return "renamed-account"; }, tenant: OtherTenant));
+        var error = await Record.ExceptionAsync(() => ComposeAsync(tenant: OtherTenant));
         AssertRefusal(error, "genesis_membership_removed",
             "This node has been removed from the tenant's roster", completed);
         Assert.Contains("Have a current member re-admit this node", error!.InnerException!.Message);
         Assert.DoesNotContain("Restore the root seed", error.InnerException.Message);
-        Assert.Equal(0, shellReads);
         Assert.Equal(before, JsonSerializer.Serialize(await RowsAsync()));
     }
 
     [Fact]
     public async Task Pre291SignatureNamesReinitialisationAndExplainsWhyOldBackupCannotRestore()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PublishBootAsync(first);
         using var signer = new NodePrincipalSigner(Convert.FromHexString(Seed));
         await using var provider = Store();
@@ -286,18 +286,15 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [Fact]
     public async Task DerivedSigningIdentityMismatchRefusesBeforePublicationWithStableCodeAndRemedy()
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PublishBootAsync(first);
         var before = JsonSerializer.Serialize(await RowsAsync());
         var completed = _compositionCompleted;
-        var shellReads = 0;
         // The Store DEK still opens the same durable log; only the root-derived principal changes.
-        var error = await Record.ExceptionAsync(() => ComposeAsync(
-            () => { shellReads++; return "service-account"; }, seed: new string('2', 64)));
+        var error = await Record.ExceptionAsync(() => ComposeAsync(seed: new string('2', 64)));
         AssertRefusal(error, "genesis_identity_mismatch", "Restore the root seed", completed);
         Assert.Contains("This node is not an admitted member of the tenant's roster", error!.InnerException!.Message);
         Assert.Contains("Have a current member re-admit this node", error.InnerException.Message);
-        Assert.Equal(0, shellReads);
         Assert.Equal(before, JsonSerializer.Serialize(await RowsAsync()));
     }
 
@@ -306,7 +303,7 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
     [InlineData("duplicate")]
     public async Task ExistingInvalidLogNeverFallsBackToMinting(string poison)
     {
-        var first = await ComposeAsync(() => "original-account");
+        var first = await ComposeAsync();
         await PublishBootAsync(first);
         await using (var provider = Store())
         await using (var db = await provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>().CreateDbContextAsync())
@@ -323,11 +320,66 @@ public sealed class DurableGenesisBootTests : IAsyncLifetime
         }
         var before = JsonSerializer.Serialize(await RowsAsync());
         var completed = _compositionCompleted;
-        var shellReads = 0;
-        var error = await Record.ExceptionAsync(() => ComposeAsync(() => { shellReads++; return "other"; }));
+        var error = await Record.ExceptionAsync(() => ComposeAsync());
         AssertRefusal(error, DurableGenesisIdentity.InvalidLogCode, "Restore the install's verified roster backup", completed);
-        Assert.Equal(0, shellReads);
         Assert.Equal(before, JsonSerializer.Serialize(await RowsAsync()));
+    }
+
+    /// <summary>
+    /// Ticket 294 slice 2a §1.3 — no shell fallback. Once the founder bootstrap ceremony has completed, a
+    /// missing canonical tenant principal for the founder means the install's founder identity is
+    /// half-written; the host refuses to start with a named code and a working remedy, and publishes
+    /// nothing. (Before the ceremony has run there is nothing to disagree with, and the derived principal
+    /// the attach will adopt is minted — that is the first-boot path the other tests here exercise.)
+    /// </summary>
+    [Fact]
+    public async Task A_host_with_no_canonical_founder_principal_refuses_to_start_with_a_named_remedy()
+    {
+        // A completed founder ceremony (its root grant) with NO People binding behind its principal.
+        await using (var provider = Store())
+        {
+            await using var db = await provider
+                .GetRequiredService<IDbContextFactory<NodeLocalInstallationIdentityDbContext>>()
+                .CreateDbContextAsync();
+            await db.Database.MigrateAsync();
+            db.Accounts.Add(new InstallationAccountRecord
+            {
+                AccountId = "account-294-s2a",
+                NormalizedUsername = "founder-294-s2a",
+                CredentialHash = "hash",
+                CredentialAlgorithm = "argon2id",
+                CredentialCeremonyId = "ceremony-294-s2a",
+                CredentialVersion = 1,
+                Status = InstallationAccountStatus.Active,
+                SecurityVersion = 1,
+                OwnerVersion = 1,
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                UpdatedAtUtc = DateTimeOffset.UnixEpoch,
+            });
+            db.InstallationAccessGrants.Add(new InstallationAccessGrantRecord
+            {
+                GrantId = "grant-294-s2a",
+                AccountId = "account-294-s2a",
+                PermissionsJson = "[]",
+                Status = InstallationAccessGrantStatus.Active,
+                IssuerKind = "installation",
+                IssuerId = "installation-294-s2a",
+                AuthorizationEpoch = 1,
+                OwnerVersion = 1,
+                AuditCorrelationId = InstallationFounderBootstrapCeremony.CorrelationId,
+                CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                UpdatedAtUtc = DateTimeOffset.UnixEpoch,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var completed = _compositionCompleted;
+        var error = await Record.ExceptionAsync(() => ComposeAsync());
+
+        AssertRefusal(error, GenesisStartupMessages.PartyUnresolvedCode, "Run founder setup", completed);
+        Assert.Contains("will not mint a shell-derived party id", error!.InnerException!.Message);
+        // Publishes nothing: no roster record was written for this install.
+        Assert.Empty(await RowsAsync());
     }
 
     private void AssertRefusal(Exception? error, string code, string remedy, int completed)

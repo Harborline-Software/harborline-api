@@ -39,9 +39,11 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// <list type="number">
 ///   <item><b>tenant</b> — the membership tenant resolves a live Party binding under that exact tenant.</item>
 ///   <item><b>PrincipalUserId</b> — the binding is for the membership's canonical principal.</item>
-///   <item><b>PartyId</b> — the binding's People PartyId equals the party the enrollment presents
-///     (<paramref name="enrollmentPartyId"/>). This is what ties the enrolling identity to the
-///     web-plane member; a wire enrollment claiming a different party is refused.</item>
+///   <item><b>PartyId</b> — ticket 294 slice 2a: the binding's canonical tenant PRINCIPAL id equals the
+///     party id the enrollment presents (<paramref name="enrollmentPartyId"/>), because that principal
+///     IS the one party key the roster edge and the grant store share. This is what ties the enrolling
+///     identity to the web-plane member; a wire enrollment claiming a different party — including one
+///     presenting the old People PartyId key space — is refused with <c>party_binding_mismatch</c>.</item>
 ///   <item><b>grant identity</b> — a live grant (matching owner-version, not revoked, inside its
 ///     validity window) plus the current authorization epoch exists for (tenant, principal). This
 ///     mirrors the mandatory grant/epoch teeth of <see cref="LiveTenantMembershipAuthorityAdmission"/>
@@ -102,7 +104,8 @@ internal sealed class WebAdmittedMemberAtlasBridge
     /// <param name="admitterPartyId">The in-roster admin who signs the admission (the founder/inviter).</param>
     /// <param name="admitterSigner">The admitting admin's signer.</param>
     /// <param name="pairingTokenId">The single-use pairing token the enrolling device presents.</param>
-    /// <param name="enrollmentPartyId">The People PartyId the enrolling node presents.</param>
+    /// <param name="enrollmentPartyId">The party id the enrolling node presents — ticket 294 slice 2a: the
+    /// joiner's CANONICAL TENANT PRINCIPAL id, the key the token was minted for.</param>
     /// <param name="enrollmentPrincipalKey">The atlas principal public key the enrolling node presents.</param>
     /// <param name="joiningDmPublicKey">F2 (C5) — the enrolling device's team-scoped DM-encryption PUBLIC key
     /// (base64url X25519), presented at enrollment + proof-of-possession-bound in the enrollment request. Threaded
@@ -208,7 +211,8 @@ internal sealed class WebAdmittedMemberAtlasBridge
     /// <param name="admitterSigner">The admitting admin's signer (its key must match its roster binding).</param>
     /// <param name="inviteTokenId">The single-use wire invite the enrolling node presents.</param>
     /// <param name="membership">The web-plane membership pins (tenant, principal, grant, status).</param>
-    /// <param name="enrollmentPartyId">The People PartyId the enrolling node presents (JoiningPartyId).</param>
+    /// <param name="enrollmentPartyId">The party id the enrolling node presents (JoiningPartyId). Ticket 294
+    /// slice 2a: this is the joiner's CANONICAL TENANT PRINCIPAL id, not the People PartyId.</param>
     /// <param name="enrollmentPrincipalKey">The atlas principal public key the enrolling node presents.</param>
     /// <param name="joiningDmPublicKey">F2 (C5) — the enrolling device's team-scoped DM PUBLIC key (base64url
     /// X25519), bound INTO the signed admission. Empty = a device that presents no DM key.</param>
@@ -249,15 +253,24 @@ internal sealed class WebAdmittedMemberAtlasBridge
         var principal = new PrincipalUserId(membership.CanonicalPrincipalId);
 
         // Pins 1-3 — tenant + principal + party. Re-read the LIVE Party binding and require it to be
-        // present, under the exact tenant, for the exact principal, AND bound to the exact party the
-        // enrollment presents. The party equality is the tie between the enrolling identity and the
-        // web-plane member.
+        // present, under the exact tenant, for the exact principal, AND for the enrollment to present
+        // that principal as its party id.
+        //
+        // Ticket 294 slice 2a — ONE party key. The roster edge is keyed by the CANONICAL TENANT
+        // PRINCIPAL id, which is the key the grant store, the closure reader and the admin surface all
+        // read (see NodeGatePrincipal). So the pin compares the enrollment's party id against
+        // binding.PrincipalUserId, not the People PartyId: a joiner presenting the old People key space
+        // refuses here, with the same named reason. The non-null binding still has teeth — it is what
+        // proves a live, unambiguous, in-tenant People party exists behind this principal (the reader
+        // returns null for missing, ambiguous, tombstoned, detached and wrong-tenant). The People
+        // PartyId keeps its own job (attribution stamped on what an act writes); it is no longer an
+        // authorization key.
         var binding = await _partyReader.ResolveAsync(tenant, principal, cancellationToken)
             .ConfigureAwait(false);
         if (binding is null ||
             !binding.VerifiedTenant.Equals(tenant) ||
             !binding.PrincipalUserId.Equals(principal) ||
-            !string.Equals(binding.PartyId.Value, enrollmentPartyId, StringComparison.Ordinal))
+            !string.Equals(binding.PrincipalUserId.Value, enrollmentPartyId, StringComparison.Ordinal))
         {
             return AtlasAdmissionOutcome.Refuse("party_binding_mismatch");
         }

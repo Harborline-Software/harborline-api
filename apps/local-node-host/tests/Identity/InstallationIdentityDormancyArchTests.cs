@@ -63,6 +63,9 @@ public sealed class InstallationIdentityDormancyArchTests
     [
         // Describes the hosted runner's start order and activation. Ordering metadata, not a call.
         Path.Combine("Capabilities", "LocalNodeHostedComponentCatalog.cs"),
+        // 294 s2a: offline recovery derives the founder party through the composition root's function and
+        // must share the founder ceremony's correlation constant, so it cannot establish a second key space.
+        Path.Combine("Data", "Identity", "AdministratorRecoveryCommand.cs"),
         // earlier repository ticket #3448 — reads InstallationFounderBootstrapCeremony.CorrelationId to resolve the
         // founder's root grant BY KEY (the same key the bootstrap service uses on replay). Reading a
         // compile-time constant, not reaching RunAsync. Listed rather than exempted so the fence keeps

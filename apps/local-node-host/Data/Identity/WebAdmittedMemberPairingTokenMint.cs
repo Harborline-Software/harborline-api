@@ -91,7 +91,10 @@ internal sealed class WebAdmittedMemberPairingTokenMint
         // #3167 R1.2 — capture the session correlation id off the authenticated session principal so it can be
         // bound into the signed admission as the minting-session evidence at redemption (audit provenance).
         _bindings.Bind(new WebPairingInviteBinding(
-            token.TokenId, membership, session.CanonicalParty.Value, token.Anchor, session.SessionCorrelationId));
+            // Ticket 294 slice 2a — the token is bound to the ONE party key: the session's canonical tenant
+            // PRINCIPAL id, which is what the enrolling device presents as JoiningPartyId and what the roster
+            // edge is keyed by. session.CanonicalParty stays the attribution stamped on writes, not a key.
+            token.TokenId, membership, session.PrincipalUserId.Value, token.Anchor, session.SessionCorrelationId));
         return PairingTokenMintOutcome.Issued(token);
     }
 }
