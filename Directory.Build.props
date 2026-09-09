@@ -293,4 +293,12 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
+
+  <!-- The repository .globalconfig (the threading rules outside the ADR 0085 preview set stay advisory)
+       is not discovered from a project two directories down in every checkout shape: a detached worktree
+       nested under another worktree (the landing's shape) compiled without it and promoted VSTHRD103 to
+       error. Include it explicitly for every project (340 s1). -->
+  <ItemGroup>
+    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory).globalconfig" Condition="Exists('$(MSBuildThisFileDirectory).globalconfig')" />
+  </ItemGroup>
 </Project>
