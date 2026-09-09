@@ -211,6 +211,7 @@ public sealed class NodeEfInvoiceNumberingService : IInvoiceNumberingService, ID
 
     public void Dispose()
     {
-        throw new NotImplementedException();
+        _gate.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
