@@ -77,4 +77,29 @@ public sealed class RosterGateDecisionTests
 
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
     }
+
+    /// <summary>
+    /// Ticket 293 slice 4 fix 4, item 7 — names the behaviour change the review found unpinned. The roster
+    /// branch no longer PROJECTS its deciding set to the install root: a roster-carrying request at a narrower
+    /// target scope is decided on the derivations the gate read for THAT scope. Before this slice the branch
+    /// replaced the atoms with the caller's roster set re-parsed at <c>@/</c>, so a derivation that existed only
+    /// at the record scope could not decide anything.
+    /// </summary>
+    [Fact]
+    public async Task A_roster_carrying_request_at_a_narrower_scope_decides_on_that_scopes_derivations()
+    {
+        var input = new AuthorizationRosterInputs("party", true, false)
+        {
+            RequireMember = true, RequireGrantCoverage = true,
+        };
+        var request = TestAuthorization.Write(new TenantId("tenant"))
+            .Request(AuthorizationOperation.Parse("records:read"), "record", "r1") with { Roster = input };
+
+        var decision = await TestAuthorization.Gate(true).DecideAsync(request);
+
+        Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
+        // The deciding derivation sits at the RECORD scope, not at the install root.
+        Assert.Equal("/records/r1", Assert.Single(decision.Evidence.Bindings).Atom.Scope.Value);
+        Assert.DoesNotContain(decision.Evidence.Bindings, binding => binding.Atom.Scope.Value == "/");
+    }
 }

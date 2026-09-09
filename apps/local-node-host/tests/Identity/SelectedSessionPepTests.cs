@@ -43,7 +43,7 @@ public sealed class SelectedSessionPepTests
         {
             Assert.True(evidence.Allowed);
             Assert.NotNull(evidence.Roster);
-            Assert.Equal("party-member-a", evidence.Roster.PartyId);
+            Assert.Equal(PrincipalA, evidence.Roster.PartyId);
             Assert.True(evidence.Roster.Member);
             Assert.False(evidence.Roster.Ejected);
             Assert.Contains(evidence.Project()[1].Facts, fact => fact.StartsWith("roster:party:"));
@@ -52,7 +52,7 @@ public sealed class SelectedSessionPepTests
         await capture.AssertAuditAsync(fixture.Tenant);
     }
 
-    [Fact(DisplayName = "records:read follows the signed roster edge, not the grant bundle")]
+    [Fact(DisplayName = "records:read follows the conferred grant, not the pinned grant bundle")]
     public async Task Member_With_Permission_Is_Allowed_And_Member_Without_It_Is_Denied()
     {
         var fixture = await Fixture.CreateAsync(
@@ -71,33 +71,29 @@ public sealed class SelectedSessionPepTests
             permission: "grant-bundle-must-not-be-used"));
     }
 
-    [Fact(DisplayName = "a narrowed roster edge is denied after the authorization epoch advances")]
+    [Fact(DisplayName = "a narrowed conferred grant is denied after the authorization epoch advances")]
     public async Task Narrowing_And_Epoch_Bump_Denies()
     {
         var fixture = await Fixture.CreateAsync(PermissionSet.Of("records:read"));
 
         Assert.True(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
 
-        fixture.Roster.Current = fixture.Roster.Current.Grant(
-            FounderParty,
-            "party-member-a",
-            PermissionSet.Empty);
+        fixture.NarrowConferredGrant(PrincipalA, PermissionSet.Empty);
         fixture.Epoch.Current = 2;
 
         Assert.False(await fixture.CheckAsync("member-a", "party-member-a", "session-a", epoch: 2));
     }
 
-    [Fact(DisplayName = "a narrowed roster edge is denied without an authorization epoch advance")]
+    [Fact(DisplayName = "a narrowed conferred grant is denied without an authorization epoch advance")]
     public async Task Narrowing_Without_Epoch_Bump_Denies()
     {
         var fixture = await Fixture.CreateAsync(PermissionSet.Of("records:read"));
 
         Assert.True(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
 
-        fixture.Roster.Current = fixture.Roster.Current.Grant(
-            FounderParty,
-            "party-member-a",
-            PermissionSet.Empty);
+        // No epoch advance: the PEP must re-derive the conferred set on EVERY request rather than cache it by
+        // epoch. That is the property the old roster-narrowing row held; the narrowing is now a grant one.
+        fixture.NarrowConferredGrant(PrincipalA, PermissionSet.Empty);
 
         Assert.False(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
     }
@@ -111,7 +107,7 @@ public sealed class SelectedSessionPepTests
 
         fixture.Roster.Current = fixture.Roster.Current.Revoke(
             FounderParty,
-            "party-member-a");
+            PrincipalA);
 
         Assert.False(await fixture.CheckAsync(
             "member-a",
@@ -215,7 +211,7 @@ public sealed class SelectedSessionPepTests
             roster = roster.Admit(
                 FounderParty,
                 founderSigner,
-                $"party-member-{index}",
+                $"principal-member-{index}",
                 member.PrincipalId,
                 PermissionSet.Of(Permission.ContactsRead),
                 verifier,
@@ -234,11 +230,13 @@ public sealed class SelectedSessionPepTests
         var resolver = new SelectedSessionPermissionResolver(
             new RebuildingRosterReader(roster.EnumerateAdmissions(), verifier),
             grants,
-            new LegacyPermissionAuthorizationClosure(new Dictionary<string, PermissionSet>
-                { ["principal-member-24"] = PermissionSet.Of(Permission.ContactsRead) }),
             new FixedEpochReader(),
             new FixedTimeProvider(Now),
-            NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate());
+            NullLogger<SelectedSessionPermissionResolver>.Instance,
+            TestAuthorization.ConferredGate(principal =>
+                principal.Value == "principal-member-24"
+                    ? PermissionSet.Of(Permission.ContactsRead)
+                    : PermissionSet.Empty));
         var principal = new SelectedSessionRequestPrincipal(
             "account-member-24",
             tenant,
@@ -261,7 +259,7 @@ public sealed class SelectedSessionPepTests
         _output.WriteLine($"25-member cryptographic roster rebuild: {stopwatch.Elapsed.TotalMilliseconds:F2} ms");
     }
 
-    [Fact(DisplayName = "two members in one tenant resolve only their own roster sets")]
+    [Fact(DisplayName = "two members in one tenant resolve only their own conferred sets")]
     public async Task Members_Do_Not_Bleed_Permissions_Across_Sessions()
     {
         var fixture = await Fixture.CreateAsync(
@@ -281,6 +279,9 @@ public sealed class SelectedSessionPepTests
         Assert.False(bReads);
         Assert.True(bWrites);
     }
+
+    private const string PrincipalA = "principal-member-a";
+    private const string PrincipalB = "principal-member-b";
 
     private sealed class Fixture
     {
@@ -323,7 +324,7 @@ public sealed class SelectedSessionPepTests
                 .Admit(
                     FounderParty,
                     signer,
-                    "party-member-a",
+                    PrincipalA,
                     memberA.PrincipalId,
                     memberPermissions.ElementAtOrDefault(0) ?? PermissionSet.Empty,
                     verifier,
@@ -332,7 +333,7 @@ public sealed class SelectedSessionPepTests
                 .Admit(
                     FounderParty,
                     signer,
-                    "party-member-b",
+                    PrincipalB,
                     memberB.PrincipalId,
                     memberPermissions.ElementAtOrDefault(1) ?? PermissionSet.Empty,
                     verifier,
@@ -358,24 +359,42 @@ public sealed class SelectedSessionPepTests
 
             var rosterReader = new MutableRosterReader(roster);
             var epoch = new MutableEpochReader();
+            // Ticket 293 slice 4 - GRANTS answer. Each member's admission conferred an install-root grant
+            // carrying its permissions (NodeEfAuthorizationConfigurationStore.ConferAdmissionGrantAsync); this
+            // mutable map IS that conferred authority, so narrowing a member here is a GRANT narrowing.
+            var conferred = new Dictionary<string, PermissionSet>(StringComparer.Ordinal)
+            {
+                [PrincipalA] = memberPermissions.ElementAtOrDefault(0) ?? PermissionSet.Empty,
+                [PrincipalB] = memberPermissions.ElementAtOrDefault(1) ?? PermissionSet.Empty,
+            };
             var resolver = new SelectedSessionPermissionResolver(
                 rosterReader,
                 grants,
-                new LegacyPermissionAuthorizationClosure(new Dictionary<string, PermissionSet>
-                {
-                    ["principal-member-a"] = memberPermissions.ElementAtOrDefault(0) ?? PermissionSet.Empty,
-                    ["principal-member-b"] = memberPermissions.ElementAtOrDefault(1) ?? PermissionSet.Empty,
-                }),
                 epoch,
                 new FixedTimeProvider(Now),
-                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate(), audit);
+                NullLogger<SelectedSessionPermissionResolver>.Instance,
+                TestAuthorization.ConferredGate(principal =>
+                    conferred.TryGetValue(principal.Value, out var set) ? set : PermissionSet.Empty),
+                audit);
             return new Fixture(rosterReader, grants, epoch, tenant, grantIds)
             {
                 Resolver = resolver,
+                Conferred = conferred,
             };
         }
 
         private ISelectedSessionPermissionResolver Resolver { get; init; } = null!;
+
+        /// <summary>The conferred install-root grant set per principal - the authority the gate decides on.</summary>
+        internal Dictionary<string, PermissionSet> Conferred { get; private init; } = null!;
+
+        /// <summary>
+        /// Narrow (or empty) the admitted party's CONFERRED grant: the wider set is revoked and the narrower one
+        /// conferred under the same subject key. That is the production shape of "an administrator narrows a
+        /// member" after ticket 293 slice 4 - the roster edge carries no permission set left to narrow.
+        /// </summary>
+        internal void NarrowConferredGrant(string principalId, PermissionSet narrower) =>
+            Conferred[principalId] = narrower;
 
         internal async Task<bool> CheckAsync(
             string principalId,
@@ -451,11 +470,11 @@ public sealed class SelectedSessionPepTests
             new SelectedSessionPermissionResolver(
                 rosterReader,
                 grants,
-                new LegacyPermissionAuthorizationClosure(new Dictionary<string, PermissionSet>
-                    { ["principal-deferred"] = permissions }),
                 new FixedEpochReader(),
                 new FixedTimeProvider(Now),
-                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate()),
+                NullLogger<SelectedSessionPermissionResolver>.Instance,
+                TestAuthorization.ConferredGate(principal =>
+                    principal.Value == "principal-deferred" ? permissions : PermissionSet.Empty)),
             new SelectedSessionRequestPrincipal(
                 "account-deferred",
                 tenant,

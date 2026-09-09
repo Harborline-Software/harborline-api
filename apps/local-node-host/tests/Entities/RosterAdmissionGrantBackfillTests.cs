@@ -45,6 +45,12 @@ public sealed class RosterAdmissionGrantBackfillTests
                 .Select(a => a.Operation.Value));
             Assert.True(actual.Member);
             Assert.Equal(expected, actual);
+            // The TEETH (fix 4, item 5): the backfilled grant carries the set the ADMISSION recorded, read from
+            // the pre-backfill signed roster — not a gate reading compared against a closure reading over the
+            // same store, which is equal (and empty) whether or not the backfill conferred anything.
+            var admitted = before.PermissionsOf(member.PartyId) ?? PermissionSet.Empty;
+            Assert.NotEmpty(admitted.Permissions);
+            Assert.Equal(admitted, grantPermissions);
             Assert.Equal(gatePermissions, grantPermissions);
             if (member.PartyId != "founder") Assert.Null(after.PermissionsOf(member.PartyId));
         }

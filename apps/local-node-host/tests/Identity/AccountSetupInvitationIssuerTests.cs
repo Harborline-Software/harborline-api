@@ -27,13 +27,20 @@ public sealed class AccountSetupInvitationIssuerTests
     public async Task InvitationSites_RecordTheGateDecisionWithRosterInputs(bool recovery, bool allowed)
     {
         using var capture = new RosterDecisionCapture();
-        await using var fixture = await IssueFixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, capture.Audit);
+        // Ticket 293 slice 4 fix 4 — both rows confer the inviter the SAME administrator grant, so the
+        // up-front members:manage coverage decision (which carries no roster inputs) is allowed either way and
+        // both sites always reach the roster-carrying decision. The discriminator is a ROSTER input: the denied
+        // row ejects the inviter, which is the only thing the signed edge still contributes to a verdict.
+        await using var fixture = await IssueFixture.CreateAsync(
+            PermissionCompositions.Admin, capture.Audit, ejectInviter: !allowed);
         if (recovery)
         {
             var issuer = new RecoveryInvitationIssuer(fixture.SessionFactory,
                 new WebSelectedSessionStore(fixture.SessionFactory), fixture.IdentityFactory,
                 fixture.GrantFactory, new FixedPartyReader("party-admin"), new FixedRosterReader(fixture.Roster),
-                new RecoveryInvitationStore(fixture.IdentityFactory), TestAuthorization.AllowGate(), capture.Audit);
+                new RecoveryInvitationStore(fixture.IdentityFactory),
+                IssueFixture.InviterGate(PermissionCompositions.Admin),
+                capture.Audit);
             Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
                 new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
                 new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(fixture.TenantId), Now));
@@ -50,8 +57,8 @@ public sealed class AccountSetupInvitationIssuerTests
         Assert.Equal(2, capture.Evidence.Count);
         Assert.True(Assert.Single(capture.Evidence, item => item.Roster is null).Allowed);
         var evidence = capture.AssertSingle(allowed);
-        Assert.True(evidence.Roster!.Member);
-        Assert.False(evidence.Roster.Ejected);
+        Assert.Equal(allowed, evidence.Roster!.Member);
+        Assert.Equal(!allowed, evidence.Roster.Ejected);
         Assert.Equal("party-admin", evidence.Roster.PartyId);
         await capture.AssertAuditAsync(new TenantId(fixture.TenantId));
     }
@@ -205,7 +212,15 @@ public sealed class AccountSetupInvitationIssuerTests
         public MemberRoster Roster { get; }
         public AccountSetupInvitationIssuer Issuer { get; }
 
-        public static async Task<IssueFixture> CreateAsync(PermissionSet inviterPermissions, AuthorizationRefusalAudit? refusalAudit = null)
+        /// <summary>The gate the admin principal's conferred install-root grant answers through.</summary>
+        public static AuthorizationGate InviterGate(PermissionSet inviterPermissions) =>
+            TestAuthorization.ConferredGate(principal =>
+                principal.Value == "principal-admin" ? inviterPermissions : PermissionSet.Empty);
+
+        public static async Task<IssueFixture> CreateAsync(
+            PermissionSet inviterPermissions,
+            AuthorizationRefusalAudit? refusalAudit = null,
+            bool ejectInviter = false)
         {
             var tenantId = "11111111-1111-1111-1111-111111111111";
             var identityPath = TempPath("identity");
@@ -303,7 +318,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 await grants.SaveChangesAsync();
             }
 
-            var roster = CreateRoster(Guid.Parse(tenantId), inviterPermissions);
+            var roster = CreateRoster(Guid.Parse(tenantId), inviterPermissions, ejectInviter);
             var store = new AccountSetupInvitationStore(identityFactory);
             var issuer = new AccountSetupInvitationIssuer(
                 sessionFactory,
@@ -313,7 +328,9 @@ public sealed class AccountSetupInvitationIssuerTests
                 new FixedPartyReader("party-admin"),
                 new FixedRosterReader(roster),
                 store,
-                TestAuthorization.AllowGate(),
+                // Ticket 293 slice 4 - the inviter's own CONFERRED install-root grant is what admits the issue,
+                // not a roster permission set: the gate ANDs RequiredPermissions against the atoms it derives.
+                InviterGate(inviterPermissions),
                 new FixedTimeProvider(Now), refusalAudit);
             return new IssueFixture(
                 [identityPath, sessionPath, grantPath],
@@ -335,7 +352,8 @@ public sealed class AccountSetupInvitationIssuerTests
             return ValueTask.CompletedTask;
         }
 
-        private static MemberRoster CreateRoster(Guid tenantId, PermissionSet inviterPermissions)
+        private static MemberRoster CreateRoster(
+            Guid tenantId, PermissionSet inviterPermissions, bool ejectInviter = false)
         {
             using var founderKey = KeyPair.Generate();
             using var inviterKey = KeyPair.Generate();
@@ -348,7 +366,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 verifier,
                 Now,
                 Guid.Parse("33333333-3333-3333-3333-333333333333"));
-            return roster.Admit(
+            var admitted = roster.Admit(
                 "party-founder",
                 founderSigner,
                 "party-admin",
@@ -357,6 +375,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 verifier,
                 Now,
                 Guid.Parse("44444444-4444-4444-4444-444444444444"));
+            return ejectInviter ? admitted.Revoke("party-founder", "party-admin") : admitted;
         }
 
         private static string TempPath(string kind) =>

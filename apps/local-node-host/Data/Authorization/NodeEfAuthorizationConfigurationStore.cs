@@ -83,7 +83,9 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     /// (<c>AdminTeamAccessAuthority.ListMembersAsync</c> asks the gate for
     /// <c>InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId), ...)</c>), so the gate's reader
     /// finds it under exactly the key the roster edge is addressed by. Since ticket 294 slice 2a that key
-    /// IS the canonical tenant principal id, so the roster plane and the web plane look the grant up alike.
+    /// IS the canonical tenant principal id, so both planes look THE GRANT up under one key. (That is a claim
+    /// about the grant lookup only — a roster EDGE lookup keyed on the People CanonicalPartyReference would
+    /// still miss, which is why ticket 293 slice 4 fix 4 moved the selected-session PEP onto this key too.)
     /// Staged only — the caller's SaveChanges inside its own fence commits it, so a conferral failure
     /// aborts the caller's unit of work rather than leaving a half state.
     /// </summary>
@@ -98,7 +100,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         Guid nonce,
         GrantRevocation? revocation,
         string sourceReference,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool advanceEpoch = true)
     {
         var role = new RoleReference(RoleVocabularies.Domain, "roster-admission-" + id.ToString("N"));
         var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
@@ -123,15 +126,29 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                 new GrantReason(GrantReasonCodes.Manual, nonce.ToString("D")), granter),
             issuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
         db.Grants.Add(NodeEfGrantStore.ToRow(grant, sourceReference));
-        await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
+        // Ticket 293 slice 4 fix 4 — the boot backfill advances the epoch (it rewrites history before any
+        // session exists); a LIVE conferral must NOT. The admitted principal's web session has just had its
+        // (grant owner-version, authorization epoch) pins verified by the admission itself, and bumping the
+        // epoch underneath them invalidates the very pins that authorized the admission: the second admission
+        // of the same party then refuses "grant_unavailable" instead of "already_member", and a revoked
+        // party's re-enrollment is over-blocked. Not advancing is fail-CLOSED in direction — a cached
+        // closure snapshot keeps the narrower pre-conferral set, never a wider one.
+        if (advanceEpoch)
+            await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
         return grant;
     }
 
     /// <summary>
     /// Confer one LIVE admission's grant — the same derivation the 3a backfill runs over history, under one
-    /// fence with its own commit. Idempotent on (tenant, admitted party): a second admission of the same
-    /// party returns the standing grant rather than minting a rival one. The caller treats a throw as an
-    /// admission failure: the roster write it guards must not be published.
+    /// fence with its own commit. What it writes is a grant of the admission's OWN per-admission role carrying
+    /// the permission set the admission signed, anchored to that admission. It is NOT the web-plane membership
+    /// grant — <see cref="InitialGrantIssuanceService"/> writes that one, at invitation acceptance, under the
+    /// same subject key and at the same scope — and it OUTLIVES it: revoking the membership grant leaves the
+    /// admitted party's signed authority standing. Returns null when this admission's grant already exists;
+    /// idempotent on (tenant, admitted party), so a second admission of the same party mints no rival. Unlike
+    /// the boot backfill it does NOT advance the admitted principal's authorization epoch (see
+    /// <c>StageAdmissionGrantAsync</c>). The caller treats a throw as an admission failure: the roster write it
+    /// guards must not be published.
     /// </summary>
     public async Task<AccessGrant?> ConferAdmissionGrantAsync(
         TenantId tenant,
@@ -153,7 +170,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                 return (AccessGrant?)null;
             var grant = await StageAdmissionGrantAsync(
                 db, tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id, null,
-                "roster-admission:" + key, ct).ConfigureAwait(false);
+                "roster-admission:" + key, ct, advanceEpoch: false).ConfigureAwait(false);
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return grant;
         }, ct).ConfigureAwait(false);

@@ -388,7 +388,7 @@ internal sealed class WebAdmittedMemberAtlasBridge
             return AtlasAdmissionOutcome.Refuse(result.RefusalCode ?? "invite_rejected");
         }
 
-        // ADR 0066 clause 3 / ticket 293 slice 4 fix 3 — THE ADMISSION CONFERS THE ADMITTED PARTY'S GRANT.
+        // ADR 0066 clause 3 / ticket 293 slice 4 — THE ADMISSION CONFERS THE ADMITTED PARTY'S GRANT.
         // This is the one place both admission paths (pairing and first enrollment) commit a roster edge, so
         // one conferral here covers both admitters. The atoms are the permission set the admission itself
         // carried; the scope is the install root; the key is the roster party id, which since ticket 294
@@ -396,6 +396,16 @@ internal sealed class WebAdmittedMemberAtlasBridge
         // NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync for why the gate finds it there).
         // A conferral failure THROWS out of the bridge before the outcome is admitted, so the caller never
         // publishes the roster record: no half state where a party is on the roster with no grant.
+        //
+        // What it ADDS, precisely (fix 4, D2). At this instant the atoms are a copy of what the principal
+        // already holds: grantedPermissions was derived above from this subject's own closure read, and pin 4
+        // has just required the web-plane membership grant InitialGrantIssuanceService issued at invitation
+        // acceptance to be live — that grant is where those atoms come from. The conferral is NOT therefore
+        // a second writer of the same grant: it anchors the set to the SIGNED ADMISSION under its own
+        // per-admission role, so the authority survives revocation of the membership grant, which the
+        // enrollment itself does not depend on. WebAdmittedMemberAtlasBridgeTests pins exactly that — revoke
+        // the membership grant after admitting and the admitted member is still allowed; delete this call and
+        // it is refused.
         await ConferAdmissionGrantAsync(tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, cancellationToken)
             .ConfigureAwait(false);
         return AtlasAdmissionOutcome.Admit(result.Roster);

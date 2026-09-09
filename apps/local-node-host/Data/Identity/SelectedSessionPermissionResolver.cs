@@ -61,9 +61,11 @@ internal sealed class NodeSelectedSessionAuthorizationEpochReader : ISelectedSes
 }
 
 /// <summary>
-/// Selected-session PEP. The signed roster edge is authoritative when present. A browser invitee can be
-/// authenticated before its deferred atlas admission exists, so the exact live pinned grant is the
-/// authority source for that one transition state; it is never a client-side composition or fallback role.
+/// Selected-session PEP. Ticket 293 slice 4 — GRANTS answer and the roster edge only CONSTRAINS: the
+/// candidate set is the principal's own install-root grant derivation read by the gate, and the signed edge
+/// contributes membership and ejection. A browser invitee can be authenticated before its deferred atlas
+/// admission exists, so a live pinned grant still authorizes that one transition state; it is never a
+/// client-side composition or fallback role.
 /// </summary>
 internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermissionResolver
 {
@@ -91,22 +93,6 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
         _epochReader = epochReader ?? throw new ArgumentNullException(nameof(epochReader));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    // Transitional test-call compatibility: the former third argument was a closure reader. It is deliberately
-    // ignored: session decisions now derive grants only through the gate passed below.
-    public SelectedSessionPermissionResolver(
-        IVerifiedTenantRosterReader rosterReader,
-        IGrantStore grantStore,
-        object legacyClosure,
-        ISelectedSessionAuthorizationEpochReader epochReader,
-        TimeProvider timeProvider,
-        ILogger<SelectedSessionPermissionResolver> logger,
-        AuthorizationGate gate,
-        AuthorizationRefusalAudit? refusalAudit = null)
-        : this(rosterReader, grantStore, epochReader, timeProvider, logger, gate, refusalAudit)
-    {
-        ArgumentNullException.ThrowIfNull(legacyClosure);
     }
 
     public async ValueTask<PermissionSet?> ResolveAsync(
@@ -144,12 +130,16 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
                 .ConfigureAwait(false);
             // Derive the live inputs once; the gate decides each permission projected into this session.
             var evaluatedAt = _timeProvider.GetUtcNow();
-            var inputs = EffectiveMemberPermissions.Read(
-                roster, principal.CanonicalParty.Value, NodeGatePrincipal.Of(principal));
+            // Ticket 293 slice 4 fix 4 — ONE key across planes. The edge is looked up under the SAME actor
+            // id the gate is asked about: since ticket 294 slice 2a the roster's PartyId carries
+            // CanonicalPartyBinding.PrincipalUserId.Value, while principal.CanonicalParty is the People
+            // attribution reference and is not an authorization key (see NodeGatePrincipal).
+            var gatePrincipal = NodeGatePrincipal.Of(principal);
+            var inputs = EffectiveMemberPermissions.Read(roster, gatePrincipal.Value, gatePrincipal);
             var allowed = new List<string>();
-            var authority = new AuthorizationWriteContext(NodeGatePrincipal.Of(principal), principal.TenantId, evaluatedAt);
+            var authority = new AuthorizationWriteContext(gatePrincipal, principal.TenantId, evaluatedAt);
             var candidates = await _gate.InstallRootPermissionsAsync(
-                NodeGatePrincipal.Of(principal), principal.TenantId, evaluatedAt, cancellationToken).ConfigureAwait(false);
+                gatePrincipal, principal.TenantId, evaluatedAt, cancellationToken).ConfigureAwait(false);
             foreach (var permission in candidates.Permissions)
             {
                 var operation = AuthorizationOperation.Parse(permission);
