@@ -94,6 +94,24 @@ run_land_verify() {
   cat "$verify_log"
   return "$verify_rc"
 }
+
+# Ticket 350: the mac slice gate publishes a receipt for the MERGE tree as refs/receipts/tree/<tree>.
+# If one exists for exactly this tree, is schema-current, covers every step eng/verify-receipt.mjs
+# requires and is younger than HARBORLINE_RECEIPT_MAX_AGE_HOURS, the twelve steps have already run on
+# this exact tree and re-running them here buys nothing but an hour. Everything AFTER the gate — the
+# baseline re-pin, the PR binding, the merge and the landing resolution — is unchanged and still runs.
+# eng/receipt-accept.mjs owns the decision (and prints the reason either way) so it is testable
+# without a repository.
+receipt_ref="refs/receipts/tree/$tested_tree"
+receipt_file=$(mktemp "${TMPDIR:-/tmp}/land-receipt-XXXXXX")
+receipt_accepted=0
+if git fetch -q --no-tags origin "+$receipt_ref:$receipt_ref" 2>/dev/null && git cat-file blob "$receipt_ref" >"$receipt_file" 2>/dev/null; then
+  if node eng/receipt-accept.mjs "$tested_tree" "$receipt_file"; then receipt_accepted=1; fi
+else
+  echo "land: no verification receipt published for tree ${tested_tree:0:12}; gating here"
+fi
+rm -f "$receipt_file"
+if [ $receipt_accepted -eq 0 ]; then
 verify_log="$land_scratch/land-verify.log"
 preserved_verify_log="$root/.claude/land-verify-$$.log"
 mkdir -p "$(dirname "$verify_log")"
@@ -131,6 +149,13 @@ if [ $main_moved -eq 1 ]; then
   echo "land: intervening landings:"
   printf '%s\n' "$intervening_landings"
 fi
+else
+  if [ $main_moved -eq 1 ]; then
+    echo "land: main moved: re-pinned arithmetically (main $main_total, branch delta $(printf '%+d' "$branch_delta"), expected $expected_total); measurement skipped on the accepted receipt (ticket 350)"
+    echo "land: intervening landings:"
+    printf '%s\n' "$intervening_landings"
+  fi
+fi
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ $main_moved -eq 1 ]; then
   git -C "$land_dir" push --no-verify origin "$repinned_head:refs/heads/$branch" || { echo "land: could not push the re-pinned merge head; nothing landed"; exit 1; }
@@ -141,11 +166,31 @@ if [ -z "$pr" ]; then
   [ -n "$pr" ] || { echo "land: no open PR for $branch against main — open it first so the description is reviewed"; exit 1; }
 fi
 pr_base=$(gh pr view "$pr" --json baseRefName --jq .baseRefName)
-pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
 pr_head_ref=$(gh pr view "$pr" --json headRefName --jq .headRefName)
 [ "$pr_base" = "main" ] || { echo "land: PR #$pr targets '$pr_base', not main"; exit 1; }
 [ "$pr_head_ref" = "$branch" ] || { echo "land: PR #$pr head is '$pr_head_ref', not $branch"; exit 1; }
-[ "$pr_head" = "$head_sha" ] || { echo "land: PR #$pr head ($pr_head) is not the gated head ($head_sha); the branch moved after the gate. Rerun land.sh."; exit 1; }
+if [ $main_moved -eq 1 ]; then
+  pushed_head=$(git ls-remote --heads origin "refs/heads/$branch" | awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }')
+  [ "$pushed_head" = "$head_sha" ] || { echo "land: remote branch $branch ($pushed_head) is not the gated head ($head_sha); the branch moved after the gate. Rerun land.sh."; exit 1; }
+  pr_head_retries=${LAND_PR_HEAD_RETRIES:-12}
+  pr_head_delay=${LAND_PR_HEAD_DELAY:-5}
+  case "$pr_head_retries" in ''|*[!0-9]*) echo "land: LAND_PR_HEAD_RETRIES must be a positive integer"; exit 2;; esac
+  [ "$pr_head_retries" -gt 0 ] || { echo "land: LAND_PR_HEAD_RETRIES must be a positive integer"; exit 2; }
+  pr_head_reads=0
+  while [ "$pr_head_reads" -lt "$pr_head_retries" ]; do
+    pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+    pr_head_reads=$((pr_head_reads + 1))
+    [ "$pr_head" = "$head_sha" ] && break
+    if [ "$pr_head_reads" -lt "$pr_head_retries" ]; then
+      echo "land: waiting for GitHub to see the pushed head ($pr_head_reads)"
+      sleep "$pr_head_delay"
+    fi
+  done
+  [ "$pr_head" = "$head_sha" ] || { echo "land: PR #$pr head ($pr_head) is not the pushed head ($head_sha); GitHub is stale after $pr_head_reads reads. Rerun land.sh."; exit 1; }
+else
+  pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+  [ "$pr_head" = "$head_sha" ] || { echo "land: PR #$pr head ($pr_head) is not the gated head ($head_sha); the branch moved after the gate. Rerun land.sh."; exit 1; }
+fi
 git fetch -q origin || { echo "land: fetch failed before landing; refusing"; exit 1; }
 [ "$(git rev-parse origin/main)" = "$base_sha" ] || { echo "land: origin/main moved during the gate ($(git rev-parse --short origin/main) != $(git rev-parse --short "$base_sha")); nothing landed. Merge main into the branch, regate, rerun."; exit 1; }
 # shellcheck source=land-resolve.sh
