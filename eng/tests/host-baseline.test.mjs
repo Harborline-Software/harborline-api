@@ -157,7 +157,11 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
   try {
     mkdirSync(path.join(dir, 'eng'))
     for (const file of ['coverage.mjs', 'verify-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
-    const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8'})
+    // The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no
+    // coverage artifacts, so the flag must not leak into it (337: first red at the land step, not the gate).
+    const env = {...process.env}
+    delete env.HARBORLINE_GATE_COVERAGE
+    const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8', env})
     for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Baseline Test', '-c', 'user.email=baseline@example.invalid', 'commit', '--no-verify', '-qm', 'fixture']]) {
       const result = run('git', args)
       assert.equal(result.status, 0, result.stdout + result.stderr)
