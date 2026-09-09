@@ -113,12 +113,20 @@ internal sealed class FrameworkWindowsEventLogSink : IWindowsEventLogSink
     }
 }
 
-internal sealed class WindowsEventLogAvailabilityHealthCheck(IWindowsEventLogSink sink) : IHealthCheck
+/// <remarks>
+/// The sink is OPTIONAL because <see cref="ResilientWindowsEventLogRegistration.Add"/> registers it on
+/// Windows only, while the health chain in Program.cs is composed once for every platform. A required
+/// dependency made every /health request on macOS and Linux throw
+/// "Unable to resolve service for type 'IWindowsEventLogSink'" inside the health middleware — a 500 on a
+/// perfectly healthy host (ticket 302). No sink registered means the platform has no event log to be
+/// unavailable, which is Healthy; a registered sink still decides.
+/// </remarks>
+internal sealed class WindowsEventLogAvailabilityHealthCheck(IWindowsEventLogSink? sink = null) : IHealthCheck
 {
     public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(sink.IsAvailable
+        Task.FromResult(sink is null || sink.IsAvailable
             ? HealthCheckResult.Healthy()
             : HealthCheckResult.Degraded("event log unavailable"));
 }
