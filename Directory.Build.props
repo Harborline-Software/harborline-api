@@ -47,6 +47,10 @@
          evidence for CQG. Keep these two warnings visible in ErrorLog without
          weakening warning-as-error handling for any other analyzer rule. -->
     <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1510;VSTHRD002;CA1031</WarningsNotAsErrors>
+    <!-- The threading package rules outside the ADR 0085 preview set stay warnings, never errors: an MSBuild
+         property reaches every checkout shape, where a repository .globalconfig did not (a detached worktree
+         nested under another worktree compiled without it; 340 s1). -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);VSTHRD001;VSTHRD003;VSTHRD004;VSTHRD010;VSTHRD011;VSTHRD012;VSTHRD101;VSTHRD102;VSTHRD103;VSTHRD104;VSTHRD105;VSTHRD106;VSTHRD107;VSTHRD108;VSTHRD109;VSTHRD110;VSTHRD111;VSTHRD112;VSTHRD113;VSTHRD114;VSTHRD115;VSTHRD200</WarningsNotAsErrors>
     <Authors>Harborline Software Contributors</Authors>
     <Company>Harborline Software</Company>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
@@ -294,11 +298,4 @@
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
 
-  <!-- The repository .globalconfig (the threading rules outside the ADR 0085 preview set stay advisory)
-       is not discovered from a project two directories down in every checkout shape: a detached worktree
-       nested under another worktree (the landing's shape) compiled without it and promoted VSTHRD103 to
-       error. Include it explicitly for every project (340 s1). -->
-  <ItemGroup>
-    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory).globalconfig" Condition="Exists('$(MSBuildThisFileDirectory).globalconfig')" />
-  </ItemGroup>
 </Project>
