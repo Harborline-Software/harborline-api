@@ -56,6 +56,12 @@
       "cause": "the 30 s window the assertion allows for the blocked writer to be observed is not enough when the box is saturated.",
       "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
       "retryLimit": 1
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
+      "owner": "348",
+      "firstSeen": "2026-09-08",
+      "expires": "2026-10-08"
     }
   ],
   "skips": {
