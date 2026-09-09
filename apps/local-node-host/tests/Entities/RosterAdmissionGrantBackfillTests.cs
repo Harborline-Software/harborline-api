@@ -30,24 +30,22 @@ public sealed class RosterAdmissionGrantBackfillTests
         await using var reopened = SearchTestStore.Reopen(store);
         await using var provider = GateProvider(reopened);
         var closure = provider.GetRequiredService<IAuthorizationClosureReader>();
+        var gate = provider.GetRequiredService<AuthorizationGate>();
         var after = await new VerifiedTenantRosterReader(new RosterFactory(reopened), new Ed25519Verifier())
             .ReadAsync(Tenant, default);
         foreach (var member in before.Members)
         {
             var principal = new ActorId(member.PartyId);
-            // `before` is the LIVE local roster (it still holds the set the founder granted); `after` is the
-            // reconstruction from durable records, which carries NO permission set for a non-genesis member -
-            // so the read falls through to the grant closure and must land on the same answer.
-            var expected = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
-                closure, before, member.PartyId, Tenant, principal, At.AddDays(1), default);
-            var actual = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
-                closure, after, member.PartyId, Tenant, principal, At.AddDays(1), default);
+            // Both roster shapes carry the same membership facts; grant authority is read by the gate.
+            var expected = Data.Identity.EffectiveMemberPermissions.Read(before, member.PartyId, principal);
+            var actual = Data.Identity.EffectiveMemberPermissions.Read(after, member.PartyId, principal);
+            var gatePermissions = await gate.InstallRootPermissionsAsync(principal, Tenant, At.AddDays(1), default);
             var grants = await closure.UserPermissionsAsync(Tenant, principal, At.AddDays(1), default);
             var grantPermissions = PermissionSet.From(grants.Atoms.Where(a => a.Scope.Value == "/")
                 .Select(a => a.Operation.Value));
             Assert.True(actual.Member);
             Assert.Equal(expected, actual);
-            Assert.Equal(expected.Permissions, grantPermissions);
+            Assert.Equal(gatePermissions, grantPermissions);
             if (member.PartyId != "founder") Assert.Null(after.PermissionsOf(member.PartyId));
         }
     }
@@ -63,20 +61,19 @@ public sealed class RosterAdmissionGrantBackfillTests
         await grants.RevokeAsync(Tenant, grant.GrantId, new GrantRevocation(new ActorId("founder"), At,
             new GrantReason(GrantReasonCodes.RevocationReview)));
         await using var provider = GateProvider(store);
-        var closure = provider.GetRequiredService<IAuthorizationClosureReader>();
+        var gate = provider.GetRequiredService<AuthorizationGate>();
         var roster = await new VerifiedTenantRosterReader(new RosterFactory(store), new Ed25519Verifier())
             .ReadAsync(Tenant, default);
 
-        // Both are members of the reconstruction and neither carries a roster permission set - the grant is
-        // the whole difference between them.
+        // Both are members of the reconstruction; the gate's grant reading is the whole difference between them.
         Assert.Null(roster.PermissionsOf("member-1"));
         Assert.Null(roster.PermissionsOf("member-2"));
         foreach (var (party, allowed) in new[] { ("member-1", true), ("member-2", false) })
         {
-            var inputs = await Data.Identity.EffectiveMemberPermissions.ReadAsync(
-                closure, roster, party, Tenant, new ActorId(party), At.AddDays(1), default);
+            var inputs = Data.Identity.EffectiveMemberPermissions.Read(roster, party, new ActorId(party));
             Assert.True(inputs.Member);
-            Assert.Equal(allowed, inputs.Permissions?.Contains(TeamRolePermissions.RecordsRead) == true);
+            Assert.Equal(allowed, (await gate.InstallRootPermissionsAsync(
+                new ActorId(party), Tenant, At.AddDays(1), default)).Contains(TeamRolePermissions.RecordsRead));
         }
     }
 
@@ -235,6 +232,76 @@ public sealed class RosterAdmissionGrantBackfillTests
         Assert.Empty(await db.AuthorizationDefinitions.ToArrayAsync());
         Assert.Empty(await db.AuthorizationOfferedRoles.ToArrayAsync());
         Assert.Empty(await db.Set<RosterAdmissionGrantBackfillRow>().ToArrayAsync());
+    }
+
+    /// <summary>
+    /// 293 slice 4 fix 3 — a LIVE admission confers the admitted member's grant through the same derivation
+    /// the 3a boot backfill runs over history, so the gate answers for a member the backfill never saw. The
+    /// grant is keyed on the ROSTER PARTY ID, which is the actor id the gate is asked about on the roster
+    /// plane; the assertion reads the grant store, never the conferral's own return value.
+    /// </summary>
+    [Fact]
+    public async Task A_live_admission_confers_the_admitted_members_grant_the_gate_then_answers_from()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        await SeedAsync(store, 1);
+        var configuration = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
+        await using (var db = store.CreateContext()) await db.Database.MigrateAsync();
+
+        await using var provider = GateProvider(store);
+        Assert.Equal(AuthorizationVerdict.Denied, (await DecideAsync(provider, "late-joiner", "records:read")).Verdict);
+
+        await configuration.ConferAdmissionGrantAsync(
+            Tenant, "late-joiner", "founder", PermissionSet.Of("records:read"), At, default);
+
+        var conferred = Assert.Single(
+            await new NodeEfGrantStore(store.Factory).FindByPrincipalAsync(Tenant, new ActorId("late-joiner")));
+        Assert.Equal(GrantStatus.Active, conferred.Status);
+        Assert.Equal("/", conferred.Scope.Value);
+        await using var admitted = GateProvider(store);
+        Assert.Equal(AuthorizationVerdict.Allowed, (await DecideAsync(admitted, "late-joiner", "records:read")).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, (await DecideAsync(admitted, "late-joiner", "records:write")).Verdict);
+    }
+
+    /// <summary>
+    /// The conferral is idempotent on (tenant, admitted party): a re-admission never mints a rival grant, so
+    /// the admission path can be retried without doubling authority.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_admission_confers_no_second_grant()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        await SeedAsync(store, 1);
+        var configuration = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
+        await using (var db = store.CreateContext()) await db.Database.MigrateAsync();
+        var permissions = PermissionSet.Of("records:read");
+
+        Assert.NotNull(await configuration.ConferAdmissionGrantAsync(Tenant, "twice", "founder", permissions, At, default));
+        Assert.Null(await configuration.ConferAdmissionGrantAsync(Tenant, "twice", "founder", permissions, At, default));
+
+        Assert.Single(await new NodeEfGrantStore(store.Factory).FindByPrincipalAsync(Tenant, new ActorId("twice")));
+    }
+
+    /// <summary>
+    /// A conferral that cannot be written fails the admission and leaves NOTHING behind — no grant, no role,
+    /// no capability definition. An operation outside the reviewed catalogue is the cheapest such failure;
+    /// the admission's caller sees the throw and never publishes the roster record it was guarding.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_conferral_leaves_no_grant_and_no_definition_behind()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        await SeedAsync(store, 1);
+        var configuration = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
+        await using (var db = store.CreateContext()) await db.Database.MigrateAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => configuration.ConferAdmissionGrantAsync(
+            Tenant, "refused", "founder", PermissionSet.Of("records:read").With("migration:unknown"), At, default));
+
+        await using var grants = store.CreateContext();
+        Assert.Empty(await grants.Grants.Where(row => row.SubjectId == "refused").ToArrayAsync());
+        Assert.Empty(await grants.AuthorizationRoles.ToArrayAsync());
+        Assert.Empty(await grants.AuthorizationDefinitions.ToArrayAsync());
     }
 
     private static async Task<(MemberRoster Roster, Ed25519Signer Signer)> SeedAsync(SearchTestStore store, int count)

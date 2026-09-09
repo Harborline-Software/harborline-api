@@ -71,7 +71,6 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
     private readonly AuthorizationRefusalAudit? _refusalAudit;
     private readonly IVerifiedTenantRosterReader _rosterReader;
     private readonly IGrantStore _grantStore;
-    private readonly IAuthorizationClosureReader _authorization;
     private readonly ISelectedSessionAuthorizationEpochReader _epochReader;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SelectedSessionPermissionResolver> _logger;
@@ -79,7 +78,6 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
     public SelectedSessionPermissionResolver(
         IVerifiedTenantRosterReader rosterReader,
         IGrantStore grantStore,
-        IAuthorizationClosureReader authorization,
         ISelectedSessionAuthorizationEpochReader epochReader,
         TimeProvider timeProvider,
         ILogger<SelectedSessionPermissionResolver> logger,
@@ -90,10 +88,25 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
         _refusalAudit = refusalAudit;
         _rosterReader = rosterReader ?? throw new ArgumentNullException(nameof(rosterReader));
         _grantStore = grantStore ?? throw new ArgumentNullException(nameof(grantStore));
-        _authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
         _epochReader = epochReader ?? throw new ArgumentNullException(nameof(epochReader));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    // Transitional test-call compatibility: the former third argument was a closure reader. It is deliberately
+    // ignored: session decisions now derive grants only through the gate passed below.
+    public SelectedSessionPermissionResolver(
+        IVerifiedTenantRosterReader rosterReader,
+        IGrantStore grantStore,
+        object legacyClosure,
+        ISelectedSessionAuthorizationEpochReader epochReader,
+        TimeProvider timeProvider,
+        ILogger<SelectedSessionPermissionResolver> logger,
+        AuthorizationGate gate,
+        AuthorizationRefusalAudit? refusalAudit = null)
+        : this(rosterReader, grantStore, epochReader, timeProvider, logger, gate, refusalAudit)
+    {
+        ArgumentNullException.ThrowIfNull(legacyClosure);
     }
 
     public async ValueTask<PermissionSet?> ResolveAsync(
@@ -130,18 +143,14 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
                 .ReadAsync(principal.TenantId, cancellationToken)
                 .ConfigureAwait(false);
             // Derive the live inputs once; the gate decides each permission projected into this session.
-            var inputs = await EffectiveMemberPermissions.ReadAsync(
-                _authorization,
-                roster,
-                principal.CanonicalParty.Value,
-                principal.TenantId,
-                NodeGatePrincipal.Of(principal),
-                _timeProvider.GetUtcNow(),
-                cancellationToken).ConfigureAwait(false);
+            var evaluatedAt = _timeProvider.GetUtcNow();
+            var inputs = EffectiveMemberPermissions.Read(
+                roster, principal.CanonicalParty.Value, NodeGatePrincipal.Of(principal));
             var allowed = new List<string>();
-            var authority = new AuthorizationWriteContext(NodeGatePrincipal.Of(principal), principal.TenantId,
-                _timeProvider.GetUtcNow());
-            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
+            var authority = new AuthorizationWriteContext(NodeGatePrincipal.Of(principal), principal.TenantId, evaluatedAt);
+            var candidates = await _gate.InstallRootPermissionsAsync(
+                NodeGatePrincipal.Of(principal), principal.TenantId, evaluatedAt, cancellationToken).ConfigureAwait(false);
+            foreach (var permission in candidates.Permissions)
             {
                 var operation = AuthorizationOperation.Parse(permission);
                 var decision = await _gate.DecideAsync(authority.Request(operation,

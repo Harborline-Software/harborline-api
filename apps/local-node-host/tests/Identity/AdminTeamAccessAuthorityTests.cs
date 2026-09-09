@@ -468,6 +468,34 @@ public sealed class AdminTeamAccessAuthorityTests
         await sessions.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// 293 slice 4 fix 3 — the handover CONFERS the successor's grant and REVOKES the predecessor's in one
+    /// unit of work (<c>IGrantStore.HandoverAdministratorAsync</c>, one store transaction). Proven by reading
+    /// the grant store: both legs carry the SAME instant, the successor's grant is an active install-root
+    /// Administrator grant, and the predecessor's is revoked. Neither leg can land alone.
+    /// </summary>
+    [Fact]
+    public async Task A_Handover_Confers_The_Successors_Grant_And_Revokes_The_Predecessors_In_One_Unit_Of_Work()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+
+        var result = await fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, successorPrincipalId: "principal-admin");
+
+        Assert.Equal(AdminRevokeMemberStatus.HandedOver, result?.Status);
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        var predecessor = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId);
+        var successor = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == result!.SuccessorGrantId);
+        Assert.NotNull(predecessor.RevokedAtUnixMs);
+        Assert.Null(successor.RevokedAtUnixMs);
+        Assert.Equal(RoleReference.Administrator.Name, successor.RoleName);
+        Assert.Equal("/", successor.ScopeValue);
+        Assert.Equal("principal-admin", successor.SubjectId);
+        // One unit of work: the conferral's validity opens at the instant the revocation closes the other leg.
+        Assert.Equal(predecessor.RevokedAtUnixMs, successor.ValidityFromUnixMs);
+    }
+
     private static async Task PromoteToAdministratorAsync(Fixture fixture, string grantId)
     {
         await using var grants = fixture.GrantFactory.CreateDbContext();
@@ -553,10 +581,8 @@ public sealed class AdminTeamAccessAuthorityTests
         roster = roster.Revoke("founder", ejected);
         await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
         await PromoteToAdministratorAsync(fixture, WebGrantId);
-        var closure = new GrantDerivedClosure(new NodeEfGrantStore(fixture.GrantFactory));
         var principal = new ActorId("principal-web");
-        var inputs = await EffectiveMemberPermissions.ReadAsync(
-            closure, roster, "party-web", new TenantId(TenantId), principal, Now, CancellationToken.None);
+        var inputs = EffectiveMemberPermissions.Read(roster, "party-web", principal);
         var decision = await TestAuthorization.AllowGate().DecideAsync(
             new AuthorizationWriteContext(principal, new TenantId(TenantId), Now)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "ejection")
@@ -706,6 +732,23 @@ public sealed class AdminTeamAccessAuthorityTests
                 sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
                 new FixedRosterReader(roster), store, TestAuthorization.AllowGate(), new FixedTimeProvider(Now));
             var grantStore = new NodeEfGrantStore(grantFactory);
+            // Ticket 293 slice 4 — the gate decides from GRANTS, never from a roster permission set.
+            // Each admitted party's admission conferred a grant carrying the permissions the roster edge
+            // records (NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync), and an install-wide
+            // Administrator grant in force confers members:manage on top of it. Those two, and nothing the
+            // roster supplies, are what admits a caller here.
+            var conferred = new Dictionary<string, PermissionSet>(StringComparer.Ordinal)
+            {
+                ["principal-admin"] = callerPermissions,
+            };
+            if (successorPermissions is not null) conferred["principal-third"] = successorPermissions;
+            var grantDerivedGate = TestAuthorization.Gate(request =>
+                (conferred.TryGetValue(request.Principal.Value, out var set)
+                    && set.Permissions.Contains(request.Act.Operation.Value))
+                || grantStore.SnapshotAsync(request.Tenant, CancellationToken.None)
+                    .GetAwaiter().GetResult()
+                    .Any(grant => grant.Subject == request.Principal
+                        && LastAdministratorGuard.IsAdministratorInForce(grant, request.At)));
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
             IAuthorizedAuditTrail grantAudit = new InMemoryAuditTrail();
@@ -719,7 +762,7 @@ public sealed class AdminTeamAccessAuthorityTests
                 sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
                 new FixedRosterReader(roster), store, issuer,
                 grantStore, grantWriter, new GrantDerivedClosure(grantStore),
-                TestAuthorization.AllowGate(), timeProvider ?? new FixedTimeProvider(Now),
+                grantDerivedGate, timeProvider ?? new FixedTimeProvider(Now),
                 rosterWriter, grantAudit,
                 new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
             return new Fixture(

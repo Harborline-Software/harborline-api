@@ -311,8 +311,6 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             var evidence = capture.AssertSingle(true);
             Assert.True(evidence.Roster!.Member);
             Assert.True(evidence.Roster.RegistryMember);
-            Assert.Equal(PermissionCompositions.ForRole(operatorRoleAtStartup).Permissions.Order(),
-                evidence.Roster.Permissions!.Permissions.Order());
 
             await app.StartAsync(CancellationToken.None);
             var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };

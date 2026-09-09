@@ -20,6 +20,22 @@ public sealed class AuthorizationGate(
             ["ledger"] = "journal-entry",
         };
 
+    /// <summary>
+    /// The install-root grant derivation the roster inputs used to carry: the principal's atoms whose scope
+    /// is the install root, at the caller's instant. The gate reads its OWN closure; no caller holds a reader.
+    /// </summary>
+    public async ValueTask<PermissionSet> InstallRootPermissionsAsync(
+        ActorId principal, TenantId tenant, DateTimeOffset at, CancellationToken ct = default)
+    {
+        var request = new AuthorizationGateRequest(
+            PermissionAtom.Parse("records:read@/"), principal, tenant,
+            new AuthorizationTarget("tenant", tenant.Value, InstallWideScope), at);
+        var snapshot = await closure.ReadAsync(request, ct).ConfigureAwait(false);
+        return PermissionSet.From(snapshot.Derivations.Select(d => d.Atom)
+            .Where(a => a.Scope.Value == "/")
+            .Select(a => a.Operation.Value));
+    }
+
     public async ValueTask<AuthorizationDecision> DecideAsync(
         AuthorizationGateRequest request,
         CancellationToken ct = default)
@@ -70,8 +86,6 @@ public sealed class AuthorizationGate(
         if (request.Roster is { } roster)
         {
             var grantAllowed = atomCoverageAllowed;
-            var held = roster.Ejected ? PermissionSet.Empty : roster.Permissions ?? PermissionSet.Empty;
-
             // Ticket 294 slice 2a — the prospective-Administrator rule. When the caller declares that the
             // Administrator role is ABOUT to be conferred on this subject, the decision is made against the
             // atoms that role confers ONLY where the subject holds no roster edge. Where a roster edge
@@ -79,14 +93,20 @@ public sealed class AuthorizationGate(
             // against the subject's OWN conferred grants and the prospective atoms are not added — a
             // successor the roster has narrowed is refused rather than handed a role that does nothing
             // (ticket 211 slice 3). An ejected subject is empty either way: ejection outranks a prospect.
-            if (roster is { ProspectiveAdministratorGrant: true, Member: false, Ejected: false })
+            // Ticket 293 slice 4 — the roster no longer SUPPLIES a deciding set: the atoms are the ones
+            // the gate derived from its own closure above, and this branch only constrains them.
+            if (roster.Ejected)
             {
-                held = held.Union(PermissionSet.From(TeamRolePermissions.ForRole(TeamRole.Admin)));
+                atoms = [];
             }
-
-            atoms = held
-                .Permissions.Select(permission => PermissionAtom.Parse($"{permission}@/"))
-                .ToImmutableArray();
+            else if (roster is { ProspectiveAdministratorGrant: true, Member: false })
+            {
+                atoms = atoms
+                    .Concat(PermissionSet.From(TeamRolePermissions.ForRole(TeamRole.Admin))
+                        .Permissions.Select(permission => PermissionAtom.Parse($"{permission}@/")))
+                    .Distinct()
+                    .ToImmutableArray();
+            }
             atomCoverageAllowed = atoms.Any(atom => atom.Covers(request.Act))
                 && (!roster.RequireMember || roster.Member)
                 && (!roster.RequireGrantCoverage || grantAllowed)

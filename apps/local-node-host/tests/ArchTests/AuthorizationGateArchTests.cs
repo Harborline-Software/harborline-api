@@ -35,13 +35,11 @@ public sealed class AuthorizationGateArchTests
         // justified-consumer rows went vacuous and were removed.
         // Ticket 205 slice 2: NodeWorkshopUnlockAuthority.cs resolves workshop:unlock through the gate now, so it
         // holds none of the fenced ambient symbols and its justified-consumer row became vacuous.
-        ("apps/local-node-host/Data/Financial/ActiveTeamAuthorizationContext.cs",
-            "ticket-290 desktop plane: carries the closure reader into EffectiveMemberPermissions, the one reading"),
+        // Ticket 293 slice 4: ActiveTeamAuthorizationContext and SelectedSessionPermissionResolver now ask
+        // AuthorizationGate for install-root grants instead of carrying a closure reader, and
+        // EffectiveMemberPermissions carries membership and ejection only, so all three rows went vacuous.
         ("apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs", "account-setup route guard"),
         ("apps/local-node-host/Data/Identity/AdminTeamAccessAuthority.cs", "admin-team route guard"),
-        ("apps/local-node-host/Data/Identity/EffectiveMemberPermissions.cs",
-            "ticket-211 shared roster-edge-then-closure read, extracted from the two consumers below"),
-        ("apps/local-node-host/Data/Identity/SelectedSessionPermissionResolver.cs", "ticket-205 selected-session read consumer"),
         ("apps/local-node-host/Data/Identity/WebAdmittedMemberAtlasBridge.cs", "member-admission route guard"),
         ("apps/local-node-host/Data/Search/ClosureAuthorizedRecordSetProjection.cs", "ticket-205 record-set read consumer"),
         // Ticket 205 slice 4: the nine record-scoped route files (authorization-admin, bank-account,
@@ -104,6 +102,7 @@ public sealed class AuthorizationGateArchTests
     [InlineData(typeof(SelectedSessionPermissionResolver))]
     [InlineData(typeof(AccountSetupInvitationIssuer))]
     [InlineData(typeof(RecoveryInvitationIssuer))]
+    [InlineData(typeof(EffectiveMemberPermissions))]
     public void RosterSites_ReachTheGate_WithoutDirectRosterVerdicts(Type site)
     {
         var methods = site.Assembly.GetTypes().Where(type =>
@@ -112,8 +111,17 @@ public sealed class AuthorizationGateArchTests
             return type == site;
         }).SelectMany(DeclaredMethods).ToArray();
         var calls = methods.SelectMany(CalledMethods).ToArray();
-        Assert.Contains(calls, call => call.DeclaringType == typeof(AuthorizationGate)
-            && call.Name == nameof(AuthorizationGate.DecideAsync));
+        if (site != typeof(EffectiveMemberPermissions))
+        {
+            Assert.Contains(calls, call => call.DeclaringType == typeof(AuthorizationGate)
+                && call.Name == nameof(AuthorizationGate.DecideAsync));
+        }
+        else
+        {
+            Assert.DoesNotContain(calls, call => call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.MemberRoster)
+                && call.Name is "PermissionsOf" or "HasPermission");
+            return;
+        }
         Assert.DoesNotContain(calls, call =>
             call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.MemberRoster)
                 && call.Name is "PermissionsOf" or "HasPermission"
@@ -125,7 +133,7 @@ public sealed class AuthorizationGateArchTests
             || call.DeclaringType == typeof(Harborline.Api.Foundation.IdentityAtlas.TeamMembership)
                 && call.Name == "get_EffectivePermissions"
             || call.DeclaringType == typeof(EffectiveMemberPermissions)
-                && call.Name is not "Read" and not "ReadAsync");
+                && call.Name is not "Read");
     }
 
     [Fact]

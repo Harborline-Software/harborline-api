@@ -257,8 +257,9 @@ internal sealed class AdminTeamAccessAuthority(
                 members.Add(new TeamMemberView(
                     rosterMember.PartyId,
                     TeamMemberSource.Roster,
-                    EffectiveMemberPermissions.Read(context.Roster, rosterMember.PartyId,
-                        new ActorId(rosterMember.PartyId)).Permissions!.Permissions.Order(StringComparer.Ordinal).ToArray(),
+                    (await _gate.InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId),
+                        context.Decision.Request.Tenant, context.Decision.Request.At, cancellationToken)
+                        .ConfigureAwait(false)).Permissions.Order(StringComparer.Ordinal).ToArray(),
                     GrantId: null));
             }
         }
@@ -755,9 +756,8 @@ internal sealed class AdminTeamAccessAuthority(
 
         // Ticket 294 slice 2a — the roster is read by the ONE key. `party` above is still required and
         // still pinned to the session's canonical party reference (attribution); it is not the roster key.
-        var inputs = await EffectiveMemberPermissions.ReadAsync(
-            _authorization, roster, session.TenantPrincipalId, tenant,
-            new ActorId(session.TenantPrincipalId), now, cancellationToken).ConfigureAwait(false);
+        var inputs = EffectiveMemberPermissions.Read(
+            roster, session.TenantPrincipalId, new ActorId(session.TenantPrincipalId));
         request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, now)
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "list");
         if (request.Principal.Value != session.TenantPrincipalId)

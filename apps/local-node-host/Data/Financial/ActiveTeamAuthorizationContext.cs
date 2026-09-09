@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
@@ -39,15 +38,13 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     private readonly IMutableTeamRegistry _memberships;
     private readonly NodeTeamRoster? _roster;
     private readonly IOperationSigner? _nodeSigner;
-    private readonly IAuthorizationClosureReader? _authorization;
     private readonly TimeProvider _timeProvider;
     private readonly AuthorizationGate _gate;
     private readonly AuthorizationRefusalAudit? _refusalAudit;
 
     /// <summary>
     /// Construct over the active-team accessor + the membership store, and - where the composition has them -
-    /// the signed roster, this node's signer and the grant closure, which together are the ONE reading
-    /// (<see cref="EffectiveMemberPermissions"/>) the web plane also answers from.
+    /// the signed roster and this node's signer. The gate reads the grant closure it owns.
     /// </summary>
     public ActiveTeamAuthorizationContext(
         IActiveTeamAccessor activeTeam,
@@ -55,7 +52,6 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         TimeProvider timeProvider,
         NodeTeamRoster? roster = null,
         IOperationSigner? nodeSigner = null,
-        IAuthorizationClosureReader? authorization = null,
         AuthorizationGate? gate = null,
         AuthorizationRefusalAudit? refusalAudit = null)
     {
@@ -63,7 +59,6 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _roster = roster;
         _nodeSigner = nodeSigner;
-        _authorization = authorization;
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
         _refusalAudit = refusalAudit;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -112,22 +107,22 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         var tenant = ActiveTeamTenantContext.ProjectTenantId(active.TeamId);
         var at = _timeProvider.GetUtcNow();
         var membership = ResolveActiveMembership();
-        var inputs = new AuthorizationRosterInputs(NodeOperator.Value, false, false, null);
-        if (_roster is not null && _nodeSigner is not null && _authorization is not null)
+        var inputs = new AuthorizationRosterInputs(NodeOperator.Value, false, false);
+        if (_roster is not null && _nodeSigner is not null)
         {
             var roster = _roster.Current;
             // Admissions retain revoked keys, so their ejection reaches the gate as evidence too.
             var partyId = roster.Members.FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId
                 ?? roster.EnumerateAdmissions().FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId;
             if (partyId is not null)
-                inputs = await EffectiveMemberPermissions.ReadAsync(_authorization, roster, partyId,
-                    tenant, NodeOperator, at, CancellationToken.None).ConfigureAwait(false);
+                inputs = EffectiveMemberPermissions.Read(roster, partyId, NodeOperator);
         }
         AuthorizationDecision? decision = null;
         // A role label previously required at least one allowed act. Each candidate still asks the gate;
         // an empty input set asks it once as well, so absence has refusal evidence.
         var candidates = permission is null
-            ? (inputs.Permissions ?? PermissionSet.Empty).Permissions.DefaultIfEmpty(TeamRolePermissions.RecordsRead)
+            ? (await _gate.InstallRootPermissionsAsync(NodeOperator, tenant, at, CancellationToken.None)
+                .ConfigureAwait(false)).Permissions.DefaultIfEmpty(TeamRolePermissions.RecordsRead)
             : [permission];
         foreach (var candidate in candidates)
         {

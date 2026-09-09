@@ -21,8 +21,7 @@ public sealed record AuthorizationGateRequest(
 }
 
 /// <summary>Server-derived membership facts; only the gate turns them into a verdict.</summary>
-public sealed record AuthorizationRosterInputs(
-    string PartyId, bool Member, bool Ejected, PermissionSet? Permissions)
+public sealed record AuthorizationRosterInputs(string PartyId, bool Member, bool Ejected)
 {
     public bool? RegistryMember { get; init; }
 
