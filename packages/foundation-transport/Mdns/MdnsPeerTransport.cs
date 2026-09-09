@@ -111,7 +111,7 @@ public sealed class MdnsPeerTransport : IPeerTransport, IAsyncDisposable
             _discovery.QueryServiceInstances(serviceName);
 
             _sweepCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _sweepLoop = Task.Run(() => RunSweepAsync(_sweepCts.Token));
+            _sweepLoop = Task.Run(() => RunSweepAsync(_sweepCts.Token), ct);
         }
         finally
         {
@@ -272,7 +272,7 @@ public sealed class MdnsPeerTransport : IPeerTransport, IAsyncDisposable
         {
             foreach (var entry in rec.Strings)
             {
-                var eqIdx = entry.IndexOf('=');
+                var eqIdx = entry.IndexOf('=', StringComparison.Ordinal);
                 if (eqIdx <= 0) continue;
                 var key = entry[..eqIdx];
                 var value = entry[(eqIdx + 1)..];

@@ -119,7 +119,7 @@ public sealed class SimpleBucketFilterEvaluator : IBucketFilterEvaluator
         // or an unquoted string). The paper's §10.2 example `record.team_id = peer.team_id`
         // relies on this cross-field resolution.
         object? rhsValue;
-        if (rhsToken.Kind == TokenKind.Identifier && rhsToken.Text.Contains('.'))
+        if (rhsToken.Kind == TokenKind.Identifier && rhsToken.Text.Contains('.', StringComparison.Ordinal))
         {
             rhsValue = context.TryGetValue(rhsToken.Text, out var rv) ? rv : null;
         }

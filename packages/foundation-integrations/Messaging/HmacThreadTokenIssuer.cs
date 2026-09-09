@@ -78,7 +78,7 @@ public sealed class HmacThreadTokenIssuer : IThreadTokenIssuer
         {
             return null;
         }
-        var dot = token.Value.IndexOf('.');
+        var dot = token.Value.IndexOf('.', StringComparison.Ordinal);
         if (dot <= 0 || dot >= token.Value.Length - 1)
         {
             return null;
@@ -131,7 +131,7 @@ public sealed class HmacThreadTokenIssuer : IThreadTokenIssuer
     public async Task RevokeAsync(TenantId tenant, ThreadToken token, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrEmpty(token.Value);
-        var dot = token.Value.IndexOf('.');
+        var dot = token.Value.IndexOf('.', StringComparison.Ordinal);
         if (dot <= 0)
         {
             return; // malformed; no-op.

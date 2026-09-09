@@ -80,7 +80,7 @@ public readonly record struct ActorId
     {
         if (value is null || !value.StartsWith(OsPartyPrefix, StringComparison.Ordinal))
             return value;
-        var hash = value.IndexOf('#');
+        var hash = value.IndexOf('#', StringComparison.Ordinal);
         var user = hash < 0 ? value[OsPartyPrefix.Length..] : value[OsPartyPrefix.Length..hash];
         return OsPartyPrefix + user.ToLowerInvariant() + (hash < 0 ? string.Empty : value[hash..]);
     }

@@ -111,7 +111,7 @@ public sealed class FileSystemTenantKeyStore : IStoredTenantKeyStore
             throw new ArgumentException("Stored key slots may contain only ASCII letters, digits, and colons.", nameof(slot));
         }
 
-        if (!allowTrailingSeparator && slot.EndsWith(':'))
+        if (!allowTrailingSeparator && slot.EndsWith(':', StringComparison.Ordinal))
         {
             throw new ArgumentException("A stored key record slot cannot end with a colon.", nameof(slot));
         }

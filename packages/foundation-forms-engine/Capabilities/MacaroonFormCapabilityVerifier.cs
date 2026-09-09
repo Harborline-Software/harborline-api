@@ -137,7 +137,7 @@ public sealed class MacaroonFormCapabilityVerifier : IFormCapabilityVerifier
 
     private static (string? Key, string Value) SplitKeyValue(string predicate)
     {
-        var eq = predicate.IndexOf('=');
+        var eq = predicate.IndexOf('=', StringComparison.Ordinal);
         if (eq < 0)
         {
             return (null, string.Empty);

@@ -72,7 +72,7 @@ public static class FeedPaths
     public static string DirectoryOf(string documentPath)
     {
         ArgumentNullException.ThrowIfNull(documentPath);
-        var slash = documentPath.LastIndexOf('/');
+        var slash = documentPath.LastIndexOf('/', StringComparison.Ordinal);
         return slash < 0 ? string.Empty : documentPath[..slash];
     }
 
@@ -89,7 +89,7 @@ public static class FeedPaths
             throw new FormatException("Feed URL is empty.");
         if (relativeUrl.Contains('\\', StringComparison.Ordinal))
             throw new FormatException($"Feed URL '{relativeUrl}' contains a backslash.");
-        if (relativeUrl.StartsWith('/') || relativeUrl.Contains("://", StringComparison.Ordinal))
+        if (relativeUrl.StartsWith('/', StringComparison.Ordinal) || relativeUrl.Contains("://", StringComparison.Ordinal))
             throw new FormatException($"Feed URL '{relativeUrl}' is not a plain relative path.");
 
         foreach (var segment in relativeUrl.Split('/'))

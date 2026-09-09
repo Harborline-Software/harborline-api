@@ -20,7 +20,7 @@ internal static class DateMath
         if (parts.Length >= 3)
         {
             var dayPart = parts[2];
-            int tIdx = dayPart.IndexOf('T');
+            int tIdx = dayPart.IndexOf('T', StringComparison.Ordinal);
             if (tIdx >= 0) dayPart = dayPart[..tIdx];
             if (int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out int y)
                 && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int m)

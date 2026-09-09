@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 
 using Harborline.Api.Foundation.RuleEngine.Compilation;
 using Harborline.Api.Foundation.RuleEngine.Model;
@@ -259,6 +260,6 @@ internal static class Fnv1a
             h ^= (byte)((c >> 8) & 0xFF);
             h *= prime;
         }
-        return h.ToString("x8");
+        return h.ToString("x8", CultureInfo.InvariantCulture);
     }
 }

@@ -453,5 +453,5 @@ internal static class MariaDbDumpParser
         }
     }
 
-    private static string Unquote(string identifier) => identifier.Replace("``", "`");
+    private static string Unquote(string identifier) => identifier.Replace("``", "`", StringComparison.Ordinal);
 }

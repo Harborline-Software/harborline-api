@@ -27,7 +27,7 @@ public sealed class DirectoryFeedSource : IFeedSource
         var relative = path.Replace('/', Path.DirectorySeparatorChar);
         var full = Path.GetFullPath(Path.Combine(_root, relative));
 
-        var rootWithSep = _root.EndsWith(Path.DirectorySeparatorChar)
+        var rootWithSep = _root.EndsWith(Path.DirectorySeparatorChar, StringComparison.Ordinal)
             ? _root
             : _root + Path.DirectorySeparatorChar;
         if (!full.StartsWith(rootWithSep, StringComparison.Ordinal) &&
