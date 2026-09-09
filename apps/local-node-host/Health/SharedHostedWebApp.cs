@@ -1153,7 +1153,6 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
                 listenOptions.UseHttps(httpsOptions =>
                 {
                     httpsOptions.ServerCertificate = certificate;
-                    httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
                 });
             });
         });
@@ -1208,10 +1207,8 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
                 listenOptions.UseHttps(httpsOptions =>
                 {
                     httpsOptions.ServerCertificate = _lanCertificate;
-                    httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
                     httpsOptions.OnAuthenticate = (_, sslOptions) =>
                     {
-                        sslOptions.EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
                         sslOptions.ServerCertificate = _lanCertificate;
                     };
                 });

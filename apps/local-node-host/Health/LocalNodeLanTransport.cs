@@ -157,7 +157,7 @@ internal static class LocalNodeLanValidation
             using var store = new X509Store(name, location);
             store.Open(OpenFlags.ReadOnly);
             var certificate = store.Certificates
-                .Find(X509FindType.FindByThumbprint, parts[2].Replace(" ", string.Empty), validOnly: false)
+                .Find(X509FindType.FindByThumbprint, parts[2].Replace(" ", string.Empty, StringComparison.Ordinal), validOnly: false)
                 .OfType<X509Certificate2>()
                 .SingleOrDefault();
             return certificate ?? throw new InvalidOperationException(
@@ -215,7 +215,9 @@ internal static class LocalNodeLanValidation
         {
             return true;
         }
-        if (value.Contains('/') || value.Contains(':') || value.Contains(' ') ||
+        if (value.Contains('/', StringComparison.Ordinal) ||
+            value.Contains(':', StringComparison.Ordinal) ||
+            value.Contains(' ', StringComparison.Ordinal) ||
             value.Length > 253 || !Uri.CheckHostName(value).Equals(UriHostNameType.Dns))
         {
             return false;

@@ -92,7 +92,7 @@ public sealed class LivingStandardCatalogDevSeeder : IHostedService
 
         try
         {
-            await SeedAsync(_schemaRegistry, _store, _bindings, _catalogs, tenantId, _timeProvider.GetUtcNow())
+            await SeedAsync(_schemaRegistry, _store, _bindings, _catalogs, tenantId, _timeProvider.GetUtcNow(), cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (AuthorizationDeniedException ex)
@@ -136,7 +136,7 @@ public sealed class LivingStandardCatalogDevSeeder : IHostedService
             new DefinitionAddress(tenant, formId.Value), cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
-            var schema = await schemaRegistry.RegisterAsync(LivingStandardCatalogForm.SchemaJson()).ConfigureAwait(false);
+            var schema = await schemaRegistry.RegisterAsync(LivingStandardCatalogForm.SchemaJson(), ct: cancellationToken).ConfigureAwait(false);
             var definition = LivingStandardCatalogForm.BuildDefinition(tenant, schema.Id, now);
             await store.RegisterAndPublishAsync(definition, decision, cancellationToken).ConfigureAwait(false);
         }

@@ -66,9 +66,9 @@ internal static class PayrollRecordMapping
             id: new PayRunId(r.Id),
             tenantId: new TenantId(r.TenantId),
             label: r.Label,
-            periodStart: DateOnly.Parse(r.PeriodStart),
-            periodEnd: DateOnly.Parse(r.PeriodEnd),
-            postingDate: DateOnly.Parse(r.PostingDate),
+            periodStart: DateOnly.Parse(r.PeriodStart, System.Globalization.CultureInfo.InvariantCulture),
+            periodEnd: DateOnly.Parse(r.PeriodEnd, System.Globalization.CultureInfo.InvariantCulture),
+            postingDate: DateOnly.Parse(r.PostingDate, System.Globalization.CultureInfo.InvariantCulture),
             defaultTaxWithheldAccountId: new GLAccountId(r.DefaultTaxWithheldAccountId),
             defaultDeductionPayableAccountId: new GLAccountId(r.DefaultDeductionPayableAccountId),
             defaultEmployerLiabilityExpenseAccountId: new GLAccountId(r.DefaultEmployerLiabilityExpenseAccountId),
@@ -117,9 +117,9 @@ internal static class PayrollRecordMapping
         r.Id = run.Id.Value;
         r.TenantId = run.TenantId.Value;
         r.Label = run.Label;
-        r.PeriodStart = run.PeriodStart.ToString("yyyy-MM-dd");
-        r.PeriodEnd = run.PeriodEnd.ToString("yyyy-MM-dd");
-        r.PostingDate = run.PostingDate.ToString("yyyy-MM-dd");
+        r.PeriodStart = run.PeriodStart.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        r.PeriodEnd = run.PeriodEnd.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        r.PostingDate = run.PostingDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         r.Status = run.Status.ToString();
         r.DefaultTaxWithheldAccountId = run.DefaultTaxWithheldAccountId.Value;
         r.DefaultDeductionPayableAccountId = run.DefaultDeductionPayableAccountId.Value;
@@ -164,11 +164,11 @@ internal static class PayrollRecordMapping
             id: new FilingObligationId(r.Id),
             tenantId: new TenantId(r.TenantId),
             label: r.Label,
-            dueDate: DateOnly.Parse(r.DueDate),
+            dueDate: DateOnly.Parse(r.DueDate, System.Globalization.CultureInfo.InvariantCulture),
             createdAtUtc: new Instant(r.CreatedAtUtc))
         {
-            PeriodStart = string.IsNullOrWhiteSpace(r.PeriodStart) ? (DateOnly?)null : DateOnly.Parse(r.PeriodStart),
-            PeriodEnd = string.IsNullOrWhiteSpace(r.PeriodEnd) ? (DateOnly?)null : DateOnly.Parse(r.PeriodEnd),
+            PeriodStart = string.IsNullOrWhiteSpace(r.PeriodStart) ? (DateOnly?)null : DateOnly.Parse(r.PeriodStart, System.Globalization.CultureInfo.InvariantCulture),
+            PeriodEnd = string.IsNullOrWhiteSpace(r.PeriodEnd) ? (DateOnly?)null : DateOnly.Parse(r.PeriodEnd, System.Globalization.CultureInfo.InvariantCulture),
             JurisdictionCode = r.JurisdictionCode,
             SourcePayRunId = string.IsNullOrWhiteSpace(r.SourcePayRunId) ? (PayRunId?)null : new PayRunId(r.SourcePayRunId),
             IsComplete = r.IsComplete,
@@ -180,9 +180,9 @@ internal static class PayrollRecordMapping
         r.Id = o.Id.Value;
         r.TenantId = o.TenantId.Value;
         r.Label = o.Label;
-        r.DueDate = o.DueDate.ToString("yyyy-MM-dd");
-        r.PeriodStart = o.PeriodStart?.ToString("yyyy-MM-dd");
-        r.PeriodEnd = o.PeriodEnd?.ToString("yyyy-MM-dd");
+        r.DueDate = o.DueDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        r.PeriodStart = o.PeriodStart?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        r.PeriodEnd = o.PeriodEnd?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         r.JurisdictionCode = o.JurisdictionCode;
         r.SourcePayRunId = o.SourcePayRunId?.Value;
         r.IsComplete = o.IsComplete;

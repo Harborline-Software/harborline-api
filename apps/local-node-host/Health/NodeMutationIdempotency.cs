@@ -48,7 +48,7 @@ internal static class NodeMutationIdempotency
         {
             if (!IsMutation(context.Request.Method) ||
                 IsNeverCacheRoute(context.Request.Path) ||
-                !context.Request.Path.StartsWithSegments("/api/local-node") ||
+                !context.Request.Path.StartsWithSegments("/api/local-node", StringComparison.Ordinal) ||
                 IsDurableFormSubmit(context.Request.Path))
             {
                 await next(context).ConfigureAwait(false);
@@ -151,7 +151,7 @@ internal static class NodeMutationIdempotency
     }
 
     private static bool IsNeverCacheRoute(PathString path) =>
-        NeverCachePrefixes.Any(prefix => path.StartsWithSegments(prefix));
+        NeverCachePrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.Ordinal));
 
     private static bool IsDurableFormSubmit(PathString path)
     {
@@ -179,7 +179,7 @@ internal static class NodeMutationIdempotency
             return true;
         }
 
-        if (values.Count != 1 || values.Any(value => value?.Contains(',') == true))
+        if (values.Count != 1 || values.Any(value => value?.Contains(',', StringComparison.Ordinal) == true))
         {
             error = $"Only one {HeaderName} header is permitted.";
             return false;

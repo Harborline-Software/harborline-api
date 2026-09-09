@@ -220,7 +220,7 @@ public static class CalendarRoutes
             return false;
         }
 
-        var sep = raw.IndexOf(':');
+        var sep = raw.IndexOf(':', StringComparison.Ordinal);
         if (sep <= 0 || sep == raw.Length - 1)
         {
             error = $"Resource '{raw}' must be of the form kind:value (party:<id> / asset:<id>).";

@@ -195,7 +195,7 @@ internal sealed class AdminTeamAccessAuthority(
     IOperationSigner signer,
     ITenantIdentityAuthorityPartitionResolver? partitions = null,
     InstallationIdentityCoordinatorService? coordinator = null,
-    AuthorizationRefusalAudit? refusalAudit = null) : IAdminTeamAccessAuthority
+    AuthorizationRefusalAudit? refusalAudit = null) : IAdminTeamAccessAuthority, IDisposable
 {
     private readonly IDbContextFactory<NodeLocalWebSessionDbContext> _sessionFactory =
         sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
@@ -860,4 +860,9 @@ internal sealed class AdminTeamAccessAuthority(
         MemberRoster Roster,
         PermissionSet CallerPermissions,
         AuthorizationDecision Decision);
+
+    public void Dispose()
+    {
+        _grantAuditGate.Dispose();
+    }
 }
