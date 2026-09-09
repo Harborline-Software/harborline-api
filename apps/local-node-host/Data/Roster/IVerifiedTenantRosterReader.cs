@@ -33,6 +33,9 @@ public enum VerifiedTenantRosterRefusal
     /// <summary>A durable row is malformed or its signature does not verify.</summary>
     Tampered,
 
+    /// <summary>A durable row predates the current signed receive-attestation wire format.</summary>
+    WireVersionUnsupported,
+
     /// <summary>A cryptographically valid admission is not reachable from the unique genesis.</summary>
     Orphan,
 }

@@ -38,7 +38,7 @@ public sealed class NodeRehostCompositionTests
         try
         {
             await Assert.ThrowsAsync<ProbeComplete>(() => global::LocalNodeHostComposition.RunAsync(
-                ["--LocalNode:RootSeedHex=" + new string('2', 64), "--urls=http://127.0.0.1:7320"],
+                ["--LocalNode:RootSeedHex=" + new string('2', 64), "--urls=http://127.0.0.1:7330"],
                 sessionTokenOverride: "rehost-composition-probe", dataDirectory: directory,
                 installFootprintRootOverride: directory,
                 kernelClock: new FixedClock(at),
@@ -77,7 +77,8 @@ public sealed class NodeRehostCompositionTests
             var roster = MemberRoster.Genesis(tenant, "founder", signer, new Ed25519Verifier(),
                 at.AddHours(-1), Guid.NewGuid());
             db.RosterRecords.AddRange(roster.EnumerateAdmissions().Select(a =>
-                NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a))));
+                NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(a)
+                    .AttestReceipt(signer, "founder", a.Admission.IssuedAt))));
             await db.SaveChangesAsync();
             var identity = new NodeIdentity("replacement", KeyPair.Generate().PrincipalId.AsSpan().ToArray(), []);
             var caller = new ActorId(signer.IssuerId.ToBase64Url());

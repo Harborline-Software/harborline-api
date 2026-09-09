@@ -10,7 +10,8 @@
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 324 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
-    "Classes follow ticket 302's explicit per-test classification: eleven behavioural, four environmental. Its aggregate count and the slice brief disagree with those rows."
+    "Classes follow ticket 302's explicit per-test classification: eleven behavioural, four environmental. Its aggregate count and the slice brief disagree with those rows.",
+    "Ticket 346 adds two lifecycle rows that end with a healthy composed host serving /health 200; on macOS that reads 500 for the same reason as the ComposedHostBootSmokeTests rows, so they carry the same class and owner and burn down with them."
   ],
   "permittedFailures": [
     {
@@ -72,6 +73,14 @@
     {
       "test": "W4-C4: enabled LAN host binds exactly loopback and LAN endpoints",
       "class": "environmental", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootRuntimeLifecycleTests.Canceled_start_releases_the_runtime_for_a_healthy_boot",
+      "class": "behavioural", "owner": "302"
+    },
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootRuntimeLifecycleTests.Canceled_start_does_not_weaken_the_concurrent_boot_guard",
+      "class": "behavioural", "owner": "302"
     }
   ],
   "knownFlaky": [],

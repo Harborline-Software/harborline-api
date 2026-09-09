@@ -11,10 +11,15 @@ internal sealed class HydrationRosterVerifier(IOperationVerifier inner) : IOpera
     internal const int Capacity = 4096;
     private readonly object _gate = new();
     private readonly Dictionary<(Type Type, string Digest, string Signature), bool> _verified = [];
+    private readonly Queue<(Type Type, string Digest, string Signature)> _insertionOrder = [];
 
     public void Reset()
     {
-        lock (_gate) _verified.Clear();
+        lock (_gate)
+        {
+            _verified.Clear();
+            _insertionOrder.Clear();
+        }
     }
 
     public bool Verify<T>(SignedOperation<T> op)
@@ -25,8 +30,9 @@ internal sealed class HydrationRosterVerifier(IOperationVerifier inner) : IOpera
         {
             if (_verified.TryGetValue(key, out var valid)) return valid;
             valid = inner.Verify(op);
-            if (_verified.Count == Capacity) _verified.Clear();
+            if (_verified.Count == Capacity) _verified.Remove(_insertionOrder.Dequeue());
             _verified.Add(key, valid);
+            _insertionOrder.Enqueue(key);
             return valid;
         }
     }

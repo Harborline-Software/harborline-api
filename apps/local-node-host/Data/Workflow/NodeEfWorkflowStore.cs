@@ -101,6 +101,12 @@ public sealed class NodeEfWorkflowStore : IWorkflowStore
         ArgumentException.ThrowIfNullOrEmpty(eventType);
         ArgumentException.ThrowIfNullOrEmpty(nextStep);
 
+        if (effect?.CommitsIndependently == true)
+        {
+            await effect.StageAsync(null!, ct).ConfigureAwait(false);
+            effect = null;
+        }
+
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
 
         // ONE explicit transaction spanning every write — the effect, the event, the idempotency row, and

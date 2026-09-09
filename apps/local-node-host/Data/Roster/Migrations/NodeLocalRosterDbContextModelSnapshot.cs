@@ -203,6 +203,30 @@ partial class NodeLocalRosterDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER")
                     .HasColumnName("received_at");
 
+                b.Property<string>("ReceiveAttestationSignatureB64Url")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("")
+                    .HasColumnName("receive_attestation_signature");
+
+                b.Property<string>("ReceivedByPartyId")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("")
+                    .HasColumnName("received_by_party");
+
+                b.Property<string>("ReceivedByPublicKey")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("")
+                    .HasColumnName("received_by_key");
+
                 b.Property<int>("Kind")
                     .HasColumnType("INTEGER")
                     .HasColumnName("kind");
@@ -273,11 +297,17 @@ partial class NodeLocalRosterDbContextModelSnapshot : ModelSnapshot
                     .HasDefaultValue("")
                     .HasColumnName("xwing_public_key");
 
+                b.Property<int>("WireFormatVersion")
+                    .HasColumnType("INTEGER")
+                    .HasColumnName("wire_format_version");
+
                 b.HasKey("Id");
 
                 b.HasIndex("TeamId");
 
                 b.HasIndex("TeamId", "IssuedAtUtc");
+
+                b.HasIndex("TeamId", "ReceivedAtUtc");
 
                 b.ToTable("roster_records", (string)null);
             });

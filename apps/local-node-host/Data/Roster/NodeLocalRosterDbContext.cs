@@ -111,9 +111,17 @@ public sealed class NodeLocalRosterDbContext : DbContext
             e.Property(r => r.ReceivedAtUtc).HasColumnName("received_at")
                 .HasConversion(new ValueConverter<DateTimeOffset, long>(
                     v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+            e.Property(r => r.WireFormatVersion).HasColumnName("wire_format_version");
+            e.Property(r => r.ReceivedByPartyId).HasColumnName("received_by_party")
+                .HasMaxLength(256).HasDefaultValue(string.Empty);
+            e.Property(r => r.ReceivedByPublicKey).HasColumnName("received_by_key")
+                .HasMaxLength(256).HasDefaultValue(string.Empty);
+            e.Property(r => r.ReceiveAttestationSignatureB64Url).HasColumnName("receive_attestation_signature")
+                .HasMaxLength(256).HasDefaultValue(string.Empty);
             // The roster scope + ordering columns.
             e.HasIndex(r => r.TeamId);
             e.HasIndex(r => new { r.TeamId, r.IssuedAtUtc });
+            e.HasIndex(r => new { r.TeamId, r.ReceivedAtUtc });
         });
 
         modelBuilder.Entity<Identity.AdministratorAuthorityRecord>(e =>

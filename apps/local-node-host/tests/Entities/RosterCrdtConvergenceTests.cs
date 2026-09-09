@@ -109,6 +109,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             sp.GetRequiredService<ICrdtEngine>(),
             factory,
             Verifier,
+            founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance,
             nodeRoster);
 
@@ -145,7 +146,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var genesisRoster = MemberRoster.StableGenesis(Team, founder.PartyId, founder.Signer, Verifier);
         var nodeRoster = new NodeTeamRoster(genesisRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         var replica = new Replica
@@ -168,7 +169,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var genesisRoster = MemberRoster.StableGenesis(Team, founder.PartyId, founder.Signer, Verifier);
         var nodeRoster = new NodeTeamRoster(genesisRoster);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            prior.Sp.GetRequiredService<ICrdtEngine>(), prior.Factory, Verifier,
+            prior.Sp.GetRequiredService<ICrdtEngine>(), prior.Factory, Verifier, founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster);
 
         // Reuse the prior's Dir/Sp/Factory (the same on-disk store); register so its projection is disposed.
@@ -193,7 +194,8 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
     /// own (party, key) is admitted by the founder + synced as a regular admission record.
     /// </summary>
     private async Task<Replica> NewJoinerReplicaAsync(
-        string name, MemberRoster teamGenesisRoster, bool withAdministratorAuthority = false)
+        string name, MemberRoster teamGenesisRoster, IOperationSigner attestationSigner,
+        bool withAdministratorAuthority = false)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-roster-crdt-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -215,7 +217,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             ? new NodeAdministratorAuthority(factory, TimeProvider.System, TestAuthorization.AllowGate())
             : null;
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier,
+            sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, attestationSigner,
             NullLogger<RosterCrdtProjection>.Instance, nodeRoster,
             administrators: administrators is null ? null : () => administrators);
 
@@ -273,7 +275,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var member = Identity.New("member");
         var source = await NewReplicaAsync("permission-source", founder);
         await SeedLocalAdmissionsAsync(source);
-        var target = await NewJoinerReplicaAsync("permission-target", source.NodeRoster.Current);
+        var target = await NewJoinerReplicaAsync("permission-target", source.NodeRoster.Current, founder.Signer);
         var admitted = source.NodeRoster.Current.Admit("founder", founder.Signer, "member",
             member.Key.PrincipalId, PermissionCompositions.Member, Verifier,
             DateTimeOffset.UnixEpoch.AddDays(1), Guid.NewGuid());
@@ -291,9 +293,9 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         Assert.True(target.NodeRoster.Current.ValidatesToGenesis(Verifier));
 
         // The exact genuine bytes are still admissible on a fresh replica.
-        var cleanSource = await NewJoinerReplicaAsync("permission-clean", source.NodeRoster.Current);
+        var cleanSource = await NewJoinerReplicaAsync("permission-clean", source.NodeRoster.Current, founder.Signer);
         await SeedLocalAdmissionsAsync(cleanSource);
-        var cleanTarget = await NewJoinerReplicaAsync("permission-control", source.NodeRoster.Current);
+        var cleanTarget = await NewJoinerReplicaAsync("permission-control", source.NodeRoster.Current, founder.Signer);
         await cleanSource.Projection.PublishLocalAsync(genuine, CancellationToken.None);
         await SyncAsync(cleanSource, cleanTarget);
         Assert.Equal(PermissionCompositions.Member, cleanTarget.NodeRoster.Current.PermissionsOf("member"));
@@ -308,7 +310,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
         // B is a JOINER: its trust root is A's team genesis (adopted via the admission handshake — gap #3).
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         // A's admin admits bob (B's identity), updates A's local roster, and publishes the admission record.
         await AdmitAndPublishAsync(a, founder, bob, PermissionCompositions.Member);
@@ -331,7 +333,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var founder = Identity.New("founder");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         // ATTACKER: a key that is NOT in the roster forges an admission of "mallory" and PUBLISHES it onto A's
         // synced doctype (as if A's node were compromised / a malicious peer injected the delta). The record is
@@ -369,7 +371,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         // A genuine admission of bob, but the SYNCED record's signature is corrupted in transit.
         var withBob = a.NodeRoster.Current.Admit(
@@ -394,7 +396,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         // Admit bob on A and sync — both nodes now honor bob.
         await AdmitAndPublishAsync(a, founder, bob, PermissionCompositions.Member);
@@ -424,7 +426,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob"); // plain member — no members:revoke
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         // Admit bob and sync.
         await AdmitAndPublishAsync(a, founder, bob, PermissionCompositions.Member);
@@ -452,7 +454,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer);
 
         await AdmitAndPublishAsync(a, founder, bob, PermissionCompositions.Member);
         await SyncAsync(a, b);
@@ -482,7 +484,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, withAdministratorAuthority: true);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer, withAdministratorAuthority: true);
         var administrators = b.Administrators!;
         var team = Team.ToString("D");
 
@@ -531,7 +533,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         var bob = Identity.New("bob");
         var a = await NewReplicaAsync("A", founder);
         await SeedLocalAdmissionsAsync(a);
-        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, withAdministratorAuthority: true);
+        var b = await NewJoinerReplicaAsync("B", a.NodeRoster.Current, founder.Signer, withAdministratorAuthority: true);
         var administrators = b.Administrators!;
         var team = Team.ToString("D");
 
@@ -647,6 +649,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             a.Sp.GetRequiredService<ICrdtEngine>(),
             a.Factory,
             Verifier,
+            founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance,
             nodeRoster: null);
         var hydrated = await freshProjection.HydrateFromStoreAsync(CancellationToken.None);
@@ -714,7 +717,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         Assert.True(boot2.NodeRoster.Current.ValidatesToGenesis(Verifier));
 
         // AND a PEER receiving this node's records sees exactly ONE genesis (no poison shipped downstream).
-        var peer = await NewJoinerReplicaAsync("peer", boot2.NodeRoster.Current);
+        var peer = await NewJoinerReplicaAsync("peer", boot2.NodeRoster.Current, founder.Signer);
         await SyncAsync(boot2, peer);
         Assert.Equal(1, CountGenesisRecords(peer.Projection));
         Assert.True(peer.NodeRoster.Current.Contains("alice"));
@@ -749,7 +752,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         // shipped. Reading the captured record makes the pre-fix race-failure deterministic in the test.
         var boot2GenesisWire = RosterRecordCrdtState.FromAdmission(boot2Genesis.EnumerateAdmissions().Single());
         var boot2Projection = new RosterCrdtProjection(TimeProvider.System,
-            a.Sp.GetRequiredService<ICrdtEngine>(), a.Factory, Verifier,
+            a.Sp.GetRequiredService<ICrdtEngine>(), a.Factory, Verifier, founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance, boot2Roster);
 
         await boot2Projection.HydrateFromStoreAsync(CancellationToken.None); // boot-1 genesis (nonce-1)
@@ -847,7 +850,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
         }
 
         // Bob (the victim) is a joiner whose trust root is A's team genesis.
-        var bobNode = await NewJoinerReplicaAsync("Bob", a.NodeRoster.Current);
+        var bobNode = await NewJoinerReplicaAsync("Bob", a.NodeRoster.Current, founder.Signer);
 
         // ── THE ATTACK. Mallory emits a roster delta about ALICE with her OWN DM key substituted, signed by HER
         //    OWN key as admitter — the "I write a peer's key into the roster" injection. A fresh nonce ⇒ a distinct
@@ -927,7 +930,7 @@ public sealed class RosterCrdtConvergenceTests : IAsyncLifetime
             await a.Projection.PublishLocalAsync(RosterRecordCrdtState.FromAdmission(rec), CancellationToken.None);
         }
 
-        var bobNode = await NewJoinerReplicaAsync("Bob", a.NodeRoster.Current);
+        var bobNode = await NewJoinerReplicaAsync("Bob", a.NodeRoster.Current, founder.Signer);
 
         // ── THE ATTACK. Mallory (ADMIN) signs a FRESH, fully-valid admission of the existing participant Alice,
         //    over Alice's real principal key, carrying her OWN DM key — LATER issuance, fresh nonce. She IS
