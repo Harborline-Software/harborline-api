@@ -24,10 +24,10 @@ public sealed class PackAssetTypeContentRoundTripTests
     {
         foreach (var (key, body) in GeneralPackFixture.RawContents())
         {
-            Assert.True(PackAssetTypeContent.TryParse(body, out var id, out var descriptor, out var err), err);
+            Assert.True(PackAssetTypeContent.TryParse(body, "1.0.0", null, out var id, out var descriptor, out var err), err);
 
             var emitted = PackAssetTypeContent.ToContent(id, descriptor);
-            Assert.True(PackAssetTypeContent.TryParse(emitted, out var id2, out var descriptor2, out var err2), err2);
+            Assert.True(PackAssetTypeContent.TryParse(emitted, "1.0.0", null, out var id2, out var descriptor2, out var err2), err2);
 
             Assert.Equal(id, id2);
             // Same TYPE across the round-trip — compared by canonical content-address (descriptor record
@@ -42,7 +42,7 @@ public sealed class PackAssetTypeContentRoundTripTests
         // Equipment carries ONE trait, so trait array order is not a factor — the canonical emit is byte-identical
         // to the hand-authored content, giving an EXACT per-item content-address match.
         var equipment = GeneralPackFixture.RawContents().First(c => c.Key == "general.equipment").Content;
-        Assert.True(PackAssetTypeContent.TryParse(equipment, out var id, out var descriptor, out _));
+        Assert.True(PackAssetTypeContent.TryParse(equipment, "1.0.0", null, out var id, out var descriptor, out _));
 
         var handAuthoredCid = Cid.FromBytes(CanonicalJson.Serialize<JsonNode>(equipment)).Value;
         var composerCid = Cid.FromBytes(CanonicalJson.Serialize<JsonNode>(PackAssetTypeContent.ToContent(id, descriptor))).Value;
@@ -57,14 +57,14 @@ public sealed class PackAssetTypeContentRoundTripTests
         // order, so the canonical emit is [Maintainable, Movable]. Same TYPE (content-address match under the
         // canonicalizer), different raw bytes — the acceptance's "NOT byte-identity".
         var vehicle = GeneralPackFixture.RawContents().First(c => c.Key == "general.vehicle").Content;
-        Assert.True(PackAssetTypeContent.TryParse(vehicle, out var id, out var descriptor, out _));
+        Assert.True(PackAssetTypeContent.TryParse(vehicle, "1.0.0", null, out var id, out var descriptor, out _));
 
         var emitted = PackAssetTypeContent.ToContent(id, descriptor);
         var traits = emitted["traits"]!.AsArray().Select(n => n!.GetValue<string>()).ToArray();
         Assert.Equal(new[] { "Maintainable", "Movable" }, traits);
 
         // But it still parses back to the SAME type (order-insensitive on the flags).
-        Assert.True(PackAssetTypeContent.TryParse(emitted, out var id2, out var descriptor2, out _));
+        Assert.True(PackAssetTypeContent.TryParse(emitted, "1.0.0", null, out var id2, out var descriptor2, out _));
         Assert.Equal(GeneralPackFixture.CanonicalCid(id, descriptor), GeneralPackFixture.CanonicalCid(id2, descriptor2));
     }
 
@@ -92,24 +92,84 @@ public sealed class PackAssetTypeContentRoundTripTests
         // The #127 General types set neither form binding — the common path must warn nothing.
         foreach (var (_, body) in GeneralPackFixture.RawContents())
         {
-            Assert.True(PackAssetTypeContent.TryParse(body, out _, out var descriptor, out _));
+            Assert.True(PackAssetTypeContent.TryParse(body, "1.0.0", null, out _, out var descriptor, out _));
             Assert.Empty(PackAssetTypeContent.DroppedFormBindingFields(descriptor));
         }
     }
 
-    [Fact(DisplayName = "a property-form binding is detected as a dropped field")]
-    public void Property_form_binding_is_detected()
+    [Fact(DisplayName = "ticket 357: a property-form binding EMITS as the bound form's pack content key and parses back")]
+    public void Property_form_binding_round_trips()
     {
         var descriptor = new EntityTypeDescriptor(
             DisplayName: "Condenser",
             Traits: EntityTrait.Maintainable,
-            PropertyFormBinding: new FormBindingRef("condenser-props", new SemanticVersion(1, 0, 0)));
+            PropertyFormBinding: new FormBindingRef("condenser-props", new SemanticVersion(1, 2, 0)));
 
-        // ToContent silently omits it (the lossy point) …
-        Assert.False(PackAssetTypeContent.ToContent(new EntityTypeId("g.condenser"), descriptor)
-            .ContainsKey("propertyFormBinding"));
-        // … which detection surfaces.
-        Assert.Equal(new[] { "propertyFormBinding" }, PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+        var emitted = PackAssetTypeContent.ToContent(new EntityTypeId("g.condenser"), descriptor);
+
+        // The binding now TRAVELS (it used to be silently omitted) — as the pack-local content key only.
+        Assert.Equal("condenser-props", emitted["propertyFormBinding"]!.GetValue<string>());
+        // … so it is no longer reported as a dropped field.
+        Assert.Empty(PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+
+        // Parse reads it back, resolving the PINNED version from the sibling FormDefinition leaf's declared
+        // version — one key space, no second pin in the body.
+        Assert.True(
+            PackAssetTypeContent.TryParse(
+                emitted,
+                PackAssetTypeContent.FormBindingShapeVersion,
+                key => key == "condenser-props" ? "1.2.0" : null,
+                out _,
+                out var parsed,
+                out var error),
+            error);
+        Assert.Equal(new FormBindingRef("condenser-props", new SemanticVersion(1, 2, 0)), parsed.PropertyFormBinding);
+    }
+
+    [Fact(DisplayName = "ticket 357: a binding under the PREVIOUS declared content version is refused by name")]
+    public void Property_form_binding_under_old_declared_version_is_refused()
+    {
+        var emitted = PackAssetTypeContent.ToContent(
+            new EntityTypeId("g.condenser"),
+            new EntityTypeDescriptor(
+                DisplayName: "Condenser",
+                Traits: EntityTrait.Maintainable,
+                PropertyFormBinding: new FormBindingRef("condenser-props", new SemanticVersion(1, 0, 0))));
+
+        Assert.False(
+            PackAssetTypeContent.TryParse(
+                emitted, "1.0.0", _ => "1.0.0", out _, out _, out var error));
+        Assert.Contains(PackAssetTypeContent.FormBindingShapeVersion, error, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "ticket 357: a binding naming a form this pack does not carry is refused by name")]
+    public void Property_form_binding_outside_the_pack_is_refused()
+    {
+        var emitted = PackAssetTypeContent.ToContent(
+            new EntityTypeId("g.condenser"),
+            new EntityTypeDescriptor(
+                DisplayName: "Condenser",
+                Traits: EntityTrait.Maintainable,
+                PropertyFormBinding: new FormBindingRef("other-pack-form", new SemanticVersion(1, 0, 0))));
+
+        Assert.False(
+            PackAssetTypeContent.TryParse(
+                emitted,
+                PackAssetTypeContent.FormBindingShapeVersion,
+                _ => null,
+                out _,
+                out _,
+                out var error));
+        Assert.Contains("not a FormDefinition in this pack", error, StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "ticket 357: a type authored WITHOUT the field still parses on the previous version")]
+    public void Unbound_type_still_parses_on_the_previous_version()
+    {
+        var body = GeneralPackFixture.RawContents().First(c => c.Key == "general.equipment").Content;
+
+        Assert.True(PackAssetTypeContent.TryParse(body, "1.0.0", null, out _, out var descriptor, out var error), error);
+        Assert.Null(descriptor.PropertyFormBinding);
     }
 
     [Fact(DisplayName = "an inspection-form binding is detected as a dropped field")]
@@ -126,9 +186,11 @@ public sealed class PackAssetTypeContentRoundTripTests
         Assert.Equal(new[] { "inspectionFormBindings" }, PackAssetTypeContent.DroppedFormBindingFields(descriptor));
     }
 
-    [Fact(DisplayName = "both form bindings set → both tokens reported, in a stable order")]
-    public void Both_form_bindings_reported()
+    [Fact(DisplayName = "both form bindings set → only the inspection bindings remain dropped")]
+    public void Only_inspection_bindings_remain_dropped()
     {
+        // ToContent now carries propertyFormBinding; InspectionFormBindings stays dropped (it is a
+        // per-discipline MAP, a second content shape plus a per-discipline resolution — not free).
         var descriptor = new EntityTypeDescriptor(
             DisplayName: "Condenser",
             Traits: EntityTrait.Maintainable,
@@ -139,7 +201,24 @@ public sealed class PackAssetTypeContentRoundTripTests
             });
 
         Assert.Equal(
-            new[] { "propertyFormBinding", "inspectionFormBindings" },
+            new[] { "inspectionFormBindings" },
             PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+    }
+
+    [Fact(DisplayName = "ticket 357: a bound type's leaf declares at least the form-binding shape version")]
+    public void Content_version_bumps_for_a_bound_type()
+    {
+        var unbound = new EntityTypeDescriptor(DisplayName: "Widget", Traits: EntityTrait.Maintainable);
+        var bound = unbound with
+        {
+            PropertyFormBinding = new FormBindingRef("widget-props", new SemanticVersion(1, 0, 0)),
+        };
+
+        Assert.Equal("1.0.0", PackAssetTypeContent.ContentVersionFor(unbound, "1.0.0"));
+        Assert.Equal(
+            PackAssetTypeContent.FormBindingShapeVersion,
+            PackAssetTypeContent.ContentVersionFor(bound, "1.0.0"));
+        // An already-newer composer version is preserved (never walked backwards).
+        Assert.Equal("2.4.0", PackAssetTypeContent.ContentVersionFor(bound, "2.4.0"));
     }
 }

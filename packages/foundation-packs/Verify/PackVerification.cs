@@ -54,6 +54,14 @@ public static class PackVerificationCodes
     /// <summary>The DCP payload's recomputed address does not match the signed manifest (the DCP merkle
     /// catch — a swapped Domain Compliance Profile; ADR 0145 D3.4).</summary>
     public const string DcpAddressMismatch = "pack.verify.dcp.address_mismatch";
+    /// <summary>An <c>AssetTypeDefinition</c> binds a property form whose content key is NOT a
+    /// <c>FormDefinition</c> leaf of the SAME pack (ticket 357). A pack-local content key cannot name another
+    /// pack's leaf, so such a binding would dangle on the target node — refused by name, never dropped.</summary>
+    public const string FormBindingNotInPack = "pack.verify.content.form_binding_not_in_pack";
+    /// <summary>An <c>AssetTypeDefinition</c> carries <c>propertyFormBinding</c> under a declared content
+    /// version older than the shape version that introduced the field (ticket 357) — the leaf claims a shape
+    /// it does not have, so it is refused rather than read.</summary>
+    public const string FormBindingSchemaUnsupported = "pack.verify.content.form_binding_schema_unsupported";
     /// <summary>The signer key is not recognized by any trust root (fail-closed refuse, S-1).</summary>
     public const string SignerUntrusted = "pack.verify.signer_untrusted";
     /// <summary>The signer is recognized but the epoch is sealed/retired (S-11).</summary>

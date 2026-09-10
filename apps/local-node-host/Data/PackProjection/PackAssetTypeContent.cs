@@ -2,6 +2,8 @@ using System.Text.Json.Nodes;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Packs.Install;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -35,8 +37,25 @@ internal static class PackAssetTypeContent
     /// and <see cref="EntityTypeDescriptor"/>. Returns <see langword="false"/> with a human-readable
     /// <paramref name="error"/> code on any malformed / invalid field (the projector logs + skips).
     /// </summary>
+    /// <param name="content">The canonical content body.</param>
+    /// <param name="declaredVersion">The version the SIGNED manifest declares for this leaf — the pinned
+    /// content-shape version (see <see cref="FormBindingShapeVersion"/>). A body carrying
+    /// <c>propertyFormBinding</c> under an older declared version is refused by name, never read.</param>
+    /// <param name="formVersionByKey">Resolves a pack-local <c>FormDefinition</c> content key to the version
+    /// that item declares — the SAME (key, version) tuple <see cref="PackSeedProjector"/> publishes the form
+    /// under, so the binding rides ONE key space and never a second one. <see langword="null"/> means no
+    /// sibling items are available (the retraction path, which needs only the id) and a binding then refuses
+    /// rather than resolving to a guess.</param>
+    /// <param name="id">The parsed type id.</param>
+    /// <param name="descriptor">The parsed descriptor.</param>
+    /// <param name="error">The refusal reason on a miss.</param>
     public static bool TryParse(
-        JsonNode? content, out EntityTypeId id, out EntityTypeDescriptor descriptor, out string error)
+        JsonNode? content,
+        string declaredVersion,
+        Func<string, string?>? formVersionByKey,
+        out EntityTypeId id,
+        out EntityTypeDescriptor descriptor,
+        out string error)
     {
         id = default;
         descriptor = null!;
@@ -112,12 +131,17 @@ internal static class PackAssetTypeContent
                 .ToList()
             : null;
 
+        if (!TryReadPropertyFormBinding(obj, declaredVersion, formVersionByKey, out var propertyForm, out error))
+        {
+            return false;
+        }
+
         id = new EntityTypeId(idStr.Trim());
         descriptor = new EntityTypeDescriptor(
             DisplayName: displayName.Trim(),
             Traits: traits,
             ParentType: parentType,
-            PropertyFormBinding: null,
+            PropertyFormBinding: propertyForm,
             Disciplines: disciplines,
             InspectionFormBindings: null,
             ExpectedUsefulLifeYears: life,
@@ -165,6 +189,15 @@ internal static class PackAssetTypeContent
             obj["parentType"] = parent.Value;
         }
 
+        // The property-form binding travels as the bound form's PACK CONTENT KEY — the same key the
+        // FormDefinition leaf carries, which install publishes the form under. The pinned VERSION is not
+        // re-stated here: it is the sibling leaf's declared version (one key space, no second pin to drift).
+        if (descriptor.PropertyFormBinding is { } propertyForm
+            && !string.IsNullOrWhiteSpace(propertyForm.Definition.Value))
+        {
+            obj["propertyFormBinding"] = propertyForm.Definition.Value;
+        }
+
         if (descriptor.Disciplines is { Count: > 0 } disciplines)
         {
             var arr = new JsonArray();
@@ -200,16 +233,83 @@ internal static class PackAssetTypeContent
     {
         ArgumentNullException.ThrowIfNull(descriptor);
 
-        var dropped = new List<string>(capacity: 2);
-        if (descriptor.PropertyFormBinding is not null)
-        {
-            dropped.Add("propertyFormBinding");
-        }
+        var dropped = new List<string>(capacity: 1);
         if (descriptor.InspectionFormBindings.Count > 0)
         {
             dropped.Add("inspectionFormBindings");
         }
         return dropped;
+    }
+
+    /// <summary>
+    /// The content-shape version that introduced <c>propertyFormBinding</c>. A leaf's pinned shape version is
+    /// the version its SIGNED manifest ref declares — the field <c>PackValidationCodes.ContentVersionUnpinned</c>
+    /// requires to be a pinned semver, and the one <see cref="PackSeedProjector"/> already cross-checks a body
+    /// against (its rule-version and taxonomy-version agreement checks). Every hand-authored first-party
+    /// <c>AssetTypeDefinition</c> leaf declares <c>1.0.0</c>, so this additive field is a MINOR bump of that
+    /// declared version: a <c>1.0.0</c> leaf that OMITS the field still parses, and a <c>1.0.0</c> leaf that
+    /// CARRIES it is refused by name rather than read under a shape it never declared.
+    /// </summary>
+    public const string FormBindingShapeVersion = "1.1.0";
+
+    /// <summary>
+    /// The content-shape version a leaf carrying <paramref name="descriptor"/> must declare, given the
+    /// <paramref name="declaredVersion"/> its composer would otherwise stamp. A bound type needs at least
+    /// <see cref="FormBindingShapeVersion"/>; an unbound one keeps the composer's version unchanged.
+    /// </summary>
+    public static string ContentVersionFor(EntityTypeDescriptor descriptor, string declaredVersion)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return descriptor.PropertyFormBinding is null
+               || PackVersion.Compare(declaredVersion, FormBindingShapeVersion) >= 0
+            ? declaredVersion
+            : FormBindingShapeVersion;
+    }
+
+    private static bool TryReadPropertyFormBinding(
+        JsonObject obj,
+        string declaredVersion,
+        Func<string, string?>? formVersionByKey,
+        out FormBindingRef? binding,
+        out string error)
+    {
+        binding = null;
+        error = string.Empty;
+
+        var key = ReadString(obj, "propertyFormBinding")?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            // Absent (or blank) means an UNBOUND type — including every pack authored before the field existed.
+            return true;
+        }
+
+        if (PackVersion.Compare(declaredVersion ?? string.Empty, FormBindingShapeVersion) < 0)
+        {
+            error = "'propertyFormBinding' requires a declared content version of at least "
+                    + $"{FormBindingShapeVersion} (this leaf declares '{declaredVersion}')";
+            return false;
+        }
+
+        var formVersion = formVersionByKey?.Invoke(key);
+        if (string.IsNullOrWhiteSpace(formVersion))
+        {
+            error = $"'propertyFormBinding' names '{key}', which is not a FormDefinition in this pack";
+            return false;
+        }
+
+        SemanticVersion pinned;
+        try
+        {
+            pinned = SemanticVersion.Parse(formVersion!);
+        }
+        catch (FormatException)
+        {
+            error = $"the FormDefinition '{key}' this type binds declares an unparseable version '{formVersion}'";
+            return false;
+        }
+
+        binding = new FormBindingRef(new FormDefinitionId(key), pinned);
+        return true;
     }
 
     private static string? ReadString(JsonObject obj, string key)
