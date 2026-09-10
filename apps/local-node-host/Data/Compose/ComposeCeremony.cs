@@ -112,16 +112,37 @@ public sealed class ComposeCeremony
                     $"asset type '{typeId.Value}' was selected more than once."));
             }
 
-            var content = PackAssetTypeContent.ToContent(typeId, descriptor);
-            var item = _canonicalizer.Canonicalize(
-                new PackContentSource(typeId.Value, PackContentKind.AssetTypeDefinition, request.Version, content));
+            // The property-form binding travels ONLY when the bound form is a leaf of THIS pack (ticket 357):
+            // the content key is a pack-local key, so a binding into another pack (or into a form the author
+            // did not select) cannot resolve on the target node and is dropped here — never silently, the
+            // existing lossy-binding warning names it.
+            // The exported binding is a KEY only, so it re-pins to whatever version of that form THIS
+            // composition snapshots (below, at the form's current published version) — it does not preserve
+            // the version the source descriptor bound. Key-only is the self-consistent choice: the
+            // alternative pins a version this pack may not carry.
+            var propertyForm = descriptor.PropertyFormBinding;
+            var bindingTravels = propertyForm is not null
+                                 && formIds.Contains(propertyForm.Definition.Value, StringComparer.Ordinal);
+            var composedDescriptor = bindingTravels ? descriptor : descriptor with { PropertyFormBinding = null };
+
+            var content = PackAssetTypeContent.ToContent(typeId, composedDescriptor);
+            var item = _canonicalizer.Canonicalize(new PackContentSource(
+                typeId.Value,
+                PackContentKind.AssetTypeDefinition,
+                PackAssetTypeContent.ContentVersionFor(composedDescriptor, request.Version),
+                content));
             leaves.Add(new ComposedLeaf(
                 item.Key, item.Kind, item.Version, content, item.ContentAddress.Value));
 
-            // Compose-time detection (#141): the projection (ToContent) cannot carry a type's form bindings,
-            // so a type that SETS one would ship WITHOUT it. Surface a structured, localizable warning rather
-            // than dropping it silently — the author decides whether to include the type anyway.
-            var droppedFormBindings = PackAssetTypeContent.DroppedFormBindingFields(descriptor);
+            // Compose-time detection (#141): the projection (ToContent) cannot carry every form binding a
+            // type SETS, so such a type would ship WITHOUT it. Surface a structured, localizable warning
+            // rather than dropping it silently — the author decides whether to include the type anyway.
+            var droppedFormBindings = new List<string>(
+                PackAssetTypeContent.DroppedFormBindingFields(composedDescriptor));
+            if (propertyForm is not null && !bindingTravels)
+            {
+                droppedFormBindings.Insert(0, "propertyFormBinding");
+            }
             if (droppedFormBindings.Count > 0)
             {
                 warnings.Add(new ComposeWarning(
