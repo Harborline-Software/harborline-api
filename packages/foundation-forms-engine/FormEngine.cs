@@ -1501,7 +1501,7 @@ public sealed class FormEngine : IFormEngine
                     break;
                 case RuleScope.Row:
                     // section/field — the row-template field is keyed by its field name in the view.
-                    var slash = rule.ScopeTarget.IndexOf('/');
+                    var slash = rule.ScopeTarget.IndexOf('/', StringComparison.Ordinal);
                     if (slash >= 0 && slash + 1 < rule.ScopeTarget.Length)
                     {
                         fieldsToStrip.Add(rule.ScopeTarget[(slash + 1)..]);

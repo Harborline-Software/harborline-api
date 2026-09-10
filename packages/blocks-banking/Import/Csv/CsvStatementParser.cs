@@ -207,8 +207,8 @@ public sealed class CsvStatementParser : IStatementFileParser
             return false;
         // Remove currency symbols, whitespace, and thousand-separators
         string cleaned = value.Trim().TrimStart('$', '£', '€', '¥', '+')
-                                     .Replace(",", "")
-                                     .Replace(" ", "");
+                                     .Replace(",", "", StringComparison.Ordinal)
+                                     .Replace(" ", "", StringComparison.Ordinal);
         return decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out result);
     }
 
@@ -219,7 +219,7 @@ public sealed class CsvStatementParser : IStatementFileParser
         // Remove surrounding quotes if present
         string val = columns[index];
         if (val.Length >= 2 && val[0] == '"' && val[^1] == '"')
-            val = val[1..^1].Replace("\"\"", "\"");
+            val = val[1..^1].Replace("\"\"", "\"", StringComparison.Ordinal);
         return val;
     }
 

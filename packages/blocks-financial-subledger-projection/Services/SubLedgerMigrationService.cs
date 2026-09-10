@@ -321,7 +321,7 @@ public sealed class SubLedgerMigrationService
             // The sub-ledger sum for AP = same convention (positive outstanding payables).
             // We compare magnitudes: |Σ subledger| vs |GL signed balance|.
             var glBalances = await _glReadModel.GetAccountBalancesAsOfAsync(
-                tenantId, chartId, today, snapshotMarker: string.Empty).ConfigureAwait(false);
+                tenantId, chartId, today, snapshotMarker: string.Empty, ct).ConfigureAwait(false);
 
             foreach (var ((controlAccountId, kind), subledgerSum) in controlSums)
             {

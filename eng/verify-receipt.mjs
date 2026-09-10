@@ -20,6 +20,7 @@ import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
+import {receiptCoverage} from './coverage.mjs'
 import {receiptCheckForPushRefs} from './pre-push-receipt.mjs'
 
 export const REPOSITORY = 'harborline-api'
@@ -40,6 +41,7 @@ export const requiredStepIds = [
   'contracts-rust',
   'operator-cli-headless',
   'exact-clone',
+  'quality',
   'packages',
 ]
 
@@ -58,6 +60,16 @@ if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/verif
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {encoding: 'utf8'}).trim()
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()
 const receiptPath = path.resolve(root, git('rev-parse', '--git-common-dir'), 'harborline-api-verify-receipt.json')
+const qualityDecisionPath = path.resolve(path.dirname(receiptPath), 'harborline-api-quality-decision.json')
+const stepId = step => typeof step === 'string' ? step : step?.id
+const qualityEntry = () => {
+  if (!existsSync(qualityDecisionPath)) throw new Error('quality decision is absent beside the receipt')
+  const decision = JSON.parse(readFileSync(qualityDecisionPath, 'utf8'))
+  if (!/^sha256:[a-f0-9]{64}$/.test(decision.decisionId) || !/^sha256:[a-f0-9]{64}$/.test(decision.policyDigest)) {
+    throw new Error('quality decision is missing its decision or policy digest')
+  }
+  return {id: 'quality', decisionDigest: decision.decisionId, policyDigest: decision.policyDigest}
+}
 
 const head = git('rev-parse', 'HEAD')
 const tree = git('rev-parse', 'HEAD^{tree}')
@@ -85,9 +97,10 @@ if (process.argv.includes('--record')) {
     schemaVersion: SCHEMA_VERSION,
     repository: REPOSITORY,
     hostBaseline,
+    coverage: receiptCoverage(root),
     baseHead: head,
     testedTree: tree,
-    steps: passed,
+    steps: passed.map(id => id === 'quality' ? qualityEntry() : id),
     recordedAt: new Date().toISOString(),
   }, null, 2) + '\n')
   console.log(`recorded verification receipt for ${head.slice(0, 12)} (tree ${tree.slice(0, 12)})`)
@@ -124,7 +137,7 @@ if (receipt.baseHead !== head) {
   refuse(`the receipt attests to commit ${String(receipt.baseHead).slice(0, 12)}, but HEAD is ${head.slice(0, 12)}`)
 }
 
-const missing = requiredStepIds.filter(id => !(receipt.steps ?? []).includes(id))
+const missing = requiredStepIds.filter(id => !(receipt.steps ?? []).map(stepId).includes(id))
 if (missing.length > 0) refuse(`the receipt does not cover: ${missing.join(', ')}`)
 
 console.log(`${REPOSITORY}: verification receipt matches HEAD ${head.slice(0, 12)} — ${receipt.steps.length} steps`)

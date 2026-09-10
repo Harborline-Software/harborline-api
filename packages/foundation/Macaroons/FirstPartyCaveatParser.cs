@@ -80,7 +80,7 @@ internal static partial class FirstPartyCaveatParser
         {
             if (ctx.ResourceSchema is null) return false;
             var glob = m.Groups[1].Value;
-            var pattern = "^" + Regex.Escape(glob).Replace("\\*", ".*") + "$";
+            var pattern = "^" + Regex.Escape(glob).Replace("\\*", ".*", StringComparison.Ordinal) + "$";
             return Regex.IsMatch(ctx.ResourceSchema, pattern, RegexOptions.CultureInvariant);
         }
 
@@ -114,7 +114,7 @@ internal static partial class FirstPartyCaveatParser
 
     private static bool IsInCidr(string ip, string cidr)
     {
-        var slash = cidr.IndexOf('/');
+        var slash = cidr.IndexOf('/', StringComparison.Ordinal);
         if (slash < 0) return false;
         if (!IPAddress.TryParse(cidr[..slash], out var net)) return false;
         if (!int.TryParse(cidr[(slash + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var prefix))

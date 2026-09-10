@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Formats.Cbor;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 using Microsoft.Extensions.Logging;
@@ -581,7 +582,7 @@ public sealed class FileBackedEventLog : IEventLog, IDisposable, IAsyncDisposabl
         => $"snapshot-{Sanitize(aggregateId)}-{Sanitize(epochId)}-{Sanitize(schemaVersion)}-";
 
     private static string SnapshotFileName(string aggregateId, string epochId, string schemaVersion, DateTimeOffset createdAt)
-        => SnapshotFilePrefix(aggregateId, epochId, schemaVersion) + createdAt.UtcTicks.ToString("D20") + ".cbor";
+        => SnapshotFilePrefix(aggregateId, epochId, schemaVersion) + createdAt.UtcTicks.ToString("D20", CultureInfo.InvariantCulture) + ".cbor";
 
     private static string Sanitize(string value)
     {

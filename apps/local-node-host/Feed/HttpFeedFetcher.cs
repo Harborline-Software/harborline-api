@@ -52,7 +52,7 @@ public sealed class HttpFeedFetcher
     public async Task<MaterializedFeedSource> FetchAsync(string feedBaseUrl, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(feedBaseUrl);
-        var baseUri = new Uri(feedBaseUrl.EndsWith('/') ? feedBaseUrl : feedBaseUrl + "/", UriKind.Absolute);
+        var baseUri = new Uri(feedBaseUrl.EndsWith('/', StringComparison.Ordinal) ? feedBaseUrl : feedBaseUrl + "/", UriKind.Absolute);
 
         var files = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
         using var http = _httpClientFactory.CreateClient(HttpClientName);

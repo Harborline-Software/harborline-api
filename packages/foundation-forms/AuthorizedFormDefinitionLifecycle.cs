@@ -32,7 +32,7 @@ public sealed class AuthorizedFormDefinitionLifecycle
         }
     }
 
-    private sealed class InMemoryFormDefinitionState(TimeProvider time)
+    private sealed class InMemoryFormDefinitionState(TimeProvider time) : IDisposable
     {
         private readonly SemaphoreSlim mutationLock = new(initialCount: 1, maxCount: 1);
         private readonly TimeProvider clock = time;

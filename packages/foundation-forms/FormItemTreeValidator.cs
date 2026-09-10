@@ -1,3 +1,4 @@
+using System.Globalization;
 using Harborline.Api.Foundation.Forms.Models;
 
 namespace Harborline.Api.Foundation.Forms;
@@ -187,7 +188,7 @@ internal static class FormItemTreeValidator
         {
             throw fail(
                 $"collection item '{item.Key}' has invalid cardinality "
-                + $"(min={card.Min}, max={(card.Max?.ToString() ?? "∞")}; cap={limits.MaxCollectionInstances}).",
+                + $"(min={card.Min}, max={(card.Max?.ToString(CultureInfo.InvariantCulture) ?? "∞")}; cap={limits.MaxCollectionInstances}).",
                 FormDefinitionCodes.TreeBadCardinality);
         }
     }

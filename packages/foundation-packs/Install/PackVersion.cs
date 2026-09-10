@@ -68,9 +68,9 @@ public static class PackVersion
             return false;
         }
 
-        var plus = version.IndexOf('+');
+        var plus = version.IndexOf('+', StringComparison.Ordinal);
         var trimmed = plus >= 0 ? version[..plus] : version;
-        var dash = trimmed.IndexOf('-');
+        var dash = trimmed.IndexOf('-', StringComparison.Ordinal);
         var core = dash >= 0 ? trimmed[..dash] : trimmed;
 
         foreach (var segment in core.Split('.'))
@@ -91,10 +91,10 @@ public static class PackVersion
             return (new[] { 0 }, string.Empty);
         }
 
-        var plus = version.IndexOf('+');
+        var plus = version.IndexOf('+', StringComparison.Ordinal);
         var trimmed = plus >= 0 ? version[..plus] : version;
 
-        var dash = trimmed.IndexOf('-');
+        var dash = trimmed.IndexOf('-', StringComparison.Ordinal);
         var core = dash >= 0 ? trimmed[..dash] : trimmed;
         var pre = dash >= 0 ? trimmed[(dash + 1)..] : string.Empty;
 

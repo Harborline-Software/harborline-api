@@ -660,7 +660,7 @@ public partial class HarborlineTreeList<TItem> : HarborlineComponentBase, IColum
             var prop = typeof(TItem).GetProperty(kvp.Key);
             if (prop is not null && prop.CanWrite)
             {
-                try { var t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType; prop.SetValue(_editingItem, kvp.Value is null ? null : Convert.ChangeType(kvp.Value, t)); }
+                try { var t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType; prop.SetValue(_editingItem, kvp.Value is null ? null : Convert.ChangeType(kvp.Value, t, System.Globalization.CultureInfo.CurrentCulture)); }
                 catch { }
             }
         }

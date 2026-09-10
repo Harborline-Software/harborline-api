@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Harborline.Api.Blocks.FinancialLedger.Models;
 
@@ -50,7 +51,7 @@ public sealed class QuickBooksIifExporter : IQuickBooksJournalEntryExporter
 
         foreach (var entry in entries)
         {
-            var dateStr = entry.EntryDate.ToString("MM/dd/yyyy");
+            var dateStr = entry.EntryDate.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
             var lines   = entry.Lines;
 
             if (lines.Count == 0) continue; // guard — JournalEntry constructor prevents this

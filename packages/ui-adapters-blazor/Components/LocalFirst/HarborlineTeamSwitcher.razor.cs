@@ -62,7 +62,7 @@ public partial class HarborlineTeamSwitcher : HarborlineComponentBase
             ? OnAddTeamRequested.InvokeAsync()
             : Task.CompletedTask;
 
-    private static string FormatCount(int count) => count >= 100 ? "99+" : count.ToString();
+    private static string FormatCount(int count) => count >= 100 ? "99+" : count.ToString(System.Globalization.CultureInfo.CurrentCulture);
 
     private void OnStateChanged(object? sender, EventArgs e) =>
         _ = InvokeAsync(StateHasChanged);

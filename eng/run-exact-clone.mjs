@@ -20,6 +20,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, resultNamesIn, readHostTrx} from './host-baseline.mjs'
+import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -28,6 +29,8 @@ import {baselineArgument, compareHostBaseline, resultNamesIn, readHostTrx} from 
 const apiRoot = path.resolve(import.meta.dirname, '..')
 const record = process.argv.includes('--record')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
+const collectCoverage = coverageEnabled()
+const coveragePaths = qualityCoveragePaths(apiRoot)
 
 const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
 const dirty = execFileSync('git', ['-C', apiRoot, 'status', '--porcelain'], {encoding: 'utf8'}).trim()
@@ -107,6 +110,10 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
 
 let report
 try {
+  if (collectCoverage) {
+    rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
+    for (const report of Object.values(coveragePaths)) rmSync(report, {force: true})
+  }
   execFileSync('git', ['clone', '--quiet', '--no-hardlinks', apiRoot, clone], {stdio: 'ignore'})
 
   // Sanity: the clone must carry no build or dependency artifacts. If it does, the .gitignore is
@@ -173,14 +180,33 @@ try {
   run('capability-contracts-build', 'pnpm', ['run', 'build'], path.join(clone, 'packages/contracts'))
   // 246: the contracts package carries its own tests, including the package-name fence; a clone that
   // only builds it would let a retired-name regression through this route.
-  run('capability-contracts-tests', 'pnpm', ['test'], path.join(clone, 'packages/contracts'))
+  const contractsDirectory = path.join(clone, 'packages/contracts')
+  const contractsCoverageDirectory = path.join(contractsDirectory, 'coverage')
+  run('capability-contracts-tests', 'pnpm', collectCoverage
+    ? ['run', 'test:coverage']
+    : ['test'], contractsDirectory)
+  if (collectCoverage) {
+    copyCoberturaReport({
+      resultsDirectory: contractsCoverageDirectory,
+      target: coveragePaths.contracts,
+      label: 'contracts',
+      sourceRoot: 'packages/contracts',
+    })
+  }
   run('capability-install', 'npm', ['install', '--no-audit', '--no-fund'], path.join(clone, 'apps/capability-host'))
 
-  const hostResultsDirectory = path.join(clone, 'TestResults', 'host')
+  const hostResultsDirectory = collectCoverage
+    ? path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'host')
+    : path.join(clone, 'TestResults', 'host')
   const hostTests = run('dotnet-host-tests', 'dotnet',
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
-      '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory], clone, {expectNonZero: true})
+      '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
+      ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
+  if (collectCoverage) {
+    copyCoberturaReport({resultsDirectory: hostResultsDirectory, target: coveragePaths.host,
+      label: 'unit-tests', sourceRoot: '.'})
+  }
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
   run('capability-typecheck', 'npx', ['tsc', '-p', 'tsconfig.json', '--noEmit'], path.join(clone, 'apps/capability-host'))

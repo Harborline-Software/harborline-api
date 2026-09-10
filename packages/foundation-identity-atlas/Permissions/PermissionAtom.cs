@@ -27,7 +27,7 @@ public readonly record struct PermissionAtom
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         var separator = value.IndexOf('@', StringComparison.Ordinal);
-        if (separator <= 0 || separator != value.LastIndexOf('@'))
+        if (separator <= 0 || separator != value.LastIndexOf('@', StringComparison.Ordinal))
         {
             throw new ArgumentException("A permission atom must have the form resource:verb@/path.", nameof(value));
         }

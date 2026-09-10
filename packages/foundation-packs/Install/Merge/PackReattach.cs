@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Globalization;
 
 using Harborline.Api.Foundation.Catalog.Templates;
 using Harborline.Api.Foundation.Packs.Model;
@@ -180,7 +181,7 @@ public static class PackReattachPlanner
                 mergedFloors[floorKey] = seedStrictness; // clamp up to the seed floor (raise-only)
                 conflicts.Add(new PackReattachConflict(
                     contentKey, PackContentKind.StandardsCatalog, PackReattachConflictKind.FloorClamped,
-                    $"/{PackSafetyFloors.FloorsProperty}/{floorKey}", seedStrictness.ToString(), attempted));
+                    $"/{PackSafetyFloors.FloorsProperty}/{floorKey}", seedStrictness.ToString(CultureInfo.InvariantCulture), attempted));
             }
         }
     }

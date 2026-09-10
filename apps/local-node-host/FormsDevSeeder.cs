@@ -169,7 +169,7 @@ public sealed class FormsDevSeeder : IHostedService
         }
 
         var schema = await _schemaRegistry
-            .RegisterAsync(EquipmentInspectionSchemaJson)
+            .RegisterAsync(EquipmentInspectionSchemaJson, ct: cancellationToken)
             .ConfigureAwait(false);
 
         var definition = BuildDefinition(tenantId, schema.Id, now);

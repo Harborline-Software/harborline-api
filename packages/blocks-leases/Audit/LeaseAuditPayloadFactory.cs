@@ -20,8 +20,8 @@ internal static class LeaseAuditPayloadFactory
             ["unit_id"] = lease.UnitId.ToString(),
             ["landlord"] = lease.Landlord.Value,
             ["tenant_count"] = lease.Tenants.Count,
-            ["start_date"] = lease.StartDate.ToString("O"),
-            ["end_date"] = lease.EndDate.ToString("O"),
+            ["start_date"] = lease.StartDate.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["end_date"] = lease.EndDate.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
             ["actor"] = actor.Value,
         });
 

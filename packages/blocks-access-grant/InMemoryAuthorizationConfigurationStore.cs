@@ -12,7 +12,8 @@ public sealed class InMemoryAuthorizationConfigurationStore :
     IAuthorizationConfigurationStore,
     IAuthorizationDefinitionReader,
     IAuthorizationDefinitionCatalogueReader,
-    IHistoricalAuthorizationConfigurationReader
+    IHistoricalAuthorizationConfigurationReader,
+    IDisposable
 {
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly object _bootstrapGate;
@@ -27,6 +28,9 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         _bootstrapGate = bootstrapFence.Gate;
         _bootstrapFence = bootstrapFence;
     }
+
+    /// <summary>Releases the mutex protecting in-memory configuration state.</summary>
+    public void Dispose() => _mutex.Dispose();
 
     /// <inheritdoc />
     public override async ValueTask<AuthorizationConfigurationState> ReadStateAsync(

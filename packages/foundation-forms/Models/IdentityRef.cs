@@ -30,7 +30,7 @@ public readonly record struct IdentityRef(string Scheme, string Value)
     public static IdentityRef Parse(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        var colon = value.IndexOf(':');
+        var colon = value.IndexOf(':', StringComparison.Ordinal);
         if (colon <= 0 || colon == value.Length - 1)
         {
             throw new FormatException($"IdentityRef expects 'scheme:value' with non-empty segments; got '{value}'.");

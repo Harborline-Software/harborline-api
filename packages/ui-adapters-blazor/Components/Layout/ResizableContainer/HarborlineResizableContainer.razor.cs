@@ -398,5 +398,6 @@ public partial class HarborlineResizableContainer : HarborlineComponentBase, IAs
             catch (JSDisconnectedException) { }
         }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

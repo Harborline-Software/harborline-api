@@ -169,7 +169,7 @@ public static class OperatorCli
                 await stdout.WriteLineAsync(
                     parsed.Json
                         ? JsonSerializer.Serialize(new { file = exportOutPath, bytes = downloadedFile.Length })
-                        : $"Wrote {exportOutPath} ({downloadedFile.Length} bytes)").ConfigureAwait(false);
+                        : $"Wrote {exportOutPath} ({downloadedFile.Length} bytes)", cancellationToken).ConfigureAwait(false);
                 return 0;
             }
 
@@ -184,7 +184,7 @@ public static class OperatorCli
                     : JsonSerializer.Serialize(new { error = "http_error", status = (int)response.StatusCode, message = content.Trim() });
             }
             var output = response.IsSuccessStatusCode ? stdout : stderr;
-            await output.WriteLineAsync(content).ConfigureAwait(false);
+            await output.WriteLineAsync(content, cancellationToken).ConfigureAwait(false);
             return response.IsSuccessStatusCode ? 0 : 1;
         }
     }

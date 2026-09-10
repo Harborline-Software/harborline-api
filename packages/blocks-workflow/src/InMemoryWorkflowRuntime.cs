@@ -19,7 +19,7 @@ namespace Harborline.Api.Blocks.Workflow;
 /// the exception propagates to the <c>FireAsync</c> caller but the transition is NOT rolled back.
 /// Callers must treat hook exceptions as advisory.</para>
 /// </remarks>
-public sealed class InMemoryWorkflowRuntime : IWorkflowRuntime
+public sealed class InMemoryWorkflowRuntime : IWorkflowRuntime, IDisposable
 {
     private readonly TimeProvider _timeProvider;
 
@@ -28,6 +28,14 @@ public sealed class InMemoryWorkflowRuntime : IWorkflowRuntime
 
     // Stores type-erased wrappers keyed by instance id.
     private readonly ConcurrentDictionary<WorkflowInstanceId, InstanceEntry> _entries = new();
+
+    /// <summary>Releases the per-instance semaphores owned by this runtime.</summary>
+    public void Dispose()
+    {
+        foreach (var entry in _entries.Values)
+            entry.Dispose();
+        _entries.Clear();
+    }
 
     // ---------------------------------------------------------------------------
     // IWorkflowRuntime
@@ -134,7 +142,11 @@ public sealed class InMemoryWorkflowRuntime : IWorkflowRuntime
     // Internal storage types
     // ---------------------------------------------------------------------------
 
-    private abstract class InstanceEntry { }
+    private abstract class InstanceEntry : IDisposable
+    {
+        internal abstract void Dispose();
+        void IDisposable.Dispose() => Dispose();
+    }
 
     private sealed class TypedInstanceEntry<TState, TTrigger, TContext> : InstanceEntry
         where TState : struct, Enum
@@ -153,5 +165,7 @@ public sealed class InMemoryWorkflowRuntime : IWorkflowRuntime
             Definition = definition;
             Instance = instance;
         }
+
+        internal override void Dispose() => Lock.Dispose();
     }
 }

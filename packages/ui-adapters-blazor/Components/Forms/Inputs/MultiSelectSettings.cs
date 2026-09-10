@@ -47,6 +47,7 @@ public class MultiSelectSettings : ComponentBase, IDisposable
     public void Dispose()
     {
         ParentSink?.UnregisterSettings(this);
+        GC.SuppressFinalize(this);
     }
 }
 
@@ -98,5 +99,6 @@ public class MultiSelectPopupSettings : ComponentBase, IDisposable
     public void Dispose()
     {
         ParentSink?.UnregisterPopupSettings(this);
+        GC.SuppressFinalize(this);
     }
 }

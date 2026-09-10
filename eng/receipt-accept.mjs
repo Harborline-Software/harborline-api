@@ -21,7 +21,9 @@ export function receiptProblem({receipt, testedTree, now = Date.now(), maxAgeHou
   if (receipt.schemaVersion !== SCHEMA_VERSION) return `receipt schemaVersion ${receipt.schemaVersion}, expected ${SCHEMA_VERSION}`
   if (receipt.repository !== REPOSITORY) return `receipt is for ${receipt.repository}, not ${REPOSITORY}`
   if (receipt.testedTree !== testedTree) return `the receipt attests to tree ${String(receipt.testedTree).slice(0, 12)}, not ${String(testedTree).slice(0, 12)}`
-  const missing = requiredStepIds.filter(id => !(Array.isArray(receipt.steps) ? receipt.steps : []).includes(id))
+  // The recorder writes the quality step as {id, decisionDigest, policyDigest} (verify-receipt.mjs qualityEntry); compare ids, not values.
+  const stepIds = (Array.isArray(receipt.steps) ? receipt.steps : []).map(step => typeof step === 'string' ? step : step?.id)
+  const missing = requiredStepIds.filter(id => !stepIds.includes(id))
   if (missing.length > 0) return `the receipt does not cover: ${missing.join(', ')}`
   const recordedAt = Date.parse(receipt.recordedAt ?? '')
   if (!Number.isFinite(recordedAt)) return 'the receipt has no readable recordedAt'

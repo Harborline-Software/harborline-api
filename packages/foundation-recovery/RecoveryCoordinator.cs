@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using Harborline.Api.Kernel.Security.Crypto;
 
 namespace Harborline.Api.Foundation.Recovery;
@@ -12,7 +13,7 @@ namespace Harborline.Api.Foundation.Recovery;
 /// <see cref="IEd25519Signer"/>; dispute authorization via
 /// <see cref="IDisputerValidator"/>.
 /// </summary>
-public sealed class RecoveryCoordinator : IRecoveryCoordinator
+public sealed class RecoveryCoordinator : IRecoveryCoordinator, IDisposable
 {
     private const string EventHashDomainPrefix = "sunfish-recovery-event-v1\n";
     private const byte FieldSeparator = 0x1E; // ASCII record separator
@@ -44,6 +45,9 @@ public sealed class RecoveryCoordinator : IRecoveryCoordinator
         _options = options ?? new RecoveryCoordinatorOptions();
         ValidateOptions(_options);
     }
+
+    /// <inheritdoc />
+    public void Dispose() => _gate.Dispose();
 
     /// <inheritdoc />
     public async Task<RecoveryEvent> DesignateTrusteeAsync(
@@ -308,8 +312,8 @@ public sealed class RecoveryCoordinator : IRecoveryCoordinator
                 detail: BuildDetail(
                     ("attestation.attestedAt", attestation.AttestedAt.ToString("O")),
                     ("attestation.signature.hex", Convert.ToHexString(attestation.Signature)),
-                    ("quorum.received", attestations.Count.ToString()),
-                    ("quorum.threshold", _options.QuorumThreshold.ToString())));
+                    ("quorum.received", attestations.Count.ToString(CultureInfo.InvariantCulture)),
+                    ("quorum.threshold", _options.QuorumThreshold.ToString(CultureInfo.InvariantCulture))));
 
             var events = new List<RecoveryEvent> { received };
             var lastHash = hashAfterReceived;
@@ -526,7 +530,7 @@ public sealed class RecoveryCoordinator : IRecoveryCoordinator
                 detail: BuildDetail(
                     ("grace.startedAt", state.GracePeriodStartedAt.Value.ToString("O")),
                     ("grace.elapsedAt", graceEndsAt.ToString("O")),
-                    ("attestations.count", state.Attestations.Count.ToString())));
+                    ("attestations.count", state.Attestations.Count.ToString(CultureInfo.InvariantCulture))));
 
             // Snapshot the attestations BEFORE clearing/mutating state so
             // the completion handler can decrypt seed envelopes

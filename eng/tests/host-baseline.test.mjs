@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import './host-trx.test.mjs'
 import assert from 'node:assert/strict'
-import {readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs'
+import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -186,8 +186,12 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))
   try {
     mkdirSync(path.join(dir, 'eng'))
-    for (const file of ['verify-receipt.mjs', 'pre-push-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
-    const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8'})
+    for (const file of ['coverage.mjs', 'verify-receipt.mjs', 'pre-push-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
+    // The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no
+    // coverage artifacts, so the flag must not leak into it (337: first red at the land step, not the gate).
+    const env = {...process.env}
+    delete env.HARBORLINE_GATE_COVERAGE
+    const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8', env})
     const git = args => gitRetry(gitArgs => run('git', gitArgs), args)
     for (const args of [['init', '-q'], ['add', '.'], ['-c', 'user.name=Baseline Test', '-c', 'user.email=baseline@example.invalid', 'commit', '--no-verify', '-qm', 'fixture']]) {
       const result = git(args)
@@ -196,12 +200,18 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
     const source = readFileSync(path.join(dir, 'eng/verify-receipt.mjs'), 'utf8')
     const steps = [...source.match(/export const requiredStepIds = \[([^\]]+)\]/)[1].matchAll(/'([^']+)'/g)].map(m => m[1])
     const cli = args => run(process.execPath, ['eng/verify-receipt.mjs', ...args])
+    writeFileSync(path.join(dir, '.git', 'harborline-api-quality-decision.json'), JSON.stringify({
+      decisionId: 'sha256:' + 'a'.repeat(64), policyDigest: 'sha256:' + 'b'.repeat(64),
+    }))
     for (const file of [MACOS_BASELINE, UBUNTU_BASELINE, WINDOWS_BASELINE]) {
       const recorded = cli(['--record', ...steps, '--host-baseline', file])
       assert.equal(recorded.status, 0, recorded.stdout + recorded.stderr)
       const receipt = JSON.parse(readFileSync(path.join(dir, '.git/harborline-api-verify-receipt.json')))
       assert.equal(receipt.hostBaseline, file)
-      assert.deepEqual(receipt.steps, steps)
+      assert.deepEqual(receipt.steps.map(step => typeof step === 'string' ? step : step.id), steps)
+      assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').decisionDigest, /^sha256:[a-f0-9]{64}$/)
+      assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, /^sha256:[a-f0-9]{64}$/)
+      assert.equal(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, 'sha256:' + 'b'.repeat(64))
       assert.equal(cli(['--slice']).status, 0)
       for (const args of [[], ['--landing'], ['--landing', '--slice']]) {
         const checked = cli(args)

@@ -251,7 +251,7 @@ public sealed class TcpSyncDaemonTransport : ISyncDaemonTransport
         }
 
         // Strip any path/query the routable form might carry.
-        var slash = s.IndexOf('/');
+        var slash = s.IndexOf('/', StringComparison.Ordinal);
         if (slash >= 0) s = s[..slash];
 
         if (s.Length == 0)
@@ -262,20 +262,20 @@ public sealed class TcpSyncDaemonTransport : ISyncDaemonTransport
         // IPv6 literal: [::1]:7473
         if (s[0] == '[')
         {
-            var close = s.IndexOf(']');
+            var close = s.IndexOf(']', StringComparison.Ordinal);
             if (close < 0)
             {
                 throw new FormatException($"Endpoint '{endpoint}' has an unterminated IPv6 literal.");
             }
             var v6Host = s[1..close];
             var rest = s[(close + 1)..];
-            var v6Port = rest.StartsWith(':')
+            var v6Port = rest.StartsWith(':', StringComparison.Ordinal)
                 ? ParsePort(rest[1..], endpoint)
                 : DefaultPort;
             return (v6Host, v6Port);
         }
 
-        var colon = s.LastIndexOf(':');
+        var colon = s.LastIndexOf(':', StringComparison.Ordinal);
         if (colon < 0)
         {
             return (s, DefaultPort);
@@ -296,7 +296,7 @@ public sealed class TcpSyncDaemonTransport : ISyncDaemonTransport
     }
 
     private static string FormatEndpoint(string host, int port) =>
-        host.Contains(':') && !host.StartsWith('[')
+        host.Contains(':', StringComparison.Ordinal) && !host.StartsWith('[', StringComparison.Ordinal)
             ? $"{Scheme}://[{host}]:{port}"   // IPv6 literal
             : $"{Scheme}://{host}:{port}";
 

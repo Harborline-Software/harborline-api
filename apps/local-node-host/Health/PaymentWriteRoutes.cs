@@ -490,7 +490,7 @@ public sealed record PaymentWireRow(
         Amount:      p.Amount,
         Currency:    p.Currency,
         Method:      p.Method.ToString(),
-        PaymentDate: p.PaymentDate.ToString("yyyy-MM-dd"),
+        PaymentDate: p.PaymentDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Reference:   p.Reference,
         Status:      p.Status.ToString(),
         ClearingState: p.JournalEntryId is null ? "recorded_not_cleared" : "cleared");

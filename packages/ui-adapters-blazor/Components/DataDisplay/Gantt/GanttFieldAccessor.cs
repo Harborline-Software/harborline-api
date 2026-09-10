@@ -61,7 +61,7 @@ internal sealed class GanttFieldAccessor<TItem> where TItem : class
         if (item is null || string.IsNullOrEmpty(name)) return;
         var prop = GetProp(name);
         if (prop is null || !prop.CanWrite) return;
-        prop.SetValue(item, Convert.ChangeType(value, prop.PropertyType));
+        prop.SetValue(item, Convert.ChangeType(value, prop.PropertyType, System.Globalization.CultureInfo.CurrentCulture));
     }
 
     public void SetStart(TItem item, DateTime value) => Write(item, StartField, value);
@@ -77,7 +77,7 @@ internal sealed class GanttFieldAccessor<TItem> where TItem : class
         var prop = GetProp(field);
         if (prop?.CanWrite != true) return;
         var targetType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-        var converted = value is null ? null : Convert.ChangeType(value, targetType);
+        var converted = value is null ? null : Convert.ChangeType(value, targetType, System.Globalization.CultureInfo.CurrentCulture);
         prop.SetValue(item, converted);
     }
 
@@ -101,7 +101,7 @@ internal sealed class GanttFieldAccessor<TItem> where TItem : class
     {
         var v = Read(item, PercentCompleteField);
         if (v is null) return 0;
-        try { return Convert.ToDouble(v); }
+        try { return Convert.ToDouble(v, System.Globalization.CultureInfo.CurrentCulture); }
         catch { return 0; }
     }
 

@@ -31,7 +31,7 @@ public sealed class SignedRosterRehostGrantProvider(
         var now = time.GetUtcNow();
         var payload = new RehostGrantPayload(tenantId, replacedNodeId, replacementIdentity.NodeId,
             Convert.ToBase64String(replacementIdentity.PublicKey), [ReadCanonical, PromoteHome], now.AddMinutes(5));
-        var signed = await signer.SignAsync(payload, now, Guid.NewGuid());
+        var signed = await signer.SignAsync(payload, now, Guid.NewGuid(), ct);
         var grant = new RosterSignedRehostGrant(JsonSerializer.Serialize(signed));
         return grant;
     }

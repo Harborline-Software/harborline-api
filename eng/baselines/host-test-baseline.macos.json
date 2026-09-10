@@ -5,7 +5,12 @@
   "sourcePin": "37e96a5f",
   "recordedAt": "2026-09-09T00:00:00Z",
   "comparison": "named",
-  "totals": {"total": 3699, "passed": 3673, "failed": 6, "notExecuted": 20},
+  "totals": {
+    "total": 3699,
+    "passed": 3673,
+    "failed": 6,
+    "notExecuted": 20
+  },
   "policy": [
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
@@ -15,36 +20,67 @@
   "permittedFailures": [
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Health.ComposedHostBootEventLogTests.ThrowingEventLogSink_DoesNotStopTheComposedHostAndIsReportedByHealth",
-      "class": "environmental", "owner": "302", "dated": "2026-09-09",
+      "class": "environmental",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "PlatformNotSupportedException: 'Mac keychain integration scheduled for Wave 2 mobile / desktop packaging.' The in-process runtime cannot start on macOS because the install keystore is DPAPI/keychain-bound; the Windows Event Log the test injects has no macOS counterpart either."
     },
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Identity.AdministratorRecoveryCommandTests.ConfiguredDataDirectory_OwnsRecoveryIdentityAndKeystore",
-      "class": "environmental", "owner": "302", "dated": "2026-09-09",
+      "class": "environmental",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "Keystore and data-directory ownership are per-platform (Windows ACLs and .dpapi keys versus POSIX modes); the assertion names the Windows shape."
     },
     {
       "test": "W4-C3/C5: valid node leaf requires SAN, private key, and server-auth",
-      "class": "environmental", "owner": "302", "dated": "2026-09-09",
+      "class": "environmental",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "PlatformNotSupportedException: 'This platform does not support loading with EphemeralKeySet.' Certificate generation goes through the platform store; macOS refuses the ephemeral key set the W4 fixture uses."
     },
     {
       "test": "W4-C4: enabled LAN host binds exactly loopback and LAN endpoints",
-      "class": "environmental", "owner": "302", "dated": "2026-09-09",
+      "class": "environmental",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "Same EphemeralKeySet refusal as W4-C3/C5: the LAN listener cannot load its node leaf on macOS, so the bind assertion never runs."
     },
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 3)",
-      "class": "behavioural", "owner": "302", "dated": "2026-09-09",
+      "class": "behavioural",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "DEFECT, follow-up ticket — not an OS gap. The joiner dials the founder's sync listener, the TCP dial SUCCEEDS, and the admitter then closes the connection before the first frame: 'Socket enrollment: transport/decode failure reaching tcp://127.0.0.1:<port> — System.IO.EndOfStreamException: Peer closed after 0 of 4 expected bytes', so the join answers no_response. It fails in 5-8 s, well inside the 15 s enrollment budget, so this is NOT the ticket 254b load/timeout shape; it is the admitter's pre-trust accept path dropping the ENROLL_REQUEST."
     },
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
-      "class": "behavioural", "owner": "302", "dated": "2026-09-09",
+      "class": "behavioural",
+      "owner": "302",
+      "dated": "2026-09-09",
       "reason": "DEFECT, follow-up ticket — the same pre-trust accept failure as (n: 3), one more joiner."
     }
   ],
-  "knownFlaky": [],
-  "skips": {"count": 20},
-  "measuredAt": {"apiCommit": "37e96a5f plus the ticket 302 slice 1 health-check fix", "platform": "macOS (mac16)", "configuration": "Release; ticket 302 slice 1 re-measurement"}
+  "knownFlaky": [
+    {
+      "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
+      "method": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests",
+      "owner": "361",
+      "firstSeen": "2026-09-09",
+      "expires": "2026-09-23",
+      "verdict": "a-pre-existing-at-sha (load-sensitive)",
+      "measuredRate": "red on the macpro merge gate at load 18 (api-batch1b.log, 2026-09-09); green on the rerun at load 3; a Windows knownFlaky row already exists",
+      "cause": "a wall-clock lock-window assertion under host contention; the test's own comment says the window should be driven from its deterministic hook (ticket 361 root-causes it)",
+      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
+      "retryLimit": 1
+    }
+  ],
+  "skips": {
+    "count": 20
+  },
+  "measuredAt": {
+    "apiCommit": "37e96a5f plus the ticket 302 slice 1 health-check fix",
+    "platform": "macOS (mac16)",
+    "configuration": "Release; ticket 302 slice 1 re-measurement"
+  }
 }

@@ -36,8 +36,8 @@ internal static class DocumentMergeMapping
 
         return DocumentMergeModel.Build()
             .Field("invoiceNumber", invoice.InvoiceNumber)
-            .Field("issueDate", invoice.IssueDate.ToString("yyyy-MM-dd"))
-            .Field("dueDate", invoice.DueDate.ToString("yyyy-MM-dd"))
+            .Field("issueDate", invoice.IssueDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
+            .Field("dueDate", invoice.DueDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
             .Field("customer.name", customerName ?? invoice.CustomerId.Value)
             .Field("subtotal", JsonValue.Create(invoice.Subtotal))
             .Field("taxTotal", JsonValue.Create(invoice.TaxTotal))

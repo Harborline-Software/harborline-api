@@ -6,7 +6,7 @@ set -uo pipefail
 source_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$source_root"
 scratch=$(mktemp -d ".claude/land-main-moved.XXXXXX")
-trap 'rm -rf "$scratch"' EXIT
+[ -n "${KEEP_SCRATCH:-}" ] || trap 'rm -rf "$scratch"' EXIT
 real_node=$(command -v node)
 real_git=$(command -v git)
 # shellcheck source=fixture-git-retry.sh
@@ -54,11 +54,19 @@ make_case() {
   mkdir -p "$seed/eng/tests"
   cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
     "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" \
-    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$source_root/eng/pre-push-receipt.mjs" "$seed/eng/"
+    "$source_root/eng/receipt-accept.mjs" "$source_root/eng/verify-receipt.mjs" "$source_root/eng/host-baseline.mjs" "$source_root/eng/pre-push-receipt.mjs" "$source_root/eng/quality-baseline-landing.sh" "$source_root/eng/coverage.mjs" "$seed/eng/"
   cat > "$seed/eng/gate-lock.sh" <<'EOF'
 gate_lock_acquire() { :; }
 gate_lock_release() { :; }
 EOF
+cat > "$seed/eng/quality-step.mjs" <<'EOF'
+// Fixture stand-in for the quality tool: 339 s4's landing comparison runs it on the merged tree.
+import {writeFileSync} from 'node:fs'
+writeFileSync(process.argv[process.argv.indexOf('--write-baseline') + 1], JSON.stringify({findings: []}))
+EOF
+mkdir -p "$seed/eng/baselines"
+printf '{"findings": []}
+' > "$seed/eng/baselines/quality-baseline.json"
   cat > "$seed/eng/test-verify-stub.sh" <<'EOF'
 #!/usr/bin/env bash
 expected=$(node -p "require('./eng/baselines/host-test-baseline.json').totals.total")
@@ -123,7 +131,7 @@ for arg in "$@"; do
         receipt_ref=${arg#+}
         tree=${receipt_ref#refs/receipts/tree/}
         tree=${tree%%:*}
-        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","exact-clone","packages"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","exact-clone","packages","quality"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
         blob=$(printf '%s' "$receipt" | "$REAL_GIT" --git-dir="$MOCK_REMOTE" hash-object -w --stdin)
         "$REAL_GIT" --git-dir="$MOCK_REMOTE" update-ref "refs/receipts/tree/$tree" "$blob"
       fi

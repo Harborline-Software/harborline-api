@@ -139,7 +139,7 @@ public static class AccentAaDeriver
         }
 
         var s = hex.Trim();
-        if (s.StartsWith('#'))
+        if (s.StartsWith('#', StringComparison.Ordinal))
         {
             s = s[1..];
         }

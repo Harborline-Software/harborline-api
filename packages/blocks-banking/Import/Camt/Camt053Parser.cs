@@ -164,12 +164,12 @@ public sealed class Camt053Parser : IStatementFileParser
                 }
             }
         }
-        catch (XmlException ex) when (ex.Message.Contains("DTD") || ex.Message.Contains("DOCTYPE"))
+        catch (XmlException ex) when (ex.Message.Contains("DTD", StringComparison.Ordinal) || ex.Message.Contains("DOCTYPE", StringComparison.Ordinal))
         {
             throw new StatementParseException(Format, ParseRejectReason.XmlDtdProhibited,
                 "CAMT.053 file contains a DTD declaration which is prohibited for security (XXE/billion-laughs prevention).", ex);
         }
-        catch (XmlException ex) when (ex.Message.Contains("entity") || ex.Message.Contains("Entity"))
+        catch (XmlException ex) when (ex.Message.Contains("entity", StringComparison.Ordinal) || ex.Message.Contains("Entity", StringComparison.Ordinal))
         {
             throw new StatementParseException(Format, ParseRejectReason.XmlEntityExpansionLimit,
                 "CAMT.053 XML entity expansion limit exceeded (billion-laughs guard).", ex);

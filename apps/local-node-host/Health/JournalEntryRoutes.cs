@@ -580,7 +580,7 @@ public sealed record JournalEntryDetailWire(
     /// <summary>Projects a domain <see cref="JournalEntry"/> onto the detail wire shape.</summary>
     public static JournalEntryDetailWire From(JournalEntry e) => new(
         Id:           e.Id.Value,
-        EntryDate:    e.EntryDate.ToString("O"),
+        EntryDate:    e.EntryDate.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         Memo:         e.Memo,
         Status:       e.Status.ToString(),
         SourceKind:   e.SourceKind.ToString(),

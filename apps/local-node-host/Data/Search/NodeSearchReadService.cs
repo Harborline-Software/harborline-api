@@ -307,12 +307,12 @@ public sealed class NodeSearchReadService
         if (tokens.Length == 0)
         {
             // The whole string had no whitespace-delimited tokens (e.g. a single CJK run) — quote it whole.
-            return "\"" + queryText.Replace("\"", "\"\"") + "\"*";
+            return "\"" + queryText.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"*";
         }
 
         for (var i = 0; i < tokens.Length; i++)
         {
-            tokens[i] = "\"" + tokens[i].Replace("\"", "\"\"") + "\"*";
+            tokens[i] = "\"" + tokens[i].Replace("\"", "\"\"", StringComparison.Ordinal) + "\"*";
         }
 
         return string.Join(" ", tokens);

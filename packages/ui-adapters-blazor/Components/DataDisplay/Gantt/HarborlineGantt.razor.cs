@@ -406,7 +406,7 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
                 while (hourCursor < rangeEnd)
                 {
                     var next = hourCursor.AddHours(1);
-                    slots.Add(new TimelineSlot(hourCursor, next, hourCursor.ToString("HH:00")));
+                    slots.Add(new TimelineSlot(hourCursor, next, hourCursor.ToString("HH:00", System.Globalization.CultureInfo.CurrentCulture)));
                     hourCursor = next;
                 }
                 break;
@@ -417,7 +417,7 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
                 while (dayCursor < rangeEnd.Date)
                 {
                     var next = dayCursor.AddDays(1);
-                    slots.Add(new TimelineSlot(dayCursor, next, dayCursor.ToString("ddd")));
+                    slots.Add(new TimelineSlot(dayCursor, next, dayCursor.ToString("ddd", System.Globalization.CultureInfo.CurrentCulture)));
                     dayCursor = next;
                 }
                 break;
@@ -440,7 +440,7 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
                 while (monthCursor < rangeEnd)
                 {
                     var next = monthCursor.AddMonths(1);
-                    slots.Add(new TimelineSlot(monthCursor, next, monthCursor.ToString("MMM")));
+                    slots.Add(new TimelineSlot(monthCursor, next, monthCursor.ToString("MMM", System.Globalization.CultureInfo.CurrentCulture)));
                     monthCursor = next;
                 }
                 break;
@@ -457,7 +457,7 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
         {
             case GanttView.Day:
                 // Main headers = days, grouping hourly slots
-                GroupSlots(slots, s => s.Start.Date, s => s.Start.ToString("ddd, MMM d"), headers);
+                GroupSlots(slots, s => s.Start.Date, s => s.Start.ToString("ddd, MMM d", System.Globalization.CultureInfo.CurrentCulture), headers);
                 break;
 
             case GanttView.Week:
@@ -474,13 +474,13 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
             case GanttView.Month:
                 // Main headers = months, grouping weekly slots
                 GroupSlots(slots, s => new DateTime(s.Start.Year, s.Start.Month, 1),
-                    s => s.Start.ToString("MMMM yyyy"), headers);
+                    s => s.Start.ToString("MMMM yyyy", System.Globalization.CultureInfo.CurrentCulture), headers);
                 break;
 
             case GanttView.Year:
                 // Main headers = years, grouping monthly slots
                 GroupSlots(slots, s => new DateTime(s.Start.Year, 1, 1),
-                    s => s.Start.Year.ToString(), headers);
+                    s => s.Start.Year.ToString(System.Globalization.CultureInfo.CurrentCulture), headers);
                 break;
         }
         return headers;
@@ -1079,7 +1079,7 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
             var fieldValue = accessor.GetFieldValue(node.Item, kvp.Key)?.ToString();
             if (fieldValue is null) return false;
 
-            if (kvp.Value.Contains('|'))
+            if (kvp.Value.Contains('|', StringComparison.Ordinal))
             {
                 // Checkbox filter: pipe-delimited set of allowed values
                 var allowed = kvp.Value.Split('|').ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1719,9 +1719,9 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
         if (value is null) return string.Empty;
         var inputType = GetInputType(field);
         if (inputType == "date" && value is DateTime dtVal)
-            return dtVal.ToString("yyyy-MM-dd");
+            return dtVal.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         if (inputType == "date" && value is DateTimeOffset dtoVal)
-            return dtoVal.ToString("yyyy-MM-dd");
+            return dtoVal.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         return value.ToString() ?? string.Empty;
     }
 
@@ -1885,5 +1885,6 @@ public partial class HarborlineGantt<TItem> : HarborlineComponentBase, IGanttVie
             catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException) { }
         }
         _dotNetRef?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

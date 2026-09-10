@@ -648,7 +648,7 @@ public partial class HarborlineSpreadsheet : HarborlineComponentBase
     {
         result = string.Empty;
         var trimmed = formula.Trim();
-        if (!trimmed.StartsWith("=IF(", StringComparison.OrdinalIgnoreCase) || !trimmed.EndsWith(')'))
+        if (!trimmed.StartsWith("=IF(", StringComparison.OrdinalIgnoreCase) || !trimmed.EndsWith(')', StringComparison.Ordinal))
         {
             return false;
         }
@@ -662,7 +662,7 @@ public partial class HarborlineSpreadsheet : HarborlineComponentBase
         var selected = arguments[condition ? 1 : 2].Trim();
         if (selected.Length >= 2 && selected[0] == '"' && selected[^1] == '"')
         {
-            result = selected[1..^1].Replace("\"\"", "\"");
+            result = selected[1..^1].Replace("\"\"", "\"", StringComparison.Ordinal);
             return true;
         }
 
@@ -753,10 +753,10 @@ public partial class HarborlineSpreadsheet : HarborlineComponentBase
         var expanded = expression;
         while (true)
         {
-            var close = expanded.IndexOf(')');
+            var close = expanded.IndexOf(')', StringComparison.Ordinal);
             if (close < 0) return expanded;
 
-            var open = expanded.LastIndexOf('(', close);
+            var open = expanded.LastIndexOf('(', close, StringComparison.Ordinal);
             if (open < 0) return expanded;
 
             var nameEnd = open;

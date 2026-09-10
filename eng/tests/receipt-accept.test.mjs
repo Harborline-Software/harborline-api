@@ -52,6 +52,9 @@ test('a receipt missing any single required step is refused, naming that step', 
     assert.equal(receiptProblem({receipt, testedTree: TREE}), `the receipt does not cover: ${step}`)
   }
   assert.match(receiptProblem({receipt: good({steps: undefined}), testedTree: TREE}), /does not cover: /)
+  // 339 s4 + 350: the recorder writes quality as an object carrying the decision digests; the acceptor reads its id.
+  const objectQuality = requiredStepIds.map(id => id === 'quality' ? {id: 'quality', decisionDigest: 'd', policyDigest: 'p'} : id)
+  assert.equal(receiptProblem({receipt: good({steps: objectQuality}), testedTree: TREE}), null)
 })
 
 test('a stale schema, a foreign repository and an unreadable time are each refused', () => {

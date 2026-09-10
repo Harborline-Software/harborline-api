@@ -264,7 +264,7 @@ public sealed class ConditionAssessmentProjector : IFormSubmitProjection
         }
 
         // (1) Nested descent — a full RFC-6901 pointer resolves the nested leaf (Rev-7 value nesting).
-        if (pointer.StartsWith('/') && TryResolvePointer(values.RootElement, pointer, out element))
+        if (pointer.StartsWith('/', StringComparison.Ordinal) && TryResolvePointer(values.RootElement, pointer, out element))
         {
             return true;
         }
@@ -285,7 +285,7 @@ public sealed class ConditionAssessmentProjector : IFormSubmitProjection
         // Leading '/' ⇒ segments[0] is the empty string; the real tokens start at index 1.
         for (var i = 1; i < segments.Length; i++)
         {
-            var token = segments[i].Replace("~1", "/").Replace("~0", "~");
+            var token = segments[i].Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
             if (element.ValueKind == JsonValueKind.Object)
             {
                 if (!element.TryGetProperty(token, out element))
@@ -310,7 +310,7 @@ public sealed class ConditionAssessmentProjector : IFormSubmitProjection
 
     private static string FieldName(string pointer)
     {
-        var slash = pointer.LastIndexOf('/');
+        var slash = pointer.LastIndexOf('/', StringComparison.Ordinal);
         return slash >= 0 && slash < pointer.Length - 1 ? pointer[(slash + 1)..] : pointer;
     }
 }

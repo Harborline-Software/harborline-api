@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -311,7 +312,7 @@ public sealed class PostingEngine : IPostingEngine, ILedgerEventStream
             return tx;
         }
 
-        var adjustmentSuffix = closedEnd.UtcDateTime.ToString("yyyyMMdd");
+        var adjustmentSuffix = closedEnd.UtcDateTime.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
         var rewritten = tx.Postings.Select(p => p.PostedAt <= closedEnd
             ? p with
             {
@@ -542,7 +543,7 @@ public sealed class PostingEngine : IPostingEngine, ILedgerEventStream
 
         return new KernelEvent(
             Id: Harborline.Api.Kernel.Events.EventId.NewId(),
-            EntityId: new EntityId("ledger", "period", evt.PeriodEnd.UtcDateTime.ToString("yyyyMMddHHmmss")),
+            EntityId: new EntityId("ledger", "period", evt.PeriodEnd.UtcDateTime.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)),
             Kind: KindPeriodClosed,
             OccurredAt: evt.PeriodEnd,
             Payload: payload);

@@ -269,9 +269,9 @@ public partial class HarborlinePivotGrid : IPivotGridFieldHost
             : null;
 
         if (!string.IsNullOrEmpty(format))
-            return string.Format($"{{0:{format}}}", value);
+            return string.Format(System.Globalization.CultureInfo.CurrentCulture, $"{{0:{format}}}", value);
 
-        return value == Math.Floor(value) ? value.ToString("N0") : value.ToString("N2");
+        return value == Math.Floor(value) ? value.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) : value.ToString("N2", System.Globalization.CultureInfo.CurrentCulture);
     }
 
     internal PivotGridCellContext BuildCellContext(string rowKey, string colKey, double? value)
