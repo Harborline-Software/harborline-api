@@ -19,6 +19,7 @@ using Harborline.Api.Foundation.Recovery.Erasure;
 using Harborline.Api.Foundation.SecurityPolicy.Models;
 using Harborline.Api.Foundation.SecurityPolicy.Retention;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Kernel.Schema.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Forms;
@@ -123,6 +124,25 @@ public static class NodeFormsComposition
         // (1b) Kernel schema registry — JSON-Schema 2020-12 validation core (the
         //      engine's ValidateAsync resolves ISchemaRegistry).
         services.AddHarborlineKernelSchemaRegistry();
+
+        // (1c) Ticket 151 (L1418) — compile-at-activation validation. The catalog compiles the
+        //      baseline record schemas ONCE, when it is composed (a pack's record types are compiled
+        //      the same way at install-activate); CompiledSchemaEntityValidator then looks the
+        //      compiled artefact up per write and never compiles. It is registered as its own type,
+        //      NOT as the shared IEntityValidator store hook: that hook fires for every asset entity
+        //      — definition ENVELOPES and form INSTANCES included, whose bodies are envelopes a
+        //      record-type schema must not judge. The seat for record validation is the records write
+        //      coordinator (NodeEntityWriter), which holds this validator and runs it after the gate
+        //      on every record create and update.
+        services.TryAddSingleton(sp =>
+        {
+            var catalog = new CompiledSchemaCatalog(sp.GetRequiredService<ISchemaRegistry>());
+            Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordSchemas.ActivateBaseline(catalog);
+            return catalog;
+        });
+        services.TryAddSingleton(sp => new CompiledSchemaEntityValidator(
+            sp.GetRequiredService<ISchemaRegistry>(),
+            sp.GetRequiredService<CompiledSchemaCatalog>()));
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore

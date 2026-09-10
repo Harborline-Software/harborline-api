@@ -150,7 +150,13 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new { error = "validation_failed", detail = ex.Message });
+                return Results.UnprocessableEntity(new
+                {
+                    error = "validation_failed",
+                    code = ex.ReasonCode,
+                    pointers = ex.Pointers,
+                    detail = ex.Message,
+                });
             }
             catch (ArgumentException ex)
             {

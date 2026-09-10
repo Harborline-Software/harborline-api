@@ -43,7 +43,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyCompositeUnitOfWork unitOfWork,
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
-    TimeProvider timeProvider) : IHierarchyCompositeCoordinator
+    TimeProvider timeProvider,
+    IEntityValidator validator) : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
@@ -210,6 +211,9 @@ public sealed class NodeHierarchyCompositeCoordinator(
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
             authorization.Require(replacementIds[index]);
+            // Ticket 151 (L1418): a split mints RECORDS, so stage two runs here too — after the
+            // composite admission above, before the store sees the body.
+            await validator.ValidateAsync(target.Schema, target.Body, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
                 target.Schema, target.Body, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
@@ -270,6 +274,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
+        await validator.ValidateAsync(newSchema, newBody, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
             newSchema, newBody, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)

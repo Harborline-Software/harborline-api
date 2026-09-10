@@ -63,24 +63,29 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
 
+        // Stage two (ADR 0065 clause 4): authority validation runs after the gate and BEFORE any
+        // device-local parsing, so the refusal a caller sees is the authority's — named, pointed at
+        // the failing member, and identical on every path that writes this record type. The null
+        // object is gone: whatever is composed here is a real validator (ticket 151, L1418).
+        using (var candidate = JsonSerializer.SerializeToDocument(new
+        {
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        }))
+        {
+            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
+        }
+
+        // Device-local parsing of the already-validated body. Unreachable for a body the authority
+        // accepted; kept as the local guard for an embedder that composes its own schema.
         if (string.IsNullOrWhiteSpace(command.LegalName))
             throw new ArgumentException("legalName is required.", nameof(command));
         if (!Enum.TryParse<EntityKind>(command.Kind, true, out var kind))
             throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
-
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
-        {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -112,6 +117,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +132,10 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        // The new body is validated against the record's OWN activated schema. A missing entity is
+        // the store's refusal to raise, and it cannot persist anything.
+        if (await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing)
+            await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
