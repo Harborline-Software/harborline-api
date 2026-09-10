@@ -512,7 +512,9 @@ public sealed class EntityRouteTests : IAsyncLifetime
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "Invalid LLC" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("validation_failed", body.GetProperty("error").GetString());
+        // Ticket 151: a NAMED refusal DTO carrying the dotted code — the prose `error` key is gone.
+        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("error", out _));
 
         // The validator sees WIRE-SHAPED (camelCase) keys — the JSON as the client sent it, not the
         // C# DTO's PascalCase (a real schema validator would silently miss every property otherwise).

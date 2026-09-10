@@ -138,7 +138,8 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("validation_failed", body.GetProperty("error").GetString());
+        // The 422 is the named EntityValidationRefusal DTO: a dotted code, no prose `error` key.
+        Assert.False(body.TryGetProperty("error", out _));
         Assert.Equal(CompiledSchemaEntityValidator.BodyInvalid, body.GetProperty("code").GetString());
         Assert.Contains(
             "/legalName",

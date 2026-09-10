@@ -39,6 +39,7 @@ public sealed class CliVerbRouteBindingTests
                     "pack", "deactivate", "--pack-key", "general", "--version", "1.2.3"),
                 ["export"] = () => VerbFixture.Create("export"),
                 ["pack export"] = VerbFixture.WithExportRequest,
+                ["record create"] = VerbFixture.WithRecordFile,
             };
 
             foreach (var (pair, verb) in verbs)
@@ -148,6 +149,17 @@ public sealed class CliVerbRouteBindingTests
             return new VerbFixture(
                 ["--url", "http://127.0.0.1:7312", "--json", "pack", operation, "--file", packPath],
                 [packPath]);
+        }
+
+        internal static VerbFixture WithRecordFile()
+        {
+            var recordPath = Path.Combine(
+                Path.GetTempPath(),
+                $"harborline-cli-binding-{Guid.NewGuid():N}.json");
+            File.WriteAllText(recordPath, """{"legalName":"Acme","kind":"Llc","taxClassification":"CCorp"}""");
+            return new VerbFixture(
+                ["--url", "http://127.0.0.1:7312", "--json", "record", "create", "--file", recordPath],
+                [recordPath]);
         }
 
         internal static VerbFixture WithExportRequest()

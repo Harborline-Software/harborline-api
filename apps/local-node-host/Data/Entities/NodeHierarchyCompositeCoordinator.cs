@@ -6,6 +6,8 @@ using Harborline.Api.Foundation.Assets.Hierarchy;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Schema;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -44,7 +46,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
     TimeProvider timeProvider,
-    IEntityValidator validator) : IHierarchyCompositeCoordinator
+    [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator)
+    : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);

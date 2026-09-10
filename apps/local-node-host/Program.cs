@@ -2252,7 +2252,9 @@ builder.Services.AddNodeForms(
             // Ticket 151 (L1418): the REAL compile-at-activation validator, not the container's
             // null-object store hook.
             sp.GetRequiredService<Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator>(),
-            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
+            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+            // Ticket 151 row 4d: a stage-two refusal reaches the decision trace.
+            sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
         services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(sp =>

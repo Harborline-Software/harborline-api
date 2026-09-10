@@ -114,6 +114,31 @@ public static class OperatorCli
             };
             pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
+        else if (parsed.Command is ["record", "create", "--file", var recordPath])
+        {
+            if (!File.Exists(recordPath))
+            {
+                await WriteErrorAsync(
+                    stderr,
+                    parsed.Json,
+                    "record_file_not_found",
+                    $"Record file not found: {recordPath}").ConfigureAwait(false);
+                return 2;
+            }
+
+            // Ticket 151 (L1418): the headless record write posts the body VERBATIM. The node owns
+            // validation — the same gate then the same real validator the HTTP client reaches — so the
+            // CLI reshaping a record body would be a second, weaker authoring surface. The node's 422
+            // (code + RFC 6901 pointers, never the body) passes through to stderr unchanged.
+            pendingRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(parsed.BaseUri, "/api/local-node/entities"))
+            {
+                Content = new ByteArrayContent(
+                    await File.ReadAllBytesAsync(recordPath, cancellationToken).ConfigureAwait(false)),
+            };
+            pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
         else if (parsed.Command is ["export", "--scope", var scope])
         {
             pendingRequest = JsonPost(

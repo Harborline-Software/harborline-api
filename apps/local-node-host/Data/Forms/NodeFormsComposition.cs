@@ -143,6 +143,13 @@ public static class NodeFormsComposition
         services.TryAddSingleton(sp => new CompiledSchemaEntityValidator(
             sp.GetRequiredService<ISchemaRegistry>(),
             sp.GetRequiredService<CompiledSchemaCatalog>()));
+        //      The record coordinators ask for it by KEY (see CompiledSchemaEntityValidator
+        //      .RecordWriteKey). Any composition of this graph — not only the one Program.cs hand-wires
+        //      — therefore gives every record write the real validator, while the unkeyed slot the
+        //      store hook resolves stays the null object on purpose.
+        services.TryAddKeyedSingleton<IEntityValidator>(
+            CompiledSchemaEntityValidator.RecordWriteKey,
+            (sp, _) => sp.GetRequiredService<CompiledSchemaEntityValidator>());
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore

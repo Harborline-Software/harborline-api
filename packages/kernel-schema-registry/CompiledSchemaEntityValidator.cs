@@ -20,6 +20,16 @@ public sealed class CompiledSchemaEntityValidator(
     ISchemaRegistry registry,
     CompiledSchemaCatalog catalog) : IEntityValidator
 {
+    /// <summary>
+    /// The DI key the RECORD write coordinators ask for. A record coordinator takes its validator
+    /// under this key, never from the unkeyed <see cref="IEntityValidator"/> slot: that slot is the
+    /// asset store's pre-commit hook, which also fires for definition ENVELOPES and form INSTANCES
+    /// whose bodies a record-type schema must not judge, and it keeps its null-object default. A
+    /// composition that forgets this key fails to construct the coordinator instead of silently
+    /// handing it an always-accepting null object (ticket 151, L1418).
+    /// </summary>
+    public const string RecordWriteKey = "harborline.records.write";
+
     /// <summary>No activation has compiled a validator for this schema id.</summary>
     public const string SchemaUnknown = "entity.validation.schema_unknown";
 

@@ -13,11 +13,18 @@ harborline-node --url http://127.0.0.1:5050 --token <token> --json pack deactiva
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack verify --file general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack export --request general.export.json --out general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json export --scope forms
+harborline-node --url http://127.0.0.1:5050 --token <token> --json record create --file entity.json
 ```
 
 `pack verify` uploads the file byte-exact (like `pack install`) and prints the node's verdict.
 `pack export` posts the composition request document verbatim — the node's route owns validation —
 and writes the signed pack bytes to `--out`, printing `{"file":…,"bytes":…}`.
+
+`record create` posts the record body verbatim to `POST /api/local-node/entities` — the node owns
+validation, so the headless write goes through the same authorization gate and the same real
+validator (ticket 151, L1418) as an interactive client. A refused body comes back as the node's 422
+verbatim on stderr: the dotted reason code and the RFC 6901 pointers of the failing members, never
+the body that was refused.
 
 ## Coverage manifest
 

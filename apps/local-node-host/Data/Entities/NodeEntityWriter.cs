@@ -5,7 +5,9 @@ using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Schema;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -20,9 +22,33 @@ public sealed record CreateLegalEntityCommand(
 public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
-    IEntityValidator validator,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
+    AuthorizationGate gate,
+    Health.AuthorizationRefusalAudit? refusals = null) : IEntityWriteCoordinator
 {
+    /// <summary>
+    /// Stage two (ADR 0065 clause 4), with its refusal recorded where the decision trace reads it
+    /// (ticket 151). Every record write on this coordinator goes through here so the trace entry cannot
+    /// be present on one path and missing on another. The sink is optional because an embedder may
+    /// compose the coordinator without an audit trail; the REFUSAL is not optional either way.
+    /// </summary>
+    private async Task ValidateAsync(
+        SchemaId schema, JsonDocument body, AuthorizationWriteContext authority, CancellationToken ct)
+    {
+        try
+        {
+            await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        }
+        catch (EntityValidationException refusal)
+        {
+            if (refusals is not null)
+                await refusals.RecordValidationRefusalAsync(
+                    refusal.ReasonCode, refusal.Pointers, TeamRolePermissions.RecordsWrite,
+                    authority.Principal, authority.Tenant, authority.At, ct).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         IEntityValidator validator,
@@ -75,7 +101,8 @@ public sealed class NodeEntityWriter(
             commonControlGroupId = command.CommonControlGroupId,
         }))
         {
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
+            await ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct)
+                .ConfigureAwait(false);
         }
 
         // Device-local parsing of the already-validated body. Unreachable for a body the authority
@@ -117,7 +144,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -135,7 +162,7 @@ public sealed class NodeEntityWriter(
         // The new body is validated against the record's OWN activated schema. A missing entity is
         // the store's refusal to raise, and it cannot persist anything.
         if (await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing)
-            await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
+            await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
