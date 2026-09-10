@@ -150,7 +150,11 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new { error = "validation_failed", detail = ex.Message });
+                // A NAMED contract, not an anonymous shape, and no prose `error` key: the dotted code
+                // IS the machine-readable reason (FormsErrorEnvelopeArchTests already forbids a prose
+                // key in the Forms family, and the record surface must not re-introduce one).
+                return Results.UnprocessableEntity(
+                    new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers));
             }
             catch (ArgumentException ex)
             {
@@ -165,6 +169,17 @@ public static class EntityRoutes
 }
 
 // ── Wire shapes ───────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Ticket 151 (L1418) — the 422 a record-write validation refusal renders: the dotted reason code, a
+/// detail naming the failing members, and the RFC 6901 pointers. It never carries the refused body.
+/// </summary>
+// holds RW-4 · closes RW-H6: the 422 shape is the code, a fixed detail and the RFC 6901 pointers —
+// no member of the refused body ever appears in it.
+public sealed record EntityValidationRefusal(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("detail")] string Detail,
+    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers);
 
 /// <summary>List response envelope matching the Bridge <c>/api/v1/entities</c> shape.</summary>
 public sealed record EntityListResponse(

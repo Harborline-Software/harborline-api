@@ -5,7 +5,9 @@ using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Schema;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -20,9 +22,35 @@ public sealed record CreateLegalEntityCommand(
 public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
-    IEntityValidator validator,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
+    AuthorizationGate gate,
+    Health.AuthorizationRefusalAudit? refusals = null) : IEntityWriteCoordinator
 {
+    /// <summary>
+    /// Stage two (ADR 0065 clause 4), with its refusal recorded where the decision trace reads it
+    /// (ticket 151). Every record write on this coordinator goes through here so the trace entry cannot
+    /// be present on one path and missing on another. The sink is optional because an embedder may
+    /// compose the coordinator without an audit trail; the REFUSAL is not optional either way.
+    /// </summary>
+    // holds RW-2, RW-5 · closes RW-H1, RW-H2, RW-H7: the ONE place this writer validates, so no record
+    // path reaches persistence unvalidated and a validator fault propagates instead of passing.
+    private async Task ValidateAsync(
+        SchemaId schema, JsonDocument body, AuthorizationWriteContext authority, CancellationToken ct)
+    {
+        try
+        {
+            await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        }
+        catch (EntityValidationException refusal)
+        {
+            if (refusals is not null)
+                await refusals.RecordValidationRefusalAsync(
+                    refusal.ReasonCode, refusal.Pointers, TeamRolePermissions.RecordsWrite,
+                    authority.Principal, authority.Tenant, authority.At, ct).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         IEntityValidator validator,
@@ -63,24 +91,30 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
 
+        // Stage two (ADR 0065 clause 4): authority validation runs after the gate and BEFORE any
+        // device-local parsing, so the refusal a caller sees is the authority's — named, pointed at
+        // the failing member, and identical on every path that writes this record type. The null
+        // object is gone: whatever is composed here is a real validator (ticket 151, L1418).
+        using (var candidate = JsonSerializer.SerializeToDocument(new
+        {
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        }))
+        {
+            await ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct)
+                .ConfigureAwait(false);
+        }
+
+        // Device-local parsing of the already-validated body. Unreachable for a body the authority
+        // accepted; kept as the local guard for an embedder that composes its own schema.
         if (string.IsNullOrWhiteSpace(command.LegalName))
             throw new ArgumentException("legalName is required.", nameof(command));
         if (!Enum.TryParse<EntityKind>(command.Kind, true, out var kind))
             throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
-
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
-        {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -109,9 +143,13 @@ public sealed class NodeEntityWriter(
         if (options.Tenant != authority.Tenant)
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
         var recordId = options.ExplicitLocalPart ?? options.Nonce;
+        // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
+        // so an unauthorized caller learns nothing about the schema. holds RW-9: this is a named
+        // validated writer in RecordWriteValidatedWriterFence's inventory.
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +164,10 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        // The new body is validated against the record's OWN activated schema. A missing entity is
+        // the store's refusal to raise, and it cannot persist anything.
+        if (await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing)
+            await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

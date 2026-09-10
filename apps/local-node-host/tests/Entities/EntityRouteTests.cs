@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.Kernel.Schema.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
@@ -444,28 +445,46 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal("DisregardedEntity", entity.GetProperty("taxClassification").GetString());
     }
 
-    [Fact(DisplayName = "Entity route: create rejects missing legalName (400)")]
+    // Ticket 151 review note N1 — these rows used to claim the SHIPPED status code for these shapes. They
+    // do not: this class injects the accept-all ToggleableEntityValidator, so stage two passes and the
+    // device-local parse in NodeEntityWriter answers 400. In production the REAL validator runs first
+    // (gate → validator → parse) and answers 422. Each row now pins BOTH halves: the stub-validator 400
+    // this host produces, and what the real validator answers for the same body.
+
+    [Fact(DisplayName = "Entity route: missing legalName — 400 under the stub validator, 422 under the real one")]
     public async Task Create_RejectsMissingLegalName()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { kind = "Llc" });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+
+        var refusal = await RealValidatorRefusalAsync(new { legalName = (string?)null, kind = "Llc", taxClassification = "DisregardedEntity" });
+        Assert.Equal(Kernel.Schema.CompiledSchemaEntityValidator.BodyInvalid, refusal.ReasonCode);
+        Assert.NotEmpty(refusal.Pointers);
     }
 
-    [Fact(DisplayName = "Entity route: create rejects whitespace-only legalName (400)")]
+    // Not an N1 row: "   " satisfies the activated schema (minLength 1), so the real validator PASSES it
+    // and the device-local whitespace guard is genuinely the check that fires. The 400 is the shipped code.
+    [Fact(DisplayName = "Entity route: create rejects whitespace-only legalName (400, the local guard)")]
     public async Task Create_RejectsWhitespaceLegalName()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "   " });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+
+        await RealValidatorAcceptsAsync(new { legalName = "   ", kind = "Llc", taxClassification = "DisregardedEntity" });
     }
 
-    [Fact(DisplayName = "Entity route: create rejects invalid kind (400)")]
+    [Fact(DisplayName = "Entity route: invalid kind — 400 under the stub validator, 422 + /kind under the real one")]
     public async Task Create_RejectsInvalidKind()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "x", kind = "SuperCorp" });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+
+        var refusal = await RealValidatorRefusalAsync(new { legalName = "x", kind = "SuperCorp", taxClassification = "DisregardedEntity" });
+        Assert.Equal(Kernel.Schema.CompiledSchemaEntityValidator.BodyInvalid, refusal.ReasonCode);
+        Assert.Contains("/kind", refusal.Pointers);
     }
 
-    [Fact(DisplayName = "Entity route: create rejects invalid taxClassification (400)")]
+    [Fact(DisplayName = "Entity route: invalid taxClassification — 400 under the stub validator, 422 under the real one")]
     public async Task Create_RejectsInvalidTaxClassification()
     {
         var resp = await _client.PostAsJsonAsync(Route, new
@@ -475,6 +494,35 @@ public sealed class EntityRouteTests : IAsyncLifetime
             taxClassification = "NotAClass",
         });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+
+        var refusal = await RealValidatorRefusalAsync(new { legalName = "x", kind = "Llc", taxClassification = "NotAClass" });
+        Assert.Equal(Kernel.Schema.CompiledSchemaEntityValidator.BodyInvalid, refusal.ReasonCode);
+        Assert.Contains("/taxClassification", refusal.Pointers);
+    }
+
+    /// <summary>The production validation composition (baseline record schemas compiled at activation),
+    /// over the camelCase candidate document NodeEntityWriter builds for a legal-entity create.</summary>
+    private static async Task<Foundation.Assets.Entities.EntityValidationException> RealValidatorRefusalAsync(object candidate)
+        => await Assert.ThrowsAsync<Foundation.Assets.Entities.EntityValidationException>(
+            () => ValidateWithRealValidatorAsync(candidate));
+
+    private static Task RealValidatorAcceptsAsync(object candidate) => ValidateWithRealValidatorAsync(candidate);
+
+    private static async Task ValidateWithRealValidatorAsync(object candidate)
+    {
+        var collection = new ServiceCollection();
+        collection.AddTestKernelClock();
+        var services = collection
+            .AddHarborlineKernelSchemaRegistry()
+            .BuildServiceProvider();
+        var catalog = new Kernel.Schema.CompiledSchemaCatalog(
+            services.GetRequiredService<Kernel.Schema.ISchemaRegistry>());
+        Data.Entities.NodeRecordSchemas.ActivateBaseline(catalog);
+        var validator = new Kernel.Schema.CompiledSchemaEntityValidator(
+            services.GetRequiredService<Kernel.Schema.ISchemaRegistry>(), catalog);
+
+        using var body = JsonSerializer.SerializeToDocument(candidate);
+        await validator.ValidateAsync(EntityRoutes.LegalEntitySchema, body);
     }
 
     [Fact(DisplayName = "Entity route: multiple entities accumulate in list")]
@@ -512,7 +560,9 @@ public sealed class EntityRouteTests : IAsyncLifetime
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "Invalid LLC" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("validation_failed", body.GetProperty("error").GetString());
+        // Ticket 151: a NAMED refusal DTO carrying the dotted code — the prose `error` key is gone.
+        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("error", out _));
 
         // The validator sees WIRE-SHAPED (camelCase) keys — the JSON as the client sent it, not the
         // C# DTO's PascalCase (a real schema validator would silently miss every property otherwise).

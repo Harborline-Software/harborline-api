@@ -105,6 +105,16 @@ public sealed class AllowListVacuityArchTests
     /// </summary>
     private static readonly Dictionary<string, string> SelfVerifying = new(StringComparer.Ordinal)
     {
+        ["AcceptanceTraceabilityArchTests.AcceptanceIds"] =
+            "the record-write-path spec's requirement ids the traceability fence scans FOR, not an "
+            + "exception list; an id it does not hold excuses nothing (it is simply not required)",
+        ["RecordWriteValidatedWriterFence.ValidatedWriters"] =
+            "the inventory of writers the ticket-151 record-write fence scans FOR; a call site it does not "
+            + "hold is reported, not excused",
+        ["RecordWriteValidatedWriterFence.ExceptionRows"] =
+            "a per-call-site exception list held empty by construction (RecordWriteValidationJudgeTests row "
+            + "6 reports any unlisted call site); the first real row must be registered above against a "
+            + "discovery with the exception list bypassed",
         ["JsonProjectionConstraintTests.KnownAllowedRawJsonColumnRefs"] =
             "a per-column skip list held empty by construction, pinned by JsonProjectionConstraintTests."
             + "KnownAllowedRawJsonColumnRefs_IsEmpty; the first real row must be registered above against "

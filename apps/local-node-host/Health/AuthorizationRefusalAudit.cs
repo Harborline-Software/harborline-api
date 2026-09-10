@@ -66,7 +66,42 @@ public sealed class AuthorizationRefusalAudit
         DateTimeOffset at,
         AuthorizationDecision? decision,
         CancellationToken ct = default) =>
-        RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType, ct);
+        RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType,
+            preDecisionRefusal: false, ct);
+
+    /// <summary>
+    /// Ticket 151 (L1418) — records a STAGE-TWO refusal: the gate allowed the act, then the record body
+    /// failed its activated schema, so the write never reached persistence. It is recorded in the
+    /// pre-decision shape (<see cref="AuthorizationPreDecisionRefusal"/>, under the event type
+    /// <see cref="AuthorizationRefusedEventType"/> the trace reader recognises) because no four-step
+    /// decision refused it: <paramref name="code"/> and <paramref name="pointers"/> are the whole reason.
+    /// The refused BODY is recorded nowhere, diagnostic included — a reviewer learns which members failed,
+    /// never what they held.
+    /// </summary>
+    public ValueTask<Guid?> RecordValidationRefusalAsync(
+        string code,
+        IReadOnlyList<string> pointers,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ArgumentNullException.ThrowIfNull(pointers);
+        var members = pointers.Count == 0
+            ? "/"
+            : string.Join(' ', pointers.Select(pointer => pointer.Length == 0 ? "/" : pointer));
+        return RecordCoreAsync(
+            new AuthorizationRefusal(
+                code,
+                "The record was refused before it was persisted.",
+                members,
+                "Correct the named members and submit the record again.",
+                $"{code} at {members}"),
+            permission, principal, tenant, at, decision: null, AuthorizationRefusedEventType,
+            preDecisionRefusal: true, ct);
+    }
 
     internal async ValueTask RecordAsync(AuthorizationDecision decision, CancellationToken ct)
     {
@@ -85,7 +120,8 @@ public sealed class AuthorizationRefusalAudit
         TenantId tenant,
         DateTimeOffset at,
         CancellationToken ct = default) =>
-        RecordCoreAsync(refusal, permission, principal, tenant, at, null, AuthorizationRefusalClearedEventType, ct);
+        RecordCoreAsync(refusal, permission, principal, tenant, at, null,
+            AuthorizationRefusalClearedEventType, preDecisionRefusal: false, ct);
 
     private async ValueTask<Guid?> RecordCoreAsync(
         AuthorizationRefusal refusal,
@@ -95,6 +131,7 @@ public sealed class AuthorizationRefusalAudit
         DateTimeOffset at,
         AuthorizationDecision? decision,
         AuditEventType eventType,
+        bool preDecisionRefusal,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(refusal);
@@ -106,7 +143,8 @@ public sealed class AuthorizationRefusalAudit
                 ["permission"] = permission,
                 ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
-                ["preDecisionRefusal"] = decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode
+                ["preDecisionRefusal"] = decision is null
+                    && (preDecisionRefusal || refusal.Code == MemberRoster.NoBrickingFloorCode)
                     ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation) : null,
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),

@@ -136,7 +136,8 @@ public sealed class AuthorizationWriteStageTests
         var decisions = 0;
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(audit),
-            TestAuthorization.Gate(true, _ => decisions++), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true, _ => decisions++), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var firstBody = JsonDocument.Parse("{\"name\":\"first\"}");
         using var secondBody = JsonDocument.Parse("{\"name\":\"second\"}");
@@ -173,7 +174,8 @@ public sealed class AuthorizationWriteStageTests
         var requests = new List<AuthorizationGateRequest>();
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(audit),
-            TestAuthorization.Gate(true, requests.Add), clock);
+            TestAuthorization.Gate(true, requests.Add), clock,
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var firstBody = JsonDocument.Parse("{\"name\":\"first\"}");
         using var secondBody = JsonDocument.Parse("{\"name\":\"second\"}");
@@ -210,7 +212,8 @@ public sealed class AuthorizationWriteStageTests
         var audit = new InMemoryAuditLog(storage);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(audit),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var newBody = JsonDocument.Parse("{\"name\":\"new\"}");
         var oldId = await entities.CreateAsync(
@@ -248,7 +251,8 @@ public sealed class AuthorizationWriteStageTests
         var audit = new InMemoryAuditLog(storage);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(audit),
-            TestAuthorization.Gate(true), clock);
+            TestAuthorization.Gate(true), clock,
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var newBody = JsonDocument.Parse("{\"name\":\"new\"}");
         var oldId = await entities.CreateAsync(
@@ -289,7 +293,8 @@ public sealed class AuthorizationWriteStageTests
         var audit = new InMemoryAuditLog(storage);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(audit),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var newBody = JsonDocument.Parse("{\"name\":\"new\"}");
         var oldId = await entities.CreateAsync(
@@ -328,7 +333,8 @@ public sealed class AuthorizationWriteStageTests
         var hierarchy = new InMemoryHierarchyService(storage);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(new InMemoryAuditLog(storage)),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var newBody = JsonDocument.Parse("{\"name\":\"new\"}");
         var oldId = await entities.CreateAsync(
@@ -365,7 +371,8 @@ public sealed class AuthorizationWriteStageTests
         var coordinator = new NodeHierarchyCompositeCoordinator(
             new InMemoryEntityStore(storage, new FixedTimeProvider(at)), hierarchy,
             new HierarchyAuthorizedAuditWriter(new InMemoryAuditLog(storage)),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         var child = new EntityId("entity", "test", "reparent-child-finite");
         var oldParent = new EntityId("entity", "test", "reparent-old-finite");
         var newParent = new EntityId("entity", "test", "reparent-new-finite");
@@ -394,7 +401,8 @@ public sealed class AuthorizationWriteStageTests
         var coordinator = new NodeHierarchyCompositeCoordinator(
             new InMemoryEntityStore(storage, new FixedTimeProvider(at)), hierarchy,
             new HierarchyAuthorizedAuditWriter(new InMemoryAuditLog(storage)),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         var child = new EntityId("entity", "test", "reparent-dup-child");
         var absent = new EntityId("entity", "test", "reparent-dup-absent");
         var oldParent = new EntityId("entity", "test", "reparent-dup-old");
@@ -429,7 +437,8 @@ public sealed class AuthorizationWriteStageTests
         var innerAudit = new InMemoryAuditLog(storage);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(new AppendThenThrowAudit(innerAudit)),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var oldBody = JsonDocument.Parse("{\"name\":\"old\"}");
         using var newBody = JsonDocument.Parse("{\"name\":\"new\"}");
         var oldId = await entities.CreateAsync(new SchemaId("schema"), oldBody,
@@ -465,7 +474,8 @@ public sealed class AuthorizationWriteStageTests
         var failingAudit = new BlockingAppendThenThrowAudit(innerAudit);
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, hierarchy, new HierarchyAuthorizedAuditWriter(failingAudit),
-            TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         var productionWriter = new NodeEntityWriter(
             Substitute.For<IDbContextFactory<LocalNodeDbContext>>(),
             entities,
@@ -592,7 +602,8 @@ public sealed class AuthorizationWriteStageTests
         var firstId = new EntityId("entity", "test", firstOptions.ExplicitLocalPart!);
         var lateId = new EntityId("entity", "test", lateOptions.ExplicitLocalPart!);
         var coordinator = new NodeHierarchyCompositeCoordinator(
-            entities, hierarchy, audit, TestAuthorization.Gate(true), new FixedTimeProvider(at));
+            entities, hierarchy, audit, TestAuthorization.Gate(true), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
 
         await Assert.ThrowsAsync<EntityValidationException>(() => coordinator.SplitAsync(oldId,
         [
@@ -619,7 +630,8 @@ public sealed class AuthorizationWriteStageTests
         ExecuteMergeAtomicCallback(transaction);
         var audit = Substitute.For<IHierarchyAuthorizedAuditWriter>();
         var coordinator = new NodeHierarchyCompositeCoordinator(
-            entities, transaction, audit, TestAuthorization.Gate(false), new FixedTimeProvider(at));
+            entities, transaction, audit, TestAuthorization.Gate(false), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var body = JsonDocument.Parse("{}");
         var old = new EntityId("entity", "test", "old");
         var options = Options("new", actor, tenant, at);
@@ -653,7 +665,8 @@ public sealed class AuthorizationWriteStageTests
         var audit = Substitute.For<IHierarchyAuthorizedAuditWriter>();
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, transaction, audit,
-            await RealScopedHierarchyGateAsync(at, tenant, principal, "old"), new FixedTimeProvider(at));
+            await RealScopedHierarchyGateAsync(at, tenant, principal, "old"), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var body = JsonDocument.Parse("{}");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => coordinator.SplitAsync(
@@ -679,7 +692,8 @@ public sealed class AuthorizationWriteStageTests
         var audit = Substitute.For<IHierarchyAuthorizedAuditWriter>();
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, transaction, audit,
-            await RealScopedHierarchyGateAsync(at, tenant, principal, "new", "old-a"), new FixedTimeProvider(at));
+            await RealScopedHierarchyGateAsync(at, tenant, principal, "new", "old-a"), new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
         using var body = JsonDocument.Parse("{}");
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => coordinator.MergeAsync(
@@ -708,7 +722,8 @@ public sealed class AuthorizationWriteStageTests
         var coordinator = new NodeHierarchyCompositeCoordinator(
             entities, transaction, audit,
             await RealScopedHierarchyGateAsync(at, tenant, principal, "child", "old-parent"),
-            new FixedTimeProvider(at));
+            new FixedTimeProvider(at),
+            NullEntityValidator.Instance);
 
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => coordinator.ReparentAsync(
             new EntityId("entity", "test", "child"),
