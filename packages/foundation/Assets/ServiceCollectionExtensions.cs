@@ -29,7 +29,8 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddHarborlineAssetsInMemory(
         this IServiceCollection services,
         Action<Func<IServiceProvider, IEntityMutationStore>,
-            Func<IServiceProvider, IHierarchyCompositeUnitOfWork>>? configureWriters = null)
+            Func<IServiceProvider, IHierarchyCompositeUnitOfWork>>? configureWriters = null,
+        Func<IServiceProvider, IEntityValidator?>? resolveStoreValidator = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -41,10 +42,12 @@ public static class ServiceCollectionExtensions
         var backends = new ConditionalWeakTable<IServiceProvider, Lazy<InMemoryAssetBackends>>();
         InMemoryAssetBackends Backends(IServiceProvider provider) => backends.GetValue(
             provider,
-            static sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
+            sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
                     sp.GetRequiredService<InMemoryAssetStorage>(),
                     sp.GetRequiredService<TimeProvider>(),
-                    sp.GetService<IEntityValidator>(),
+                    resolveStoreValidator is null
+                        ? sp.GetService<IEntityValidator>()
+                        : resolveStoreValidator(sp),
                     sp.GetService<IVersionObserver>()),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 

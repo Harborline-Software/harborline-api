@@ -19,6 +19,7 @@ using Harborline.Api.Foundation.Recovery.Erasure;
 using Harborline.Api.Foundation.SecurityPolicy.Models;
 using Harborline.Api.Foundation.SecurityPolicy.Retention;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Kernel.Schema.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Forms;
@@ -123,6 +124,11 @@ public static class NodeFormsComposition
         // (1b) Kernel schema registry — JSON-Schema 2020-12 validation core (the
         //      engine's ValidateAsync resolves ISchemaRegistry).
         services.AddHarborlineKernelSchemaRegistry();
+        // L1418: live entity persistence must resolve the registry-backed authority validator,
+        // never the foundation's test-only accepting null object. The registry compiles schemas
+        // when they are registered (including pack activation), so this write-path adapter only
+        // evaluates a cached artefact.
+        services.Replace(ServiceDescriptor.Singleton<IEntityValidator, SchemaRegistryEntityValidator>());
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore
@@ -133,7 +139,7 @@ public static class NodeFormsComposition
         {
             entityMutations = entities;
             hierarchyMutations = hierarchy;
-        });
+        }, static _ => NullEntityValidator.Instance);
 
         // (3) Macaroon primitives the form-capability issuer/verifier resolve.
         //     The host does not call AddHarborlineDecentralization (it has no need

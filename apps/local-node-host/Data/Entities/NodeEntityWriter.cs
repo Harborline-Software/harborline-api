@@ -70,17 +70,14 @@ public sealed class NodeEntityWriter(
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
 
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
+        using var candidate = JsonSerializer.SerializeToDocument(new
         {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        });
+        await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -112,6 +109,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +124,9 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+        await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

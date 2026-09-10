@@ -19,9 +19,27 @@ public interface IEntityValidator
 /// <summary>Raised when <see cref="IEntityValidator.ValidateAsync"/> rejects a body.</summary>
 public sealed class EntityValidationException : Exception
 {
+    /// <summary>Stable machine-readable refusal reason.</summary>
+    public string Code { get; }
+
+    /// <summary>RFC 6901 pointers to the rejected body locations. Never carries body content.</summary>
+    public IReadOnlyList<string> Pointers { get; }
+
     /// <summary>Creates a validation exception with the given message.</summary>
-    public EntityValidationException(string message) : base(message) { }
+    public EntityValidationException(string message)
+        : this("entity.validation.body_invalid", Array.Empty<string>(), message) { }
 
     /// <summary>Creates a validation exception wrapping an inner cause.</summary>
-    public EntityValidationException(string message, Exception inner) : base(message, inner) { }
+    public EntityValidationException(string message, Exception inner)
+        : this("entity.validation.body_invalid", Array.Empty<string>(), message, inner) { }
+
+    /// <summary>Creates a structured validation refusal without exposing the submitted body.</summary>
+    public EntityValidationException(string code, IReadOnlyList<string> pointers, string message, Exception? inner = null)
+        : base(message, inner)
+    {
+        Code = string.IsNullOrWhiteSpace(code)
+            ? throw new ArgumentException("A validation refusal code is required.", nameof(code))
+            : code;
+        Pointers = pointers ?? throw new ArgumentNullException(nameof(pointers));
+    }
 }
