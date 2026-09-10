@@ -150,7 +150,15 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new { error = "validation_failed", detail = ex.Message });
+                // Ticket 151: a refusal names its cause and locates it (RFC 6901 pointers) so the
+                // operator CLI and the trace can render WHY — and never echoes the body.
+                return Results.UnprocessableEntity(new
+                {
+                    error = "validation_failed",
+                    code = ex.ReasonCode,
+                    pointers = ex.Pointers,
+                    detail = ex.Message,
+                });
             }
             catch (ArgumentException ex)
             {

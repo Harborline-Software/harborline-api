@@ -2242,6 +2242,14 @@ if (!builder.Environment.IsDevelopment())
     builder.Services.TryAddSingleton<Harborline.Api.Foundation.Forms.Submission.IFormSubmitOutbox,
         Harborline.Api.LocalNodeHost.Data.Forms.NodeEfFormSubmitOutbox>();
 }
+// Ticket 151 (L1418): the node's authority-side record validator. Registered BEFORE AddNodeForms
+// so it wins the TryAdd that would otherwise leave NullEntityValidator — the always-accepting null
+// object — as the shipped default. It resolves a record type's schema from the ONE schema registry
+// (falling back to the node's baseline record types) and compiles it with Corvus.Json.Validator.
+builder.Services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(sp =>
+    new Harborline.Api.Kernel.Schema.CompiledEntityValidator(
+        sp.GetRequiredService<Harborline.Api.Kernel.Schema.ISchemaRegistry>(),
+        Harborline.Api.LocalNodeHost.Data.Entities.BaselineRecordTypeSchemas.All));
 builder.Services.AddNodeForms(
     localNodeOptions.HostJurisdiction,
     static (services, entityMutations, hierarchyMutations) =>

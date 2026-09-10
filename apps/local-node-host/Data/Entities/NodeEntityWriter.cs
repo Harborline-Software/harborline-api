@@ -70,15 +70,18 @@ public sealed class NodeEntityWriter(
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
 
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
+        // Ticket 151 stage two (ADR 0065 clause 4: gate, then validation, then persistence). The
+        // registered validator ALWAYS runs — the old ReferenceEquals(NullEntityValidator.Instance)
+        // special case is gone, so a composition that hands this writer a no-op validator is a
+        // composition decision and not a structural bypass.
+        using (var candidate = JsonSerializer.SerializeToDocument(new
         {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        }))
+        {
             await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
         }
 
@@ -112,6 +115,9 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        // Ticket 151: gate, then the authority validator, then persistence — on the headless
+        // coordinator path as well as the route's.
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +132,14 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        // Ticket 151: the update body is validated against the record's own schema before it
+        // reaches persistence. An unknown record is left to the store's own not-found refusal.
+        var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
+        }
+
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

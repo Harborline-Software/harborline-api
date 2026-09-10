@@ -65,7 +65,13 @@ public sealed class EntityRouteTests : IAsyncLifetime
         // Ticket 151: the POST is now permission-gated (records:write) and runs the registered
         // pre-commit validator. Default: allow-all + accept-all so the pre-gate tests hold.
         _authorization = new MutableAuthorizationContext();
-        _validator = new ToggleableEntityValidator();
+        // Ticket 151: the route test runs the REAL authority validator (the node's registered
+        // default) unless a test explicitly flips it to refuse, so the route's refusal shape is
+        // proven against the production engine and the baseline legal-entity schema.
+        _validator = new ToggleableEntityValidator(
+            new Harborline.Api.Kernel.Schema.CompiledEntityValidator(
+                new Harborline.Api.Kernel.Schema.InMemorySchemaRegistry(TimeProvider.System),
+                Data.Entities.BaselineRecordTypeSchemas.All));
         builder.Services.AddSingleton<IAuthorizationContext>(_authorization);
         // Ticket 205 slice 4: the route guards resolve at the gate. It follows the SAME mutable holding
         // set this host already flips, so a test that narrows the caller's permissions narrows the decision.
@@ -523,9 +529,30 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal(0, doc.GetProperty("entities").GetArrayLength());
     }
 
-    /// <summary>Accept-all by default; <see cref="RejectWith"/> flips it to refuse every body.
-    /// Captures the top-level property names of every body it sees, so tests can pin the wire shape.</summary>
-    private sealed class ToggleableEntityValidator : Harborline.Api.Foundation.Assets.Entities.IEntityValidator
+    [Fact(DisplayName = "151 (a): the route refusal names the reason and the pointer, nothing persists")]
+    public async Task Create_WhenRealSchemaRefusesBody_IsRefusedWithReasonAndPointer()
+    {
+        // 201 characters — the baseline legal-entity schema caps legalName at 200.
+        var resp = await _client.PostAsJsonAsync(Route, new { legalName = new string('x', 201) });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", body.GetProperty("error").GetString());
+        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        Assert.Contains(
+            "/legalName",
+            body.GetProperty("pointers").EnumerateArray().Select(p => p.GetString()));
+
+        var doc = await _client.GetFromJsonAsync<JsonElement>(Route);
+        Assert.Equal(0, doc.GetProperty("entities").GetArrayLength());
+    }
+
+    /// <summary>Delegates to the production validator by default; <see cref="RejectWith"/> flips it
+    /// to refuse every body. Captures the top-level property names of every body it sees, so tests
+    /// can pin the wire shape.</summary>
+    private sealed class ToggleableEntityValidator(
+        Harborline.Api.Foundation.Assets.Entities.IEntityValidator inner)
+        : Harborline.Api.Foundation.Assets.Entities.IEntityValidator
     {
         private string? _rejectMessage;
 
@@ -538,7 +565,7 @@ public sealed class EntityRouteTests : IAsyncLifetime
             SeenTopLevelKeys.AddRange(
                 body.RootElement.EnumerateObject().Select(p => p.Name));
             return _rejectMessage is null
-                ? Task.CompletedTask
+                ? inner.ValidateAsync(schema, body, ct)
                 : Task.FromException(new Harborline.Api.Foundation.Assets.Entities.EntityValidationException(_rejectMessage));
         }
     }

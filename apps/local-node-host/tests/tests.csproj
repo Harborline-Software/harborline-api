@@ -11,6 +11,10 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <!-- App-level test project; CS1591 would be noisy here. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Ticket 151: Corvus.Json.Validator compiles a schema at runtime with Roslyn and sources its
+         metadata references from DependencyContext.CompileLibraries, which is empty unless the
+         compilation context is preserved in the output deps.json. -->
+    <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
 
   <ItemGroup>

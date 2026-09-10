@@ -57,7 +57,11 @@
          Re-enable once crossgen2 supports this RID/configuration combination.
          Admiral tracking: admiral-tracking-2026-06-14T0157Z-r2r-mac-sidecar-build-regression. -->
     <PublishReadyToRun>false</PublishReadyToRun>
-  </PropertyGroup>
+      <!-- Ticket 151: the authority-side record validator (Corvus.Json.Validator) compiles a schema
+         at runtime with Roslyn and takes its metadata references from DependencyContext.CompileLibraries,
+         which is populated only when the compilation context is preserved in the published deps.json. -->
+    <PreserveCompilationContext>true</PreserveCompilationContext>
+</PropertyGroup>
 
   <ItemGroup Condition="'$(HarborlineMauiEnabled)' == 'true'">
     <Compile Remove="Entrypoint.cs" />

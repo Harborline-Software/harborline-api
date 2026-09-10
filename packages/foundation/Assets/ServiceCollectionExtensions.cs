@@ -44,7 +44,14 @@ public static class ServiceCollectionExtensions
             static sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
                     sp.GetRequiredService<InMemoryAssetStorage>(),
                     sp.GetRequiredService<TimeProvider>(),
-                    sp.GetService<IEntityValidator>(),
+                    // Ticket 151: the store's pre-commit hook is NOT the records validation
+                    // stage. This store also carries form definitions, form instances and
+                    // workflow definitions, whose SchemaIds are logical names that no schema
+                    // registry holds (e.g. "sunfish.form-definition") — the authority validator
+                    // refuses an unresolvable schema by name, so routing it here would refuse
+                    // every form-definition write. Records validate on the records write
+                    // coordinator (NodeEntityWriter), after the gate and before persistence.
+                    NullEntityValidator.Instance,
                     sp.GetService<IVersionObserver>()),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 

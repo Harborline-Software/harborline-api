@@ -52,6 +52,7 @@
     <PackageVersion Include="FsCheck.Xunit" Version="3.3.3"/>
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0"/>
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0"/>
+    <PackageVersion Include="Corvus.Json.Validator" Version="5.5.5"/>
     <PackageVersion Include="JsonSchema.Net" Version="9.2.2"/>
     <PackageVersion Include="MessagePack" Version="3.1.8"/>
     <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-preview.5.26302.115"/>
