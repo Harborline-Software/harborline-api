@@ -121,6 +121,13 @@ public static class OperatorCli
                 "/api/local-node/data-exports",
                 new { format = "application/json", includeScopes = new[] { scope } });
         }
+        else if (parsed.Command is ["entity", "create", "--legal-name", var legalName])
+        {
+            pendingRequest = JsonPost(
+                parsed.BaseUri,
+                "/api/local-node/entities",
+                new { legalName });
+        }
 
         using var request = pendingRequest;
         if (request is null)

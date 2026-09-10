@@ -5,7 +5,9 @@ using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Health;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -22,9 +24,28 @@ public sealed class NodeEntityWriter(
     IEntityMutationStore entities,
     IEntityValidator validator,
     AuthorizationGate gate,
-    NodeEntitySchemaCatalog? schemas = null) : IEntityWriteCoordinator
+    NodeEntitySchemaCatalog? schemas = null,
+    AuthorizationRefusalAudit? validationRefusalAudit = null) : IEntityWriteCoordinator
 {
     private readonly SchemaId _legalEntitySchema = schemas?.LegalEntity ?? Health.EntityRoutes.LegalEntitySchema;
+
+    /// <summary>
+    /// The production record-write composition selects the live schema validator explicitly.
+    /// The shared <see cref="IEntityValidator"/> slot remains the forms engine's null fallback,
+    /// because form instances and definition envelopes have their own admission validators.
+    /// </summary>
+    [ActivatorUtilitiesConstructor]
+    public NodeEntityWriter(
+        IDbContextFactory<LocalNodeDbContext> factory,
+        IEntityMutationStore entities,
+        SchemaRegistryEntityValidator validator,
+        AuthorizationGate gate,
+        NodeEntitySchemaCatalog? schemas = null,
+        AuthorizationRefusalAudit? validationRefusalAudit = null)
+        : this(factory, entities, (IEntityValidator)validator, gate, schemas, validationRefusalAudit)
+    {
+    }
+
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         IEntityValidator validator,
@@ -79,7 +100,7 @@ public sealed class NodeEntityWriter(
             taxClassification = command.TaxClassification,
             commonControlGroupId = command.CommonControlGroupId,
         });
-        await validator.ValidateAsync(_legalEntitySchema, candidate, ct).ConfigureAwait(false);
+        await ValidateAsync(_legalEntitySchema, candidate, authority, ct).ConfigureAwait(false);
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -111,7 +132,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -128,7 +149,7 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
         var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Entity '{id}' was not found.");
-        await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
+        await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -184,5 +205,24 @@ public sealed class NodeEntityWriter(
             options,
             new AuthorizationWriteContext(principal, tenant, at),
             ct);
+    }
+
+    private async Task ValidateAsync(
+        SchemaId schema,
+        JsonDocument body,
+        AuthorizationWriteContext authority,
+        CancellationToken ct)
+    {
+        try
+        {
+            await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        }
+        catch (EntityValidationException refusal)
+        {
+            if (validationRefusalAudit is not null)
+                await validationRefusalAudit.RecordValidationRefusalAsync(refusal, authority, ct)
+                    .ConfigureAwait(false);
+            throw;
+        }
     }
 }

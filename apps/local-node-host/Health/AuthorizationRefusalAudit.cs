@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -77,6 +78,41 @@ public sealed class AuthorizationRefusalAudit
             request.At, decision, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Records a record-write validation refusal as a pre-decision-shaped trace fact. Validation has no
+    /// authorization denial to project, but its stable code and JSON pointers must remain inspectable
+    /// without retaining the submitted body.
+    /// </summary>
+    public ValueTask<Guid?> RecordValidationRefusalAsync(
+        EntityValidationException refusal,
+        AuthorizationWriteContext authority,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        var detail = refusal.Pointers.Count == 0
+            ? "The record body did not satisfy its active schema."
+            : $"The record body did not satisfy its active schema at {string.Join(", ", refusal.Pointers)}.";
+        return RecordCoreAsync(
+            new AuthorizationRefusal(
+                refusal.ReasonCode,
+                "Record validation refused",
+                detail,
+                "Correct the fields named by the JSON pointers and retry.",
+                $"record-validation;code={refusal.ReasonCode}"),
+            TeamRolePermissions.RecordsWrite,
+            authority.Principal,
+            authority.Tenant,
+            authority.At,
+            decision: null,
+            AuthorizationRefusedEventType,
+            ct,
+            refusal.Pointers,
+            new AuthorizationPreDecisionRefusal(
+                refusal.ReasonCode,
+                detail,
+                "Correct the fields named by the JSON pointers and retry."));
+    }
+
     /// <summary>Records the clearing of a previously reported refusal, retaining its original diagnostic.</summary>
     public ValueTask<Guid?> RecordClearedAsync(
         AuthorizationRefusal refusal,
@@ -95,7 +131,9 @@ public sealed class AuthorizationRefusalAudit
         DateTimeOffset at,
         AuthorizationDecision? decision,
         AuditEventType eventType,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? pointers = null,
+        AuthorizationPreDecisionRefusal? preDecisionRefusal = null)
     {
         ArgumentNullException.ThrowIfNull(refusal);
         try
@@ -106,11 +144,12 @@ public sealed class AuthorizationRefusalAudit
                 ["permission"] = permission,
                 ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
-                ["preDecisionRefusal"] = decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode
-                    ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation) : null,
+                ["preDecisionRefusal"] = preDecisionRefusal ?? (decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode
+                    ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation) : null),
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),
             };
+            if (pointers is not null) body["pointers"] = pointers;
             var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid(), ct)
                 .ConfigureAwait(false);
             var record = new AuditRecord(

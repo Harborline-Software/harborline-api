@@ -150,12 +150,10 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new
-                {
-                    error = "validation_failed",
-                    code = ex.ReasonCode,
-                    pointers = ex.Pointers,
-                });
+                return Results.UnprocessableEntity(new EntityValidationRefusal(
+                    ex.ReasonCode,
+                    ex.Message,
+                    ex.Pointers));
             }
             catch (ArgumentException ex)
             {
@@ -196,6 +194,12 @@ public sealed record EntityItemDto(
 public sealed record EntityCreatedResponse(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("legalName")] string LegalName);
+
+/// <summary>Machine-readable validation refusal for the entity write route.</summary>
+public sealed record EntityValidationRefusal(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("detail")] string Detail,
+    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers);
 
 /// <summary>Request body for <c>POST /api/local-node/entities</c>.</summary>
 public sealed record CreateEntityRequest(

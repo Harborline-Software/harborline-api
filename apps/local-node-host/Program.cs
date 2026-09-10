@@ -2251,7 +2251,8 @@ builder.Services.AddNodeForms(
             entityMutations(sp),
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.SchemaRegistryEntityValidator>(),
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
-            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntitySchemaCatalog>()));
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntitySchemaCatalog>(),
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
         services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(sp =>

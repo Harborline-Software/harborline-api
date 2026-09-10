@@ -38,6 +38,7 @@ public sealed class CliVerbRouteBindingTests
                 ["pack deactivate"] = () => VerbFixture.Create(
                     "pack", "deactivate", "--pack-key", "general", "--version", "1.2.3"),
                 ["export"] = () => VerbFixture.Create("export"),
+                ["entity create"] = () => VerbFixture.Create("entity", "create", "--legal-name", "Harborline LLC"),
                 ["pack export"] = VerbFixture.WithExportRequest,
             };
 

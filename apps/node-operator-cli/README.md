@@ -13,6 +13,7 @@ harborline-node --url http://127.0.0.1:5050 --token <token> --json pack deactiva
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack verify --file general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack export --request general.export.json --out general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json export --scope forms
+harborline-node --url http://127.0.0.1:5050 --token <token> --json entity create --legal-name "Harborline LLC"
 ```
 
 `pack verify` uploads the file byte-exact (like `pack install`) and prints the node's verdict.
