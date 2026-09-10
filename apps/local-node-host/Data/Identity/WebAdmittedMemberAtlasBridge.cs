@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Ship.Common;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Search;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
@@ -83,6 +84,23 @@ internal sealed class WebAdmittedMemberAtlasBridge
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
     }
+
+    /// <summary>
+    /// The admission's grant conferral, through the ONE derivation the 3a boot backfill also uses. The
+    /// configuration store is built over the grant factory this bridge already holds — no new constructor
+    /// seam, and every existing composition site keeps working. The role vocabulary is empty on purpose:
+    /// <c>StageAdmissionGrantAsync</c> always supplies the admission's own per-admission vocabulary, so the
+    /// constructor's reader is never consulted on this path.
+    /// ponytail: an empty vocabulary reader here, inject the composed one if any other member of the store
+    /// is ever called from this bridge.
+    /// </summary>
+    private Task<AccessGrant?> ConferAdmissionGrantAsync(
+        TenantId tenant, string admittedPartyId, string admitterPartyId, PermissionSet permissions,
+        CancellationToken cancellationToken) =>
+        new NodeEfAuthorizationConfigurationStore(_grantFactory, new InMemoryRoleVocabulary([]))
+            .ConferAdmissionGrantAsync(
+                tenant, admittedPartyId, admitterPartyId, permissions,
+                _timeProvider.GetUtcNow(), cancellationToken);
 
     /// <summary>
     /// The #3107 FRONT DOOR — admit a web-admitted member's first device from the single-use device-pairing
@@ -370,6 +388,26 @@ internal sealed class WebAdmittedMemberAtlasBridge
             return AtlasAdmissionOutcome.Refuse(result.RefusalCode ?? "invite_rejected");
         }
 
+        // ADR 0066 clause 3 / ticket 293 slice 4 — THE ADMISSION CONFERS THE ADMITTED PARTY'S GRANT.
+        // This is the one place both admission paths (pairing and first enrollment) commit a roster edge, so
+        // one conferral here covers both admitters. The atoms are the permission set the admission itself
+        // carried; the scope is the install root; the key is the roster party id, which since ticket 294
+        // slice 2a is the canonical tenant principal id (see
+        // NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync for why the gate finds it there).
+        // A conferral failure THROWS out of the bridge before the outcome is admitted, so the caller never
+        // publishes the roster record: no half state where a party is on the roster with no grant.
+        //
+        // What it ADDS, precisely (fix 4, D2). At this instant the atoms are a copy of what the principal
+        // already holds: grantedPermissions was derived above from this subject's own closure read, and pin 4
+        // has just required the web-plane membership grant InitialGrantIssuanceService issued at invitation
+        // acceptance to be live — that grant is where those atoms come from. The conferral is NOT therefore
+        // a second writer of the same grant: it anchors the set to the SIGNED ADMISSION under its own
+        // per-admission role, so the authority survives revocation of the membership grant, which the
+        // enrollment itself does not depend on. WebAdmittedMemberAtlasBridgeTests pins exactly that — revoke
+        // the membership grant after admitting and the admitted member is still allowed; delete this call and
+        // it is refused.
+        await ConferAdmissionGrantAsync(tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, cancellationToken)
+            .ConfigureAwait(false);
         return AtlasAdmissionOutcome.Admit(result.Roster);
     }
 

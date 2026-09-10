@@ -13,6 +13,8 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 using Harborline.Api.LocalNodeHost.Tests.Search;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
@@ -632,6 +634,77 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
     /// <summary>base64url (no padding) encode of a raw byte array — matches the roster's X-Wing wire codec.</summary>
     private static string ToRawB64Url(byte[] bytes) =>
         System.Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    // —— 293 slice 4 fix 4 (D2) — the admission conferral is load-bearing ——————————————————
+
+    /// <summary>
+    /// ADR 0066 clause 3 — the admission CONFERS the admitted party's grant, and that grant is what the real
+    /// gate then answers from. The review's mutation MR1 (delete the
+    /// <c>ConferAdmissionGrantAsync</c> call before <c>AtlasAdmissionOutcome.Admit</c>) left every admission test
+    /// green; this is the test that goes red under it.
+    /// </summary>
+    /// <remarks>
+    /// The other writer of a grant under this same subject key is
+    /// <see cref="InitialGrantIssuanceService"/>, which issues the web-plane MEMBERSHIP grant at invitation
+    /// acceptance — the grant pin 4 requires to be live before this bridge will admit anything. That grant is
+    /// seeded here (<c>SeedGrantAuthorityAsync</c>) with a role carrying NO capability definitions, so it confers
+    /// no ATOMS: the gate refuses the act before admission and allows it after, and the whole difference is the
+    /// conferral. Revoking the membership grant afterwards changes nothing, which is the point — the admission's
+    /// authority is anchored to the signed admission, not borrowed from the membership grant.
+    /// </remarks>
+    [Fact]
+    [Trait("PlanCard", "MTW-2-3107")]
+    public async Task Admission_Confers_The_Grant_The_Real_Gate_Then_Answers_From()
+    {
+        await using var store = await SeedGrantAuthorityAsync(ownerVersion: 4, authorizationEpoch: 7);
+        var founder = NewIdentity(FounderPartyId);
+        var joiner = NewIdentity(PartyId);
+        var roster = GenesisRoster(founder);
+        var conferred = PermissionSet.Of(TeamRolePermissions.RecordsRead);
+        var (bridge, tokenId) = CreateBridge(store, roster, new FixedPartyReader(PeoplePartyId), conferred);
+
+        // Before the admission the subject holds only the membership grant, which binds no capability.
+        Assert.Equal(AuthorizationVerdict.Denied, (await AskRealGateAsync(store)).Verdict);
+
+        var outcome = await bridge.AdmitOnFirstEnrollmentAsync(
+            roster, FounderPartyId, founder.Signer, tokenId, Membership(),
+            PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None);
+        Assert.True(outcome.Admitted);
+
+        // After it, the real gate allows the act the conferred set carries — and only that act.
+        Assert.Equal(AuthorizationVerdict.Allowed, (await AskRealGateAsync(store)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied,
+            (await AskRealGateAsync(store, TeamRolePermissions.RecordsWrite)).Verdict);
+
+        // The admission's authority is its own: revoking the web-plane MEMBERSHIP grant leaves it standing.
+        await using (var db = store.CreateContext())
+        {
+            var membershipGrant = await db.Grants.SingleAsync(row => row.GrantId == GrantId);
+            membershipGrant.Status = (int)GrantStatus.Revoked;
+            membershipGrant.RevokedBy = "issuer-1";
+            membershipGrant.RevokedAtUnixMs = Now.ToUnixTimeMilliseconds();
+            membershipGrant.RevocationReasonCode = GrantReasonCodes.RevocationReview;
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(AuthorizationVerdict.Allowed, (await AskRealGateAsync(store)).Verdict);
+    }
+
+    /// <summary>The REAL gate over the REAL grant store — no fixture closure, no AllowGate.</summary>
+    private static async Task<AuthorizationDecision> AskRealGateAsync(
+        SearchTestStore store, string operation = TeamRolePermissions.RecordsRead)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddTestKernelClock();
+        services.AddSingleton(store.Factory);
+        Authorization.AuthorizationAdminRouteTests.RegisterGate(services);
+        await using var provider = services.BuildServiceProvider();
+        var act = AuthorizationOperation.Parse(operation);
+        return await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
+            new AuthorizationWriteContext(
+                    new ActorId(PrincipalId), new TenantId(System.Guid.Parse(TenantId).ToString("D")), Now)
+                .Request(act, AuthorizationGate.RecordKindFor(act), "record-1"));
+    }
 
     private static (WebAdmittedMemberAtlasBridge Bridge, string TokenId) CreateBridge(
         SearchTestStore store, MemberRoster roster, ICanonicalPrincipalPartyReader partyReader,

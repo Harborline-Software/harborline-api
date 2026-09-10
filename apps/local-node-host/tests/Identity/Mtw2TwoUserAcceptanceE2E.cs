@@ -898,6 +898,13 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                     time.GetUtcNow(),
                     AuthorizationSeedProfile.Production);
             var liveAuthorization = new DefinitionJoinedAuthorizationReader(grantStore, authorizationStore);
+            // Ticket 293 slice 4 fix 4 - the REAL gate over the REAL grant store and the installed role
+            // definitions. AllowGate() cannot stand in for it any more: the roster supplies no deciding set, so
+            // every site that ANDs RequiredPermissions or enumerates InstallRootPermissionsAsync needs the
+            // subject's actual conferred atoms. The founder's Administrator grant (issued below through the real
+            // InitialGrantIssuanceService) is what admits it, and nothing the roster says.
+            var liveGate = new AuthorizationGate(
+                liveAuthorization, new EmptyRecordStandingResolver(), authorizationStore);
 
             // Seeded-fixture party reader (recipe-permitted): the founder principal maps to the roster's
             // admin party; every other principal (the joiner) resolves to a distinct generated Party.
@@ -952,17 +959,16 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var permissionResolver = new SelectedSessionPermissionResolver(
                 rosterReader,
                 grantStore,
-                liveAuthorization,
                 new NodeSelectedSessionAuthorizationEpochReader(searchStore.Factory),
                 time,
-                NullLogger<SelectedSessionPermissionResolver>.Instance, TestAuthorization.AllowGate());
+                NullLogger<SelectedSessionPermissionResolver>.Instance, liveGate);
 
             // The #2614-blessed acceptance-saga fakes (copied from AccountSetupAcceptanceServiceTests).
             var invitationStore = new AccountSetupInvitationStore(identityFactory);
             var invitationIssuer = new AccountSetupInvitationIssuer(
                 sessionFactory, selectedSessionStore, identityFactory, searchStore.Factory,
                 partyReader, rosterReader,
-                invitationStore, TestAuthorization.AllowGate(), time);
+                invitationStore, liveGate, time);
             var granterAuthority = liveAuthorization;
             var partyBindingMinter = new RecordingPartyBindingMinter();
 
@@ -982,7 +988,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 partyReader, rosterReader,
                 invitationStore, invitationIssuer, grantStore,
                 new AuthorizedGrantRevocationWriter(grantStore), liveAuthorization,
-                TestAuthorization.AllowGate(), time, new NoopRosterMemberRevocationAuthority(),
+                liveGate, time, new NoopRosterMemberRevocationAuthority(),
                 new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(), new Ed25519Signer(KeyPair.Generate()),
                 partitionResolver, coordinator);
 
@@ -1051,8 +1057,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 banking, bankingTeam,
                 bankingClock, auditClock, verifier, auditReader, tempFiles, tempDirs)
             {
-                RouteGate = new AuthorizationGate(
-                    liveAuthorization, new EmptyRecordStandingResolver(), authorizationStore),
+                RouteGate = liveGate,
             };
         }
 
