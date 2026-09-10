@@ -143,6 +143,9 @@ public static class NodeFormsComposition
         services.TryAddSingleton(sp => new CompiledSchemaEntityValidator(
             sp.GetRequiredService<ISchemaRegistry>(),
             sp.GetRequiredService<CompiledSchemaCatalog>()));
+        // holds RW-7 · closes RW-H8 (the keyed registration below); holds RW-8 for the UNKEYED slot,
+        //      which stays the null object so form-instance and definition-envelope writes keep their own
+        //      admission and the record validator never judges their bodies.
         //      The record coordinators ask for it by KEY (see CompiledSchemaEntityValidator
         //      .RecordWriteKey). Any composition of this graph — not only the one Program.cs hand-wires
         //      — therefore gives every record write the real validator, while the unkeyed slot the

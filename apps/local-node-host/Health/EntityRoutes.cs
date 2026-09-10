@@ -174,6 +174,8 @@ public static class EntityRoutes
 /// Ticket 151 (L1418) — the 422 a record-write validation refusal renders: the dotted reason code, a
 /// detail naming the failing members, and the RFC 6901 pointers. It never carries the refused body.
 /// </summary>
+// holds RW-4 · closes RW-H6: the 422 shape is the code, a fixed detail and the RFC 6901 pointers —
+// no member of the refused body ever appears in it.
 public sealed record EntityValidationRefusal(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("detail")] string Detail,

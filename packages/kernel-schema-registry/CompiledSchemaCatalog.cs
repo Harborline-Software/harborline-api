@@ -59,6 +59,8 @@ public sealed class CompiledSchemaCatalog(ISchemaRegistry registry)
             return null;
         }
 
+        // holds RW-6 · closes RW-H5: activating a name again replaces the compiled artefact under that
+        // name atomically, so the next write is judged by the new schema and no stale artefact survives.
         var activated = new ActivatedSchema(name, schema.Id, schema.ContentAddress);
         _activated[name] = activated;
         return activated;

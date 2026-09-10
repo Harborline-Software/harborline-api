@@ -28,6 +28,8 @@ public sealed class CompiledSchemaEntityValidator(
     /// composition that forgets this key fails to construct the coordinator instead of silently
     /// handing it an always-accepting null object (ticket 151, L1418).
     /// </summary>
+    // holds RW-7 · closes RW-H8: the key the record coordinators resolve; a composition that omits it
+    // cannot construct them, so no composition silently resolves the always-accepting stand-in.
     public const string RecordWriteKey = "harborline.records.write";
 
     /// <summary>No activation has compiled a validator for this schema id.</summary>
@@ -54,6 +56,8 @@ public sealed class CompiledSchemaEntityValidator(
         }
         else
         {
+            // holds RW-3 — an unknown, missing or unresolvable schema is a named refusal, never a pass.
+            // closes RW-H3: a mis-registered record type cannot persist unchecked.
             throw new EntityValidationException(
                 $"No compiled validator is activated for schema '{schema.Value}'.",
                 SchemaUnknown,
@@ -71,7 +75,8 @@ public sealed class CompiledSchemaEntityValidator(
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        // Codes and pointers only — a refusal never echoes the body it refused.
+        // holds RW-2, RW-4 — the body failed its activated schema: refuse before persistence, with the
+        // code and the RFC 6901 pointers. closes RW-H1, RW-H6: codes and pointers only, never the body.
         throw new EntityValidationException(
             $"The body does not satisfy schema '{schema.Value}': "
             + string.Join(

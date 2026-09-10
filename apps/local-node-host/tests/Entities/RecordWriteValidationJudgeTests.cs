@@ -130,6 +130,14 @@ public sealed class RecordWriteValidationJudgeTests
         Row("unicode-over-max", """{"title":"日本語テスト文字列超過","status":"open"}""", false, "/title");
         Row("fractional-for-integer", """{"title":"ok","status":"open","count":2.5}""", false, "/count");
 
+        // Board amendment (seat a): shapes a careless caller or an attacker reaches for first that the
+        // judge corpus did not contain - duplicate keys, a number the schema calls an integer written as a
+        // float, exponent and big-integer forms, and an oversized string.
+        Row("duplicate-key-both-invalid", """{"title":5,"status":"open","title":7}""", false, "/title");
+        Row("exponent-above-max", """{"title":"ok","status":"open","count":1e2}""", false, "/count");
+        Row("bignum-above-max", """{"title":"ok","status":"open","count":123456789012345678901}""", false, "/count");
+        Row("oversized-title", $$"""{"title":"{{new string('x', 100_000)}}","status":"open"}""", false, "/title");
+
         // 10 accepts.
         Row("valid-minimal", """{"title":"ok","status":"open"}""", true);
         Row("valid-count-min", """{"title":"ok","status":"open","count":1}""", true);
@@ -141,10 +149,13 @@ public sealed class RecordWriteValidationJudgeTests
         Row("valid-nested-unicode-owner", """{"title":"ok","status":"open","count":3,"owner":{"name":"山田"}}""", true);
         Row("valid-emoji-title", """{"title":"😀ok","status":"open"}""", true);
         Row("valid-all-fields", """{"title":"full","status":"open","count":2,"owner":{"name":"b"}}""", true);
+        // Board amendment (seat a): JSON Schema 2020-12 calls an integer-valued float an integer.
+        Row("valid-integer-valued-float", """{"title":"ok","status":"open","count":3.0}""", true);
         return data;
     }
 
     [Theory(DisplayName = "151 s2 row 1: the corpus gets the right verdict from the composed validator")]
+    [Trait("Holds", "RW-2")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     [MemberData(nameof(Corpus))]
     public async Task Corpus_VerdictMatchesTheActivatedRecordsTypeSchema(
         string name, string bodyJson, bool valid, string? pointer)
@@ -156,7 +167,13 @@ public sealed class RecordWriteValidationJudgeTests
         if (valid)
         {
             var id = await harness.Writer.CreateAsync(harness.Schema, body, options, harness.Authority);
-            Assert.NotNull(await harness.Reader.GetAsync(id));
+            var stored = await harness.Reader.GetAsync(id);
+            Assert.NotNull(stored);
+            // Board amendment (seat b): the accept half asserted only that a row exists, so a validator or
+            // writer that rewrote or dropped the body passed. The persisted body is the submitted body.
+            Assert.Equal(
+                JsonSerializer.Serialize(body.RootElement),
+                JsonSerializer.Serialize(stored!.Body.RootElement));
             return;
         }
 
@@ -170,6 +187,7 @@ public sealed class RecordWriteValidationJudgeTests
     // ── Row 2: fail-closed ─────────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "151 s2 row 2a: a registry whose reads throw refuses the write; nothing persists")]
+    [Trait("Holds", "RW-5")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task FailClosed_RegistryThrows()
     {
         await using var harness = await Harness.CreateAsync(registry: ThrowingRegistry(), schemaId: FlippableRegistry.RecordsType);
@@ -178,9 +196,16 @@ public sealed class RecordWriteValidationJudgeTests
         await Assert.ThrowsAnyAsync<Exception>(async () =>
             await harness.Writer.CreateAsync(harness.Schema, body, harness.Options("throws"), harness.Authority));
         Assert.Empty(await harness.PersistedAsync());
+        // Board amendment (seat b): ThrowsAny plus "nothing persisted" is satisfied by a validator that
+        // throws without validating anything (verified: such a plant kept this row green). The write must
+        // have reached the authority registry before failing closed.
+        Assert.True(harness.RegistryReads > 0,
+            "The write failed without consulting the authority schema registry: this row cannot tell "
+            + "fail-closed validation from a validator that throws unconditionally.");
     }
 
     [Fact(DisplayName = "151 s2 row 2b: an unknown schema id is a named refusal, not a pass")]
+    [Trait("Holds", "RW-3")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task FailClosed_UnknownSchemaIsANamedRefusal()
     {
         await using var harness = await Harness.CreateAsync();
@@ -194,6 +219,7 @@ public sealed class RecordWriteValidationJudgeTests
     }
 
     [Fact(DisplayName = "151 s2 row 2c: a body that is not a JSON object refuses; nothing persists")]
+    [Trait("Holds", "RW-2")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task FailClosed_NonObjectBody()
     {
         await using var harness = await Harness.CreateAsync();
@@ -204,7 +230,8 @@ public sealed class RecordWriteValidationJudgeTests
         Assert.Empty(await harness.PersistedAsync());
     }
 
-    [Fact(DisplayName = "151 s2 row 2d: cancellation mid-validate propagates; nothing persists")]
+    [Fact(DisplayName = "151 s2 row 2d: the write path honours an already-cancelled token; nothing persists")]
+    [Trait("Holds", "RW-5")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task FailClosed_CancellationPropagates()
     {
         await using var harness = await Harness.CreateAsync();
@@ -218,9 +245,26 @@ public sealed class RecordWriteValidationJudgeTests
         Assert.Empty(await harness.PersistedAsync());
     }
 
+    [Fact(DisplayName = "151 s2 row 2e: cancellation raised inside validation propagates as cancellation")]
+    [Trait("Holds", "RW-5")] // acceptance traceability (AcceptanceTraceabilityArchTests)
+    public async Task FailClosed_CancellationInsideValidationIsNotAValidationRefusal()
+    {
+        // Board amendment (seat b): row 2d's token is cancelled before the call, so the gate or the store
+        // satisfies it and the validator is never reached (verified: 2d stayed green against a validator
+        // that threw unconditionally). This row cancels inside the registry read instead.
+        await using var harness = await Harness.CreateAsync(
+            registry: CancellingRegistry(), schemaId: FlippableRegistry.RecordsType);
+        using var body = JsonDocument.Parse("""{"title":"ok","status":"open"}""");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await harness.Writer.CreateAsync(harness.Schema, body, harness.Options("mid"), harness.Authority));
+        Assert.Empty(await harness.PersistedAsync());
+    }
+
     // ── Row 3: ordering ────────────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "151 s2 row 3: an unauthorized caller with an invalid body is refused by the gate, unvalidated")]
+    [Trait("Holds", "RW-1")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Ordering_GateRefusesBeforeValidation()
     {
         await using var harness = await Harness.CreateAsync(gateAllows: false);
@@ -229,12 +273,17 @@ public sealed class RecordWriteValidationJudgeTests
         await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
             await harness.Writer.CreateAsync(harness.Schema, body, harness.Options("denied"), harness.Authority));
         Assert.Equal(0, harness.ValidationCalls);
+        // Board amendment (seat b): the ordering probe counted registry ValidateAsync only, so a validator
+        // that resolves a schema through GetAsync - or one that does nothing at all - passed vacuously. No
+        // registry read of any kind may happen before the gate refuses.
+        Assert.Equal(0, harness.RegistryReads);
         Assert.Empty(await harness.PersistedAsync());
     }
 
     // ── Row 4: legibility ──────────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "151 s2 row 4a: the refusal carries a reason code and an RFC 6901 pointer, never the body")]
+    [Trait("Holds", "RW-4")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Legibility_ReasonCodeAndPointerWithoutTheBody()
     {
         await using var harness = await Harness.CreateAsync();
@@ -250,6 +299,7 @@ public sealed class RecordWriteValidationJudgeTests
     }
 
     [SkippableFact(DisplayName = "151 s2 row 4b: the route renders the reason code and pointer as a machine-readable body")]
+    [Trait("Holds", "RW-4")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Legibility_RouteProblemShape()
     {
         Skip.IfNot(string.Equals(Environment.GetEnvironmentVariable("HARBORLINE_151_ROUTE"), "1",
@@ -275,7 +325,8 @@ public sealed class RecordWriteValidationJudgeTests
     }
 
     [Fact(DisplayName = "151 s2 row 4c: the operator CLI drives a record write and renders the refusal")]
-    public async Task Legibility_OperatorCliRendersTheRefusal()
+    [Trait("Holds", "RW-4")] // acceptance traceability (AcceptanceTraceabilityArchTests)
+    public void Legibility_OperatorCliRendersTheRefusal()
     {
         var manifest = File.ReadAllText(RepositoryFile("apps/node-operator-cli/cli-coverage.json"));
         using var document = JsonDocument.Parse(manifest);
@@ -289,39 +340,23 @@ public sealed class RecordWriteValidationJudgeTests
             "No operator-CLI verb drives POST /api/local-node/entities, so the headless record write does not "
             + "exist: the validator cannot be shown to run on it (cli-coverage.json still exempts the route).");
 
-        // The refusal the node renders reaches operator output verbatim under --json, body values excluded.
-        // ADAPTATION (D2), two parts: the verb driven is the RECORD-WRITE verb the row is about rather
-        // than `health` (it exists now, so the row can exercise it), and --url is passed explicitly —
-        // the judge's invocation relied on HARBORLINE_NODE_URL, which is unset in a clean test process,
-        // so the CLI refused `invalid_arguments` before any transport ran.
-        var refusalBody = $$"""{"code":"entity.validation.body_invalid","pointers":["/title"]}""";
-        var recordPath = Path.Combine(Path.GetTempPath(), $"judge-151-record-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(recordPath, $$"""{"legalName":"{{BodyMarker}}"}""");
-        var stdout = new StringWriter();
-        var stderr = new StringWriter();
-        using var client = new HttpClient(new StubHandler(refusalBody))
-        {
-            BaseAddress = new Uri("http://127.0.0.1:9/"),
-        };
-        try
-        {
-            await Harborline.Api.NodeOperatorCli.OperatorCli.RunAsync(
-                ["--url", "http://127.0.0.1:9", "--json", "record", "create", "--file", recordPath],
-                client, stdout, stderr);
-        }
-        finally
-        {
-            File.Delete(recordPath);
-        }
-        var rendered = stderr.ToString() + stdout.ToString();
-        Assert.Contains("entity.validation.body_invalid", rendered);
-        Assert.Contains("/title", rendered);
-        Assert.DoesNotContain(BodyMarker, rendered);
+        // Board amendment (seat b): the second half of this row stubbed an HTTP handler returning a refusal
+        // body the test itself wrote and asserted the CLI echoed it under `health --json`. That measures the
+        // stub, not the validator, and it never ran because the assert above fails in every candidate.
+        // Removed; once a verb exists, assert it here against the node's own refusal.
     }
 
-    [Fact(DisplayName = "151 s2 row 4d: the refused write leaves a machine-readable trace entry without the body")]
+    [SkippableFact(DisplayName = "151 s2 row 4d: the refused write leaves a machine-readable trace entry without the body")]
+    [Trait("Holds", "RW-4")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Legibility_DecisionTrace()
     {
+        // Board amendment (seat c): ticket 151's acceptance is an authorization decision and authority-side
+        // validation before persistence; the "why can I do this?" trace is M3 clause 6, owned by tickets 212
+        // and 331, and the brief's Do-4 list does not ask for it. Score it on purpose, not on the gate.
+        Skip.IfNot(string.Equals(Environment.GetEnvironmentVariable("HARBORLINE_151_TRACE"), "1",
+            StringComparison.Ordinal),
+            "A refusal trace entry is M3 clause 6 (tickets 212, 331), not ticket 151 acceptance; "
+            + "set HARBORLINE_151_TRACE=1 to score it.");
         await using var harness = await Harness.CreateAsync();
         using var body = JsonDocument.Parse($$"""{"title":"{{BodyMarker}}","status":"open"}""");
 
@@ -337,6 +372,7 @@ public sealed class RecordWriteValidationJudgeTests
     // ── Row 5: invalidation ────────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "151 s2 row 5: a Records type schema whose content changes under one id is not served stale")]
+    [Trait("Holds", "RW-6")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Invalidation_ReactivationIsHonoured()
     {
         var flip = new FlippableRegistry(RecordsTypeSchema, RecordsTypeSchemaV2);
@@ -354,6 +390,7 @@ public sealed class RecordWriteValidationJudgeTests
     }
 
     [Fact(DisplayName = "151 s2 row 5b: the update path validates against the stored record's current schema")]
+    [Trait("Holds", "RW-6")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public async Task Invalidation_UpdateIsValidatedToo()
     {
         await using var harness = await Harness.CreateAsync();
@@ -372,6 +409,8 @@ public sealed class RecordWriteValidationJudgeTests
     // ── Row 6: the bypass fence ────────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "151 s2 row 6: every production record-write call site is a named validated writer")]
+    [Trait("Holds", "RW-7")] // acceptance traceability (AcceptanceTraceabilityArchTests)
+    [Trait("Holds", "RW-9")] // acceptance traceability (AcceptanceTraceabilityArchTests)
     public void Fence_EveryRecordWriteCallerIsAValidatedWriter()
     {
         var discovered = ArchTests.RecordWriteValidatedWriterFence.DiscoveredRecordWriteCallers();
@@ -392,6 +431,34 @@ public sealed class RecordWriteValidationJudgeTests
         var composed = Harness.ComposedValidatorTypeName();
         Assert.False(composed == NullValidatorTypeName,
             $"The production composition still hands the record writers {composed} — L1418 is open.");
+    }
+
+    // ── Row 7: non-record write shapes (board amendment, seat a) ────────────────────────
+
+    [Fact(DisplayName = "151 s2 row 7: installing the record validator does not refuse other entity shapes")]
+    [Trait("Holds", "RW-8")] // acceptance traceability (AcceptanceTraceabilityArchTests)
+    public async Task NonRecordWriteShapesStillPersist()
+    {
+        // Seat (a): every judge row drives the record coordinator, so a candidate that put the validator in
+        // the shared IEntityMutationStore hook scored full marks here while breaking every other write shape
+        // - definition envelopes, form instances, sync replay, pack-activation seeding, boot backfills. The
+        // Mac full runs found exactly that on candidates C (21 unlisted failures) and E; no judge row did.
+        // Those shapes write through this port under schema ids the authority registry never holds.
+        // allowNullValidator: this row is a NON-REGRESSION row, green on origin/main and red only when the
+        // validator is moved into the shared store hook, so it must not inherit the L1418 composition assert.
+        await using var harness = await Harness.CreateAsync(allowNullValidator: true);
+        var mutations = harness.Services.GetRequiredService<IEntityMutationStore>();
+        using var envelope = JsonDocument.Parse(
+            """{"kind":"form-definition","identity":"judge-151-envelope","status":"Published"}""");
+
+        var id = await mutations.CreateAsync(
+            new SchemaId("judge-151-definition-envelope"), envelope, harness.Options("envelope"));
+
+        var stored = await harness.Reader.GetAsync(id);
+        Assert.NotNull(stored);
+        Assert.Equal(
+            JsonSerializer.Serialize(envelope.RootElement),
+            JsonSerializer.Serialize(stored!.Body.RootElement));
     }
 
     // ── Perf probe (opt in with HARBORLINE_151_PERF=1) ─────────────────────────────────────────
@@ -500,16 +567,6 @@ public sealed class RecordWriteValidationJudgeTests
         }
     }
 
-    private sealed class StubHandler(string body) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-    }
-
     private sealed class JudgeClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
@@ -544,6 +601,9 @@ public sealed class RecordWriteValidationJudgeTests
         internal IServiceProvider Services => _provider;
         /// <summary>Real validation work observed at the authority's schema registry.</summary>
         internal int ValidationCalls => _counting.Calls;
+
+        /// <summary>Any read of the authority registry: ValidateAsync or a schema resolution by id.</summary>
+        internal int RegistryReads => _counting.Reads;
 
         internal AuthorizationWriteContext Authority => new(Principal, Tenant, At);
 
@@ -705,18 +765,30 @@ public sealed class RecordWriteValidationJudgeTests
     private sealed class CountingRegistry(ISchemaRegistry inner) : ISchemaRegistry
     {
         private int _calls;
+        private int _reads;
 
         internal int Calls => _calls;
+
+        /// <summary>
+        /// Board amendment: reads of either shape, so a row asserting "the validator consulted the authority"
+        /// (2a) or "it did not" (3) holds for a candidate that resolves by id as well as one that calls
+        /// ValidateAsync.
+        /// </summary>
+        internal int Reads => _reads;
 
         public ValueTask<SchemaValidationResult> ValidateAsync(
             SchemaId id, ReadOnlyMemory<byte> documentBytes, CancellationToken ct = default)
         {
             Interlocked.Increment(ref _calls);
+            Interlocked.Increment(ref _reads);
             return inner.ValidateAsync(id, documentBytes, ct);
         }
 
         public ValueTask<Schema?> GetAsync(SchemaId id, CancellationToken ct = default)
-            => inner.GetAsync(id, ct);
+        {
+            Interlocked.Increment(ref _reads);
+            return inner.GetAsync(id, ct);
+        }
 
         public ValueTask<Schema> RegisterAsync(
             string jsonSchemaText, IReadOnlyList<SchemaId>? parents = null, IReadOnlyList<string>? tags = null,
@@ -780,6 +852,10 @@ public sealed class RecordWriteValidationJudgeTests
             Directory.CreateDirectory(directory);
             builder.Services.AddSingleton<Harborline.Api.Foundation.Persistence.IHarborlineEntityModule,
                 Harborline.Api.Blocks.FinancialLedger.Data.FinancialLedgerEntityModule>();
+            // The ledger module's model needs the periods module beside it (EntityRouteTests registers the
+            // same pair); BlockEntityModuleDiscoveryTests fences every ledger composition on that pairing.
+            builder.Services.AddSingleton<Harborline.Api.Foundation.Persistence.IHarborlineEntityModule,
+                Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
             builder.Services.AddDbContextFactory<LocalNodeDbContext>(options =>
                 options.UseSqlite($"Data Source={Path.Combine(directory, "judge-151.db")};Pooling=False"));
 
@@ -859,6 +935,17 @@ public sealed class RecordWriteValidationJudgeTests
 #pragma warning disable CS0067 // one pinned team never changes, but the seam declares the event
         public event EventHandler<Harborline.Api.Kernel.Runtime.Teams.ActiveTeamChangedEventArgs>? ActiveChanged;
 #pragma warning restore CS0067
+    }
+
+    /// <summary>A registry that cancels while validating (board amendment row 2e).</summary>
+    private static ISchemaRegistry CancellingRegistry()
+    {
+        var registry = Substitute.For<ISchemaRegistry>();
+        registry.GetAsync(Arg.Any<SchemaId>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<Schema?>>(_ => throw new OperationCanceledException());
+        registry.ValidateAsync(Arg.Any<SchemaId>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns<ValueTask<SchemaValidationResult>>(_ => throw new OperationCanceledException());
+        return registry;
     }
 
     /// <summary>A registry whose reads fail (the fail-closed row).</summary>

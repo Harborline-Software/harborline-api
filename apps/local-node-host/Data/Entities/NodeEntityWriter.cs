@@ -32,6 +32,8 @@ public sealed class NodeEntityWriter(
     /// be present on one path and missing on another. The sink is optional because an embedder may
     /// compose the coordinator without an audit trail; the REFUSAL is not optional either way.
     /// </summary>
+    // holds RW-2, RW-5 · closes RW-H1, RW-H2, RW-H7: the ONE place this writer validates, so no record
+    // path reaches persistence unvalidated and a validator fault propagates instead of passing.
     private async Task ValidateAsync(
         SchemaId schema, JsonDocument body, AuthorizationWriteContext authority, CancellationToken ct)
     {
@@ -141,6 +143,9 @@ public sealed class NodeEntityWriter(
         if (options.Tenant != authority.Tenant)
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
         var recordId = options.ExplicitLocalPart ?? options.Nonce;
+        // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
+        // so an unauthorized caller learns nothing about the schema. holds RW-9: this is a named
+        // validated writer in RecordWriteValidatedWriterFence's inventory.
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
