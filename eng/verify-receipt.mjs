@@ -40,6 +40,7 @@ export const requiredStepIds = [
   'rule-engine-conformance',
   'contracts-rust',
   'operator-cli-headless',
+  'install-artefact',
   'exact-clone',
   'quality',
   'packages',
