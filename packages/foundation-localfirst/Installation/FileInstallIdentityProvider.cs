@@ -25,6 +25,10 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
     /// <summary>Path containing the durable identity record.</summary>
     public string IdentityFilePath => _identityFilePath;
 
+    // Test seam: runs after a new record is durable and before it becomes visible at the
+    // identity path, so a test can observe what a concurrent launcher would see in that window.
+    internal Func<Task>? PublishBarrier { get; set; }
+
     /// <inheritdoc />
     public async ValueTask<InstallIdentity> GetInstallIdentityAsync(CancellationToken ct)
     {
@@ -38,23 +42,43 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
         }
 
         var identity = InstallIdentity.New();
+        var temporaryPath = $"{_identityFilePath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            await using var stream = new FileStream(
-                _identityFilePath,
+            await using (var stream = new FileStream(
+                temporaryPath,
                 FileMode.CreateNew,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: 4096,
-                FileOptions.Asynchronous | FileOptions.WriteThrough);
-            var bytes = Encoding.ASCII.GetBytes(identity.Value);
-            await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
-            await stream.FlushAsync(ct).ConfigureAwait(false);
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                var bytes = Encoding.ASCII.GetBytes(identity.Value);
+                await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
+                await stream.FlushAsync(ct).ConfigureAwait(false);
+            }
+
+            if (PublishBarrier is { } barrier)
+            {
+                await barrier().ConfigureAwait(false);
+            }
+
+            // The record becomes visible at the identity path only as a whole: a concurrent
+            // launcher either does not see the path or reads a complete record. An in-place
+            // write exposed an empty file between create and write, which readers refused.
+            File.Move(temporaryPath, _identityFilePath, overwrite: false);
             return identity;
         }
         catch (IOException) when (File.Exists(_identityFilePath))
         {
             return await ReadWhenAvailableAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
         }
     }
 
