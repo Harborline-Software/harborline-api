@@ -158,7 +158,13 @@ else
 fi
 # Ticket 335 re-pins the host baseline above; the quality baseline follows the same gated tree.
 source "$root/eng/quality-baseline-landing.sh"
-quality_baseline_compare "$land_dir" || exit 1
+# 339 s5: the comparison needs the landing's own artifacts; an accepted receipt ran no verify here, so the Mac gate's
+# quality decision (carried in the receipt) stands and the comparison is skipped rather than judged on an empty tree.
+if [ $receipt_accepted -eq 1 ]; then
+  echo "land: quality baseline comparison skipped on the accepted receipt (the receipt carries the quality decision)"
+else
+  quality_baseline_compare "$land_dir" || exit 1
+fi
 if [ $dry -eq 1 ]; then echo "land: dry run — gate green on ${tested_tree:0:12}; not landing"; exit 0; fi
 if [ $main_moved -eq 1 ]; then
   git -C "$land_dir" push --no-verify origin "$repinned_head:refs/heads/$branch" || { echo "land: could not push the re-pinned merge head; nothing landed"; exit 1; }

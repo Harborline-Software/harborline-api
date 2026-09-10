@@ -245,6 +245,7 @@ EOF
       ! grep -Fq 'run_land_verify: command not found' "$case_dir/output.log" || { echo "FAIL $name: post-merge gate lost run_land_verify"; return 1; }
     else
       [ ! -e "$verify_sentinel" ] || { echo "FAIL $name: accepted receipt ran the verify stub"; return 1; }
+      grep -Fq "land: quality baseline comparison skipped on the accepted receipt" "$case_dir/output.log" || { echo "FAIL $name: accepted receipt still ran the quality baseline comparison"; return 1; }
       grep -Fq 'land: main moved: re-pinned arithmetically (main 103, branch delta +2, expected 105); measurement skipped on the accepted receipt (ticket 350)' "$case_dir/output.log" || { echo "FAIL $name: missing measurement-skipped re-pin reason"; return 1; }
     fi
   elif [ "$want_rc" = 0 ]; then

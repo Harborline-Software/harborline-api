@@ -2,6 +2,7 @@ using System;
 using System.Data.Common;
 using System.Threading.Tasks;
 
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -58,7 +59,10 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
     {
         _dir = Path.Combine(Path.GetTempPath(), "harborline-home-epoch-fence-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
-        var connectionString = $"Data Source={Path.Combine(_dir, "fence.db")};Pooling=False";
+        // The interleaved promotion must observe the fence's lock at the attempt boundary, rather than wait
+        // for the stale write to finish. This fixture's separate contexts all use this test-only one-second
+        // busy timeout; the production connection-string policy remains unchanged.
+        var connectionString = $"Data Source={Path.Combine(_dir, "fence.db")};Pooling=False;Default Timeout=1";
 
         var services = new ServiceCollection();
         // The production module set for the JE, invoice, audit, and home-epoch tables.
@@ -336,8 +340,9 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
         // the lock), so the current epoch is still 1 and there are exactly 2 JEs — NO double-home state.
         Assert.True(promotionAttemptThrew,
             "FIXED-code expectation: the promotion injected into the fence's read-through-write window must " +
-            "fail-fast (SQLITE_BUSY) because the stale write holds the BEGIN IMMEDIATE write lock. If this " +
+            "fail with SQLITE_BUSY while the stale write holds the BEGIN IMMEDIATE write lock. If this " +
             "assertion fails, the promotion committed IN THE GAP — the TOCTOU is open (pre-fix behaviour).");
+        AssertBusy(promotionError);
         Assert.Null(rejection);
         Assert.Null(postError);
 
@@ -382,6 +387,7 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
         // The race: device-1 (epoch 1) mints again; in the window after the sequence fence read and before
         // the number is computed, device-2 is promoted to epoch 2 on a separate connection.
         var promotionAttemptThrew = false;
+        Exception? promotionError = null;
         HomeEpochFence.AfterReadHookForTests = async () =>
         {
             try
@@ -389,9 +395,10 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
                 await epochs.AdvanceAsync(
                     Bump(_adminA, 2, 1, "device-2", HomePromotionKind.RecoveryFailover, _adminB));
             }
-            catch
+            catch (Exception ex)
             {
                 promotionAttemptThrew = true; // SQLITE_BUSY on the fixed code — promotion blocked in the gap
+                promotionError = ex;
             }
         };
 
@@ -414,7 +421,8 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
         // number, no gap, no double-number. The promotion is serialised AFTER.
         Assert.True(promotionAttemptThrew,
             "FIXED-code expectation: the promotion injected into the sequence-alloc fence window must " +
-            "fail-fast (SQLITE_BUSY); if it committed in the gap the Gap-2b TOCTOU is open (pre-fix).");
+            "fail with SQLITE_BUSY; if it committed in the gap the Gap-2b TOCTOU is open (pre-fix).");
+        AssertBusy(promotionError);
         Assert.Equal(1, (await epochs.GetCurrentEpochAsync(TenantValue))!.EpochNumber);
         Assert.Equal("INV-2026-06-16-AA-0002", staleMinted); // the next number — no stale skip
 
@@ -432,6 +440,12 @@ public sealed class HomeEpochFenceTests : IAsyncLifetime
     {
         await using var ctx = await _factory.CreateDbContextAsync();
         return await ctx.Set<JournalEntry>().CountAsync(j => j.TenantId == Tenant);
+    }
+
+    private static void AssertBusy(Exception? error)
+    {
+        var update = Assert.IsType<DbUpdateException>(error);
+        Assert.Equal(5, Assert.IsType<SqliteException>(update.InnerException).SqliteErrorCode);
     }
 
     private async Task<int> CountAuditRowsAsync()
