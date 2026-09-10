@@ -237,6 +237,7 @@
     "POST /api/session/account-setup-accept": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
     "POST /api/session/admin/invitations": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
     "POST /api/session/admin/members/permissions": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
+    "POST /api/session/admin/members/narrow": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
     "POST /api/session/admin/members/revoke": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
     "POST /api/session/connect-device": "Interactive web-session or admission ceremony; binds browser session state (cookies, antiforgery, device connect), so a headless verb cannot complete it alone.",
     "POST /api/session/founder-bind": "Desktop founder-bind ceremony; binds the interactive desktop session itself and has no headless meaning.",
