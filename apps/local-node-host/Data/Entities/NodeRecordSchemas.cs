@@ -30,16 +30,30 @@ internal static class NodeRecordSchemas
         // completed by the time the ValueTask is returned. The guard makes that a checked invariant
         // instead of a hope: a backend that ever went truly asynchronous fails composition loudly here
         // rather than blocking a thread-pool thread.
+        // No blocking call of any kind (VSTHRD002 is a quality-baseline finding, and a suppression
+        // does not clear it): a completed ValueTask is inspected, never awaited or waited on.
         var activation = catalog.ActivateAsync(name, text);
+        if (activation.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
         if (!activation.IsCompleted)
         {
             throw new InvalidOperationException(
                 $"baseline record schema '{name}' did not activate synchronously; composition cannot await it.");
         }
 
-#pragma warning disable VSTHRD002 // completed ValueTask: observing the result cannot block (guard above)
-        activation.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+        var completed = activation.AsTask();
+        if (completed.IsCanceled)
+        {
+            throw new OperationCanceledException($"baseline record schema '{name}' activation was cancelled.");
+        }
+
+        Exception fault = completed.Exception?.InnerException
+            ?? (Exception?)completed.Exception
+            ?? new InvalidOperationException($"baseline record schema '{name}' activation faulted without an exception.");
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(fault).Throw();
     }
 
     private static string LegalEntity() =>
