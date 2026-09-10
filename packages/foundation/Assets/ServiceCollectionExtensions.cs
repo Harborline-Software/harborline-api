@@ -21,10 +21,12 @@ public static class ServiceCollectionExtensions
     /// <see cref="HierarchyOperations"/> as singletons.
     /// </summary>
     /// <remarks>
-    /// Null-object defaults are registered for the three extensibility seams
-    /// (<see cref="IEntityValidator"/>, <see cref="IVersionObserver"/>,
-    /// <see cref="IAuditContextProvider"/>); consumers can override them via
-    /// <c>services.Replace(...)</c> or direct <c>TryAddSingleton</c> / <c>AddSingleton</c>.
+    /// Null-object defaults are registered for the observer and audit-context seams.
+    /// <see cref="IEntityValidator"/> has NO default: the host binds a real validator (the schema
+    /// registry's), and <see cref="EntityBodyAdmission"/> — the only mint of the
+    /// <see cref="ValidatedBody"/> the store demands — resolves it with
+    /// <c>GetRequiredService</c>, so a composition without one fails loudly instead of accepting
+    /// every body (ticket 151, ledger L1418).
     /// </remarks>
     public static IServiceCollection AddHarborlineAssetsInMemory(
         this IServiceCollection services,
@@ -34,9 +36,9 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<InMemoryAssetStorage>();
-        services.TryAddSingleton<IEntityValidator>(NullEntityValidator.Instance);
         services.TryAddSingleton<IVersionObserver>(NullVersionObserver.Instance);
         services.TryAddSingleton<IAuditContextProvider>(NullAuditContextProvider.Instance);
+        services.TryAddSingleton(sp => new EntityBodyAdmission(sp.GetRequiredService<IEntityValidator>()));
 
         var backends = new ConditionalWeakTable<IServiceProvider, Lazy<InMemoryAssetBackends>>();
         InMemoryAssetBackends Backends(IServiceProvider provider) => backends.GetValue(
@@ -44,7 +46,6 @@ public static class ServiceCollectionExtensions
             static sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
                     sp.GetRequiredService<InMemoryAssetStorage>(),
                     sp.GetRequiredService<TimeProvider>(),
-                    sp.GetService<IEntityValidator>(),
                     sp.GetService<IVersionObserver>()),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
@@ -73,10 +74,9 @@ public static class ServiceCollectionExtensions
     private sealed class InMemoryAssetBackends(
         InMemoryAssetStorage storage,
         TimeProvider timeProvider,
-        IEntityValidator? validator,
         IVersionObserver? observer)
     {
-        internal InMemoryEntityStore Entities { get; } = new(storage, timeProvider, validator, observer);
+        internal InMemoryEntityStore Entities { get; } = new(storage, timeProvider, observer);
 
         internal InMemoryHierarchyService Hierarchy { get; } = new(storage);
     }

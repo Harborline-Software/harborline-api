@@ -64,8 +64,10 @@ internal sealed class SqliteEntityStore : IEntityMutationStore, IDisposable
     }
 
     public async Task<EntityId> CreateAsync(
-        SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default)
+        ValidatedBody validated, CreateOptions options, CancellationToken ct = default)
     {
+        var schema = validated.Schema;
+        var body = validated.Body;
         var id = new EntityId(options.Scheme, options.Authority, options.ExplicitLocalPart ?? options.Nonce);
         var json = body.RootElement.GetRawText();
         var existing = await GetAsync(id, ct: ct);
@@ -94,8 +96,9 @@ internal sealed class SqliteEntityStore : IEntityMutationStore, IDisposable
     }
 
     public async Task<VersionId> UpdateAsync(
-        EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default)
+        EntityId id, ValidatedBody validated, UpdateOptions options, CancellationToken ct = default)
     {
+        var newBody = validated.Body;
         var existing = await GetAsync(id, ct: ct)
             ?? throw new InvalidOperationException($"Entity '{id}' was not found.");
         if (options.ExpectedVersion is { } expected

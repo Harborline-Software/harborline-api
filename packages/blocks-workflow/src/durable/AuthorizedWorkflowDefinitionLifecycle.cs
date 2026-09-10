@@ -24,6 +24,7 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle
         EntityStoreWorkflowDefinitionStore inner,
         IEntityMutationStore persistenceStore,
         IWorkflowAdmissionValidator persistenceAdmission,
+        EntityBodyAdmission persistenceBodies,
         TimeProvider persistenceTime,
         AuthorizationGate gate,
         IRoleGateAdmission roleGateAdmission)
@@ -34,6 +35,7 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle
         writer = CreateWriter(new EntityWriterBackend(
             persistenceStore ?? throw new ArgumentNullException(nameof(persistenceStore)),
             persistenceAdmission ?? throw new ArgumentNullException(nameof(persistenceAdmission)),
+            persistenceBodies ?? throw new ArgumentNullException(nameof(persistenceBodies)),
             persistenceTime ?? throw new ArgumentNullException(nameof(persistenceTime))));
     }
 
@@ -604,8 +606,9 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle
         private readonly TimeProvider time;
 
         internal EntityWriterBackend(
-            IEntityMutationStore store, IWorkflowAdmissionValidator admission, TimeProvider time)
-            : base(store, store, time, EntityStoreWorkflowDefinitionStore.DefinitionSchema,
+            IEntityMutationStore store, IWorkflowAdmissionValidator admission,
+            EntityBodyAdmission bodies, TimeProvider time)
+            : base(store, store, bodies, time, EntityStoreWorkflowDefinitionStore.DefinitionSchema,
                 EnvelopeKind, "key", EntityScheme, EntityAuthority)
         {
             this.admission = admission;
@@ -632,7 +635,12 @@ public sealed class AuthorizedWorkflowDefinitionLifecycle
             try
             {
                 await Mutations.CreateAsync(
-                    EntityStoreWorkflowDefinitionStore.DefinitionSchema, body, create, ct).ConfigureAwait(false);
+                    AdmitEnvelope(
+                        EntityStoreWorkflowDefinitionStore.DefinitionSchema,
+                        body,
+                        "workflow-definition envelope admitted by IWorkflowAdmissionValidator"),
+                    create,
+                    ct).ConfigureAwait(false);
             }
             catch (IdempotencyConflictException)
             {

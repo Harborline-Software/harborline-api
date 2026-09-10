@@ -45,6 +45,11 @@ public static class SchemaRegistryServiceCollectionExtensions
             sp.GetRequiredService<LensGraph>(),
             sp.GetRequiredService<UpcasterChain>(),
             sp.GetRequiredService<IEpochCoordinator>()));
+        // Ticket 151 (ledger L1418): the entity write pipeline's validation stage is this registry,
+        // not a null object. Registered here so any host that composes the registry gets the real
+        // validator by default.
+        services.TryAddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(
+            sp => new SchemaRegistryEntityValidator(sp.GetRequiredService<ISchemaRegistry>()));
         return services;
     }
 

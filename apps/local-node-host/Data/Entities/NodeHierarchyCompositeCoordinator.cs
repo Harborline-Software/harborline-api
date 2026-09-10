@@ -40,6 +40,7 @@ public sealed class HierarchyAuthorizedAuditWriter(IAuditLog audit) : IHierarchy
 /// <summary>Complete-target admission followed by one atomic hierarchy transaction.</summary>
 public sealed class NodeHierarchyCompositeCoordinator(
     IEntityMutationStore entities,
+    EntityBodyAdmission admission,
     IHierarchyCompositeUnitOfWork unitOfWork,
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
@@ -209,9 +210,11 @@ public sealed class NodeHierarchyCompositeCoordinator(
             var target = newEntities[index];
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
-            authorization.Require(replacementIds[index]);
+            var targetDecision = authorization.Require(replacementIds[index]);
+            var validatedTarget = await admission
+                .AdmitAsync(targetDecision, target.Schema, target.Body, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
-                target.Schema, target.Body, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
+                validatedTarget, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
 
         var reassigned = new List<EntityId>();
@@ -267,11 +270,13 @@ public sealed class NodeHierarchyCompositeCoordinator(
         DateTimeOffset effectiveAt,
         CancellationToken ct)
     {
-        authorization.Require(expectedNewId);
+        var mergeDecision = authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
+        var validatedMerge = await admission
+            .AdmitAsync(mergeDecision, newSchema, newBody, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
-            newSchema, newBody, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
+            validatedMerge, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)
             throw new InvalidOperationException("The entity store minted an id different from the pre-authorized merge target.");
         var reassigned = new List<EntityId>();

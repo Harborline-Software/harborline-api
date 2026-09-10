@@ -2246,10 +2246,12 @@ builder.Services.AddNodeForms(
     localNodeOptions.HostJurisdiction,
     static (services, entityMutations, hierarchyMutations) =>
     {
+        services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordSchemas>();
         services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter(
             sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>(),
             entityMutations(sp),
-            sp.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(),
+            sp.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission>(),
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordSchemas>(),
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
@@ -2259,6 +2261,7 @@ builder.Services.AddNodeForms(
         services.AddSingleton<Harborline.Api.Foundation.Assets.Hierarchy.IHierarchyCompositeCoordinator>(sp =>
             new Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator(
                 entityMutations(sp),
+                sp.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission>(),
                 hierarchyMutations(sp),
                 sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(),
                 sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),

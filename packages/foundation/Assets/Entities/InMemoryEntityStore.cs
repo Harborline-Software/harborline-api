@@ -20,20 +20,22 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
 {
     private readonly InMemoryAssetStorage _storage;
-    private readonly IEntityValidator _validator;
     private readonly IVersionObserver _observer;
     private readonly TimeProvider _timeProvider;
 
     /// <summary>Creates an in-memory entity store backed by the given shared storage.</summary>
+    /// <remarks>
+    /// The store takes no validator: a caller reaches <see cref="CreateAsync"/> and
+    /// <see cref="UpdateAsync"/> only by presenting a <see cref="ValidatedBody"/>, which
+    /// <see cref="EntityBodyAdmission"/> alone mints (ticket 151, ledger L1418).
+    /// </remarks>
     public InMemoryEntityStore(
         InMemoryAssetStorage storage,
         TimeProvider timeProvider,
-        IEntityValidator? validator = null,
         IVersionObserver? observer = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        _validator = validator ?? NullEntityValidator.Instance;
         _observer = observer ?? NullVersionObserver.Instance;
     }
 
@@ -85,18 +87,19 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
     }
 
     /// <inheritdoc />
-    public Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default) =>
-        _storage.ExecuteExclusiveAsync(() => CreateCoreAsync(schema, body, options, ct), ct);
+    public Task<EntityId> CreateAsync(ValidatedBody body, CreateOptions options, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return _storage.ExecuteExclusiveAsync(() => CreateCoreAsync(body.Schema, body.Body, options, ct), ct);
+    }
 
-    private async Task<EntityId> CreateCoreAsync(
+    private Task<EntityId> CreateCoreAsync(
         SchemaId schema,
         JsonDocument body,
         CreateOptions options,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(options);
-        await _validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
 
         var id = DeriveEntityId(schema, options);
         var validFrom = options.ValidFrom ?? _timeProvider.GetUtcNow();
@@ -109,7 +112,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
             {
                 // Idempotent: same body → return same id.
                 if (existing.BodyJson == canonicalBody)
-                    return id;
+                    return Task.FromResult(id);
                 throw new IdempotencyConflictException(
                     $"Entity '{id}' already exists with a different body; refusing to overwrite via CreateAsync.");
             }
@@ -147,7 +150,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
             _storage.Entities[id] = record;
 
             _ = _observer.OnVersionAppendedAsync(id, version, ct);
-            return id;
+            return Task.FromResult(id);
         }
     }
 
@@ -164,7 +167,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
         CancellationToken ct = default) =>
         _storage.ExecuteExclusiveAsync(() => CreateBatchCoreAsync(drafts, ct), ct);
 
-    private async Task<IReadOnlyList<EntityId>> CreateBatchCoreAsync(
+    private Task<IReadOnlyList<EntityId>> CreateBatchCoreAsync(
         IEnumerable<EntityDraft> drafts,
         CancellationToken ct)
     {
@@ -173,15 +176,14 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
         // Materialise so we can iterate twice (validate + insert) without re-evaluating.
         var draftList = drafts as IReadOnlyList<EntityDraft> ?? drafts.ToList();
         if (draftList.Count == 0)
-            return Array.Empty<EntityId>();
+            return Task.FromResult<IReadOnlyList<EntityId>>(Array.Empty<EntityId>());
 
-        // --- Phase 1: validate all drafts BEFORE acquiring any locks ---
+        // --- Phase 1: every draft carries its own validation token (ticket 151, L1418) ---
         foreach (var draft in draftList)
         {
             ct.ThrowIfCancellationRequested();
             ArgumentNullException.ThrowIfNull(draft.Body, nameof(draft));
             ArgumentNullException.ThrowIfNull(draft.Options, nameof(draft));
-            await _validator.ValidateAsync(draft.Schema, draft.Body, ct).ConfigureAwait(false);
         }
 
         // --- Phase 2: derive all entity IDs (deterministic, lock-free) ---
@@ -223,7 +225,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
                     var draft = draftList[i];
                     var id = derivedIds[i];
                     var validFrom = draft.Options.ValidFrom ?? _timeProvider.GetUtcNow();
-                    var canonicalBody = JsonCanonicalizer.ToCanonicalString(draft.Body);
+                    var canonicalBody = JsonCanonicalizer.ToCanonicalString(draft.Body.Body);
 
                     if (_storage.Entities.TryGetValue(id, out var existing))
                     {
@@ -237,7 +239,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
                             $"Entity '{id}' already exists with a different body; batch rolled back.");
                     }
 
-                    var initialBody = CloneBody(draft.Body);
+                    var initialBody = CloneBody(draft.Body.Body);
                     var hash = HashVersion(parentHash: null, canonicalBody: canonicalBody, validFrom: validFrom);
                     var versionId = new VersionId(id, 1, hash);
                     var version = new Versions.Version(
@@ -273,7 +275,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
                 }
 
                 // All inserts succeeded.
-                return results;
+                return Task.FromResult<IReadOnlyList<EntityId>>(results);
             }
             catch
             {
@@ -297,23 +299,31 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
     }
 
     /// <inheritdoc />
-    public Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default) =>
-        _storage.ExecuteExclusiveAsync(() => UpdateCoreAsync(id, newBody, options, ct), ct);
+    public Task<VersionId> UpdateAsync(EntityId id, ValidatedBody newBody, UpdateOptions options, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(newBody);
+        return _storage.ExecuteExclusiveAsync(() => UpdateCoreAsync(id, newBody, options, ct), ct);
+    }
 
     private async Task<VersionId> UpdateCoreAsync(
         EntityId id,
-        JsonDocument newBody,
+        ValidatedBody validated,
         UpdateOptions options,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(newBody);
         ArgumentNullException.ThrowIfNull(options);
 
         if (!_storage.Entities.TryGetValue(id, out var record))
             throw new InvalidOperationException($"Entity '{id}' not found.");
 
-        await _validator.ValidateAsync(record.Schema, newBody, ct).ConfigureAwait(false);
+        // The update was validated against the schema the caller named; it must be the schema this
+        // record actually carries, or that validation proves nothing about the version appended here.
+        if (validated.Schema != record.Schema)
+            throw new EntityValidationException(
+                EntityValidationException.SchemaUnknown,
+                $"Entity '{id}' is an instance of schema '{record.Schema}'; the update was validated against '{validated.Schema}'.");
 
+        var newBody = validated.Body;
         var canonicalBody = JsonCanonicalizer.ToCanonicalString(newBody);
         var validFrom = options.ValidFrom ?? _timeProvider.GetUtcNow();
 

@@ -68,12 +68,6 @@ public static class EntityRoutes
     /// <see cref="LegalEntity.TenantId"/> contract is satisfied without a
     /// session stack.
 
-    /// <summary>
-    /// The schema identity the pre-commit <see cref="IEntityValidator"/> hook receives for a
-    /// legal-entity body (ticket 151 — the write pipeline's authority-side validation stage).
-    /// </summary>
-    public static readonly SchemaId LegalEntitySchema = new("legal-entity");
-
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
@@ -150,7 +144,9 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new { error = "validation_failed", detail = ex.Message });
+                // The operator CLI renders reason + pointers; the body is never echoed back.
+                return Results.UnprocessableEntity(
+                    new { error = ex.ReasonCode, detail = ex.Message, pointers = ex.Pointers });
             }
             catch (ArgumentException ex)
             {

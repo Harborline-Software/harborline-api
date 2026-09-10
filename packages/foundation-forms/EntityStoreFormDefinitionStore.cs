@@ -60,12 +60,14 @@ public sealed class EntityStoreFormDefinitionStore : EntityStoreDefinitionLifecy
     /// <summary>Constructs the store over the supplied entity store and clock.</summary>
     /// <param name="store">The durable (or in-memory) entity store backing persistence.</param>
     /// <param name="mutations">The same store's unregistered mutation face.</param>
+    /// <param name="admission">The write pipeline's validation stage, which mints store tokens.</param>
     /// <param name="time">Clock for lifecycle-transition timestamps.</param>
     public EntityStoreFormDefinitionStore(
         IEntityStore store,
         IEntityMutationStore mutations,
+        EntityBodyAdmission admission,
         TimeProvider time)
-        : base(store, mutations, time, DefinitionSchema, EnvelopeKind, "formId", EntityScheme, EntityAuthority)
+        : base(store, mutations, admission, time, DefinitionSchema, EnvelopeKind, "formId", EntityScheme, EntityAuthority)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(mutations);
@@ -73,8 +75,8 @@ public sealed class EntityStoreFormDefinitionStore : EntityStoreDefinitionLifecy
     }
 
     /// <summary>Constructs over a combined reader/mutation implementation without exposing it through DI.</summary>
-    public EntityStoreFormDefinitionStore(IEntityStore store, TimeProvider time)
-        : this(store, RequireMutations(store), time)
+    public EntityStoreFormDefinitionStore(IEntityStore store, EntityBodyAdmission admission, TimeProvider time)
+        : this(store, RequireMutations(store), admission, time)
     {
     }
 

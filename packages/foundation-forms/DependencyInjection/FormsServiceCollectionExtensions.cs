@@ -91,11 +91,13 @@ public static class FormsServiceCollectionExtensions
             new EntityStoreFormDefinitionStore(
                 sp.GetRequiredService<IEntityStore>(),
                 mutationStore(sp),
+                sp.GetRequiredService<EntityBodyAdmission>(),
                 sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IFormDefinitionStore>(sp => sp.GetRequiredService<EntityStoreFormDefinitionStore>());
         services.AddSingleton(sp => new AuthorizedFormDefinitionLifecycle(
             sp.GetRequiredService<EntityStoreFormDefinitionStore>(),
             mutationStore(sp),
+            sp.GetRequiredService<EntityBodyAdmission>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<AuthorizationGate>(),
             sp.GetRequiredService<IRoleGateAdmission>(),

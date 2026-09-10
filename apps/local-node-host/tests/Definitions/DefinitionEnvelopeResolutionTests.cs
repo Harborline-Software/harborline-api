@@ -78,7 +78,7 @@ public sealed class DefinitionEnvelopeResolutionTests
             new LegalHoldRegistry(holdStore));
         var entityStore = new CountingEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System));
-        var inner = new EntityStoreFormDefinitionStore(entityStore, TimeProvider.System);
+        var inner = new EntityStoreFormDefinitionStore(entityStore, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var heldDefinition = DefinitionWithRetentionClass("Financial");
         await inner.RegisterAsync(heldDefinition);
         entityStore.ResetWrites();
@@ -266,10 +266,10 @@ public sealed class DefinitionEnvelopeResolutionTests
         public Task<Entity?> GetAsync(EntityId id, VersionSelector version = default, CancellationToken ct = default) =>
             inner.GetAsync(id, version, ct);
 
-        public Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default)
+        public Task<EntityId> CreateAsync(ValidatedBody body, CreateOptions options, CancellationToken ct = default)
         {
             WriterCalls++;
-            return inner.CreateAsync(schema, body, options, ct);
+            return inner.CreateAsync(body, options, ct);
         }
 
         public Task<IReadOnlyList<EntityId>> CreateBatchAsync(IEnumerable<EntityDraft> drafts, CancellationToken ct = default)
@@ -278,7 +278,7 @@ public sealed class DefinitionEnvelopeResolutionTests
             return inner.CreateBatchAsync(drafts, ct);
         }
 
-        public Task<VersionId> UpdateAsync(EntityId id, JsonDocument body, UpdateOptions options, CancellationToken ct = default)
+        public Task<VersionId> UpdateAsync(EntityId id, ValidatedBody body, UpdateOptions options, CancellationToken ct = default)
         {
             WriterCalls++;
             return inner.UpdateAsync(id, body, options, ct);

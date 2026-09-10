@@ -115,7 +115,7 @@ public sealed class RoleGateAdmissionTests
         var writerEvents = new List<string>();
         var store = new EntityStoreFormDefinitionStore(
             new OrderedEntityStore(
-                new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), writerEvents),
+                new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), writerEvents), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
             TimeProvider.System);
         var admission = Admission();
         var lifecycle = TestAuthorization.FormLifecycle(store, TestAuthorization.AllowGate(), admission);
@@ -281,7 +281,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, new WorkflowAdmissionValidator(), TimeProvider.System);
+            entities, new WorkflowAdmissionValidator(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var id = $"privileged-{layer}-{operation}";
         using var authored = WorkflowAuthored(id, "1.0.0", RoleReference.Administrator.ToString());
         var persisted = WorkflowDefinitionWireMapper.ToModel(
@@ -359,7 +359,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, Substitute.For<IWorkflowAdmissionValidator>(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         using var headAuthored = OrderedWorkflowAuthored("foreign-pack-head-workflow", "1.0.0", pack: true);
         var head = OrderedWorkflow("foreign-pack-head-workflow", "1.0.0", pack: true);
         head = CopyPackSource(head, new PackProjectionSource("vendor-b", "1.0.0"));
@@ -422,13 +422,13 @@ public sealed class RoleGateAdmissionTests
         var entities = Substitute.For<IEntityMutationStore>();
         entities.GetAsync(Arg.Any<EntityId>(), Arg.Any<VersionSelector>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Entity?>(null));
-        entities.CreateAsync(Arg.Any<SchemaId>(), Arg.Any<JsonDocument>(), Arg.Any<CreateOptions>(), Arg.Any<CancellationToken>())
+        entities.CreateAsync(Arg.Any<ValidatedBody>(), Arg.Any<CreateOptions>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 order.Add("store");
                 return Task.FromResult(new EntityId("test", "ordered", "1"));
             });
-        var store = new EntityStoreFormDefinitionStore(entities, TimeProvider.System);
+        var store = new EntityStoreFormDefinitionStore(entities, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var lifecycle = TestAuthorization.FormLifecycle(
             store,
             TestAuthorization.AllowGate(),
@@ -449,7 +449,7 @@ public sealed class RoleGateAdmissionTests
         var order = new List<string>();
         var entities = new OrderedEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), order);
-        var store = new EntityStoreFormDefinitionStore(entities, TimeProvider.System);
+        var store = new EntityStoreFormDefinitionStore(entities, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var lifecycle = TestAuthorization.FormLifecycle(
             store, TestAuthorization.AllowGate(), new OrderedAdmission(order), new OrderedLegalHold(order));
         var id = $"ordered-{operation}-{lane}";
@@ -543,7 +543,7 @@ public sealed class RoleGateAdmissionTests
         var entities = new OrderedEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), order);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, Substitute.For<IWorkflowAdmissionValidator>(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var lifecycle = TestAuthorization.WorkflowLifecycle(
             store, TestAuthorization.AllowGate(), new OrderedAdmission(order));
         var id = $"ordered-workflow-{operation}-{lane}";
@@ -614,7 +614,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, Substitute.For<IWorkflowAdmissionValidator>(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var admission = Admission();
         var lifecycle = TestAuthorization.WorkflowLifecycle(store, TestAuthorization.AllowGate(), admission);
         using var authored = WorkflowAuthored("workflow-role-gate", "1.0.0", "tax.roles/missing");
@@ -637,7 +637,7 @@ public sealed class RoleGateAdmissionTests
         var entities = new OrderedEntityStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), []);
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, Substitute.For<IWorkflowAdmissionValidator>(), TimeProvider.System);
+            entities, Substitute.For<IWorkflowAdmissionValidator>(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var id = "pack-full-wire-" + operation;
         using var authored = OrderedWorkflowAuthored(id, "1.0.0", pack: true);
         var persistedModel = OrderedWorkflow(id, "1.0.0", pack: true);
@@ -719,7 +719,7 @@ public sealed class RoleGateAdmissionTests
     {
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var workflows = new EntityStoreWorkflowDefinitionStore(
-            entities, new WorkflowAdmissionValidator(), TimeProvider.System);
+            entities, new WorkflowAdmissionValidator(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
 
         using var validAuthored = WorkflowAuthored("health-workflow", "1.0.0", RoleReference.Administrator.ToString());
         var valid = WorkflowDefinitionWireMapper.ToModel(
@@ -1144,10 +1144,10 @@ public sealed class RoleGateAdmissionTests
             inner.GetAsync(id, version, ct);
 
         public Task<EntityId> CreateAsync(
-            SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default)
+            ValidatedBody body, CreateOptions options, CancellationToken ct = default)
         {
             order.Add("writer");
-            return inner.CreateAsync(schema, body, options, ct);
+            return inner.CreateAsync(body, options, ct);
         }
 
         public Task<IReadOnlyList<EntityId>> CreateBatchAsync(
@@ -1158,7 +1158,7 @@ public sealed class RoleGateAdmissionTests
         }
 
         public Task<VersionId> UpdateAsync(
-            EntityId id, JsonDocument body, UpdateOptions options, CancellationToken ct = default)
+            EntityId id, ValidatedBody body, UpdateOptions options, CancellationToken ct = default)
         {
             order.Add("writer");
             return inner.UpdateAsync(id, body, options, ct);

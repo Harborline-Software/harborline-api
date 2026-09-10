@@ -43,7 +43,11 @@ public interface IEntityMutationStore : IEntityStore
     /// than minting a duplicate. A matching tuple with a different body raises
     /// <see cref="IdempotencyConflictException"/>.
     /// </summary>
-    Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default);
+    /// <remarks>
+    /// Takes a <see cref="ValidatedBody"/>, not a raw document: only <see cref="EntityBodyAdmission"/>
+    /// mints one, so persistence cannot be reached without the validation stage (ticket 151, L1418).
+    /// </remarks>
+    Task<EntityId> CreateAsync(ValidatedBody body, CreateOptions options, CancellationToken ct = default);
 
     /// <summary>
     /// Mints a batch of entities in a single call.
@@ -77,7 +81,7 @@ public interface IEntityMutationStore : IEntityStore
         foreach (var draft in drafts)
         {
             ct.ThrowIfCancellationRequested();
-            var id = await CreateAsync(draft.Schema, draft.Body, draft.Options, ct).ConfigureAwait(false);
+            var id = await CreateAsync(draft.Body, draft.Options, ct).ConfigureAwait(false);
             results.Add(id);
         }
         return results;
@@ -87,7 +91,11 @@ public interface IEntityMutationStore : IEntityStore
     /// Appends a new version with the given body and returns its <see cref="VersionId"/>.
     /// The entity's materialized current body is updated atomically.
     /// </summary>
-    Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default);
+    /// <remarks>
+    /// The token's <see cref="ValidatedBody.Schema"/> must equal the stored record's schema: an
+    /// update validated against a different schema is refused rather than persisted.
+    /// </remarks>
+    Task<VersionId> UpdateAsync(EntityId id, ValidatedBody newBody, UpdateOptions options, CancellationToken ct = default);
 
     /// <summary>
     /// Inserts a tombstone version. Reads via the default selector return <c>null</c> afterwards,

@@ -53,7 +53,8 @@ public sealed class EntityRouteTests : IAsyncLifetime
     private TeamContext _teamA = null!;
     private TeamContext _teamB = null!;
     private MutableAuthorizationContext _authorization = null!;
-    private ToggleableEntityValidator _validator = null!;
+    private Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission _admission = null!;
+    private Data.Entities.NodeRecordSchemas _recordSchemas = null!;
 
     public async Task InitializeAsync()
     {
@@ -65,7 +66,12 @@ public sealed class EntityRouteTests : IAsyncLifetime
         // Ticket 151: the POST is now permission-gated (records:write) and runs the registered
         // pre-commit validator. Default: allow-all + accept-all so the pre-gate tests hold.
         _authorization = new MutableAuthorizationContext();
-        _validator = new ToggleableEntityValidator();
+        // Ticket 151 (L1418): the route runs the SHIPPED schema-registry validator over the node's
+        // registered legal-entity schema — no null object, no accept-all test double.
+        var registry = Data.Entities.TestNodeRecordSchemas.NewRegistry();
+        _admission = new Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission(
+            new Harborline.Api.Kernel.Schema.SchemaRegistryEntityValidator(registry));
+        _recordSchemas = Data.Entities.TestNodeRecordSchemas.Over(registry);
         builder.Services.AddSingleton<IAuthorizationContext>(_authorization);
         // Ticket 205 slice 4: the route guards resolve at the gate. It follows the SAME mutable holding
         // set this host already flips, so a test that narrows the caller's permissions narrows the decision.
@@ -124,7 +130,7 @@ public sealed class EntityRouteTests : IAsyncLifetime
             _app.MapDeviceReachableProductDataGroup(),
             factory,
             _activeTeam,
-            new Data.Entities.NodeEntityWriter(factory, _validator, Authorization.TestAuthorization.AllowGate()),
+            new Data.Entities.NodeEntityWriter(factory, _admission, _recordSchemas, Authorization.TestAuthorization.AllowGate()),
             TimeProvider.System);
         _app.MapPost("/api/session/credential-mint", () =>
         {
@@ -444,28 +450,28 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal("DisregardedEntity", entity.GetProperty("taxClassification").GetString());
     }
 
-    [Fact(DisplayName = "Entity route: create rejects missing legalName (400)")]
+    [Fact(DisplayName = "Entity route: missing legalName is refused by the schema (422 + pointer)")]
     public async Task Create_RejectsMissingLegalName()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { kind = "Llc" });
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        await AssertSchemaRefusal(resp, "/legalName");
     }
 
-    [Fact(DisplayName = "Entity route: create rejects whitespace-only legalName (400)")]
+    [Fact(DisplayName = "Entity route: whitespace-only legalName is refused by the schema (422 + pointer)")]
     public async Task Create_RejectsWhitespaceLegalName()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "   " });
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        await AssertSchemaRefusal(resp, "/legalName");
     }
 
-    [Fact(DisplayName = "Entity route: create rejects invalid kind (400)")]
+    [Fact(DisplayName = "Entity route: an out-of-enum kind is refused by the schema (422 + pointer)")]
     public async Task Create_RejectsInvalidKind()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "x", kind = "SuperCorp" });
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        await AssertSchemaRefusal(resp, "/kind");
     }
 
-    [Fact(DisplayName = "Entity route: create rejects invalid taxClassification (400)")]
+    [Fact(DisplayName = "Entity route: an out-of-enum taxClassification is refused by the schema (422 + pointer)")]
     public async Task Create_RejectsInvalidTaxClassification()
     {
         var resp = await _client.PostAsJsonAsync(Route, new
@@ -474,7 +480,26 @@ public sealed class EntityRouteTests : IAsyncLifetime
             kind = "Llc",
             taxClassification = "NotAClass",
         });
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        await AssertSchemaRefusal(resp, "/taxClassification");
+    }
+
+    /// <summary>
+    /// The refusal shape the operator CLI renders: the named reason code, the failing JSON pointer,
+    /// and no echo of the submitted body (ticket 151, ledger L1418).
+    /// </summary>
+    private async Task<JsonElement> AssertSchemaRefusal(HttpResponseMessage resp, string pointer)
+    {
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
+        var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            Harborline.Api.Foundation.Assets.Entities.EntityValidationException.BodyInvalid,
+            problem.GetProperty("error").GetString());
+        Assert.Contains(
+            pointer,
+            problem.GetProperty("pointers").EnumerateArray().Select(p => p.GetString()));
+        var listed = await _client.GetFromJsonAsync<JsonElement>(Route);
+        Assert.Equal(0, listed.GetProperty("entities").GetArrayLength());
+        return problem;
     }
 
     [Fact(DisplayName = "Entity route: multiple entities accumulate in list")]
@@ -504,42 +529,17 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal(0, doc.GetProperty("entities").GetArrayLength());
     }
 
-    [Fact(DisplayName = "Entity route: create runs the registered validator and refuses on failure (422)")]
-    public async Task Create_WhenValidatorRejects_IsRefused()
+    [Fact(DisplayName = "Entity route: an over-long property is refused by the real validator (422 + pointer), nothing persists")]
+    public async Task Create_WhenBodyViolatesTheActivatedSchema_IsRefusedWithReasonAndPointer()
     {
-        _validator.RejectWith("legal entity body refused by authority validation");
+        // commonControlGroupId is capped at 256 by the registered schema, a constraint no route
+        // guard ever checked; the validator sees the camelCase body the client sent.
+        var resp = await _client.PostAsJsonAsync(
+            Route,
+            new { legalName = "Invalid LLC", commonControlGroupId = new string('g', 300) });
 
-        var resp = await _client.PostAsJsonAsync(Route, new { legalName = "Invalid LLC" });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
-        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("validation_failed", body.GetProperty("error").GetString());
-
-        // The validator sees WIRE-SHAPED (camelCase) keys — the JSON as the client sent it, not the
-        // C# DTO's PascalCase (a real schema validator would silently miss every property otherwise).
-        Assert.Contains("legalName", _validator.SeenTopLevelKeys);
-        Assert.DoesNotContain("LegalName", _validator.SeenTopLevelKeys);
-
-        var doc = await _client.GetFromJsonAsync<JsonElement>(Route);
-        Assert.Equal(0, doc.GetProperty("entities").GetArrayLength());
+        var problem = await AssertSchemaRefusal(resp, "/commonControlGroupId");
+        Assert.DoesNotContain("Invalid LLC", problem.GetRawText(), StringComparison.Ordinal);
     }
 
-    /// <summary>Accept-all by default; <see cref="RejectWith"/> flips it to refuse every body.
-    /// Captures the top-level property names of every body it sees, so tests can pin the wire shape.</summary>
-    private sealed class ToggleableEntityValidator : Harborline.Api.Foundation.Assets.Entities.IEntityValidator
-    {
-        private string? _rejectMessage;
-
-        public List<string> SeenTopLevelKeys { get; } = new();
-
-        public void RejectWith(string message) => _rejectMessage = message;
-
-        public Task ValidateAsync(SchemaId schema, JsonDocument body, CancellationToken ct = default)
-        {
-            SeenTopLevelKeys.AddRange(
-                body.RootElement.EnumerateObject().Select(p => p.Name));
-            return _rejectMessage is null
-                ? Task.CompletedTask
-                : Task.FromException(new Harborline.Api.Foundation.Assets.Entities.EntityValidationException(_rejectMessage));
-        }
-    }
 }

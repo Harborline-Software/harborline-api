@@ -71,8 +71,9 @@ public sealed class EntityStoreWorkflowDefinitionStore
         IEntityStore store,
         IEntityMutationStore mutations,
         IWorkflowAdmissionValidator admission,
+        EntityBodyAdmission bodies,
         TimeProvider time)
-        : base(store, mutations, time, DefinitionSchema, EnvelopeKind, "key", EntityScheme, EntityAuthority)
+        : base(store, mutations, bodies, time, DefinitionSchema, EnvelopeKind, "key", EntityScheme, EntityAuthority)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(mutations);
@@ -82,8 +83,8 @@ public sealed class EntityStoreWorkflowDefinitionStore
     }
 
     public EntityStoreWorkflowDefinitionStore(
-        IEntityStore store, IWorkflowAdmissionValidator admission, TimeProvider time)
-        : this(store, RequireMutations(store), admission, time)
+        IEntityStore store, IWorkflowAdmissionValidator admission, EntityBodyAdmission bodies, TimeProvider time)
+        : this(store, RequireMutations(store), admission, bodies, time)
     {
     }
 

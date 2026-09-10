@@ -45,6 +45,7 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
     protected EntityStoreDefinitionLifecycle(
         IEntityStore store,
         IEntityMutationStore mutations,
+        EntityBodyAdmission admission,
         TimeProvider time,
         SchemaId schema,
         string kind,
@@ -54,6 +55,7 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
     {
         Store = store ?? throw new ArgumentNullException(nameof(store));
         Mutations = mutations ?? throw new ArgumentNullException(nameof(mutations));
+        Admission = admission ?? throw new ArgumentNullException(nameof(admission));
         _time = time ?? throw new ArgumentNullException(nameof(time));
         _schema = schema;
         _kind = kind;
@@ -67,6 +69,19 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
 
     /// <summary>The unregistered mutation face held only by the admitted lifecycle.</summary>
     protected IEntityMutationStore Mutations { get; }
+
+    /// <summary>The write pipeline's validation stage, and the only mint of a store token.</summary>
+    protected EntityBodyAdmission Admission { get; }
+
+    /// <summary>
+    /// The named admission path for a definition ENVELOPE: a body this lifecycle serialized itself,
+    /// under an envelope schema the record registry does not hold, so the record-body validator has
+    /// nothing to say about it. Reaching this requires holding <see cref="Mutations"/> — the raw port
+    /// that DI deliberately does not register — and every holder is listed in
+    /// <c>RawMutationPortSymbolInventoryTests</c> (ticket 151 candidate C).
+    /// </summary>
+    protected ValidatedBody AdmitEnvelope(SchemaId schema, JsonDocument body, string provenance) =>
+        Admission.AdmitOwnValidated(Mutations, schema, body, provenance);
 
     /// <inheritdoc />
     public async ValueTask<TDefinition> GetAsync(
@@ -376,7 +391,7 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
         using var body = Serialize(transitioned);
         await Mutations.UpdateAsync(
             EntityIdFor(coordinates),
-            body,
+            AdmitEnvelope(_schema, body, $"{_kind} lifecycle transition to {target}"),
             new UpdateOptions(TransitionActor(transitioned)),
             cancellationToken).ConfigureAwait(false);
         return transitioned;

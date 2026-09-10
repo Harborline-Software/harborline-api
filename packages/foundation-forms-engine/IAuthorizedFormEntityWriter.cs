@@ -20,7 +20,9 @@ public interface IAuthorizedFormEntityWriter
         CancellationToken ct = default);
 }
 
-internal sealed class AuthorizedFormEntityWriter(IEntityMutationStore entities) : IAuthorizedFormEntityWriter
+internal sealed class AuthorizedFormEntityWriter(
+    IEntityMutationStore entities,
+    EntityBodyAdmission admission) : IAuthorizedFormEntityWriter
 {
     public Task<EntityId> CreateAsync(
         FormDefinitionId form,
@@ -36,6 +38,14 @@ internal sealed class AuthorizedFormEntityWriter(IEntityMutationStore entities) 
             options.Tenant,
             "forms",
             form.Value);
-        return entities.CreateAsync(schema, body, options, ct);
+        // The engine validated the submission against this same schema in the registry BEFORE
+        // field protection; `body` is the protected form, whose Sensitive fields are ciphertext, so
+        // re-running the record-body validator over it would refuse a correct submission. The token
+        // therefore comes from the named own-validated path (ticket 151 candidate C).
+        return entities.CreateAsync(
+            admission.AdmitOwnValidated(
+                entities, schema, body, "form instance validated by FormEngine against ISchemaRegistry"),
+            options,
+            ct);
     }
 }

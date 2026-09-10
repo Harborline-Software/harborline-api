@@ -75,7 +75,7 @@ public sealed class RemainingDefinitionEnvelopeTests
 
         IWorkflowDefinitionStore store = new EntityStoreWorkflowDefinitionStore(
             new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System),
-            Substitute.For<IWorkflowAdmissionValidator>(),
+            Substitute.For<IWorkflowAdmissionValidator>(), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
             TimeProvider.System);
         await store.RegisterAsync(model, authored);
         var stored = await store.GetAsync(new DefinitionCoordinates(

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.Authorization;
@@ -34,8 +35,14 @@ public sealed record AuthorizationResolutionStep
     public IReadOnlyList<string> Outputs { get; }
 }
 
-public sealed class AuthorizationDecision
+public sealed class AuthorizationDecision : IWriteAdmission
 {
+    /// <summary>
+    /// The one fact the write pipeline's validation stage needs from this decision (ticket 151).
+    /// Explicit so the store-side seam cannot be mistaken for a second public verdict property.
+    /// </summary>
+    bool IWriteAdmission.IsAllowed => Verdict is AuthorizationVerdict.Allowed;
+
     internal static AuthorizationDecision CreateBootstrap(
         AuthorizationGateRequest request,
         string evidence) => new(

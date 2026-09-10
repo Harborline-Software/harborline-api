@@ -66,7 +66,8 @@ public static class FormEngineServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(mutationStore);
         services.TryAddSingleton(options ?? new FormEngineOptions());
         services.TryAddSingleton<IAuthorizedFormEntityWriter>(sp => new AuthorizedFormEntityWriter(
-            mutationStore(sp)));
+            mutationStore(sp),
+            sp.GetRequiredService<EntityBodyAdmission>()));
         services.TryAddSingleton<IFormEngine>(sp => new FormEngine(
             sp.GetRequiredService<Harborline.Api.Foundation.Forms.IFormDefinitionStore>(),
             sp.GetRequiredService<ISchemaRegistry>(),

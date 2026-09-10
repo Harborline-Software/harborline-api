@@ -116,6 +116,7 @@ public static class DurableWorkflowServiceCollectionExtensions
                 sp.GetRequiredService<IEntityStore>(),
                 mutationStore(sp),
                 sp.GetRequiredService<IWorkflowAdmissionValidator>(),
+                sp.GetRequiredService<EntityBodyAdmission>(),
                 sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IWorkflowDefinitionStore>(
             sp => sp.GetRequiredService<EntityStoreWorkflowDefinitionStore>());
@@ -125,6 +126,7 @@ public static class DurableWorkflowServiceCollectionExtensions
             sp.GetRequiredService<EntityStoreWorkflowDefinitionStore>(),
             mutationStore(sp),
             sp.GetRequiredService<IWorkflowAdmissionValidator>(),
+            sp.GetRequiredService<EntityBodyAdmission>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<AuthorizationGate>(),
             sp.GetRequiredService<IRoleGateAdmission>()));

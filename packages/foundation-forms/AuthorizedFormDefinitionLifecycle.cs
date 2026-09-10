@@ -235,6 +235,7 @@ public sealed class AuthorizedFormDefinitionLifecycle
     internal AuthorizedFormDefinitionLifecycle(
         EntityStoreFormDefinitionStore inner,
         IEntityMutationStore persistenceStore,
+        EntityBodyAdmission persistenceAdmission,
         TimeProvider persistenceTime,
         AuthorizationGate gate,
         IRoleGateAdmission roleGateAdmission,
@@ -246,6 +247,7 @@ public sealed class AuthorizedFormDefinitionLifecycle
         this.legalHold = legalHold;
         writer = CreateWriter(new EntityWriterBackend(
             persistenceStore ?? throw new ArgumentNullException(nameof(persistenceStore)),
+            persistenceAdmission ?? throw new ArgumentNullException(nameof(persistenceAdmission)),
             persistenceTime ?? throw new ArgumentNullException(nameof(persistenceTime))));
     }
 
@@ -813,8 +815,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         private const string EntityScheme = "formdef";
         private const string EntityAuthority = "forms";
 
-        internal EntityWriterBackend(IEntityMutationStore store, TimeProvider time)
-            : base(store, store, time, EntityStoreFormDefinitionStore.DefinitionSchema,
+        internal EntityWriterBackend(IEntityMutationStore store, EntityBodyAdmission admission, TimeProvider time)
+            : base(store, store, admission, time, EntityStoreFormDefinitionStore.DefinitionSchema,
                 EnvelopeKind, "formId", EntityScheme, EntityAuthority)
         {
         }
@@ -847,7 +849,13 @@ public sealed class AuthorizedFormDefinitionLifecycle
                 frozen.CreatedAt, ExplicitLocalPart: entityId.LocalPart);
             try
             {
-                await Mutations.CreateAsync(EntityStoreFormDefinitionStore.DefinitionSchema, body, options, ct).ConfigureAwait(false);
+                await Mutations.CreateAsync(
+                    AdmitEnvelope(
+                        EntityStoreFormDefinitionStore.DefinitionSchema,
+                        body,
+                        "form-definition envelope frozen and validated by FormDefinitionValidation"),
+                    options,
+                    ct).ConfigureAwait(false);
             }
             catch (IdempotencyConflictException)
             {

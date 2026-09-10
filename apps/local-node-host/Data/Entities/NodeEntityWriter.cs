@@ -20,14 +20,16 @@ public sealed record CreateLegalEntityCommand(
 public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
-    IEntityValidator validator,
+    EntityBodyAdmission admission,
+    NodeRecordSchemas schemas,
     AuthorizationGate gate) : IEntityWriteCoordinator
 {
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
-        IEntityValidator validator,
+        EntityBodyAdmission admission,
+        NodeRecordSchemas schemas,
         AuthorizationGate gate)
-        : this(factory, null!, validator, gate)
+        : this(factory, null!, admission, schemas, gate)
     {
     }
 
@@ -63,30 +65,31 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
 
-        if (string.IsNullOrWhiteSpace(command.LegalName))
-            throw new ArgumentException("legalName is required.", nameof(command));
-        if (!Enum.TryParse<EntityKind>(command.Kind, true, out var kind))
-            throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
-        if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
-            throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
-
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
+        // Stage two: the registered legal-entity schema is the authority on the body's shape, so the
+        // refusal carries a reason code and the failing pointers instead of a hand-rolled message.
+        using var candidate = JsonSerializer.SerializeToDocument(new
         {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        });
+        var validated = await admission.AdmitAsync(
+            decision,
+            await schemas.LegalEntityAsync().ConfigureAwait(false),
+            candidate,
+            ct).ConfigureAwait(false);
+
+        // The schema's enums are generated from these two enum types, so a validated body parses.
+        var kind = Enum.Parse<EntityKind>(validated.Body.RootElement.GetProperty("kind").GetString()!, true);
+        var taxClass = Enum.Parse<TaxClassification>(
+            validated.Body.RootElement.GetProperty("taxClassification").GetString()!, true);
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
             command.Id,
             authority.Tenant,
-            command.LegalName.Trim(),
+            command.LegalName!.Trim(),
             kind,
             taxClass,
             command.CommonControlGroupId,
@@ -112,7 +115,8 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
+        var validated = await admission.AdmitAsync(decision, schema, body, ct).ConfigureAwait(false);
+        return await entities.CreateAsync(validated, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
 
@@ -126,7 +130,12 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
+        // An update is validated against the schema the STORED record declares, not one the caller
+        // names; the store re-checks the token's schema against the record before appending.
+        var stored = await entities.GetAsync(id, default, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+        var validated = await admission.AdmitAsync(decision, stored.Schema, body, ct).ConfigureAwait(false);
+        return await entities.UpdateAsync(id, validated, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
 

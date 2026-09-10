@@ -618,11 +618,11 @@ public sealed class AuthorizationSlice3AcceptanceTests
 
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var workflowAdmission = new WorkflowAdmissionValidator();
-        var store = new EntityStoreWorkflowDefinitionStore(entities, workflowAdmission, TimeProvider.System);
+        var store = new EntityStoreWorkflowDefinitionStore(entities, workflowAdmission, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System);
         var lifecycle = new AuthorizedWorkflowDefinitionLifecycle(
             store,
             entities,
-            workflowAdmission,
+            workflowAdmission, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
             TimeProvider.System,
             authorization.GetRequiredService<AuthorizationGate>(),
             authorization.GetRequiredService<IRoleGateAdmission>());
@@ -692,11 +692,11 @@ public sealed class AuthorizationSlice3AcceptanceTests
         var entities = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         var workflowAdmission = new WorkflowAdmissionValidator();
         var store = new EntityStoreWorkflowDefinitionStore(
-            entities, workflowAdmission, new FixedTimeProvider(At));
+            entities, workflowAdmission, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, new FixedTimeProvider(At));
         var lifecycle = new AuthorizedWorkflowDefinitionLifecycle(
             store,
             entities,
-            workflowAdmission,
+            workflowAdmission, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
             new FixedTimeProvider(At),
             TestAuthorization.AllowGate(),
             TestAuthorization.RoleGate());

@@ -72,7 +72,7 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
         });
         var deviceReachable = _app.MapDeviceReachableProductDataGroup();
         EntityRoutes.Map(deviceReachable, factory, NodeTestActiveTeam.Accessor,
-            new Data.Entities.NodeEntityWriter(factory, Harborline.Api.Foundation.Assets.Entities.NullEntityValidator.Instance, Authorization.TestAuthorization.AllowGate()),
+            new Data.Entities.NodeEntityWriter(factory, Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, Data.Entities.TestNodeRecordSchemas.Fresh(), Authorization.TestAuthorization.AllowGate()),
             TimeProvider.System);
         ChartOfAccountsRoutes.Map(deviceReachable, factory, NodeTestActiveTeam.Accessor, TimeProvider.System);
         AccountingPeriodRoutes.Map(deviceReachable, new NodeAccountingPeriodService(factory, TimeProvider.System));

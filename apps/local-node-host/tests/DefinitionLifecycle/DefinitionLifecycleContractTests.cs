@@ -149,7 +149,7 @@ public sealed class DefinitionLifecycleContractTests
         var tenant = new Harborline.Foundation.Assets.Common.TenantId("frozen-form-tenant");
         IFormDefinitionStore store = entityStore
             ? new EntityStoreFormDefinitionStore(
-                new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), TimeProvider.System)
+                new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting, TimeProvider.System)
             : new InMemoryFormDefinitionStore(TimeProvider.System);
         using var disposable = store as IDisposable;
         var lifecycle = Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.FormLifecycle(

@@ -31,6 +31,7 @@ internal static class TestAuthorization
             EntityStoreFormDefinitionStore entity => new(
                 entity,
                 EntityStore(entity),
+                Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
                 EntityTime(entity),
                 gate,
                 admission,
@@ -53,7 +54,7 @@ internal static class TestAuthorization
         return new AuthorizedWorkflowDefinitionLifecycle(
             entity,
             EntityStore(entity),
-            Field<IWorkflowAdmissionValidator>(entity, "_admission"),
+            Field<IWorkflowAdmissionValidator>(entity, "_admission"), Harborline.Api.Foundation.Assets.Entities.TestEntityWritePipeline.Accepting,
             EntityTime(entity),
             gate,
             admission);
