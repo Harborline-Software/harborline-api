@@ -17,16 +17,38 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// </summary>
 internal static class RecordWriteValidatedWriterFence
 {
-    /// <summary>The writers whose record writes are gated then validated (path prefixes of the call site).</summary>
+    /// <summary>
+    /// The writers permitted to reach the entity store's create/update ports (path prefixes of the call
+    /// site). Two labelled kinds, and every row carries the reason it is here:
+    /// <list type="bullet">
+    ///   <item><b>Record writers</b> — gated (RW-1) then validated by the record validator (RW-2) before
+    ///     persistence. RW-9's "a writer that skips RW-1 or RW-2 fails it" bites on these.</item>
+    ///   <item><b>Non-record envelope writers</b> — the RW-8 shapes. The body is a definition envelope or a
+    ///     form instance, not a record, so the RECORD validator deliberately does not run on them; each
+    ///     keeps its own admission, named per row. A record writer must never be added to this block.</item>
+    /// </list>
+    /// </summary>
     internal static readonly string[] ValidatedWriters =
     [
+        // ── Record writers: gate → record validator → persistence ──
+        // Route and headless-CLI create/update. Validates in NodeEntityWriter.ValidateAsync, after the gate.
         "apps/local-node-host/Data/Entities/NodeEntityWriter.cs",
+        // Hierarchy split/merge mints records; validates each minted body after the composite admission.
         "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs",
+
+        // ── Non-record envelope writers (RW-8): the record validator deliberately does not run ──
+        // Not a write of its own: the port's `CreateBatchAsync` default interface member fans out to
+        // `CreateAsync`, so the body it forwards was already admitted by whichever row above called it.
         "packages/foundation/Assets/Entities/IEntityStore.cs",
+        // Body is a serialized DEFINITION envelope on a lifecycle status transition; admitted by the
+        // definition lifecycle's own allowed-from transition guard, which a record schema cannot express.
         "packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs",
-        "packages/blocks-workflow/src/durable/EntityStoreWorkflowDefinitionStore.cs",
+        // Body is a serialized WORKFLOW DEFINITION envelope (EntityStoreWorkflowDefinitionStore
+        // .SerializeEnvelope) under its own conflict + authorization admission; not a record body.
         "packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs",
-        "packages/foundation-forms/EntityStoreFormDefinitionStore.cs",
+        // Body is a serialized FORM DEFINITION envelope, admitted by the forms definition path (frozen
+        // definition + lineage checks, FormDefinitionValidationException); form INSTANCES are validated
+        // against their own form schema by that path, never by the record validator.
         "packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs",
     ];
 

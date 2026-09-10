@@ -129,7 +129,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (a) — a body that violates the ACTIVATED record schema is refused, named, pointed, nothing persists.
-    [Fact(DisplayName = "151 L1418 (a): a wrong-typed property is refused by the compiled schema (422 + code + pointer)")]
+    [Fact(DisplayName = "151 L1418 (a): a wrong-typed property is refused by the compiled schema (422 + code + pointer) — holds RW-2 RW-4")]
     public async Task Create_WrongTypedProperty_IsRefusedWithCodeAndPointer()
     {
         var resp = await _client.PostAsync(
@@ -149,7 +149,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (a) — the same refusal for a missing required property, through the headless coordinator path.
-    [Fact(DisplayName = "151 L1418 (a): a missing required property is refused by the compiled schema")]
+    [Fact(DisplayName = "151 L1418 (a): a missing required property is refused by the compiled schema — holds RW-2 RW-4")]
     public async Task Create_MissingRequiredProperty_IsRefused()
     {
         var refusal = await Assert.ThrowsAsync<EntityValidationException>(() =>
@@ -163,7 +163,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (b) — a valid body persists and reads back.
-    [Fact(DisplayName = "151 L1418 (b): a valid body passes the compiled schema, persists and reads back")]
+    [Fact(DisplayName = "151 L1418 (b): a valid body passes the compiled schema, persists and reads back — holds RW-2")]
     public async Task Create_ValidBody_PersistsAndReadsBack()
     {
         var resp = await _client.PostAsJsonAsync(Route, new { legalName = "Valid Holdings LLC" });
@@ -176,7 +176,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (c) — an unknown (unactivated) schema id refuses by name; nothing persists.
-    [Fact(DisplayName = "151 L1418 (c): an unactivated schema id refuses by name, nothing persists")]
+    [Fact(DisplayName = "151 L1418 (c): an unactivated schema id refuses by name, nothing persists — holds RW-3")]
     public async Task Validate_UnactivatedSchema_RefusesByName()
     {
         var validator = _app.Services.GetRequiredService<IEntityValidator>();
@@ -190,7 +190,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (d) — ordering: an unauthorized caller with an invalid body is refused by the GATE, not the validator.
-    [Fact(DisplayName = "151 L1418 (d): an unauthorized caller with an invalid body is refused by the gate, not validation")]
+    [Fact(DisplayName = "151 L1418 (d): an unauthorized caller with an invalid body is refused by the gate, not validation — holds RW-1")]
     public async Task Create_UnauthorizedWithInvalidBody_IsRefusedByTheGate()
     {
         _authorization.DenyAll();
@@ -207,7 +207,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
 
     // (d) at the coordinator — the gate decides BEFORE the validator sees the body: a denied caller
     // with an invalid body gets the authorization refusal, never the validation one.
-    [Fact(DisplayName = "151 L1418 (d): the writer's gate refuses a denied caller before validation runs")]
+    [Fact(DisplayName = "151 L1418 (d): the writer's gate refuses a denied caller before validation runs — holds RW-1")]
     public async Task Writer_DeniedCallerWithInvalidBody_IsRefusedByTheGate()
     {
         var denied = new NodeEntityWriter(
@@ -223,7 +223,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (e) — the headless path (no HTTP) runs the same validator after the same gate.
-    [Fact(DisplayName = "151 L1418 (e): the headless coordinator path runs the same validator after the gate")]
+    [Fact(DisplayName = "151 L1418 (e): the headless coordinator path runs the same validator after the gate — holds RW-1 RW-2")]
     public async Task HeadlessCoordinator_RunsTheSameValidator()
     {
         var refusal = await Assert.ThrowsAsync<EntityValidationException>(() =>
@@ -242,7 +242,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
     }
 
     // (f) — invalidation: re-activation replaces the compiled artefact; the next write sees v2.
-    [Fact(DisplayName = "151 L1418 (f): re-activating a record type replaces the compiled artefact atomically")]
+    [Fact(DisplayName = "151 L1418 (f): re-activating a record type replaces the compiled artefact atomically — holds RW-6")]
     public async Task ReActivation_ReplacesTheCompiledArtefact()
     {
         var registry = _app.Services.GetRequiredService<ISchemaRegistry>();
@@ -273,7 +273,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
 
     // Composition: the REAL validator is what the node composes for both record write coordinators,
     // and the baseline record schema is compiled when the catalog is composed (not per write).
-    [Fact(DisplayName = "151 L1418: the node composes the compiled-schema validator for both record coordinators")]
+    [Fact(DisplayName = "151 L1418: the node composes the compiled-schema validator for both record coordinators — holds RW-7")]
     public void Composition_GivesBothRecordCoordinatorsTheRealValidator()
     {
         var program = Read("apps/local-node-host/Program.cs");
@@ -290,7 +290,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
 
     // (3) — the OTHER live record write path: a hierarchy split mints records without touching the
     // route or the entity writer. It runs the same validator, after its own admission.
-    [Fact(DisplayName = "151 L1418: a hierarchy split's minted record runs the validator (unactivated schema refuses)")]
+    [Fact(DisplayName = "151 L1418: a hierarchy split's minted record runs the validator (unactivated schema refuses) — holds RW-2 RW-3")]
     public async Task HierarchySplit_RunsTheValidator()
     {
         var at = TimeProvider.System.GetUtcNow();
@@ -331,7 +331,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
         new("entity", "test", localPart, actor, tenant, at, ExplicitLocalPart: localPart);
 
     // A schema that declares nothing still passes a well-formed body.
-    [Fact(DisplayName = "151 L1418: an activated schema that declares nothing accepts a well-formed body")]
+    [Fact(DisplayName = "151 L1418: an activated schema that declares nothing accepts a well-formed body — holds RW-2")]
     public async Task SchemaDeclaringNothing_AcceptsAWellFormedBody()
     {
         var catalog = _app.Services.GetRequiredService<CompiledSchemaCatalog>();
