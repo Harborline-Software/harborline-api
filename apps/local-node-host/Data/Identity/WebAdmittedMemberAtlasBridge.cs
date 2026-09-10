@@ -408,7 +408,7 @@ internal sealed class WebAdmittedMemberAtlasBridge
         // it is refused.
         await ConferAdmissionGrantAsync(tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, cancellationToken)
             .ConfigureAwait(false);
-        return AtlasAdmissionOutcome.Admit(result.Roster);
+        return AtlasAdmissionOutcome.Admit(result.Roster, grantedPermissions);
     }
 
     /// <summary>
@@ -472,11 +472,13 @@ internal sealed class WebAdmittedMemberAtlasBridge
     /// </remarks>
     internal sealed record AtlasAdmissionOutcome
     {
-        private AtlasAdmissionOutcome(bool admitted, MemberRoster? roster, string? refusalReason)
+        private AtlasAdmissionOutcome(
+            bool admitted, MemberRoster? roster, string? refusalReason, PermissionSet? conferredPermissions)
         {
             Admitted = admitted;
             Roster = roster;
             RefusalReason = refusalReason;
+            ConferredPermissions = conferredPermissions;
         }
 
         /// <summary>True iff the pins verified and the signed roster admission was recorded.</summary>
@@ -491,9 +493,20 @@ internal sealed class WebAdmittedMemberAtlasBridge
         /// </summary>
         public string? RefusalReason { get; }
 
-        internal static AtlasAdmissionOutcome Admit(MemberRoster roster) => new(true, roster, null);
+        /// <summary>
+        /// Ticket 293 slice 5 — the permission set this admission CONFERRED: the atoms signed into the
+        /// admission and staged as the admitted party's own grant by
+        /// <c>ConferAdmissionGrantAsync</c>. It is carried back because the admitter's SoD audit row has to
+        /// record what was granted, and the roster cannot tell it: since slice 3b2 a replicated member
+        /// carries no permission set, so reading the new roster back would audit an empty set. Null on
+        /// every refusal (nothing was conferred).
+        /// </summary>
+        public PermissionSet? ConferredPermissions { get; }
 
-        internal static AtlasAdmissionOutcome Refuse(string reason) => new(false, null, reason);
+        internal static AtlasAdmissionOutcome Admit(MemberRoster roster, PermissionSet conferredPermissions) =>
+            new(true, roster, null, conferredPermissions);
+
+        internal static AtlasAdmissionOutcome Refuse(string reason) => new(false, null, reason, null);
 
         /// <summary>
         /// F4 — project to the WIRE-FACING outcome. Success carries the new signed roster; ANY refusal — whatever

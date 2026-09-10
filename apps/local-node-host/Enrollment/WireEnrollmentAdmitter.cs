@@ -164,6 +164,10 @@ public sealed class WireEnrollmentAdmitter
 
         // (2) Redeem single-use + admit (no-escalation + admitter-key-binding enforced inside Admit). A guard
         //     violation (admitter not a member, joiner already a member) is a fail-closed reject, not a throw.
+        // Ticket 293 slice 5 — the set this admission CONFERS, named once. It is signed into the admission and it
+        // is what the SoD audit records below; nothing reads it back off the roster, which since slice 3b2 carries
+        // no permission set for a replicated member and would audit an empty set instead of what was granted.
+        var conferredPermissions = PermissionCompositions.Member;
         InviteAdmissionResult result;
         try
         {
@@ -184,7 +188,7 @@ public sealed class WireEnrollmentAdmitter
                 _admitterSigner,
                 request.JoiningPartyId,
                 joiningPrincipal,
-                PermissionCompositions.Member,
+                conferredPermissions,
                 joiningDmB64,
                 joiningXWingB64);
         }
@@ -227,8 +231,7 @@ public sealed class WireEnrollmentAdmitter
         }
 
         // (5) SoD compensating-control audit (the second set of eyes) — fail-safe-but-loud (host-wired onFault).
-        var grantedPermissions = newRoster.PermissionsOf(request.JoiningPartyId)?.Permissions
-            ?? Array.Empty<string>();
+        var grantedPermissions = conferredPermissions.Permissions;
         var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
             ?? request.JoiningPrincipalPublicKey;
         await _sodAudit.RecordMemberAdmittedAsync(

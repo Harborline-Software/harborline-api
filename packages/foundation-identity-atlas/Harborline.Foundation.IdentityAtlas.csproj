@@ -11,6 +11,9 @@
     <!-- Exclude the sibling test project from library compilation -->
     <Compile Remove="tests/**/*.cs" />
     <InternalsVisibleTo Include="tests" />
+    <!-- Ticket 293 slice 5: MemberRoster.PermissionsOf / HasPermission read the SIGNED set, which no
+         production code may use as an authorization answer. The host test suite asserts the signed shape. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

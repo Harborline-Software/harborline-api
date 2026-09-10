@@ -273,15 +273,31 @@ public sealed class MemberRoster
         return _byParty.TryGetValue(partyId, out var m) ? m.PublicKey : null;
     }
 
-    /// <summary>The effective permission set held by <paramref name="partyId"/>, or null when not a member.</summary>
-    public PermissionSet? PermissionsOf(string partyId)
+    /// <summary>
+    /// The permission set SIGNED onto <paramref name="partyId"/>'s local admission, or null when not a member
+    /// or when the member was rebuilt from a synced record (which carries no set since ticket 293 slice 3b2).
+    /// </summary>
+    /// <remarks>
+    /// <b>Ticket 293 slice 5 — INTERNAL, and not an authorization input.</b> What a party may do is decided by
+    /// <c>AuthorizationGate</c> over the local grant store; the roster contributes membership and ejection
+    /// (<c>EffectiveMemberPermissions.Read</c>) and nothing else. A replicated member has no set here, so a
+    /// production reader of this would answer empty for exactly the members it was asked about. It stays for
+    /// the no-escalation guard's own use inside this type and for tests that assert the signed shape;
+    /// <c>RosterPermissionSetReadFenceTests</c> keeps production callers at zero.
+    /// </remarks>
+    internal PermissionSet? PermissionsOf(string partyId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(partyId);
         return _byParty.TryGetValue(partyId, out var m) ? m.Permissions : null;
     }
 
-    /// <summary>True iff <paramref name="partyId"/> is a member AND holds <paramref name="permission"/>.</summary>
-    public bool HasPermission(string partyId, string permission)
+    /// <summary>
+    /// True iff <paramref name="partyId"/> is a member AND the SIGNED admission carries
+    /// <paramref name="permission"/>. Internal for the same reason as <see cref="PermissionsOf"/> (ticket 293
+    /// slice 5): it reads the signed set, which a replicated member does not have, so it is not an
+    /// authorization answer.
+    /// </summary>
+    internal bool HasPermission(string partyId, string permission)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(partyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(permission);

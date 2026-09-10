@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -45,9 +43,16 @@ public sealed record ProjectedAuthorityScope(
 /// ADR 0065 clause 7's grant shape, plus read-side provenance. Nullable metadata identifies fields
 /// the projected legacy row does not store; the projection never fabricates a reason or review.
 /// </summary>
+/// <remarks>
+/// Ticket 293 slice 5 — the <c>LegacyPermissions</c> field is GONE. It carried a raw permission set
+/// projected out of a legacy row (an installation grant's JSON, or a membership edge's
+/// <c>EffectivePermissions</c>), and its single reader was this file's own disagreement diagnostic: it
+/// decided nothing, and a set that decides nothing is a set a future reader can mistake for authority.
+/// A projected grant's authority is its <see cref="Role"/> and <see cref="Grant"/> provenance; what a
+/// principal may actually do is decided by <c>AuthorizationGate</c> over the grant store, never here.
+/// </remarks>
 public sealed record ProjectedGrant(
     string PrincipalId,
-    PermissionSet? LegacyPermissions,
     RoleReference? Role,
     GrantProvenance? Grant,
     ProjectedAuthorityScope Scope,
@@ -91,12 +96,8 @@ public static class GrantRecordProjections
     public static ProjectedGrant Project(InstallationAccessGrantRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        var permissions = PermissionSet.From(
-            JsonSerializer.Deserialize<string[]>(record.PermissionsJson) ?? Array.Empty<string>());
-
         return new ProjectedGrant(
             PrincipalId: record.AccountId,
-            LegacyPermissions: permissions,
             Role: null,
             Grant: null,
             Scope: ProjectedAuthorityScope.Installation,
@@ -118,7 +119,6 @@ public static class GrantRecordProjections
         ArgumentNullException.ThrowIfNull(grant);
         return new ProjectedGrant(
             PrincipalId: grant.Subject.Value,
-            LegacyPermissions: null,
             Role: grant.Role,
             Grant: grant.Grant,
             Scope: ProjectedAuthorityScope.ForTenant(grant.TenantId, grant.Scope),
@@ -141,7 +141,6 @@ public static class GrantRecordProjections
 
         return new ProjectedGrant(
             PrincipalId: principal.Value,
-            LegacyPermissions: membership.EffectivePermissions,
             Role: null,
             Grant: null,
             Scope: ProjectedAuthorityScope.ForTenant(tenantId, ScopeExpression.Parse("/")),
@@ -248,7 +247,9 @@ public sealed partial class GrantProjectionResolver(
                 }
 
                 var kind = GrantProjectionDisagreementKind.None;
-                if (!Equals(first.LegacyPermissions, second.LegacyPermissions) || first.Role != second.Role)
+                // Ticket 293 slice 5 — two rows disagree about authority when they name different roles.
+                // The raw-set comparison is gone with LegacyPermissions; the set was never the authority.
+                if (first.Role != second.Role)
                 {
                     kind |= GrantProjectionDisagreementKind.PermissionSet;
                 }

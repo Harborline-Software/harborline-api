@@ -339,6 +339,31 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         Assert.Equal(bob.Key.PrincipalId.ToBase64Url(), body["admitted_public_key"]);
     }
 
+    // ── 293 s5: the SoD audit row records the set the admission CONFERRED, never a roster read. ──
+
+    [Fact(DisplayName = "293 s5 invite: the SoD audit row carries the CONFERRED member set, not a roster permission read")]
+    public async Task Sod_Audit_Records_The_Conferred_Set()
+    {
+        var h = await StartAsync(Token);
+        var bob = Member.New("bob");
+
+        var tokenId = await GenerateInviteAsync(h.Client, Token);
+        var resp = await h.Client.SendAsync(Post($"{AdmissionRoutes.RouteBase}/redeem", RedeemBody(tokenId, bob), Token));
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var page = await h.AuditReader.ListAsync(
+            h.Tenant, new AuditEventReaderQuery(EventType: AuditEventType.MemberAdmitted));
+        var body = Assert.Single(page.Records).Payload.Payload.Body;
+
+        // The admitter named the set it confers ONCE and signed that set into the admission; the audit row is
+        // that same value. It is not read back off the new roster: since ticket 293 slice 3b2 a replicated
+        // member carries no permission set, so a roster read would audit an empty set for exactly the members
+        // an auditor asks about.
+        var granted = Assert.IsAssignableFrom<IReadOnlyList<string>>(body["granted_permissions"]);
+        Assert.NotEmpty(granted);
+        Assert.Equal(PermissionCompositions.Member.Permissions.Order(StringComparer.Ordinal), granted.Order(StringComparer.Ordinal));
+    }
+
     private static async Task<int> CountEnrollmentControlAsync(Harness h, AuditEventType type)
     {
         var page = await h.AuditReader.ListAsync(h.Tenant, new AuditEventReaderQuery(EventType: type));

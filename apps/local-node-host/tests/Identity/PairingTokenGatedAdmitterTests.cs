@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Crdt.Backends;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -258,6 +259,63 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         Assert.Equal(string.Empty, admission.MintingSessionEvidence);
     }
 
+    // ── 293 s5: the SoD audit row records the set the admission CONFERRED, never a roster read. ──
+
+    [Fact(DisplayName = "293 s5 pairing: the SoD audit row carries the CONFERRED set, not a roster permission read")]
+    public async Task Sod_Audit_Records_The_Conferred_Set()
+    {
+        var h = await BuildAsync();
+        var (_, req) = h.MintBindAndSign();
+
+        var outcome = await h.Admitter.AdmitAsync(req, CancellationToken.None);
+        Assert.True(outcome.Accepted);
+
+        // The bridge derived the admitted party's atoms from its own grant closure (FixedAuthorizationClosure
+        // holds members:manage@/), signed exactly those into the admission and staged them as the party's own
+        // grant. The audit row must be THAT set — the conferral is the fact being audited. Nothing here reads
+        // MemberRoster.PermissionsOf: a replicated member carries no set since slice 3b2, so the roster would
+        // answer empty for precisely the members an auditor asks about.
+        var row = Assert.Single(h.SodAudit.Admitted);
+        Assert.Equal(JoinerPartyId, row.AdmittedPartyId);
+        Assert.Equal("web-pairing", row.AdmissionMode);
+        Assert.Equal([TeamRolePermissions.MembersManage], row.GrantedPermissions);
+        Assert.NotEmpty(row.GrantedPermissions);
+    }
+
+    /// <summary>Records what the production admitter handed the SoD compensating control.</summary>
+    internal sealed record AdmittedControlRow(
+        string AdmitterPartyId, string AdmittedPartyId, IReadOnlyList<string> GrantedPermissions, string AdmissionMode);
+
+    internal sealed class RecordingCompensatingControlRecorder : IEnrollmentCompensatingControlRecorder
+    {
+        private readonly List<AdmittedControlRow> _admitted = [];
+
+        public IReadOnlyList<AdmittedControlRow> Admitted => _admitted;
+
+        public ValueTask RecordMemberAdmittedAsync(
+            TenantId tenantId, string teamId, string admitterPartyId, string admittedPartyId,
+            string admittedPublicKeyBase64Url, IReadOnlyList<string> grantedPermissions, string admissionMode,
+            string? correlationId = null, CancellationToken ct = default)
+        {
+            _admitted.Add(new AdmittedControlRow(
+                admitterPartyId, admittedPartyId, grantedPermissions, admissionMode));
+            return default;
+        }
+
+        public ValueTask RecordMemberRevokedAsync(
+            TenantId tenantId, string teamId, string revokerPartyId, string revokedPartyId,
+            string? correlationId = null, CancellationToken ct = default) => default;
+
+        public ValueTask RecordPermissionsGrantedAsync(
+            TenantId tenantId, string teamId, string granterPartyId, string targetPartyId,
+            IReadOnlyList<string> resultingPermissions, string? correlationId = null,
+            CancellationToken ct = default) => default;
+
+        public ValueTask RecordOwnershipTransferredAsync(
+            TenantId tenantId, string teamId, string fromPartyId, string toPartyId,
+            string? correlationId = null, CancellationToken ct = default) => default;
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────────────────────────────
 
     private sealed class Harness
@@ -269,6 +327,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         public required IWebPairingInviteBindingStore Bindings { get; init; }
         public required TeamTrustAnchor Anchor { get; init; }
         public required IDbContextFactory<NodeLocalAdmissionDbContext> AdmissionFactory { get; init; }
+        public required RecordingCompensatingControlRecorder SodAudit { get; init; }
 
         // Mint a durable pairing token bound to (party), and build a signed enrollment request presenting it.
         public (string TokenId, EnrollmentRequest Request) MintBindAndSign(
@@ -366,9 +425,10 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
             new FixedAuthorizationClosure());
 
         var teamContexts = BuildTeamContexts();
+        var sodAudit = new RecordingCompensatingControlRecorder();
         var gated = new PairingTokenGatedAdmitter(
             bridge, roster, pairingSigner ?? founder.Signer, FounderPartyId, Verifier, projection,
-            NullEnrollmentCompensatingControlRecorder.Instance, bindings, teamContexts, diag: null);
+            sodAudit, bindings, teamContexts, diag: null);
 
         return new Harness
         {
@@ -379,6 +439,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
             Bindings = bindings,
             Anchor = TeamTrustAnchor.FromRoster(genesis),
             AdmissionFactory = admissionFactory,
+            SodAudit = sodAudit,
         };
     }
 

@@ -58,7 +58,8 @@ namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 /// <c>RecoveryInvitationIssuer</c> and <c>WebRosterGranterAuthorityProvider</c>. The two vocabularies
 /// OVERLAP. What is actually true, and what makes this safe:
 /// <list type="number">
-///   <item>every authorization decision reads <c>roster.PermissionsOf(...)</c>, never this
+///   <item>every authorization decision is taken by <c>AuthorizationGate.DecideAsync</c> over the grant
+///     store (the roster contributing membership and ejection only, ticket 293 slice 4), never from this
 ///     projection — the projection is write-only toward the client; and</item>
 ///   <item><b>any navigation string that is also a roster permission is mapped as an IDENTITY and may
 ///     never be given any other antecedent.</b> That is what stops the projection manufacturing an
