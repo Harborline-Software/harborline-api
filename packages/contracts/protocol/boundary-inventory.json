@@ -1910,6 +1910,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:NarrowMemberPath",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "NarrowMemberPath",
+      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:RevokeMemberPath",
       "kind": "local-node-http",
       "method": "POST",
