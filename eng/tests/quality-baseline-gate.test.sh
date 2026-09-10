@@ -35,12 +35,26 @@ printf '%s\n' "$out" | grep -F 'quality-baseline: 1 new, 0 resolved' >/dev/null
 printf '%s\n' "$out" | grep -F 'ruleId=VSTHRD002 path=src/PlantedFinding.cs' >/dev/null
 printf '%s\n' "$out"
 
-printf '{"schemaVersion":1,"findings":[],"engines":[{"engine":"roslyn","status":"analyzer-error","detail":"analyzer-error"}]}' > "$candidate"
-if out=$(quality_baseline_gate_candidate_compare "$candidate" "$committed" 2>&1); then
-  echo 'FAIL analyzer-error candidate passed'; exit 1
+# An analyzer-error engine with an intact finding set is the everyday Windows shape: warn and pass.
+node - "$candidate" "$committed" <<'NODE'
+const {readFileSync, writeFileSync} = require('node:fs')
+const committed = JSON.parse(readFileSync(process.argv[3], 'utf8'))
+writeFileSync(process.argv[2], JSON.stringify({...committed, engines: [{engine: 'roslyn', status: 'analyzer-error', detail: 'analyzer-error'}]}) + '\n')
+NODE
+if ! out=$(quality_baseline_gate_candidate_compare "$candidate" "$committed" 2>&1); then
+  echo 'FAIL analyzer-error engine with an intact set was refused'; exit 1
 fi
-printf '%s\n' "$out" | grep -F 'quality-baseline: engine roslyn failed (analyzer-error); the comparison is hollow, not a pass' >/dev/null
+printf '%s\n' "$out" | grep -F 'quality-baseline: warning: engine roslyn reported analyzer-error' >/dev/null
 printf '%s\n' "$out" | grep -F 'quality-baseline: engine roslyn status=analyzer-error detail=analyzer-error' >/dev/null
+printf '%s\n' "$out"
+# An analyzer-error engine with an EMPTY set is the hollow shape: the resolved bound refuses it.
+large_committed_early="$fixture/large-committed-early.json"
+large_baseline "$large_committed_early" 2363 '[{"engine":"roslyn","status":"ok","detail":""},{"engine":"eslint","status":"ok","detail":""}]'
+printf '{"schemaVersion":1,"findings":[],"engines":[{"engine":"roslyn","status":"analyzer-error","detail":"analyzer-error"}]}' > "$candidate"
+if out=$(quality_baseline_gate_candidate_compare "$candidate" "$large_committed_early" 2>&1); then
+  echo 'FAIL hollow analyzer-error candidate passed'; exit 1
+fi
+printf '%s\n' "$out" | grep -F 'looks like an engine failure, not a clean-up' >/dev/null
 printf '%s\n' "$out"
 
 large_committed="$fixture/large-committed.json"; large_candidate="$fixture/large-candidate.json"
@@ -57,4 +71,4 @@ large_baseline "$large_candidate" 2360 '[{"engine":"roslyn","status":"ok","detai
 out=$(quality_baseline_gate_candidate_compare "$large_candidate" "$large_committed")
 [ "$out" = 'quality-baseline: 0 new, 3 resolved (passing; re-pin belongs to land)' ] || { echo "FAIL small resolved set: $out"; exit 1; }
 printf '%s\n' "$out"
-echo 'quality-baseline-gate: 6 checks passed (new finding red with rule/path; unchanged green; small resolved-only green; analyzer-error red; wholesale resolved red)'
+echo 'quality-baseline-gate: 7 checks passed (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green)'

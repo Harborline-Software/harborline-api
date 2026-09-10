@@ -53,7 +53,10 @@ quality_baseline_gate_candidate_compare() {
   local candidate=$1 baseline=$2 counts new resolved baseline_count engine status detail engine_failed=0
   while IFS="$(printf '\t')" read -r engine status detail; do
     if [ "$status" = 'analyzer-error' ]; then
-      echo "quality-baseline: engine $engine failed (analyzer-error); the comparison is hollow, not a pass" >&2
+      # A warning, not a refusal: the tool reports analyzer-error for both engines on EVERY host today,
+      # Windows included, while still producing the full finding set there. What tells a hollow run
+      # apart is the resolved bound below (mac16, 2026-09-10: 744 of 2363 "resolved" at once).
+      echo "quality-baseline: warning: engine $engine reported analyzer-error; the finding set may be incomplete (the resolved bound decides)" >&2
       engine_failed=1
     fi
   done <<EOF
@@ -61,7 +64,6 @@ $(quality_baseline_engine_table "$candidate")
 EOF
   if [ "$engine_failed" -ne 0 ]; then
     quality_baseline_print_engine_table "$candidate"
-    return 1
   fi
   counts=$(quality_baseline_sets_compare "$candidate" "$baseline") || return 1
   read -r new resolved <<<"$counts"
