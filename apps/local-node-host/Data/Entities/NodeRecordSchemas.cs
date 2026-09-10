@@ -25,8 +25,22 @@ internal static class NodeRecordSchemas
     }
 
     private static void Activate(CompiledSchemaCatalog catalog, Foundation.Assets.Common.SchemaId name, string text)
-        // The registry backend is in-memory and completes synchronously; composition is not async.
-        => catalog.ActivateAsync(name, text).AsTask().GetAwaiter().GetResult();
+    {
+        // Composition is synchronous and the registry backend is in-memory, so activation has already
+        // completed by the time the ValueTask is returned. The guard makes that a checked invariant
+        // instead of a hope: a backend that ever went truly asynchronous fails composition loudly here
+        // rather than blocking a thread-pool thread.
+        var activation = catalog.ActivateAsync(name, text);
+        if (!activation.IsCompleted)
+        {
+            throw new InvalidOperationException(
+                $"baseline record schema '{name}' did not activate synchronously; composition cannot await it.");
+        }
+
+#pragma warning disable VSTHRD002 // completed ValueTask: observing the result cannot block (guard above)
+        activation.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
+    }
 
     private static string LegalEntity() =>
         $$"""
