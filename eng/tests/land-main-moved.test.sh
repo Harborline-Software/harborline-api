@@ -42,7 +42,7 @@ EOF
 }
 
 make_case() {
-  local name=$1 measured=$2 want_rc=$3 evidence=$4 receipt=${5:-0} post_merge_gate=${6:-0} stale_reads=${7:-0}
+  local name=$1 measured=$2 want_rc=$3 evidence=$4 receipt=${5:-0} post_merge_gate=${6:-0} stale_reads=${7:-0} checks_pending_reads=${8:-0}
   local case_dir="$scratch/$name" remote="$scratch/$name.git" case_dir_absolute
   local seed="$case_dir/seed" runner="$case_dir/runner"
   mkdir -p "$case_dir"
@@ -97,7 +97,7 @@ EOF
   git_r clone -q "$remote" "$runner"
   git_r -C "$runner" config user.name "Land Test"
   git_r -C "$runner" config user.email "land-test@example.invalid"
-  local shim="$case_dir/shim" merged="../merged" admin="../admin" verify_sentinel="$case_dir_absolute/verify-ran" binding_sentinel="$case_dir_absolute/pr-binding-ran"
+  local shim="$case_dir/shim" merged="$case_dir_absolute/merged" admin="../admin" verify_sentinel="$case_dir_absolute/verify-ran" binding_sentinel="$case_dir_absolute/pr-binding-ran"
   mkdir -p "$shim"
   cat > "$shim/node" <<'EOF'
 #!/usr/bin/env bash
@@ -144,6 +144,13 @@ case "$*" in
     printf '%s\n' "$reads" > "$MOCK_PR_HEAD_READS"
     if [ "$reads" -le "$MOCK_PR_HEAD_STALE_READS" ]; then echo "$MOCK_PR_HEAD_OLD"; else git --git-dir="$MOCK_REMOTE" rev-parse refs/heads/feature; fi
     ;;
+  "pr view 7 --json statusCheckRollup --jq "*)
+    reads=0
+    [ -f "$MOCK_CHECKS_READS" ] && reads=$(cat "$MOCK_CHECKS_READS")
+    reads=$((reads + 1))
+    printf '%s\n' "$reads" > "$MOCK_CHECKS_READS"
+    if [ "$reads" -le "$MOCK_CHECKS_PENDING_READS" ]; then echo 2; else echo 0; fi
+    ;;
   "pr view 7 --json state --jq .state") [ -f "$MOCK_MERGED" ] && echo MERGED || echo OPEN ;;
   "pr merge 7 --squash --match-head-commit "*)
     source "$FIXTURE_GIT_RETRY"
@@ -168,12 +175,21 @@ EOF
 
   export REAL_NODE="$real_node" REAL_GIT="$real_git" FIXTURE_GIT_RETRY="$source_root/eng/tests/fixture-git-retry.sh" MOCK_MEASURED_TOTAL="$measured" MOCK_REMOTE="../../$name.git" MOCK_ADMIN="$admin" MOCK_MERGED="$merged" WRITE_EXACT_CLONE_EVIDENCE="$evidence" MOCK_RECEIPT="$receipt" MOCK_POST_MERGE_GATE="$post_merge_gate" MOCK_VERIFY_SENTINEL="$verify_sentinel" MOCK_PR_BINDING_SENTINEL="$binding_sentinel"
   export MOCK_PR_HEAD_STALE_READS="$stale_reads" MOCK_PR_HEAD_READS="$(cd "$case_dir" && pwd)/pr-head-reads" MOCK_PR_HEAD_OLD="$(git -C "$runner" rev-parse origin/feature)"
+  export MOCK_CHECKS_PENDING_READS="$checks_pending_reads" MOCK_CHECKS_READS="$(cd "$case_dir" && pwd)/checks-reads"
   export HARBORLINE_LAND_VERIFY_CMD='bash eng/test-verify-stub.sh'
   export HARBORLINE_GATE_LOCK_PATH='../gate.lock'
   if [ "$name" = retries-stale-pr-head ] || [ "$name" = refuses-permanently-stale-pr-head ]; then
     export LAND_PR_HEAD_RETRIES=3 LAND_PR_HEAD_DELAY=0
   else
     unset LAND_PR_HEAD_RETRIES LAND_PR_HEAD_DELAY
+  fi
+  if [ "$name" = waits-for-pending-checks ]; then
+    export LAND_CHECKS_DELAY=1
+    unset LAND_CHECKS_WAIT
+  elif [ "$name" = refuses-checks-still-pending ]; then
+    export LAND_CHECKS_WAIT=2 LAND_CHECKS_DELAY=1
+  else
+    unset LAND_CHECKS_WAIT LAND_CHECKS_DELAY
   fi
   if [ "$name" = refuses-regression ]; then
     local feature_before policy_out policy_rc
@@ -192,6 +208,8 @@ EOF
   fi
   local feature_before
   feature_before=$(git --git-dir="$remote" rev-parse feature)
+  local main_before
+  main_before=$(git --git-dir="$remote" rev-parse main)
   out=$(cd "$runner" && PATH="$shim_path:$PATH" bash eng/land.sh feature --pr 7 2>&1); rc=$?
   printf '%s\n' "$out" > "$case_dir/output.log"
   if [ "$rc" != "$want_rc" ]; then
@@ -231,11 +249,18 @@ EOF
       [ "$(grep -Fc 'land: waiting for GitHub to see the pushed head' "$case_dir/output.log")" = 2 ] || { echo "FAIL $name: waiting line count was not 2"; return 1; }
       grep -Fxq 'land: waiting for GitHub to see the pushed head (1)' "$case_dir/output.log" || { echo "FAIL $name: missing first waiting line"; return 1; }
       grep -Fxq 'land: waiting for GitHub to see the pushed head (2)' "$case_dir/output.log" || { echo "FAIL $name: missing second waiting line"; return 1; }
+    elif [ "$name" = waits-for-pending-checks ]; then
+      [ "$(grep -Fc "land: waiting for GitHub's required checks" "$case_dir/output.log")" = 2 ] || { echo "FAIL $name: waiting line count was not 2"; return 1; }
+      [ -f "$merged" ] || { echo "FAIL $name: PR was not merged"; return 1; }
     fi
   elif [ "$name" = refuses-permanently-stale-pr-head ]; then
     local pushed_head
     pushed_head=$(git --git-dir="$remote" rev-parse feature)
     grep -Fq "land: PR #7 head ($MOCK_PR_HEAD_OLD) is not the pushed head ($pushed_head); GitHub is stale after 3 reads. Rerun land.sh." "$case_dir/output.log" || { echo "FAIL $name: missing stale GitHub refusal"; return 1; }
+  elif [ "$name" = refuses-checks-still-pending ]; then
+    grep -Fxq "land: GitHub's required checks are still running after 2s; nothing landed. Rerun land.sh." "$case_dir/output.log" || { echo "FAIL $name: missing required-checks refusal"; return 1; }
+    [ ! -e "$merged" ] || { echo "FAIL $name: PR merged despite pending checks"; return 1; }
+    [ "$(git --git-dir="$remote" rev-parse main)" = "$main_before" ] || { echo "FAIL $name: origin/main moved despite pending checks"; return 1; }
   elif [ "$name" = refuses-regression ]; then
     local branch_total
     branch_total=$(git --git-dir="$remote" show feature:eng/baselines/host-test-baseline.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).totals.total))")
@@ -257,5 +282,7 @@ make_case receipt-accepted 105 0 0 1 || fails=$((fails + 1))
 make_case receipt-accepted-post-merge-safety 105 3 0 1 1 || fails=$((fails + 1))
 make_case retries-stale-pr-head 105 0 0 0 0 2 || fails=$((fails + 1))
 make_case refuses-permanently-stale-pr-head 105 1 0 0 0 3 || fails=$((fails + 1))
-echo "5 cases, $fails failures"
+make_case waits-for-pending-checks 105 0 0 0 0 0 2 || fails=$((fails + 1))
+make_case refuses-checks-still-pending 105 1 0 0 0 0 99 || fails=$((fails + 1))
+echo "9 cases, $fails failures"
 [ "$fails" -eq 0 ]
