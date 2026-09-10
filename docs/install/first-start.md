@@ -49,8 +49,8 @@ node composes:
 Then, from inside the published directory, the one command:
 
 ```bash
-LocalNode__RootSeedHex=$(openssl rand -hex 32) \
-LocalNode__SessionToken=$(openssl rand -hex 16) \
+export LocalNode__RootSeedHex=$(openssl rand -hex 32)   # exported: section 4 hands the CLI this same token
+export LocalNode__SessionToken=$(openssl rand -hex 16)
 LocalNode__HealthPort=5050 \
 LocalNode__WebClient__Enabled=true \
 LocalNode__WebClient__FounderUsername=founder \
