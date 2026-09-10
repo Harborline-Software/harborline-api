@@ -79,6 +79,13 @@ step contracts-rust          cargo test --manifest-path packages/contracts/rust/
 step operator-cli-headless   dotnet test apps/local-node-host/tests/tests.csproj -c Release \
                                --filter FullyQualifiedName~OperatorCliHeadlessEndToEndTests
 
+# Ticket 359: the install path, not the correctness path. operator-cli-headless above proves the CLI
+# drives a node composed IN PROCESS from this checkout; this step proves the same surface on a
+# PUBLISHED artefact started from a clean directory with no checkout and no SDK beside it -- the
+# thing an operator on a clean machine actually has. Expensive (a self-contained publish), so it runs
+# after the cheap structural steps and before the clean-clone suite.
+step install-artefact        bash eng/verify-install-artefact.sh
+
 # build-and-test, but through the clean-clone gate rather than a bare `dotnet test`. That matters:
 # the host suite has permitted failures recorded in eng/baselines/host-test-baseline.json, so a bare
 # run is red by design and a gate built on it would be ignored within a week. run-exact-clone.mjs

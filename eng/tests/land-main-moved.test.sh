@@ -131,7 +131,7 @@ for arg in "$@"; do
         receipt_ref=${arg#+}
         tree=${receipt_ref#refs/receipts/tree/}
         tree=${tree%%:*}
-        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","exact-clone","packages","quality"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+        receipt=$(printf '{"schemaVersion":1,"repository":"harborline-api","testedTree":"%s","steps":["boundaries","identity-r3","codegen-check","codegen-guard-suite","contracts-typescript","contracts-csharp","localfirst-csharp","rule-engine-conformance","contracts-rust","operator-cli-headless","install-artefact","exact-clone","packages","quality"],"host":"fixture-mac","recordedAt":"%s"}\n' "$tree" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
         blob=$(printf '%s' "$receipt" | "$REAL_GIT" --git-dir="$MOCK_REMOTE" hash-object -w --stdin)
         "$REAL_GIT" --git-dir="$MOCK_REMOTE" update-ref "refs/receipts/tree/$tree" "$blob"
       fi
