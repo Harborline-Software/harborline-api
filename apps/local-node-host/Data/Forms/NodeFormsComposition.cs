@@ -21,6 +21,8 @@ using Harborline.Api.Foundation.SecurityPolicy.Retention;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Schema.DependencyInjection;
 
+using Harborline.Api.Kernel.Schema;
+
 namespace Harborline.Api.LocalNodeHost.Data.Forms;
 
 /// <summary>
@@ -123,6 +125,19 @@ public static class NodeFormsComposition
         // (1b) Kernel schema registry — JSON-Schema 2020-12 validation core (the
         //      engine's ValidateAsync resolves ISchemaRegistry).
         services.AddHarborlineKernelSchemaRegistry();
+
+        // (1b.1) Ticket 151 / L1418 — the REAL pre-commit entity validator over that registry, in place of
+        //        the NullEntityValidator null object the records write path used to resolve. Registered as
+        //        its own type rather than as the shared IEntityValidator seam on purpose: that seam is the
+        //        entity store's hook, which also sees platform-definition envelopes
+        //        (EntityStoreFormDefinitionStore.DefinitionSchema, EntityStoreWorkflowDefinitionStore
+        //        .DefinitionSchema — ids no registry holds) and form-instance bodies AFTER field protection
+        //        (FormEngine.ProtectFieldsAsync rewrites classified fields into envelope objects), neither of
+        //        which a records schema can judge. The records coordinators take this validator directly, so
+        //        gate → validator → persistence holds on the records path without mis-judging those writes.
+        services.TryAddSingleton(sp => new SchemaRegistryEntityValidator(
+            sp.GetRequiredService<Harborline.Api.Kernel.Schema.ISchemaRegistry>(),
+            Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordsSchemas.All));
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore

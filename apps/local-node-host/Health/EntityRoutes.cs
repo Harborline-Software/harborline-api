@@ -150,7 +150,10 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                return Results.UnprocessableEntity(new { error = "validation_failed", detail = ex.Message });
+                // The named reason and the failing pointers, never the body (ticket 151): the same
+                // code/detail shape the gate's refusal renders, so one operator surface reads both.
+                return Results.UnprocessableEntity(new EntityValidationRefusal(
+                    ex.ReasonCode, ex.Message, ex.Pointers));
             }
             catch (ArgumentException ex)
             {
@@ -186,6 +189,15 @@ public sealed record EntityItemDto(
         e.TaxClassification.ToString(),
         e.CommonControlGroupId);
 }
+
+/// <summary>
+/// 422 refusal after the authority's validator rejected the body (ticket 151). Carries the named
+/// reason and the RFC 6901 pointers into the failing nodes; never any value from the body.
+/// </summary>
+public sealed record EntityValidationRefusal(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("detail")] string Detail,
+    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers);
 
 /// <summary>201 Created response after a successful entity creation.</summary>
 public sealed record EntityCreatedResponse(

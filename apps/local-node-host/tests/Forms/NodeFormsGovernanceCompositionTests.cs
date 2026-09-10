@@ -45,6 +45,29 @@ public sealed class NodeFormsGovernanceCompositionTests
         return services.BuildServiceProvider();
     }
 
+    [Fact(DisplayName = "Composition: the node resolves a REAL entity validator, not the accepting null object (ticket 151, L1418)")]
+    public async Task AddNodeForms_ResolvesTheRealEntityValidator()
+    {
+        using var sp = BuildNodeForms();
+
+        var validator = sp.GetService<Harborline.Api.Kernel.Schema.SchemaRegistryEntityValidator>();
+        Assert.NotNull(validator);
+
+        // The proof that it is not a null object: an unresolvable schema is REFUSED by name.
+        using var body = System.Text.Json.JsonDocument.Parse("{}");
+        var refusal = await Assert.ThrowsAsync<Harborline.Api.Foundation.Assets.Entities.EntityValidationException>(
+            () => validator!.ValidateAsync(new Harborline.Api.Foundation.Assets.Common.SchemaId("nothing-holds-this"), body));
+        Assert.Equal(
+            Harborline.Api.Foundation.Assets.Entities.EntityValidationReasons.SchemaUnknown,
+            refusal.ReasonCode);
+
+        // ...and the records schema the node declares for its own write path DOES resolve.
+        using var legalEntity = System.Text.Json.JsonDocument.Parse(
+            """{"legalName":"Harborline LLC","kind":"Llc","taxClassification":"DisregardedEntity"}""");
+        await validator!.ValidateAsync(
+            Harborline.Api.LocalNodeHost.Health.EntityRoutes.LegalEntitySchema, legalEntity);
+    }
+
     [Fact]
     public void AddNodeForms_WiresGovernanceSeam_Live()
     {

@@ -31,6 +31,13 @@ public sealed class NodeEntityWriter(
     {
     }
 
+    // An absent property must reach the validator as ABSENT, not as null: the DTO binder cannot tell
+    // "omitted" from "null", and a schema's `required` is the authority's word on which is which.
+    private static readonly JsonSerializerOptions CandidateJson = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
 
@@ -63,24 +70,27 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
 
+        // Stage two, unconditionally (ticket 151, L1418): the authority's validator decides the body
+        // BEFORE any persistence work, and before the parses below — the ReferenceEquals escape hatch
+        // that skipped a null-object validator is gone, because the registered validator is real.
+        using (var candidate = JsonSerializer.SerializeToDocument(new
+        {
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        }, CandidateJson))
+        {
+            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
+        }
+
+        // The schema admitted the body; these parses only turn admitted text into the domain enums.
         if (string.IsNullOrWhiteSpace(command.LegalName))
             throw new ArgumentException("legalName is required.", nameof(command));
         if (!Enum.TryParse<EntityKind>(command.Kind, true, out var kind))
             throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
-
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
-        {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -112,6 +122,11 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        // Gate, then validator, then persistence (ADR 0065 clause 4). Validating HERE rather than
+        // relying on the store's pre-commit hook is what makes the records path carry stage two on
+        // every caller — the hook is shared with platform-definition writes whose envelopes are
+        // admitted by their own lifecycle.
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +141,9 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        var current = await entities.GetAsync(id, default, ct).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Entity '{id}' does not exist.", nameof(id));
+        await validator.ValidateAsync(current.Schema, body, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

@@ -43,10 +43,16 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyCompositeUnitOfWork unitOfWork,
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
-    TimeProvider timeProvider) : IHierarchyCompositeCoordinator
+    TimeProvider timeProvider,
+    IEntityValidator? validator = null) : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
+
+    // Stage two for the composite records path (ticket 151): every minted target is validated after its
+    // admission and before persistence. Null keeps the embedders that rely on the store's own pre-commit
+    // hook (the hook still runs underneath); the node passes the registered real validator.
+    private readonly IEntityValidator _validator = validator ?? NullEntityValidator.Instance;
 
     public async Task<SplitResult> SplitAsync(
         EntityId oldEntity,
@@ -210,6 +216,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
             authorization.Require(replacementIds[index]);
+            await _validator.ValidateAsync(target.Schema, target.Body, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
                 target.Schema, target.Body, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
@@ -270,6 +277,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
+        await _validator.ValidateAsync(newSchema, newBody, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
             newSchema, newBody, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)
