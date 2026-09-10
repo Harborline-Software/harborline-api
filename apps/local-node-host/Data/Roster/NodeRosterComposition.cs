@@ -64,7 +64,7 @@ public static class NodeRosterComposition
         services.TryAddSingleton<IVerifiedTenantRosterReader, VerifiedTenantRosterReader>();
 
         // 293 s3c: the replicated path's authority is the local grant store, read through the one sanctioned
-        // roster-edge-then-closure reading (EffectiveMemberPermissions). A composition with no grant store
+        // AuthorizationGate install-root reading. A composition with no authorization gate
         // answers the empty set, which is the same fail-closed floor an unregistered authority gave.
         services.TryAddSingleton<IRosterAuthority>(GrantStoreRosterAuthority.FromServices);
 

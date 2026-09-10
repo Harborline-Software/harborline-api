@@ -311,8 +311,21 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             var evidence = capture.AssertSingle(true);
             Assert.True(evidence.Roster!.Member);
             Assert.True(evidence.Roster.RegistryMember);
-            Assert.Equal(PermissionCompositions.ForRole(operatorRoleAtStartup).Permissions.Order(),
-                evidence.Roster.Permissions!.Permissions.Order());
+            // Ticket 293 slice 4 fix 4, item 6 — the gate-derived replacement for the deleted
+            // "evidence roster permissions == the startup role's composition" assertion. The roster carries no
+            // permission set to compare against any more, so the operator's startup authority is pinned to the
+            // GATE's own answer instead: the set the startup decision was made on is exactly the set the gate
+            // derives for that principal and tenant at that instant. Red if the startup capture ever decides on
+            // anything but the operator's conferred grants.
+            var startupHeld = PermissionSet.From(evidence.Bindings
+                .Select(binding => binding.Atom)
+                .Where(atom => atom.Scope.Value == "/")
+                .Select(atom => atom.Operation.Value));
+            var gateHeld = await outerProvider.GetRequiredService<AuthorizationGate>()
+                .InstallRootPermissionsAsync(
+                    new ActorId(evidence.Principal), new TenantId(evidence.Tenant), evidence.At);
+            Assert.NotEmpty(startupHeld.Permissions);
+            Assert.Equal(gateHeld.Permissions.Order(), startupHeld.Permissions.Order());
 
             await app.StartAsync(CancellationToken.None);
             var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };

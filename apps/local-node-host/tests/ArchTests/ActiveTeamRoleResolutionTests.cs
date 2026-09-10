@@ -40,8 +40,11 @@ public sealed class ActiveTeamRoleResolutionTests
         await registry.AddMembershipAsync(op, Membership(ViewerOrg, TeamRole.Viewer));
 
         var accessor = new FakeActiveTeamAccessor();
+        // Ticket 293 slice 4 — the operator's authority is what the gate derives from its GRANTS, and this
+        // composition has none: a registry label alone must still answer nothing. An all-allowing gate would
+        // be the one that holds a grant, which is not what "registry-only" means.
         var sut = new ActiveTeamAuthorizationContext(accessor, registry, TimeProvider.System,
-            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
+            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.Gate(false));
         return (accessor, sut);
     }
 
@@ -60,7 +63,6 @@ public sealed class ActiveTeamRoleResolutionTests
         var evidence = capture.AssertSingle(false);
         Assert.True(evidence.Roster!.RegistryMember);
         Assert.False(evidence.Roster.Member);
-        Assert.Null(evidence.Roster.Permissions);
         Assert.Contains("registry:member:True", evidence.Project()[1].Facts);
     }
 
@@ -88,7 +90,7 @@ public sealed class ActiveTeamRoleResolutionTests
             new Harborline.Api.Foundation.Crypto.Ed25519Signer(key),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>.Instance);
         var sut = new ActiveTeamAuthorizationContext(accessor, new InMemoryTeamRegistry(), TimeProvider.System,
-            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), refusalAudit: audit);
+            gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.Gate(false), refusalAudit: audit);
         var query = new Harborline.Api.Kernel.Audit.AuditQuery(ActiveTeamTenantContext.ProjectTenantId(AdminOrg));
         Assert.Empty(sut.Roles);
         Assert.Empty(sut.Roles);

@@ -125,8 +125,26 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         services.AddSingleton<MultiTeamBootstrapHostedService>();
 
         var provider = services.BuildServiceProvider();
-        await using (var search = await provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>().CreateDbContextAsync())
+        var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
+        await using (var search = await searchFactory.CreateDbContextAsync())
             await search.Database.EnsureCreatedAsync();
+        // Ticket 293 slice 4 — this node's authority is a CONFERRED GRANT, not a roster permission set.
+        // The founder's admission is what confers it in production, so the fixture calls the very same
+        // derivation (NodeEfAuthorizationConfigurationStore.ConferAdmissionGrantAsync) rather than seeding
+        // rows by hand. The roster edge still says member-or-ejected; the grant says what may be done.
+        // Only a node the signed roster carries live holds one — an install that is not a live member
+        // must reach the gate with nothing, which is the fresh-install leg's whole property.
+        if (roster.Current.Contains(partyId))
+        {
+            await new NodeEfAuthorizationConfigurationStore(
+                    searchFactory, new InMemoryRoleVocabulary([]))
+                .ConferAdmissionGrantAsync(
+                    ActiveTeamTenantContext.ProjectTenantId(genesisTeam),
+                    BootResult.Operator.Value,
+                    BootResult.Operator.Value,
+                    PermissionCompositions.Owner,
+                    DateTimeOffset.UnixEpoch);
+        }
         await provider.GetRequiredService<MultiTeamBootstrapHostedService>()
             .StartAsync(CancellationToken.None);
         return new BootResult(provider, partyId, genesisTeam);
@@ -538,7 +556,16 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         Assert.True(capture.AssertSingle(false).Roster!.Ejected);
         capture.Evidence.Clear();
         Assert.Empty(boot.DesktopPlane.Roles);
-        Assert.True(capture.AssertSingle(false).Roster!.RegistryMember);
+        // Ticket 293 slice 4 — the candidate acts a role enumeration asks about come from the party's
+        // GRANTS now, not from the roster edge, so an ejected founder produces one refusal per candidate
+        // rather than a single one. Every candidate must be refused, and each one still carries the
+        // registry evidence: it is live membership that refused, nothing else.
+        Assert.NotEmpty(capture.Evidence);
+        Assert.All(capture.Evidence, evidence =>
+        {
+            Assert.False(evidence.Allowed);
+            Assert.True(evidence.Roster!.RegistryMember);
+        });
     }
 
     [Fact]
@@ -665,7 +692,7 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         /// <summary>
         /// The desktop plane's own authorization surface, composed as production composes it (ticket 290
         /// slice 3): the registry is carried as the boot's cache, and the signed roster + this node's signer
-        /// + the grant closure are the one reading it actually answers from.
+        /// + the gate are the one reading it actually answers from.
         /// </summary>
         public ActiveTeamAuthorizationContext DesktopPlane => new(
             provider.GetRequiredService<IActiveTeamAccessor>(),
@@ -673,8 +700,7 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<NodeTeamRoster>(),
             provider.GetRequiredService<IOperationSigner>(),
-            provider.GetRequiredService<IAuthorizationClosureReader>(),
-            provider.GetRequiredService<AuthorizationGate>());
+            gate: provider.GetRequiredService<AuthorizationGate>());
 
         /// <summary>This boot's live roster holder — the plane a converged revocation lands on.</summary>
         public NodeTeamRoster Roster => provider.GetRequiredService<NodeTeamRoster>();
@@ -682,20 +708,16 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         /// <summary>The one reading, asked exactly as the web plane's PEP asks it.</summary>
         public async Task<PermissionSet?> WebPlaneReadingAsync(string partyId)
         {
-            var inputs = await EffectiveMemberPermissions.ReadAsync(
-                provider.GetRequiredService<IAuthorizationClosureReader>(),
-                Roster.Current,
-                partyId,
-                ActiveTeamTenantContext.ProjectTenantId(teamId),
-                Operator,
-                DateTimeOffset.UnixEpoch,
-                CancellationToken.None);
+            var tenant = ActiveTeamTenantContext.ProjectTenantId(teamId);
+            var inputs = EffectiveMemberPermissions.Read(Roster.Current, partyId, Operator);
             var allowed = new List<string>();
-            foreach (var permission in (inputs.Permissions ?? PermissionSet.Empty).Permissions)
+            var permissions = await provider.GetRequiredService<AuthorizationGate>().InstallRootPermissionsAsync(
+                Operator, tenant, DateTimeOffset.UnixEpoch, CancellationToken.None);
+            foreach (var permission in permissions.Permissions)
             {
                 var operation = AuthorizationOperation.Parse(permission);
                 var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
-                    new AuthorizationWriteContext(Operator, ActiveTeamTenantContext.ProjectTenantId(teamId), DateTimeOffset.UnixEpoch)
+                    new AuthorizationWriteContext(Operator, tenant, DateTimeOffset.UnixEpoch)
                         .Request(operation, AuthorizationGate.RecordKindFor(operation), "session") with { Roster = inputs });
                 if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
             }

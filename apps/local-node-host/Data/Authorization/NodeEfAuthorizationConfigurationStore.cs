@@ -54,22 +54,6 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                     var signed = admission.Admission;
                     var source = RosterRecordCrdtState.FromAdmission(admission).RecordId;
                     var id = StableId(group.Key + ":" + source);
-                    var role = new RoleReference(RoleVocabularies.Domain, "roster-admission-" + id.ToString("N"));
-                    var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
-                    var migrationVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
-                    await EnsureRoleAsync(db, role, ct, migrationVocabulary).ConfigureAwait(false);
-                    foreach (var permission in HistoricalSignedAtoms(group, admission.PartyId).Permissions)
-                    {
-                        var operation = AuthorizationOperation.Parse(permission);
-                        var definition = new AuthorizationCapabilityDefinition(
-                            new(StableId(id.ToString("D") + ":" + permission)), AccessGrantAuthorizationSeed.PackageId,
-                            1, operation, new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.From([role]));
-                        var write = await AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync(
-                            definition, tenant, signed.IssuedAt, migrationVocabulary, ct).ConfigureAwait(false);
-                        await StageWriteAsync(db, write, ct, migrationVocabulary).ConfigureAwait(false);
-                    }
-                    var actor = new ActorId(admission.PartyId);
-                    var granter = new ActorId(signed.AdmittedByPartyId);
                     var removal = roster.Contains(admission.PartyId) ? null : group
                         .Where(row => row.Kind == (int)RosterRecordKind.Revocation && row.PartyId == admission.PartyId)
                         .Select(NodeRosterRecord.ToCrdtState).Select(state => state.ToRevocationOrNull()!)
@@ -78,19 +62,117 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                     var revocation = removal is null ? null : new GrantRevocation(
                         new ActorId(removal.Signed.RevokedByPartyId), removal.Signed.IssuedAt,
                         new GrantReason(GrantReasonCodes.RevocationReview, removal.Signed.Nonce.ToString("D")));
-                    var grant = new AccessGrant(new GrantId(id), tenant, actor, role, ScopeExpression.Parse("/"),
-                        GrantResidency.Cache, new GrantValidity(signed.IssuedAt), GranterKind.Person, granter,
-                        signed.IssuedAt, new GrantProvenance(GrantSourceKind.Manual,
-                            new GrantReason(GrantReasonCodes.Manual, signed.Nonce.ToString("D")), granter),
-                        signed.IssuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
-                    db.Grants.Add(NodeEfGrantStore.ToRow(grant, "roster-migration:" + id.ToString("D")));
-                    await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
+                    await StageAdmissionGrantAsync(
+                        db, tenant, id, admission.PartyId, signed.AdmittedByPartyId,
+                        HistoricalSignedAtoms(group, admission.PartyId), signed.IssuedAt, signed.Nonce,
+                        revocation, "roster-migration:" + id.ToString("D"), ct).ConfigureAwait(false);
                     converted++;
                 }
             }
             db.Set<RosterAdmissionGrantBackfillRow>().Add(new() { Id = 1, RecordCount = converted });
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return converted;
+        }, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ADR 0066 clause 3 (293 slice 4 fix 3) — the ONE derivation from "party X was admitted carrying
+    /// permissions P" to a durable grant. The 3a boot backfill (verified historical admissions) and every
+    /// LIVE admission conferral both go through here, so the two can never write a different grant shape.
+    /// The grant is keyed on the ROSTER PARTY ID: that is the actor id the roster plane's own reads use
+    /// (<c>AdminTeamAccessAuthority.ListMembersAsync</c> asks the gate for
+    /// <c>InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId), ...)</c>), so the gate's reader
+    /// finds it under exactly the key the roster edge is addressed by. Since ticket 294 slice 2a that key
+    /// IS the canonical tenant principal id, so both planes look THE GRANT up under one key. (That is a claim
+    /// about the grant lookup only — a roster EDGE lookup keyed on the People CanonicalPartyReference would
+    /// still miss, which is why ticket 293 slice 4 fix 4 moved the selected-session PEP onto this key too.)
+    /// Staged only — the caller's SaveChanges inside its own fence commits it, so a conferral failure
+    /// aborts the caller's unit of work rather than leaving a half state.
+    /// </summary>
+    internal async Task<AccessGrant> StageAdmissionGrantAsync(
+        NodeLocalSearchDbContext db,
+        TenantId tenant,
+        Guid id,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset issuedAt,
+        Guid nonce,
+        GrantRevocation? revocation,
+        string sourceReference,
+        CancellationToken ct,
+        bool advanceEpoch = true)
+    {
+        var role = new RoleReference(RoleVocabularies.Domain, "roster-admission-" + id.ToString("N"));
+        var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
+        var admissionVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
+        await EnsureRoleAsync(db, role, ct, admissionVocabulary).ConfigureAwait(false);
+        foreach (var permission in permissions.Permissions)
+        {
+            var operation = AuthorizationOperation.Parse(permission);
+            var definition = new AuthorizationCapabilityDefinition(
+                new(StableId(id.ToString("D") + ":" + permission)), AccessGrantAuthorizationSeed.PackageId,
+                1, operation, new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.From([role]));
+            var write = await AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync(
+                definition, tenant, issuedAt, admissionVocabulary, ct).ConfigureAwait(false);
+            await StageWriteAsync(db, write, ct, admissionVocabulary).ConfigureAwait(false);
+        }
+
+        var actor = new ActorId(admittedPartyId);
+        var granter = new ActorId(admittedByPartyId);
+        var grant = new AccessGrant(new GrantId(id), tenant, actor, role, ScopeExpression.Parse("/"),
+            GrantResidency.Cache, new GrantValidity(issuedAt), GranterKind.Person, granter,
+            issuedAt, new GrantProvenance(GrantSourceKind.Manual,
+                new GrantReason(GrantReasonCodes.Manual, nonce.ToString("D")), granter),
+            issuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
+        db.Grants.Add(NodeEfGrantStore.ToRow(grant, sourceReference));
+        // Ticket 293 slice 4 fix 4 — the boot backfill advances the epoch (it rewrites history before any
+        // session exists); a LIVE conferral must NOT. The admitted principal's web session has just had its
+        // (grant owner-version, authorization epoch) pins verified by the admission itself, and bumping the
+        // epoch underneath them invalidates the very pins that authorized the admission: the second admission
+        // of the same party then refuses "grant_unavailable" instead of "already_member", and a revoked
+        // party's re-enrollment is over-blocked. Not advancing is fail-CLOSED in direction — a cached
+        // closure snapshot keeps the narrower pre-conferral set, never a wider one.
+        if (advanceEpoch)
+            await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
+        return grant;
+    }
+
+    /// <summary>
+    /// Confer one LIVE admission's grant — the same derivation the 3a backfill runs over history, under one
+    /// fence with its own commit. What it writes is a grant of the admission's OWN per-admission role carrying
+    /// the permission set the admission signed, anchored to that admission. It is NOT the web-plane membership
+    /// grant — <see cref="InitialGrantIssuanceService"/> writes that one, at invitation acceptance, under the
+    /// same subject key and at the same scope — and it OUTLIVES it: revoking the membership grant leaves the
+    /// admitted party's signed authority standing. Returns null when this admission's grant already exists;
+    /// idempotent on (tenant, admitted party), so a second admission of the same party mints no rival. Unlike
+    /// the boot backfill it does NOT advance the admitted principal's authorization epoch (see
+    /// <c>StageAdmissionGrantAsync</c>). The caller treats a throw as an admission failure: the roster write it
+    /// guards must not be published.
+    /// </summary>
+    public async Task<AccessGrant?> ConferAdmissionGrantAsync(
+        TenantId tenant,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(admittedPartyId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(admittedByPartyId);
+        ArgumentNullException.ThrowIfNull(permissions);
+        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return await HomeEpochFenceTransaction.RunAsync(db, async () =>
+        {
+            var id = StableId(tenant.Value + ":admission:" + admittedPartyId);
+            var key = id.ToString("D");
+            if (await db.Grants.AsNoTracking().AnyAsync(row => row.GrantId == key, ct).ConfigureAwait(false))
+                return (AccessGrant?)null;
+            var grant = await StageAdmissionGrantAsync(
+                db, tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id, null,
+                "roster-admission:" + key, ct, advanceEpoch: false).ConfigureAwait(false);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return grant;
         }, ct).ConfigureAwait(false);
     }
 

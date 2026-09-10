@@ -279,7 +279,6 @@ public sealed record AuthorizationDecisionEvidence
                     .. Roster?.RegistryMember is { } registryMember ? new[] { $"registry:member:{registryMember}" } : Array.Empty<string>(),
                     .. Roster is { } roster ? new[] {
                         $"roster:party:{roster.PartyId};member:{roster.Member};ejected:{roster.Ejected};prospective-administrator-grant:{roster.ProspectiveAdministratorGrant}",
-                        $"roster:permissions:{string.Join(",", (roster.Permissions ?? PermissionSet.Empty).Permissions.Order(StringComparer.Ordinal))}",
                         $"roster:require-member:{roster.RequireMember};require-grant:{roster.RequireGrantCoverage};required:{string.Join(",", roster.RequiredPermissions.Permissions.Order(StringComparer.Ordinal))}"
                     } : Array.Empty<string>(),
                 ]),
