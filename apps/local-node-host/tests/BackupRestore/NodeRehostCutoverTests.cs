@@ -16,6 +16,10 @@ using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 
 namespace Harborline.Api.LocalNodeHost.Tests.BackupRestore;
 
+// 361 s2: this class fires HomeEpochFence.AssertNotStaleAsync, which runs the process-global AfterReadHookForTests.
+// Outside the serialised collection a parallel fence test's injected promotion ran here, unlocked, and committed
+// silently (the historical MD-2 G-4 red). Every class that fires or sets the hook joins the collection.
+[Collection(HomeEpochFenceStaticHookCollection.Name)]
 public sealed class NodeRehostCutoverTests : IAsyncLifetime
 {
     private readonly KeyPair _adminA = KeyPair.Generate();
