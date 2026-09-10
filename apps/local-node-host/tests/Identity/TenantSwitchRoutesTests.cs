@@ -360,6 +360,16 @@ public sealed class TenantSwitchRoutesTests
             AuthorizationWriteContext authority,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        // Ticket 362 - this fixture never narrows; the member surface is not what it is asserting.
+        public Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
+            string selectedSessionHandle,
+            string tenantId,
+            string grantId,
+            IReadOnlyCollection<string> narrowedPermissions,
+            AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RefusedSwitchFixture : IAsyncDisposable

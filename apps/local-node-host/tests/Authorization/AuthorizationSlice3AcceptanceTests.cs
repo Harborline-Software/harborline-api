@@ -277,7 +277,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
                 var service = new AdminTeamAccessAuthority(
                     sessions, new WebSelectedSessionStore(sessions), identity, grants, party, roster,
                     new AccountSetupInvitationStore(identity), invitationIssuer, grantStore,
-                    new AuthorizedGrantRevocationWriter(grantStore), closure,
+                    new AuthorizedGrantRevocationWriter(grantStore, grants), closure,
                     denied, new FixedTimeProvider(At), new NoopRosterMemberRevocationAuthority(),
                     new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(),
                     new Harborline.Api.Foundation.Crypto.Ed25519Signer(Harborline.Api.Foundation.Crypto.KeyPair.Generate()), refusalAudit: capture.Audit);

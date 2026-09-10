@@ -742,6 +742,14 @@ public sealed class AdminTeamAccessRoutesTests
 
         public AdminUpdateMemberPermissionsResult? Update { get; init; }
 
+        public AdminNarrowMemberGrantResult? Narrow { get; init; }
+
+        public string? NarrowTenantId { get; private set; }
+
+        public string? NarrowGrantId { get; private set; }
+
+        public IReadOnlyCollection<string>? NarrowPermissions { get; private set; }
+
         public string? MembersHandle { get; private set; }
 
         public string? MembersTenantId { get; private set; }
@@ -817,6 +825,22 @@ public sealed class AdminTeamAccessRoutesTests
             UpdatePermissions = requestedPermissions;
             if (Denial is not null) return Task.FromException<AdminUpdateMemberPermissionsResult?>(Denial);
             return Task.FromResult(Update);
+        }
+
+        // Ticket 362 - the narrow route's recording leg.
+        public Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
+            string selectedSessionHandle,
+            string tenantId,
+            string grantId,
+            IReadOnlyCollection<string> narrowedPermissions,
+            AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default)
+        {
+            NarrowTenantId = tenantId;
+            NarrowGrantId = grantId;
+            NarrowPermissions = narrowedPermissions;
+            if (Denial is not null) return Task.FromException<AdminNarrowMemberGrantResult?>(Denial);
+            return Task.FromResult(Narrow);
         }
     }
 

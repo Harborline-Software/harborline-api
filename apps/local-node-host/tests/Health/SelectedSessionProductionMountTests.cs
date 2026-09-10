@@ -42,6 +42,8 @@ public sealed class SelectedSessionProductionMountTests
         ("POST", "/api/session/admin/invitations"),
         ("GET", "/api/session/admin/members"),
         ("POST", "/api/session/admin/members/permissions"),
+        // Ticket 362 slice 1 - an administrator narrows a member's conferred grant (revoke-and-reissue).
+        ("POST", "/api/session/admin/members/narrow"),
         ("POST", "/api/session/admin/members/revoke"),
         ("GET", "/api/session/antiforgery"),
         ("POST", "/api/session/connect-device"),

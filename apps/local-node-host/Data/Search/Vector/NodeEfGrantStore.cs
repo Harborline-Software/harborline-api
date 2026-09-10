@@ -248,7 +248,7 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
         SourceReference = sourceReference, OwnerVersion = ownerVersion,
     };
 
-    private static AccessGrant ToGrant(GrantRow row)
+    internal static AccessGrant ToGrant(GrantRow row)
     {
         GrantRevocation? revocation = row.RevokedAtUnixMs is null ? null : new GrantRevocation(
             new ActorId(row.RevokedBy!), DateTimeOffset.FromUnixTimeMilliseconds(row.RevokedAtUnixMs.Value),

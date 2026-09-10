@@ -18,6 +18,9 @@ using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 
 namespace Harborline.Api.LocalNodeHost.Data.Authorization;
 
+/// <summary>The two legs of one atomic member-grant narrowing (ticket 362).</summary>
+public sealed record AdmissionGrantNarrowing(AccessGrant Reissued, AccessGrant Revoked);
+
 public sealed class NodeEfAuthorizationConfigurationStore(
     IDbContextFactory<NodeLocalSearchDbContext> factory,
     IRoleVocabularyReader vocabulary)
@@ -103,7 +106,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         CancellationToken ct,
         bool advanceEpoch = true)
     {
-        var role = new RoleReference(RoleVocabularies.Domain, "roster-admission-" + id.ToString("N"));
+        var role = new RoleReference(RoleVocabularies.Domain, AdmissionRolePrefix + id.ToString("N"));
         var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
         var admissionVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
         await EnsureRoleAsync(db, role, ct, admissionVocabulary).ConfigureAwait(false);
@@ -174,6 +177,70 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return grant;
         }, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ticket 362 — an administrator narrows a member's admission-conferred grant as ONE unit of work:
+    /// the wider grant is revoked and a narrower one is appended on the SAME subject key, scope and role
+    /// derivation (<see cref="StageAdmissionGrantAsync"/> — the one derivation
+    /// <see cref="ConferAdmissionGrantAsync"/> routes through, so nothing derives an admission grant twice),
+    /// inside one BEGIN IMMEDIATE fence committed by a single SaveChanges. A failure anywhere rolls both
+    /// legs back, so the member is never left holding both sets or neither. Returns null when the grant is
+    /// not a live install-root grant of this tenant.
+    /// </summary>
+    /// <summary>The per-admission role-name prefix this one derivation mints (and only it).</summary>
+    private const string AdmissionRolePrefix = "roster-admission-";
+
+    internal async Task<AdmissionGrantNarrowing?> NarrowAdmissionGrantAsync(
+        TenantId tenant,
+        GrantId current,
+        PermissionSet narrowed,
+        GrantRevocation revocation,
+        Guid correlationId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(narrowed);
+        ArgumentNullException.ThrowIfNull(revocation);
+        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        AdmissionGrantNarrowing? result = null;
+        await HomeEpochFenceTransaction.RunAsync(db, async () =>
+        {
+            var key = current.ToString();
+            var row = await db.Grants.FirstOrDefaultAsync(
+                r => r.TenantId == tenant.Value && r.GrantId == key, ct).ConfigureAwait(false);
+            if (row is null) return;
+            var existing = NodeEfGrantStore.ToGrant(row);
+            // Three refusals, all fail-closed and all silent (the caller reports one non-enumerating status):
+            //  - a revoked grant has nothing left to narrow;
+            //  - the reissue is staged at the install root, the only scope this derivation writes, so a
+            //    narrower-scoped grant would be WIDENED by reissuing it there;
+            //  - only a grant carrying a PER-ADMISSION role this derivation minted can be reissued narrower.
+            //    A shared catalogue role (Member, Administrator) is the role a tenant membership PINS, so
+            //    revoking such a grant locks the member out of their own session instead of narrowing them;
+            //    and a narrower copy of a shared role would silently rewrite what that role means.
+            if (existing.Status == GrantStatus.Revoked
+                || existing.Scope != ScopeExpression.Parse("/")
+                || existing.Role.Vocabulary != RoleVocabularies.Domain
+                || !existing.Role.Name.StartsWith(AdmissionRolePrefix, StringComparison.Ordinal)) return;
+            var at = revocation.RevokedAt;
+            var id = StableId(tenant.Value + ":narrowed:" + key + ":" + correlationId.ToString("D"));
+            var reissued = await StageAdmissionGrantAsync(
+                    db, tenant, id, existing.Subject.Value, revocation.RevokedBy.Value, narrowed, at,
+                    correlationId, revocation: null, "member-narrowed:" + id.ToString("D"), ct,
+                    advanceEpoch: false)
+                .ConfigureAwait(false);
+            var revoked = existing with { Status = GrantStatus.Revoked, Revocation = revocation };
+            db.Entry(row).CurrentValues.SetValues(
+                NodeEfGrantStore.ToRow(revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
+            // ONE epoch advance for the whole act (both legs name one principal), so every live session of
+            // that member re-evaluates exactly once. An administrator's narrowing MUST invalidate the
+            // member's pins — the opposite of the live admission conferral, which must not, because there
+            // the pins being bumped are the ones that authorized the admission itself (293 s4 fix 4).
+            await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, existing.Subject, ct).ConfigureAwait(false);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            result = new AdmissionGrantNarrowing(reissued, revoked);
+        }, ct).ConfigureAwait(false);
+        return result;
     }
 
     /// <summary>

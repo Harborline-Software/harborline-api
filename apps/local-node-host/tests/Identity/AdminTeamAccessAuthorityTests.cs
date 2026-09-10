@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Data.Search;
@@ -182,7 +183,7 @@ public sealed class AdminTeamAccessAuthorityTests
     public async Task Grant_Revocation_Writer_Validates_Decision_Against_The_Raw_Write()
     {
         await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
-        var writer = new AuthorizedGrantRevocationWriter(new NodeEfGrantStore(fixture.GrantFactory));
+        var writer = new AuthorizedGrantRevocationWriter(new NodeEfGrantStore(fixture.GrantFactory), fixture.GrantFactory);
         var tenant = new TenantId(TenantId);
         var grant = new GrantId(Guid.Parse(WebGrantId));
         var wrongTarget = TestAuthorization.AllowedDecision(
@@ -505,6 +506,30 @@ public sealed class AdminTeamAccessAuthorityTests
         await grants.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Ticket 362 (d) - the no-escalation guard. The target grant holds records:read in force, so narrowing
+    /// to it IS a narrowing; but the caller's admitted decision carries members:manage only, so conferring
+    /// records:read would hand out an act the administrator does not hold. Fail-closed null, nothing written.
+    /// </summary>
+    [Fact(DisplayName = "narrowing refuses an act the caller does not hold, and writes nothing")]
+    public async Task Narrowing_Refuses_An_Act_The_Caller_Does_Not_Hold()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            PermissionSet.Of(TeamRolePermissions.MembersManage),
+            memberRoleSet: PermissionSet.Of(TeamRolePermissions.MembersManage, TeamRolePermissions.RecordsRead));
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        var before = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId);
+
+        var result = await fixture.Authority.NarrowMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, new[] { TeamRolePermissions.RecordsRead });
+
+        Assert.Null(result);
+        var after = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId);
+        Assert.Equal(before.OwnerVersion, after.OwnerVersion);
+        Assert.Equal((int)GrantStatus.Active, after.Status);
+        Assert.Equal(1, await grants.Grants.AsNoTracking().CountAsync(g => g.SubjectId == "principal-web"));
+    }
+
     [Fact]
     [Trait("PlanCard", "MTW-2-2617")]
     public async Task Admin_Revoking_An_Unknown_Grant_Is_NotFound()
@@ -630,7 +655,8 @@ public sealed class AdminTeamAccessAuthorityTests
             bool omitTargetParty = false,
             PermissionSet? successorPermissions = null,
             bool ejectSuccessor = false,
-            AuthorizationRefusalAudit? refusalAudit = null)
+            AuthorizationRefusalAudit? refusalAudit = null,
+            PermissionSet? memberRoleSet = null)
         {
             var identityPath = TempPath("identity");
             var sessionPath = TempPath("session");
@@ -749,7 +775,7 @@ public sealed class AdminTeamAccessAuthorityTests
                     .GetAwaiter().GetResult()
                     .Any(grant => grant.Subject == request.Principal
                         && LastAdministratorGuard.IsAdministratorInForce(grant, request.At)));
-            IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore);
+            IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
             IAuthorizedAuditTrail grantAudit = new InMemoryAuditTrail();
             if (captures is not null)
@@ -761,7 +787,7 @@ public sealed class AdminTeamAccessAuthorityTests
             var authority = new AdminTeamAccessAuthority(
                 sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
                 new FixedRosterReader(roster), store, issuer,
-                grantStore, grantWriter, new GrantDerivedClosure(grantStore),
+                grantStore, grantWriter, new GrantDerivedClosure(grantStore, memberRoleSet),
                 grantDerivedGate, timeProvider ?? new FixedTimeProvider(Now),
                 rosterWriter, grantAudit,
                 new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
@@ -906,7 +932,8 @@ public sealed class AdminTeamAccessAuthorityTests
     /// in force is the only thing that yields <c>members:manage@/</c> - and a handover that moves that
     /// grant moves the atom with it.
     /// </summary>
-    private sealed class GrantDerivedClosure(IGrantStore grants) : IAuthorizationClosureReader
+    private sealed class GrantDerivedClosure(IGrantStore grants, PermissionSet? memberRoleSet = null)
+        : IAuthorizationClosureReader
     {
         private static readonly PermissionAtomSet Manage =
             PermissionAtomSet.Of(PermissionAtom.Parse("members:manage@/"));
@@ -925,9 +952,18 @@ public sealed class AdminTeamAccessAuthorityTests
             TenantId tenantId, PermissionAtom required, DateTimeOffset at, CancellationToken ct = default) =>
             ValueTask.FromResult<IReadOnlyList<ActorId>>(Array.Empty<ActorId>());
 
+        /// <summary>
+        /// Ticket 362 - the set a grant holds IN FORCE is its role's atoms. When a test declares what the
+        /// seeded member role carries, answer with that; otherwise keep the install-wide Administrator atom
+        /// this fixture has always answered with.
+        /// </summary>
         public ValueTask<PermissionAtomSet> RolePermissionsAsync(
             TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
-            ValueTask.FromResult(Manage);
+            ValueTask.FromResult(
+                memberRoleSet is not null && role == AccessGrantAuthorizationSeed.MemberRole
+                    ? PermissionAtomSet.Of(memberRoleSet.Permissions
+                        .Select(permission => PermissionAtom.Parse(permission + "@/")).ToArray())
+                    : Manage);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
@@ -968,6 +1004,21 @@ public sealed class AdminTeamAccessAuthorityTests
         {
             decisions.Add(admittedDecision);
             return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, cancellationToken);
+        }
+
+        // Ticket 362 - the narrowing's single store transaction, under the same admitted decision.
+        public Task<AdmissionGrantNarrowing?> NarrowAsync(
+            TenantId tenant,
+            GrantId current,
+            PermissionSet narrowed,
+            GrantRevocation revocation,
+            Guid correlationId,
+            AuthorizationDecision admittedDecision,
+            CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.NarrowAsync(
+                tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
         }
     }
 

@@ -218,7 +218,7 @@ public sealed class MalformedSelectedSessionMaterializationTests
                 accountSetupStore,
                 accountSetupIssuer,
                 adminGrantStore,
-                new AuthorizedGrantRevocationWriter(adminGrantStore),
+                new AuthorizedGrantRevocationWriter(adminGrantStore, searchFactory),
                 new FixedAuthorizationClosure(),
                 TestAuthorization.AllowGate(),
                 clock,

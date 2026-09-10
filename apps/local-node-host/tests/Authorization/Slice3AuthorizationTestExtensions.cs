@@ -100,6 +100,25 @@ internal static class Slice3AuthorizationTestExtensions
             ct);
     }
 
+    internal static Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
+        this IAdminTeamAccessAuthority authority,
+        string selectedSessionHandle,
+        string tenantId,
+        string grantId,
+        IReadOnlyCollection<string> narrowedPermissions,
+        CancellationToken ct = default)
+    {
+        var at = authority is AdminTeamAccessAuthority admin ? admin.CurrentInstant : TestAuthorization.At;
+        return authority.NarrowMemberGrantAsync(
+            selectedSessionHandle,
+            tenantId,
+            grantId,
+            narrowedPermissions,
+            TestAuthorization.Write(
+                new TenantId(Guid.Parse(tenantId).ToString("D")), "principal-admin", at),
+            ct);
+    }
+
     internal static Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
         this IAdminTeamAccessAuthority authority,
         string selectedSessionHandle,

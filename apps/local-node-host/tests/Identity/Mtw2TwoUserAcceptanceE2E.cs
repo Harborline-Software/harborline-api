@@ -151,6 +151,9 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     private static AuthorizationWriteContext FounderAuthority(string tenantId) =>
         new(new ActorId(FounderPrincipal), new TenantId(tenantId), Now);
 
+    // Ticket 362 - the retired ticket-204 bundle mutation these three rows probed is replaced by the
+    // production revoke-and-reissue surface; every property they claimed is kept, now against an act that
+    // really writes when it is allowed to.
     [Fact]
     public async Task Real_Admin_Refuses_Permission_Escalation_And_Leaves_Grant_Unchanged()
     {
@@ -160,18 +163,17 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         await using var h = setup.Harness;
 
         var before = await h.ReadGrantRowAsync(setup.JoinerGrantId);
-        var result = await h.AdminTeam.UpdateMemberPermissionsAsync(
+        var result = await h.AdminTeam.NarrowMemberGrantAsync(
             setup.FounderSelectedHandle,
             setup.TenantId,
             setup.JoinerGrantId,
-            new[] { Permission.ContactsRead, Permission.ContactsCreate },
+            new[] { Permission.ContactsRead, TeamRolePermissions.MembersManage },
             FounderAuthority(setup.TenantId));
 
-        // Ticket 294 slice 2a: the founder's admin session now resolves under the ONE key, so the refusal
-        // is the ticket-204 retired-mutation refusal itself rather than a denied session. Either way the
-        // escalation is refused and NOTHING is written -- which is what this test claims.
+        // This act only narrows. members:manage is not in the set the joiner's grant holds in force, so the
+        // escalation is refused BEFORE any write and NOTHING is written -- which is what this test claims.
         Assert.NotNull(result);
-        Assert.Equal(AdminUpdateMemberPermissionsStatus.NotFound, result!.Status);
+        Assert.Equal(AdminNarrowMemberGrantStatus.NotASubset, result!.Status);
         var after = await h.ReadGrantRowAsync(setup.JoinerGrantId);
         Assert.Equal(before.OwnerVersion, after.OwnerVersion);
         Assert.Equal(before.RoleName, after.RoleName);
@@ -185,15 +187,16 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         var founderGrantId = await h.ResolveFounderGrantIdAsync(setup.TenantId);
         var before = await h.ReadGrantRowAsync(founderGrantId);
 
-        var result = await h.AdminTeam.UpdateMemberPermissionsAsync(
+        var result = await h.AdminTeam.NarrowMemberGrantAsync(
             setup.FounderSelectedHandle,
             setup.TenantId,
             founderGrantId,
             new[] { Permission.ContactsRead },
             FounderAuthority(setup.TenantId));
 
+        // Ticket 362 - the self-lockout guard runs on the session's own pinned grant, ahead of every read.
         Assert.NotNull(result);
-        Assert.Equal(AdminUpdateMemberPermissionsStatus.SelfUpdateRefused, result!.Status);
+        Assert.Equal(AdminNarrowMemberGrantStatus.SelfNarrowRefused, result!.Status);
         var after = await h.ReadGrantRowAsync(founderGrantId);
         Assert.Equal(before.OwnerVersion, after.OwnerVersion);
         Assert.Equal(before.RoleName, after.RoleName);
@@ -207,15 +210,19 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         await h.AdmitInvitationTargetToRosterAsync(setup.InvitationId);
         var before = await h.ReadGrantRowAsync(setup.JoinerGrantId);
 
-        var result = await h.AdminTeam.UpdateMemberPermissionsAsync(
+        var result = await h.AdminTeam.NarrowMemberGrantAsync(
             setup.FounderSelectedHandle,
             setup.TenantId,
             setup.JoinerGrantId,
             new[] { Permission.ContactsRead, Permission.ContactsCreate },
             FounderAuthority(setup.TenantId));
 
+        // Ticket 362 - the target here is the joiner's web-plane MEMBERSHIP grant, which carries a shared
+        // catalogue role that their tenant membership PINS. Reissuing a narrower copy of it would revoke the
+        // grant their own session is pinned to, so the act refuses it with the one non-enumerating status and
+        // writes nothing. Only an admission-conferred grant (a per-admission role) is narrowable.
         Assert.NotNull(result);
-        Assert.Equal(AdminUpdateMemberPermissionsStatus.NotFound, result!.Status);
+        Assert.Equal(AdminNarrowMemberGrantStatus.NotFound, result!.Status);
         var after = await h.ReadGrantRowAsync(setup.JoinerGrantId);
         Assert.Equal(before.OwnerVersion, after.OwnerVersion);
         Assert.Equal(before.RoleName, after.RoleName);
@@ -592,7 +599,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         Assert.Equal(1, recoveredReconciliation.Version);
     }
 
-    private static async Task<AcceptedMembers> CreateAcceptedMembersAsync(
+    internal static async Task<AcceptedMembers> CreateAcceptedMembersAsync(
         PermissionSet? founderRosterPermissions = null)
     {
         var h = await Harness.CreateAsync(founderRosterPermissions);
@@ -662,7 +669,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             await h.ResolveJoinerGrantIdAsync(tenantId));
     }
 
-    private sealed record AcceptedMembers(
+    internal sealed record AcceptedMembers(
         Harness Harness,
         string TenantId,
         string FounderSelectedHandle,
@@ -670,6 +677,10 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         string JoinerGrantId);
 
     // ── real challenge → select flow (single-membership auto/explicit tenant) ─────────────────────────
+    /// <summary>Ticket 362 - a real joiner session handle for the sibling narrowing tests.</summary>
+    internal static Task<string> LoginJoinerAsync(Harness h, string tenantId) =>
+        LoginAndSelectAsync(h, JoinerUsername, JoinerPassword, tenantId);
+
     private static async Task<string> LoginAndSelectAsync(
         Harness h, string username, string password, string tenantId)
     {
@@ -753,7 +764,9 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     };
 
     // ── the full REAL-substrate composition ───────────────────────────────────────────────────────────
-    private sealed class Harness : IAsyncDisposable
+    // Ticket 362 - internal, not private: AdminNarrowMemberGrantTests drives the SAME real composition
+    // rather than duplicating four hundred lines of harness.
+    internal sealed class Harness : IAsyncDisposable
     {
         private readonly List<string> _tempFiles = new();
         private readonly List<string> _tempDirs = new();
@@ -852,6 +865,12 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         /// allow-all double there would stop measuring whether an admitted member actually reaches the route.
         /// </summary>
         public AuthorizationGate RouteGate { get; private set; } = default!;
+
+        /// <summary>The REAL definition-joined closure reader the gate and the admin authority decide on.</summary>
+        public IAuthorizationClosureReader LiveAuthorization { get; private init; } = default!;
+
+        /// <summary>The admin authority's audit trail, so ticket 362's two narrowing rows can be read.</summary>
+        public Harborline.Api.Kernel.Audit.InMemoryAuditTrail AdminAudit { get; private init; } = default!;
 
         public static async Task<Harness> CreateAsync(PermissionSet? founderRosterPermissions = null)
         {
@@ -983,13 +1002,14 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 minterProvider.GetRequiredService<IServiceScopeFactory>(), time);
 
             // Tooth 2 — the REAL admin authority (its RevokeMemberGrantAsync is the revocation lever).
+            var adminAudit = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
             var adminTeam = new AdminTeamAccessAuthority(
                 sessionFactory, selectedSessionStore, identityFactory, searchStore.Factory,
                 partyReader, rosterReader,
                 invitationStore, invitationIssuer, grantStore,
-                new AuthorizedGrantRevocationWriter(grantStore), liveAuthorization,
+                new AuthorizedGrantRevocationWriter(grantStore, searchStore.Factory), liveAuthorization,
                 liveGate, time, new NoopRosterMemberRevocationAuthority(),
-                new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(), new Ed25519Signer(KeyPair.Generate()),
+                adminAudit, new Ed25519Signer(KeyPair.Generate()),
                 partitionResolver, coordinator);
 
             // Tooth 3 — the REAL node journal store + node-signed attribution envelope materialised from
@@ -1058,6 +1078,8 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 bankingClock, auditClock, verifier, auditReader, tempFiles, tempDirs)
             {
                 RouteGate = liveGate,
+                LiveAuthorization = liveAuthorization,
+                AdminAudit = adminAudit,
             };
         }
 
@@ -1636,7 +1658,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     /// handle; middleware re-authenticates it through the real authority before publishing the principal
     /// onto the same HttpContext.Features seam production uses.
     /// </summary>
-    private sealed class BankingRouteHost : IAsyncDisposable
+    internal sealed class BankingRouteHost : IAsyncDisposable
     {
         private const string SelectedSessionHeader = "X-Mtw2-Selected-Session";
         private readonly WebApplication _app;
@@ -1743,7 +1765,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         }
     }
 
-    private sealed class MutableRosterReader(
+    internal sealed class MutableRosterReader(
         MemberRoster roster,
         IOperationSigner founderSigner,
         IOperationVerifier verifier) : IVerifiedTenantRosterReader
@@ -1845,7 +1867,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
     // A monotonic clock used ONLY by the audit enlister so successive JE-posted audit rows get distinct,
     // increasing OccurredAt values (a stable hash chain). The identity/session/grant/fence/revoke flow is
     // on the frozen FixedTimeProvider.
-    private sealed class MutableTimeProvider(DateTimeOffset start) : TimeProvider
+    internal sealed class MutableTimeProvider(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset _now = start;
         public override DateTimeOffset GetUtcNow() => _now;

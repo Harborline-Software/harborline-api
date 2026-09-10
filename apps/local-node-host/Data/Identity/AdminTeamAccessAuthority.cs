@@ -106,6 +106,34 @@ public enum AdminUpdateMemberPermissionsStatus
 /// <summary>The result of an admin member permission-bundle update.</summary>
 public sealed record AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus Status);
 
+/// <summary>Outcome of an administrator narrowing a member's admission-conferred grant (ticket 362).</summary>
+public enum AdminNarrowMemberGrantStatus
+{
+    /// <summary>The wider grant was revoked and the narrower one reissued as ONE unit of work.</summary>
+    Narrowed,
+
+    /// <summary>
+    /// The grant is not a live install-root grant of this tenant, the input was malformed, or the requested
+    /// set is already the set in force (a no-op narrowing writes nothing). Deliberately one status - a
+    /// caller cannot enumerate which.
+    /// </summary>
+    NotFound,
+
+    /// <summary>Refused: an administrator cannot narrow the grant backing their own live session.</summary>
+    SelfNarrowRefused,
+
+    /// <summary>
+    /// Refused: the requested set is not a subset of the set in force. This act only ever narrows; widening
+    /// a member is an issuance, not an edit.
+    /// </summary>
+    NotASubset,
+}
+
+/// <summary>The result of an administrator narrowing a member's grant.</summary>
+/// <param name="NarrowedGrantId">The reissued narrower grant's id; null on every refusal.</param>
+public sealed record AdminNarrowMemberGrantResult(
+    AdminNarrowMemberGrantStatus Status, string? NarrowedGrantId = null);
+
 /// <summary>
 /// The members:manage-gated authority behind the admin Team &amp; access surface (MTW-2 #2617): list
 /// members, list + issue pending AccountSetup invitations, and revoke a grant-anchored web member.
@@ -146,6 +174,19 @@ public interface IAdminTeamAccessAuthority
         string grantId,
         AuthorizationWriteContext authority,
         string? successorPrincipalId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ticket 362 - narrows a live member's admission-conferred grant: the wider grant is revoked and a
+    /// narrower one reissued on the same subject key, scope and role derivation, as ONE store transaction.
+    /// <paramref name="narrowedPermissions"/> must be a strict subset of the set in force.
+    /// </summary>
+    Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
+        string selectedSessionHandle,
+        string tenantId,
+        string grantId,
+        IReadOnlyCollection<string> narrowedPermissions,
+        AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default);
 
     /// <summary>Replaces a live grant's PBAC permission bundle through the fenced mutation path.</summary>
@@ -496,6 +537,113 @@ internal sealed class AdminTeamAccessAuthority(
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Ticket 362 - the production surface ticket 204 pointed clients at. It follows
+    /// <see cref="RevokeMemberGrantAsync"/> exactly (gate decision on members:manage over the target,
+    /// refusal audit, the shared caller gate with grant coverage required, the self-lockout guard, the
+    /// no-escalation subset check, fail-closed nulls) and differs only in the act: revoke-and-reissue in ONE
+    /// store transaction, modelled on <see cref="HandOverAdministratorAsync"/>. Both audit rows carry one
+    /// correlation id and the reason "member-narrowed".
+    /// </remarks>
+    public async Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
+        string selectedSessionHandle,
+        string tenantId,
+        string grantId,
+        IReadOnlyCollection<string> narrowedPermissions,
+        AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorityTenant(tenantId, authority);
+        var request = authority.Request(
+            AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId);
+        var coverage = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+                requireGrantCoverage: true, request)
+            .ConfigureAwait(false);
+        if (context is null)
+        {
+            return null;
+        }
+
+        var decision = context.Decision;
+        if (narrowedPermissions is null || string.IsNullOrWhiteSpace(grantId)
+            || !Guid.TryParse(grantId, out var parsedGrant))
+        {
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotFound);
+        }
+
+        // Self-lockout guard: an admin cannot narrow the grant backing their own live session.
+        if (context.Session.PinnedGrantOwnerVersions.Any(pin =>
+                string.Equals(pin.GrantId, parsedGrant.ToString("D"), StringComparison.OrdinalIgnoreCase)))
+        {
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.SelfNarrowRefused);
+        }
+
+        var tenant = new TenantId(context.CanonicalTenantId);
+        var target = new GrantId(parsedGrant);
+        var existing = await _grantStore.FindAsync(tenant, target, cancellationToken).ConfigureAwait(false);
+        if (existing is null || existing.Status is GrantStatus.Revoked)
+        {
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotFound);
+        }
+
+        if (!string.Equals(context.Session.TenantPrincipalId, authority.Principal.Value, StringComparison.Ordinal))
+            throw new ArgumentException("The selected-session principal does not match the write authority.", nameof(authority));
+
+        // The set in force IS this grant's role atoms within this grant's scope -- the same projection the
+        // admin member list reads (ProjectUnattributedGrantCapabilitiesAsync), so the surface an
+        // administrator saw and the act they asked for compare one number.
+        var inForce = PermissionSet.From(
+            (await _authorization.RolePermissionsAsync(tenant, existing.Role, cancellationToken)
+                .ConfigureAwait(false))
+            .Atoms.Where(atom => atom.Scope.Intersect(existing.Scope) is not null)
+            .Select(atom => atom.Operation.Value));
+        var nextPermissions = PermissionSet.From(narrowedPermissions);
+        if (nextPermissions.Equals(inForce))
+        {
+            // Nothing to narrow. A no-op writes no grant and advances no epoch; reported as the
+            // non-enumerating status so a caller cannot probe a member's set by trying sets.
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotFound);
+        }
+        if (!nextPermissions.IsSubsetOf(inForce))
+        {
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotASubset);
+        }
+        // The no-escalation guard: an administrator cannot confer what their own set does not hold.
+        if (!nextPermissions.IsSubsetOf(context.CallerPermissions))
+        {
+            return null;
+        }
+
+        var correlationId = Guid.NewGuid();
+        var revocation = new GrantRevocation(
+            new ActorId(context.Session.TenantPrincipalId), authority.At,
+            new GrantReason(GrantReasonCodes.RevocationReview, correlationId.ToString("D")));
+        var narrowing = await _grantRevocations
+            .NarrowAsync(tenant, target, nextPermissions, revocation, correlationId, decision, cancellationToken)
+            .ConfigureAwait(false);
+        if (narrowing is null)
+        {
+            return new AdminNarrowMemberGrantResult(AdminNarrowMemberGrantStatus.NotFound);
+        }
+
+        // Both legs are audited against the act's OWN target -- the grant the decision admitted -- and carry
+        // the one correlation id; the reissued grant's id travels in the payload.
+        await AppendGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityRevoked, NarrowReason, correlationId,
+                narrowing.Reissued.GrantId, cancellationToken)
+            .ConfigureAwait(false);
+        await AppendGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityDelegated, NarrowReason, correlationId,
+                narrowing.Reissued.GrantId, cancellationToken)
+            .ConfigureAwait(false);
+        return new AdminNarrowMemberGrantResult(
+            AdminNarrowMemberGrantStatus.Narrowed, narrowing.Reissued.GrantId.ToString());
+    }
+
+    /// <inheritdoc />
     public async Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
         string selectedSessionHandle,
         string tenantId,
@@ -553,6 +701,9 @@ internal sealed class AdminTeamAccessAuthority(
 
     /// <summary>The audit reason both legs of a handover carry.</summary>
     private const string HandoverReason = "administrator-handover";
+
+    /// <summary>The audit reason both legs of a narrowing carry (ticket 362).</summary>
+    private const string NarrowReason = "member-narrowed";
 
     /// <summary>
     /// Ledger L618 — the atomic Administrator handover. The successor's grant and the outgoing holder's
