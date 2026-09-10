@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Harborline.Api.Foundation.LocalFirst.Installation;
@@ -25,6 +26,14 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
     /// <summary>Path containing the durable identity record.</summary>
     public string IdentityFilePath => _identityFilePath;
 
+    // Test seam: runs after a new record is durable and before it becomes visible at the
+    // identity path, so a test can observe what a concurrent launcher would see in that window.
+    internal Func<Task>? PublishBarrier { get; set; }
+
+    // Test seam: the POSIX link(2) the Unix publish path uses. Injecting it exercises that path,
+    // and its races, on Windows. Production leaves it null.
+    internal Func<string, string, int>? UnixLink { get; set; }
+
     /// <inheritdoc />
     public async ValueTask<InstallIdentity> GetInstallIdentityAsync(CancellationToken ct)
     {
@@ -38,25 +47,88 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
         }
 
         var identity = InstallIdentity.New();
+        var temporaryPath = $"{_identityFilePath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            await using var stream = new FileStream(
-                _identityFilePath,
+            await using (var stream = new FileStream(
+                temporaryPath,
                 FileMode.CreateNew,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: 4096,
-                FileOptions.Asynchronous | FileOptions.WriteThrough);
-            var bytes = Encoding.ASCII.GetBytes(identity.Value);
-            await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
-            await stream.FlushAsync(ct).ConfigureAwait(false);
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                var bytes = Encoding.ASCII.GetBytes(identity.Value);
+                await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
+                await stream.FlushAsync(ct).ConfigureAwait(false);
+            }
+
+            if (PublishBarrier is { } barrier)
+            {
+                await barrier().ConfigureAwait(false);
+            }
+
+            // The publish is also the election, and it must be atomic on every platform: either
+            // the whole record becomes visible at the identity path, or this launcher lost and
+            // reads the winner's complete record. A concurrent launcher never sees a partial
+            // record, which an in-place write exposed between create and write.
+            if (!TryPublish(temporaryPath))
+            {
+                return await ReadWhenAvailableAsync(ct).ConfigureAwait(false);
+            }
+
             return identity;
         }
         catch (IOException) when (File.Exists(_identityFilePath))
         {
             return await ReadWhenAvailableAsync(ct).ConfigureAwait(false);
         }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
+
+    /// <summary>Publishes the candidate at the identity path, or reports that another writer won.</summary>
+    private bool TryPublish(string temporaryPath)
+    {
+        if (UnixLink is null && OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.Move(temporaryPath, _identityFilePath, overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(_identityFilePath))
+            {
+                return false;
+            }
+        }
+
+        var link = UnixLink ?? Link;
+        if (link(temporaryPath, _identityFilePath) == 0)
+        {
+            return true;
+        }
+
+        var errno = Marshal.GetLastWin32Error();
+        if (errno == Eexist)
+        {
+            return false;
+        }
+
+        throw new IOException(
+            $"Publishing install identity record '{_identityFilePath}' failed with errno {errno}.");
+    }
+
+    // EEXIST is 17 on Linux and on macOS.
+    private const int Eexist = 17;
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int Link(string oldPath, string newPath);
 
     private async Task<InstallIdentity> ReadWhenAvailableAsync(CancellationToken ct)
     {
