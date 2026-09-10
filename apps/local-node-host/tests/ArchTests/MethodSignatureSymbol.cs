@@ -28,7 +28,8 @@ internal static class MethodSignatureSymbol
             : $"``{genericArguments.Length}[{string.Join(',', genericArguments.Select(FormatType))}]";
         var parameters = string.Join(',', method.GetParameters().Select(parameter => FormatType(parameter.ParameterType)));
         var returnType = method is MethodInfo methodInfo ? methodInfo.ReturnType : typeof(void);
-        return $"{FormatType(method.DeclaringType!)}.{method.Name}{genericSuffix}({parameters}): {FormatType(returnType)}";
+        return Normalize(
+            $"{FormatType(method.DeclaringType!)}.{method.Name}{genericSuffix}({parameters}): {FormatType(returnType)}");
     }
 
     private static IReadOnlyDictionary<Type, MethodBase> BuildStateMachineOwners(Assembly assembly)
@@ -53,6 +54,18 @@ internal static class MethodSignatureSymbol
             return exception.Types.OfType<Type>();
         }
     }
+
+    /// <summary>
+    /// The counter the compiler puts in a synthesized closure's name (<c>&lt;&gt;c__DisplayClass11_0</c>)
+    /// is not a source fact: it moves when an unrelated lambda is added above, and it differs between
+    /// toolchains, which made a pinned inventory row platform-dependent (ticket 151 s2 round 2; the same
+    /// break candidate D2 hit on macOS). Normalising it away leaves the row naming the METHOD it closes
+    /// over — the part a reviewer actually pinned — and keeps the inventory exact in every other respect.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex ClosureCounter =
+        new(@"<>(c__DisplayClass|c)\d+(_\d+)?", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static string Normalize(string symbol) => ClosureCounter.Replace(symbol, "<>$1");
 
     private static string FormatType(Type type)
     {

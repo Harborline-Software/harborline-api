@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Assets;
 
 namespace Harborline.Api.Foundation.Forms.DependencyInjection;
 
@@ -87,6 +88,7 @@ public static class FormsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(mutationStore);
+        services.AddEntityBodyAdmission();
         services.AddSingleton(sp =>
             new EntityStoreFormDefinitionStore(
                 sp.GetRequiredService<IEntityStore>(),

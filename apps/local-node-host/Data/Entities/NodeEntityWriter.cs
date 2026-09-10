@@ -22,14 +22,15 @@ public sealed class NodeEntityWriter(
     IEntityMutationStore entities,
     EntityBodyAdmission admission,
     NodeRecordSchemas schemas,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    AuthorizationGate gate,
+    EntityValidationRefusalAudit? refusals = null) : IEntityWriteCoordinator
 {
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         EntityBodyAdmission admission,
         NodeRecordSchemas schemas,
         AuthorizationGate gate)
-        : this(factory, null!, admission, schemas, gate)
+        : this(factory, null!, admission, schemas, gate, null)
     {
     }
 
@@ -74,10 +75,13 @@ public sealed class NodeEntityWriter(
             taxClassification = command.TaxClassification,
             commonControlGroupId = command.CommonControlGroupId,
         });
-        var validated = await admission.AdmitAsync(
+        var validated = await admission.AdmitAuditedAsync(
+            refusals,
             decision,
             await schemas.LegalEntityAsync().ConfigureAwait(false),
             candidate,
+            authority,
+            command.Id.Value,
             ct).ConfigureAwait(false);
 
         // The schema's enums are generated from these two enum types, so a validated body parses.
@@ -115,7 +119,8 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        var validated = await admission.AdmitAsync(decision, schema, body, ct).ConfigureAwait(false);
+        var validated = await admission.AdmitAuditedAsync(
+            refusals, decision, schema, body, authority, recordId, ct).ConfigureAwait(false);
         return await entities.CreateAsync(validated, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -134,7 +139,8 @@ public sealed class NodeEntityWriter(
         // names; the store re-checks the token's schema against the record before appending.
         var stored = await entities.GetAsync(id, default, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-        var validated = await admission.AdmitAsync(decision, stored.Schema, body, ct).ConfigureAwait(false);
+        var validated = await admission.AdmitAuditedAsync(
+            refusals, decision, stored.Schema, body, authority, id.LocalPart, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, validated, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

@@ -114,6 +114,30 @@ public static class OperatorCli
             };
             pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
+        else if (parsed.Command is ["entity", "create", "--file", var entityPath])
+        {
+            if (!File.Exists(entityPath))
+            {
+                await WriteErrorAsync(
+                    stderr,
+                    parsed.Json,
+                    "entity_file_not_found",
+                    $"Entity body file not found: {entityPath}").ConfigureAwait(false);
+                return 2;
+            }
+
+            // Ticket 151 slice 2 row 4c / brief test (e): the body is posted VERBATIM. The node's
+            // record-write route owns validation — the headless path runs the same IEntityValidator as
+            // the UI, and its 422 (code + pointers, no body echo) passes through to operator output.
+            pendingRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(parsed.BaseUri, "/api/local-node/entities"))
+            {
+                Content = new ByteArrayContent(
+                    await File.ReadAllBytesAsync(entityPath, cancellationToken).ConfigureAwait(false)),
+            };
+            pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
         else if (parsed.Command is ["export", "--scope", var scope])
         {
             pendingRequest = JsonPost(

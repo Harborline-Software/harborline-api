@@ -144,9 +144,11 @@ public static class EntityRoutes
             }
             catch (EntityValidationException ex)
             {
-                // The operator CLI renders reason + pointers; the body is never echoed back.
+                // The operator CLI renders reason + pointers; the body is never echoed back. A NAMED
+                // record with explicit JSON property names, and no prose `error` key — the Forms
+                // envelope convention FormsErrorEnvelopeArchTests already pins (ticket 151 row 4b).
                 return Results.UnprocessableEntity(
-                    new { error = ex.ReasonCode, detail = ex.Message, pointers = ex.Pointers });
+                    new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers));
             }
             catch (ArgumentException ex)
             {
@@ -187,6 +189,16 @@ public sealed record EntityItemDto(
 public sealed record EntityCreatedResponse(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("legalName")] string LegalName);
+
+/// <summary>
+/// The 422 a record write refused by the validator answers (ticket 151 slice 2 row 4b): the stable
+/// reason code, a detail that names no submitted value, and the RFC 6901 pointers that failed. No
+/// prose <c>error</c> key — clients localize off <see cref="Code"/>.
+/// </summary>
+public sealed record EntityValidationRefusal(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("detail")] string Detail,
+    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers);
 
 /// <summary>Request body for <c>POST /api/local-node/entities</c>.</summary>
 public sealed record CreateEntityRequest(

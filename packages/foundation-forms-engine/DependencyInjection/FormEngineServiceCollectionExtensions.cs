@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Macaroons;
 using Harborline.Api.Foundation.Recovery.Crypto;
 using Harborline.Api.Kernel.Schema;
+using Harborline.Api.Foundation.Assets;
 
 namespace Harborline.Api.Foundation.Forms.Engine.DependencyInjection;
 
@@ -64,6 +65,7 @@ public static class FormEngineServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(mutationStore);
+        services.AddEntityBodyAdmission();
         services.TryAddSingleton(options ?? new FormEngineOptions());
         services.TryAddSingleton<IAuthorizedFormEntityWriter>(sp => new AuthorizedFormEntityWriter(
             mutationStore(sp),

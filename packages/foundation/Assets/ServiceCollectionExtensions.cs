@@ -15,6 +15,27 @@ namespace Harborline.Api.Foundation.Assets;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    /// Registers <see cref="EntityBodyAdmission"/> — the only mint of the
+    /// <see cref="ValidatedBody"/> every entity write demands. Idempotent, and called by every
+    /// registration that composes something which writes through the mutation port, so a
+    /// definition store composed on its own (no asset backend) still builds.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="IEntityValidator"/> is bound lazily and resolved with
+    /// <c>GetRequiredService</c> at the first record-write admission, so a composition missing a
+    /// real validator raises on that write instead of accepting the body (ticket 151, ledger
+    /// L1418). Envelope and engine-validated mints do not touch the validator and therefore do not
+    /// force one to be registered.
+    /// </remarks>
+    public static IServiceCollection AddEntityBodyAdmission(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton(sp => new EntityBodyAdmission(
+            sp.GetRequiredService<IEntityValidator>));
+        return services;
+    }
+
+    /// <summary>
     /// Registers the in-memory backend: shared <see cref="InMemoryAssetStorage"/>, plus the
     /// four primitive services (<see cref="IEntityStore"/>, <see cref="IVersionStore"/>,
     /// <see cref="IAuditLog"/>, <see cref="IHierarchyService"/>) and
@@ -38,7 +59,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<InMemoryAssetStorage>();
         services.TryAddSingleton<IVersionObserver>(NullVersionObserver.Instance);
         services.TryAddSingleton<IAuditContextProvider>(NullAuditContextProvider.Instance);
-        services.TryAddSingleton(sp => new EntityBodyAdmission(sp.GetRequiredService<IEntityValidator>()));
+        services.AddEntityBodyAdmission();
 
         var backends = new ConditionalWeakTable<IServiceProvider, Lazy<InMemoryAssetBackends>>();
         InMemoryAssetBackends Backends(IServiceProvider provider) => backends.GetValue(

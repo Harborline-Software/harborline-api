@@ -45,9 +45,29 @@ public sealed class ValidatedBody
 /// <summary>
 /// The write pipeline's second stage, and the only mint of <see cref="ValidatedBody"/>.
 /// </summary>
-public sealed class EntityBodyAdmission(IEntityValidator validator)
+public sealed class EntityBodyAdmission
 {
-    private readonly IEntityValidator _validator = validator ?? throw new ArgumentNullException(nameof(validator));
+    private readonly Func<IEntityValidator> _validator;
+
+    /// <summary>Binds a fixed validator (tests and hand-wired compositions).</summary>
+    public EntityBodyAdmission(IEntityValidator validator)
+    {
+        ArgumentNullException.ThrowIfNull(validator);
+        _validator = () => validator;
+    }
+
+    /// <summary>
+    /// Binds the validator lazily, so a composition that only mints envelope or engine-validated
+    /// tokens (a definition store with no record type in sight) does not have to register an
+    /// <see cref="IEntityValidator"/> to build its graph. The record path is unchanged: the first
+    /// <see cref="AdmitAsync"/> resolves the real validator, and a composition without one raises
+    /// there rather than persisting an unvalidated body.
+    /// </summary>
+    public EntityBodyAdmission(Func<IEntityValidator> validator)
+    {
+        ArgumentNullException.ThrowIfNull(validator);
+        _validator = validator;
+    }
 
     /// <summary>
     /// Validates a caller-supplied body against <paramref name="schema"/> and mints its token.
@@ -70,7 +90,7 @@ public sealed class EntityBodyAdmission(IEntityValidator validator)
                 + "without an allowed gate decision (ADR 0065 clause 4 orders gate, validation, persistence).");
         }
 
-        await _validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        await _validator().ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return new ValidatedBody(schema, body);
     }
 

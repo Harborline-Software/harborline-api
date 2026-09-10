@@ -113,6 +113,11 @@ public static class NodeFormsComposition
                 "calling AddHarborlineKernelAudit or AddEnrollmentCompensatingControlAudit before AddNodeForms.");
         }
 
+        // (0) Ticket 151 row 4d: the sink a refused record write's trace entry is written through.
+        //     Registered HERE, not at one hand-wired Program.cs argument, so every production
+        //     composition of this graph records the refusal (the composition lesson of 151 s2).
+        services.TryAddSingleton<Entities.EntityValidationRefusalAudit>();
+
         // (1a) Content-addressed blob store fallback for non-schema consumers
         //      (e.g. org-branding assets). The schema registry no longer touches
         //      IBlobStore — schema bytes live inline on the Schema record (card

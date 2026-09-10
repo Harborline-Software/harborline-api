@@ -20,3 +20,17 @@ internal static class TestNodeRecordSchemas
         .BuildServiceProvider()
         .GetRequiredService<ISchemaRegistry>();
 }
+
+/// <summary>
+/// The EF-only writer shape the legal-entity POST needs (no mutation port): the internal ctor
+/// <c>EntityRouteTests</c> and the judge's row-4b route harness both build.
+/// </summary>
+internal static class TestEntityWriters
+{
+    internal static NodeEntityWriter OverEf(
+        Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext> factory,
+        Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission admission,
+        NodeRecordSchemas schemas,
+        Harborline.Api.Foundation.Authorization.AuthorizationGate gate) =>
+        new(factory, admission, schemas, gate);
+}

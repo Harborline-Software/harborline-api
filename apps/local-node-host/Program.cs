@@ -2252,7 +2252,8 @@ builder.Services.AddNodeForms(
             entityMutations(sp),
             sp.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.EntityBodyAdmission>(),
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordSchemas>(),
-            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
+            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.EntityValidationRefusalAudit>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
         services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(sp =>
@@ -2265,7 +2266,8 @@ builder.Services.AddNodeForms(
                 hierarchyMutations(sp),
                 sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(),
                 sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
-                sp.GetRequiredService<TimeProvider>()));
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.EntityValidationRefusalAudit>()));
         services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
     });
 

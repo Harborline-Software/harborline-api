@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Assets;
 
 namespace Harborline.Api.Blocks.Workflow.Durable;
 
@@ -110,6 +111,7 @@ public static class DurableWorkflowServiceCollectionExtensions
         // An interpreter / instantiation / D7-re-pin path injects the execution face, so load-for-execution
         // can only traverse the re-admitting reads (GetAdmitted*Async) — the safe path is the only path a
         // DI-resolved executor can reach. One instance backs both so authoring + execution never desync.
+        services.AddEntityBodyAdmission();
         services.TryAddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         services.AddSingleton(sp =>
             new EntityStoreWorkflowDefinitionStore(

@@ -44,7 +44,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyCompositeUnitOfWork unitOfWork,
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
-    TimeProvider timeProvider) : IHierarchyCompositeCoordinator
+    TimeProvider timeProvider,
+    EntityValidationRefusalAudit? refusals = null) : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
@@ -211,8 +212,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
             var targetDecision = authorization.Require(replacementIds[index]);
-            var validatedTarget = await admission
-                .AdmitAsync(targetDecision, target.Schema, target.Body, ct).ConfigureAwait(false);
+            var validatedTarget = await admission.AdmitAuditedAsync(
+                refusals, targetDecision, target.Schema, target.Body,
+                new AuthorizationWriteContext(actor, tenant, effectiveAt),
+                replacementIds[index].LocalPart, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
                 validatedTarget, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
@@ -273,8 +276,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
         var mergeDecision = authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
-        var validatedMerge = await admission
-            .AdmitAsync(mergeDecision, newSchema, newBody, ct).ConfigureAwait(false);
+        var validatedMerge = await admission.AdmitAuditedAsync(
+            refusals, mergeDecision, newSchema, newBody,
+            new AuthorizationWriteContext(actor, tenant, effectiveAt),
+            expectedNewId.LocalPart, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
             validatedMerge, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)

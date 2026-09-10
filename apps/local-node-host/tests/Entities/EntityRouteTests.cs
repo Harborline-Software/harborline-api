@@ -493,7 +493,9 @@ public sealed class EntityRouteTests : IAsyncLifetime
         var problem = await resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(
             Harborline.Api.Foundation.Assets.Entities.EntityValidationException.BodyInvalid,
-            problem.GetProperty("error").GetString());
+            problem.GetProperty("code").GetString());
+        // Ticket 151 row 4b: the typed DTO carries the code under "code"; no prose `error` key survives.
+        Assert.False(problem.TryGetProperty("error", out _));
         Assert.Contains(
             pointer,
             problem.GetProperty("pointers").EnumerateArray().Select(p => p.GetString()));
