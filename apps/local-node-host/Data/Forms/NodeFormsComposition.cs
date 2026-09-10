@@ -123,6 +123,11 @@ public static class NodeFormsComposition
         // (1b) Kernel schema registry — JSON-Schema 2020-12 validation core (the
         //      engine's ValidateAsync resolves ISchemaRegistry).
         services.AddHarborlineKernelSchemaRegistry();
+        // Ticket 151 L1418: the live node validates every form-instance body through
+        // the authority registry. Tests that compose assets alone may still opt into
+        // NullEntityValidator, but the shipping host never does.
+        services.TryAddSingleton<IEntityValidator>(sp => new SchemaRegistryEntityValidator(
+            sp.GetRequiredService<ISchemaRegistry>()));
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore

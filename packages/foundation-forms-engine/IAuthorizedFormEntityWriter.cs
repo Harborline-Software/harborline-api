@@ -20,7 +20,9 @@ public interface IAuthorizedFormEntityWriter
         CancellationToken ct = default);
 }
 
-internal sealed class AuthorizedFormEntityWriter(IEntityMutationStore entities) : IAuthorizedFormEntityWriter
+internal sealed class AuthorizedFormEntityWriter(
+    IEntityMutationStore entities,
+    IEntityValidator validator) : IAuthorizedFormEntityWriter
 {
     public Task<EntityId> CreateAsync(
         FormDefinitionId form,
@@ -36,6 +38,16 @@ internal sealed class AuthorizedFormEntityWriter(IEntityMutationStore entities) 
             options.Tenant,
             "forms",
             form.Value);
-        return entities.CreateAsync(schema, body, options, ct);
+        return CreateValidatedAsync(schema, body, options, ct);
+    }
+
+    private async Task<EntityId> CreateValidatedAsync(
+        SchemaId schema,
+        JsonDocument body,
+        CreateOptions options,
+        CancellationToken ct)
+    {
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        return await entities.CreateAsync(schema, body, options, ct).ConfigureAwait(false);
     }
 }

@@ -112,6 +112,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +127,11 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
+        }
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

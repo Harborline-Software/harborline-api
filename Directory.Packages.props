@@ -53,6 +53,11 @@
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0"/>
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0"/>
     <PackageVersion Include="JsonSchema.Net" Version="9.2.2"/>
+    <!-- Corvus.Json.Validator (Apache-2.0): runtime-compiled JSON Schema validator
+         used by the entity validation boundary. Kept separate from the registry's
+         JsonSchema.Net query/evaluation implementation while the two engines are
+         compared for ticket 151. -->
+    <PackageVersion Include="Corvus.Json.Validator" Version="5.5.5"/>
     <PackageVersion Include="MessagePack" Version="3.1.8"/>
     <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-preview.5.26302.115"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-preview.5.26302.115"/>
