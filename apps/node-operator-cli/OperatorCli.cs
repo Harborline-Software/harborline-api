@@ -114,6 +114,31 @@ public static class OperatorCli
             };
             pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
+        else if (parsed.Command is ["record", "create", "--file", var recordPath])
+        {
+            // Ticket 151: the headless record write. The document is posted verbatim — the node's route
+            // and the authority's validator own the body's shape, and the CLI reshaping it would be a
+            // second authoring surface. A refusal (422 + code + pointers) reaches operator output through
+            // the ordinary JSON error pass-through below.
+            if (!File.Exists(recordPath))
+            {
+                await WriteErrorAsync(
+                    stderr,
+                    parsed.Json,
+                    "record_file_not_found",
+                    $"Record file not found: {recordPath}").ConfigureAwait(false);
+                return 2;
+            }
+
+            pendingRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(parsed.BaseUri, "/api/local-node/entities"))
+            {
+                Content = new ByteArrayContent(
+                    await File.ReadAllBytesAsync(recordPath, cancellationToken).ConfigureAwait(false)),
+            };
+            pendingRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
         else if (parsed.Command is ["export", "--scope", var scope])
         {
             pendingRequest = JsonPost(

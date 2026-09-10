@@ -21,13 +21,15 @@ public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
     IEntityValidator validator,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    AuthorizationGate gate,
+    Health.AuthorizationRefusalAudit? refusalAudit = null) : IEntityWriteCoordinator
 {
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         IEntityValidator validator,
-        AuthorizationGate gate)
-        : this(factory, null!, validator, gate)
+        AuthorizationGate gate,
+        Health.AuthorizationRefusalAudit? refusalAudit = null)
+        : this(factory, null!, validator, gate, refusalAudit)
     {
     }
 
@@ -81,7 +83,9 @@ public sealed class NodeEntityWriter(
             commonControlGroupId = command.CommonControlGroupId,
         }, CandidateJson))
         {
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
+            await RecordWriteValidation.ValidateAsync(
+                validator, refusalAudit, Health.EntityRoutes.LegalEntitySchema, candidate,
+                authority.Principal, authority.Tenant, authority.At, ct).ConfigureAwait(false);
         }
 
         // The schema admitted the body; these parses only turn admitted text into the domain enums.
@@ -126,7 +130,9 @@ public sealed class NodeEntityWriter(
         // relying on the store's pre-commit hook is what makes the records path carry stage two on
         // every caller — the hook is shared with platform-definition writes whose envelopes are
         // admitted by their own lifecycle.
-        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        await RecordWriteValidation.ValidateAsync(
+            validator, refusalAudit, schema, body, authority.Principal, authority.Tenant, authority.At, ct)
+            .ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -143,7 +149,9 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
         var current = await entities.GetAsync(id, default, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Entity '{id}' does not exist.", nameof(id));
-        await validator.ValidateAsync(current.Schema, body, ct).ConfigureAwait(false);
+        await RecordWriteValidation.ValidateAsync(
+            validator, refusalAudit, current.Schema, body, authority.Principal, authority.Tenant, authority.At, ct)
+            .ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

@@ -44,7 +44,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
     TimeProvider timeProvider,
-    IEntityValidator? validator = null) : IHierarchyCompositeCoordinator
+    IEntityValidator? validator = null,
+    Health.AuthorizationRefusalAudit? refusalAudit = null) : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
@@ -216,7 +217,9 @@ public sealed class NodeHierarchyCompositeCoordinator(
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
             authorization.Require(replacementIds[index]);
-            await _validator.ValidateAsync(target.Schema, target.Body, ct).ConfigureAwait(false);
+            await RecordWriteValidation.ValidateAsync(
+                _validator, refusalAudit, target.Schema, target.Body, actor, tenant, effectiveAt, ct)
+                .ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
                 target.Schema, target.Body, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
@@ -277,7 +280,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
         authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
-        await _validator.ValidateAsync(newSchema, newBody, ct).ConfigureAwait(false);
+        await RecordWriteValidation.ValidateAsync(
+            _validator, refusalAudit, newSchema, newBody, actor, tenant, effectiveAt, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
             newSchema, newBody, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)

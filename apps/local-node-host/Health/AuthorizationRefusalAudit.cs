@@ -87,6 +87,66 @@ public sealed class AuthorizationRefusalAudit
         CancellationToken ct = default) =>
         RecordCoreAsync(refusal, permission, principal, tenant, at, null, AuthorizationRefusalClearedEventType, ct);
 
+    /// <summary>The event type a record write refused by the authority's validator is recorded under.</summary>
+    public static readonly AuditEventType RecordWriteValidationRefusedEventType =
+        new("RecordWriteValidationRefused");
+
+    /// <summary>
+    /// Records a stage-two refusal — the gate allowed the act and the authority's
+    /// <see cref="Harborline.Api.Foundation.Assets.Entities.IEntityValidator"/> then refused the body
+    /// (ticket 151, judge row 4d). The row carries the named reason code and the RFC 6901 pointers in the
+    /// same <see cref="AuthorizationPreDecisionRefusal"/> shape the trace reader already understands, and
+    /// NEVER a value from the body: a refused write must be reviewable without re-exposing what was written.
+    /// Fail-safe-but-loud, exactly like a refusal row.
+    /// </summary>
+    public async ValueTask<Guid?> RecordValidationRefusalAsync(
+        Harborline.Api.Foundation.Assets.Entities.EntityValidationException refusal,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        try
+        {
+            var pointers = refusal.Pointers.Count == 0 ? "(root)" : string.Join(" ", refusal.Pointers);
+            var body = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["code"] = refusal.ReasonCode,
+                ["permission"] = permission,
+                ["pointers"] = refusal.Pointers,
+                ["preDecision"] = false,
+                ["preDecisionRefusal"] = new AuthorizationPreDecisionRefusal(
+                    refusal.ReasonCode,
+                    pointers,
+                    "Correct the body at the pointers above and resubmit."),
+            };
+            var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid(), ct)
+                .ConfigureAwait(false);
+            var record = new AuditRecord(
+                AuditId: Guid.NewGuid(),
+                TenantId: tenant,
+                EventType: RecordWriteValidationRefusedEventType,
+                OccurredAt: at,
+                Payload: payload,
+                AttestingSignatures: [],
+                Actor: principal,
+                Target: null,
+                Act: null);
+            await _trail.AppendAsync(record, ct).ConfigureAwait(false);
+            return record.AuditId;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex,
+                "Record-write validation refusal audit append FAILED (tenant {Tenant}, code {Code}) — the "
+                + "write was still refused but its audit row was not written.",
+                tenant, refusal.ReasonCode);
+            return null;
+        }
+    }
+
     private async ValueTask<Guid?> RecordCoreAsync(
         AuthorizationRefusal refusal,
         string permission,

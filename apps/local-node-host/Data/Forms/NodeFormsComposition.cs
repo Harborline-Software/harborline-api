@@ -126,29 +126,38 @@ public static class NodeFormsComposition
         //      engine's ValidateAsync resolves ISchemaRegistry).
         services.AddHarborlineKernelSchemaRegistry();
 
-        // (1b.1) Ticket 151 / L1418 — the REAL pre-commit entity validator over that registry, in place of
-        //        the NullEntityValidator null object the records write path used to resolve. Registered as
-        //        its own type rather than as the shared IEntityValidator seam on purpose: that seam is the
-        //        entity store's hook, which also sees platform-definition envelopes
-        //        (EntityStoreFormDefinitionStore.DefinitionSchema, EntityStoreWorkflowDefinitionStore
-        //        .DefinitionSchema — ids no registry holds) and form-instance bodies AFTER field protection
-        //        (FormEngine.ProtectFieldsAsync rewrites classified fields into envelope objects), neither of
-        //        which a records schema can judge. The records coordinators take this validator directly, so
-        //        gate → validator → persistence holds on the records path without mis-judging those writes.
+        // (1b.1) Ticket 151 / L1418 — the REAL pre-commit entity validator over that registry, IN PLACE OF
+        //        the NullEntityValidator null object. It is the container's IEntityValidator: any
+        //        composition of this graph — not only the hand-wired Program.cs call sites — resolves a
+        //        validator that refuses an unknown schema and an invalid body. Registered before
+        //        AddHarborlineAssetsInMemory below, whose TryAddSingleton null-object default is therefore
+        //        a no-op.
         services.TryAddSingleton(sp => new SchemaRegistryEntityValidator(
             sp.GetRequiredService<Harborline.Api.Kernel.Schema.ISchemaRegistry>(),
             Harborline.Api.LocalNodeHost.Data.Entities.NodeRecordsSchemas.All));
+        services.TryAddSingleton<IEntityValidator>(sp => sp.GetRequiredService<SchemaRegistryEntityValidator>());
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore
         //     and emits one IAuditLog.AppendAsync per save (INV-S4).
         Func<IServiceProvider, IEntityMutationStore> entityMutations = null!;
         Func<IServiceProvider, IHierarchyCompositeUnitOfWork> hierarchyMutations = null!;
-        services.AddHarborlineAssetsInMemory((entities, hierarchy) =>
-        {
-            entityMutations = entities;
-            hierarchyMutations = hierarchy;
-        });
+        // The entity store's own pre-commit hook keeps the null object ON PURPOSE (ticket 151): the
+        // records coordinators above it already run the real validator, so the hook would evaluate a record
+        // body a second time, and the hook ALSO sees writes a records schema cannot judge — form instances
+        // AFTER field protection (FormEngine.ProtectFieldsAsync rewrites classified fields into encryption
+        // envelopes, so the stored body no longer satisfies the form's own schema the engine already
+        // validated on the cleartext candidate) and platform definition envelopes whose ids no registry
+        // minted (EntityStoreFormDefinitionStore / EntityStoreWorkflowDefinitionStore). What holds the
+        // record path is RecordWriteValidatedWriterFence (judge row 6): every production caller of the
+        // store's create/update is a named writer that gates then validates.
+        services.AddHarborlineAssetsInMemory(
+            (entities, hierarchy) =>
+            {
+                entityMutations = entities;
+                hierarchyMutations = hierarchy;
+            },
+            static _ => NullEntityValidator.Instance);
 
         // (3) Macaroon primitives the form-capability issuer/verifier resolve.
         //     The host does not call AddHarborlineDecentralization (it has no need

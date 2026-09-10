@@ -25,11 +25,20 @@ public static class ServiceCollectionExtensions
     /// (<see cref="IEntityValidator"/>, <see cref="IVersionObserver"/>,
     /// <see cref="IAuditContextProvider"/>); consumers can override them via
     /// <c>services.Replace(...)</c> or direct <c>TryAddSingleton</c> / <c>AddSingleton</c>.
+    /// <para>
+    /// <paramref name="storeValidator"/> names the validator THIS store hook runs, independently of the
+    /// container's <see cref="IEntityValidator"/> registration: a host whose record coordinators already
+    /// validate (ticket 151) registers the real validator in the container and hands the hook the null
+    /// object, so a record body is evaluated exactly once per write and the other write shapes the hook
+    /// sees — form instances after field protection, platform definition envelopes — are not judged by a
+    /// records schema they were never written against.
+    /// </para>
     /// </remarks>
     public static IServiceCollection AddHarborlineAssetsInMemory(
         this IServiceCollection services,
         Action<Func<IServiceProvider, IEntityMutationStore>,
-            Func<IServiceProvider, IHierarchyCompositeUnitOfWork>>? configureWriters = null)
+            Func<IServiceProvider, IHierarchyCompositeUnitOfWork>>? configureWriters = null,
+        Func<IServiceProvider, IEntityValidator>? storeValidator = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -41,10 +50,10 @@ public static class ServiceCollectionExtensions
         var backends = new ConditionalWeakTable<IServiceProvider, Lazy<InMemoryAssetBackends>>();
         InMemoryAssetBackends Backends(IServiceProvider provider) => backends.GetValue(
             provider,
-            static sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
+            sp => new Lazy<InMemoryAssetBackends>(() => new InMemoryAssetBackends(
                     sp.GetRequiredService<InMemoryAssetStorage>(),
                     sp.GetRequiredService<TimeProvider>(),
-                    sp.GetService<IEntityValidator>(),
+                    storeValidator is null ? sp.GetService<IEntityValidator>() : storeValidator(sp),
                     sp.GetService<IVersionObserver>()),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
