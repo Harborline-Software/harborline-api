@@ -2548,7 +2548,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         string parseError;
         try
         {
-            if (!PackAssetTypeContent.TryParse(item.ParseContent(), out id, out descriptor, out parseError))
+            if (!PackAssetTypeContent.TryParse(
+                    item.ParseContent(), item.Version, FormVersionByKey(pack), out id, out descriptor, out parseError))
             {
                 _logger.LogWarning(
                     "PackSeedProjector: skipping malformed AssetTypeDefinition '{Key}' (pack {Pack} v{Version}): "
@@ -2605,6 +2606,20 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         }
     }
 
+    /// <summary>
+    /// Resolves a pack-local <c>FormDefinition</c> content key to the version that leaf declares — the SAME
+    /// (key, version) tuple <see cref="ProjectFormDefinitionAsync"/> publishes the form under
+    /// (<c>new FormDefinitionId(item.Key)</c> / <c>SemanticVersion.Parse(item.Version)</c>). An
+    /// <c>AssetTypeDefinition</c>'s <c>propertyFormBinding</c> therefore resolves to the INSTALLED form's
+    /// identity through one key space, never a second one; a key the pack does not carry resolves to
+    /// <see langword="null"/> and the type refuses (verify already refuses such a pack outright).
+    /// </summary>
+    private static Func<string, string?> FormVersionByKey(InstalledPack pack)
+        => key => pack.SeedItems
+            .FirstOrDefault(i => i.Kind == PackContentKind.FormDefinition
+                                 && string.Equals(i.Key, key, StringComparison.Ordinal))
+            ?.Version;
+
     private enum AssetTypeOutcome
     {
         Seeded,
@@ -2619,7 +2634,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         try
         {
-            if (!PackAssetTypeContent.TryParse(item.ParseContent(), out var id, out _, out _))
+            if (!PackAssetTypeContent.TryParse(
+                    item.ParseContent(), item.Version, FormVersionByKey(pack), out var id, out _, out _))
             {
                 return new RetractionResult(RetractionOutcome.AlreadyRetracted);
             }

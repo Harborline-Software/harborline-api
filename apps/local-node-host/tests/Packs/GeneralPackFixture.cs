@@ -47,7 +47,8 @@ internal static class GeneralPackFixture
         foreach (var (key, body) in RawContents())
         {
             Assert.True(
-                PackAssetTypeContent.TryParse(body, out var id, out var descriptor, out var error),
+                PackAssetTypeContent.TryParse(
+                    body, "1.0.0", formVersionByKey: null, out var id, out var descriptor, out var error),
                 $"fixture '{key}' should parse: {error}");
             result.Add((id, descriptor));
         }

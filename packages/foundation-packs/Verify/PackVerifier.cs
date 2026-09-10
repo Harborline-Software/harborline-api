@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Model;
@@ -81,6 +84,18 @@ public sealed class PackVerifier : IPackVerifier
         if (dcpCheck is not null)
         {
             return dcpCheck;
+        }
+
+        // (3c) Intra-pack content-reference binding (ticket 357). An AssetTypeDefinition's
+        //      propertyFormBinding is a content key into THIS pack's FormDefinition leaves — the one key
+        //      space install publishes the form under. A binding naming a leaf the pack does not carry
+        //      (a cross-pack binding, or a typo) would dangle after activation, so it is refused BY NAME
+        //      here rather than silently dropped at projection; a binding under a content version older
+        //      than the shape that introduced the field is likewise refused, never read.
+        var bindingCheck = VerifyFormBindings(verifiedItems!, keyId, epoch);
+        if (bindingCheck is not null)
+        {
+            return bindingCheck;
         }
 
         // (4) Epoch-aware trust resolution.
@@ -183,6 +198,68 @@ public sealed class PackVerifier : IPackVerifier
 
         verifiedItems = items;
         return null;
+    }
+
+    /// <summary>
+    /// The content-shape version that introduced <c>propertyFormBinding</c> on an
+    /// <c>AssetTypeDefinition</c> body — the host-side parser
+    /// (<c>PackAssetTypeContent.FormBindingShapeVersion</c>) pins the same number; a leaf declaring less
+    /// than this may not carry the field.
+    /// </summary>
+    private const string FormBindingShapeVersion = "1.1.0";
+
+    /// <summary>
+    /// Verifies that every <c>AssetTypeDefinition</c> property-form binding names a <c>FormDefinition</c>
+    /// leaf of the SAME pack, under a declared content version that admits the field. Returns a failing
+    /// result on the first offending leaf (codes are distinct + order-stable), else <c>null</c>.
+    /// </summary>
+    private static PackVerificationResult? VerifyFormBindings(
+        IReadOnlyList<PackContentItem> items,
+        PrincipalId keyId,
+        long epoch)
+    {
+        var formKeys = new HashSet<string>(
+            items.Where(i => i.Kind == PackContentKind.FormDefinition).Select(i => i.Key),
+            StringComparer.Ordinal);
+        var errors = new List<string>();
+
+        foreach (var item in items.Where(i => i.Kind == PackContentKind.AssetTypeDefinition))
+        {
+            string? binding;
+            try
+            {
+                binding = JsonNode.Parse(item.CanonicalBytes.Span) is JsonObject obj
+                          && obj.TryGetPropertyValue("propertyFormBinding", out var node)
+                          && node is JsonValue value
+                          && value.TryGetValue<string>(out var key)
+                    ? key.Trim()
+                    : null;
+            }
+            catch (JsonException)
+            {
+                // An unparseable body carries no binding we can judge; the projector refuses it as
+                // malformed. Verification is about the signed bytes, not the per-kind content contract.
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(binding))
+            {
+                continue;
+            }
+
+            if (Install.PackVersion.Compare(item.Version ?? string.Empty, FormBindingShapeVersion) < 0)
+            {
+                errors.Add(PackVerificationCodes.FormBindingSchemaUnsupported);
+            }
+            else if (!formKeys.Contains(binding))
+            {
+                errors.Add(PackVerificationCodes.FormBindingNotInPack);
+            }
+        }
+
+        return errors.Count == 0
+            ? null
+            : PackVerificationResult.Fail(errors.Distinct().ToList(), keyId, epoch);
     }
 
     /// <summary>
