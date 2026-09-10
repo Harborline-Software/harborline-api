@@ -196,6 +196,27 @@ else
 fi
 git fetch -q origin || { echo "land: fetch failed before landing; refusing"; exit 1; }
 [ "$(git rev-parse origin/main)" = "$base_sha" ] || { echo "land: origin/main moved during the gate ($(git rev-parse --short origin/main) != $(git rev-parse --short "$base_sha")); nothing landed. Merge main into the branch, regate, rerun."; exit 1; }
+# Ticket 350: fresh and re-pinned PRs can have required GitHub checks that have not reported yet.
+# The landing gate already proved this tree, so wait for that bookkeeping before requesting the merge.
+checks_wait=${LAND_CHECKS_WAIT:-1800}
+checks_delay=${LAND_CHECKS_DELAY:-30}
+case "$checks_wait" in ''|*[!0-9]*) echo "land: LAND_CHECKS_WAIT must be a positive integer"; exit 2;; esac
+[ "$checks_wait" -gt 0 ] || { echo "land: LAND_CHECKS_WAIT must be a positive integer"; exit 2; }
+case "$checks_delay" in ''|*[!0-9]*) echo "land: LAND_CHECKS_DELAY must be a positive integer"; exit 2;; esac
+[ "$checks_delay" -gt 0 ] || { echo "land: LAND_CHECKS_DELAY must be a positive integer"; exit 2; }
+checks_elapsed=0
+while :; do
+  checks_pending=$(gh pr view "$pr" --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.status != null and .status != "COMPLETED" and .conclusion != "SKIPPED")] | length') || { echo "land: cannot read GitHub's required checks; nothing landed. Rerun land.sh."; exit 1; }
+  case "$checks_pending" in ''|*[!0-9]*) echo "land: cannot read GitHub's required checks; nothing landed. Rerun land.sh."; exit 1;; esac
+  [ "$checks_pending" -eq 0 ] && break
+  [ "$checks_elapsed" -lt "$checks_wait" ] || { echo "land: GitHub's required checks are still running after ${checks_wait}s; nothing landed. Rerun land.sh."; exit 1; }
+  echo "land: waiting for GitHub's required checks ($checks_pending running, ${checks_elapsed}s)"
+  checks_sleep=$checks_delay
+  checks_remaining=$((checks_wait - checks_elapsed))
+  [ "$checks_sleep" -le "$checks_remaining" ] || checks_sleep=$checks_remaining
+  sleep "$checks_sleep"
+  checks_elapsed=$((checks_elapsed + checks_sleep))
+done
 # shellcheck source=land-resolve.sh
 source "$root/eng/land-resolve.sh"
 gate_main='verify_dir="$root/.claude/worktrees/land-verify-$$"; verify_scratch="$root/.claude/worktrees/land-scratch-$$"; verify_log="$verify_scratch/land-verify.log"; preserved_verify_log="$root/.claude/land-verify-$$.log"; git worktree add --detach "$verify_dir" origin/main -q && mkdir -p "$(dirname "$verify_log")" && run_land_verify "$verify_dir" "$verify_log" && ( cd "$verify_dir" && node eng/verify-receipt.mjs --landing ); rc=$?; cp "$verify_log" "$preserved_verify_log" || true; git worktree remove --force "$verify_dir" >/dev/null 2>&1 || true; rm -rf "$verify_scratch"; [ $rc -eq 0 ]'
