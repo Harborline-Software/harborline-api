@@ -43,6 +43,7 @@ export const requiredStepIds = [
   'install-artefact',
   'exact-clone',
   'quality',
+  'quality-baseline',
   'packages',
 ]
 
