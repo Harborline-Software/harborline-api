@@ -41,8 +41,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// (ADR 0160 R3-D). Resolving the member's real read scope is MTW-3; this MTW-2 fence only stops inheritance.
 /// On the desktop plane, the tenant comes from the active-team (<c>NodeTenant.Resolve</c>) — the Harborline App
 /// sends no tenant. The acting principal comes from
-/// <see cref="CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal"/> (<c>os:&lt;user&gt;</c>) — NOT a
-/// caller-supplied query param. This is the SAME helper the dev grant seed
+/// the current node's canonical roster principal — NOT a caller-supplied query param. This is the SAME key the dev grant seed
 /// (<see cref="KgCalendarDevIndexer"/>) uses to key the grant, so the route's <see cref="ActorId"/> and the
 /// grant's <c>PrincipalId</c> are the IDENTICAL string (the pinned footgun: a divergence would drop every
 /// row). The clip's <c>at</c> snapshot comes from the composition-root clock.
@@ -73,11 +72,13 @@ public static class KgSearchRoutes
         IEndpointRouteBuilder app,
         NodeSearchReadService readService,
         IActiveTeamAccessor activeTeam,
+        Func<ActorId> currentPrincipal,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(readService);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(currentPrincipal);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         app.MapGet($"{RouteBase}/search", async (
@@ -95,7 +96,7 @@ public static class KgSearchRoutes
             }
 
             // ADR 0160 R3-D / card #3384 — a hosted-web member cannot consume the desktop active-team
-            // tenant or the os:<user> principal. Their real read scope is MTW-3 and does not exist yet,
+            // tenant or the desktop principal. Their real read scope is MTW-3 and does not exist yet,
             // so use search's already-defined fail-closed shape: an indistinguishable empty 200 result.
             // The SAME ambient plane signal drives the authorization and route-family fences; adding a
             // second ambient context holder would let the safety controls disagree about which plane is acting.
@@ -106,9 +107,9 @@ public static class KgSearchRoutes
 
             var tenantId = NodeTenant.Resolve(activeTeam);
 
-            // DESKTOP plane only: resolve the acting principal server-side (not caller-supplied) — the
-            // same os:<user> form the dev grant seed keys on, so the clip authorizes the seeded records.
-            var principalId = new ActorId(CurrentPrincipalSignatureRoutes.ResolveCurrentPrincipal().Id);
+            // DESKTOP plane only: resolve the acting canonical tenant principal server-side (not caller-
+            // supplied). The roster edge and grant-store subject use this same one key (294 s2b).
+            var principalId = currentPrincipal();
 
             var effectiveLimit = limit ?? NodeSearchReadService.DefaultLimit;
 

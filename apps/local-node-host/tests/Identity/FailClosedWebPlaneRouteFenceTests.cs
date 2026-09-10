@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Authorization.DependencyInjection;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Serialization;
@@ -26,6 +27,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Capabilities;
 using Harborline.Api.LocalNodeHost.Data.Compose;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -492,6 +494,11 @@ public sealed class FailClosedWebPlaneRouteFenceTests
     [Fact]
     public async Task Current_principal_signature_refuses_when_listener_opens_no_attribution_scope()
     {
+        using var signer = new NodePrincipalSigner(Enumerable.Repeat((byte)0x45, 32).ToArray());
+        var roster = new NodeTeamRoster(MemberRoster.Genesis(
+            Guid.Parse("29400000-0000-4000-8000-000000000001"), "fence-principal", signer.Signer,
+            new Ed25519Verifier(), DateTimeOffset.UnixEpoch,
+            Guid.Parse("29400000-0000-4000-8000-000000000002")));
         using var services = new ServiceCollection()
             .AddTestKernelClock()
             .AddLogging()
@@ -504,10 +511,10 @@ public sealed class FailClosedWebPlaneRouteFenceTests
             new LocalNodeExecutableEndpointRegistry(),
             services.GetRequiredService<ILogger<SharedHostedWebApp>>(),
             services.GetRequiredService<TimeProvider>());
-        using var signer = new NodePrincipalSigner(Enumerable.Repeat((byte)0x45, 32).ToArray());
         var endpoint = new HostedCurrentPrincipalSignatureApiEndpoint(
             app,
             signer,
+            roster,
             services.GetRequiredService<NodeCallerSessionToken>(),
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<ILogger<HostedCurrentPrincipalSignatureApiEndpoint>>());
