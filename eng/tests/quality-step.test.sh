@@ -61,7 +61,7 @@ HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" 
 grep -q 'quality: recorded sha256:' "$fixture/.git/zero.out"
   # The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
   # artifacts, so the flag must not leak into it (337 precedent in host-baseline.test.mjs; batch 1 land red).
-( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
+( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
 node -e 'const r=require(process.argv[1]), q=r.steps.find(s=>typeof s === "object" && s.id === "quality"); if(!q || !/^sha256:[a-f0-9]{64}$/.test(q.decisionDigest) || !/^sha256:[a-f0-9]{64}$/.test(q.policyDigest)) process.exit(1)' "$fixture/.git/harborline-api-verify-receipt.json"
 
 printf 'before\nnew finding\n' > "$fixture/src/example.cs"

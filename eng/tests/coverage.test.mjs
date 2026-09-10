@@ -117,7 +117,7 @@ test('receipt records both coverage entries when flagged and none otherwise', ()
   const dir = mkdtempSync(path.join(tmpdir(), 'coverage-receipt-'))
   try {
     mkdirSync(path.join(dir, 'eng'), {recursive: true})
-    for (const file of ['coverage.mjs', 'host-baseline.mjs', 'verify-receipt.mjs']) {
+    for (const file of ['coverage.mjs', 'host-baseline.mjs', 'pre-push-receipt.mjs', 'verify-receipt.mjs']) {
       copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
     }
     writeFileSync(path.join(dir, '.gitignore'), 'artifacts/\n')
@@ -127,6 +127,9 @@ test('receipt records both coverage entries when flagged and none otherwise', ()
     run(['git', '-c', 'user.name=Coverage Test', '-c', 'user.email=coverage@example.invalid', 'commit', '--no-verify', '-qm', 'fixture'])
     const steps = [...readFileSync(path.join(dir, 'eng', 'verify-receipt.mjs'), 'utf8')
       .match(/export const requiredStepIds = \[([^\]]+)\]/)[1].matchAll(/'([^']+)'/g)].map(match => match[1])
+    writeFileSync(path.join(dir, '.git', 'harborline-api-quality-decision.json'), JSON.stringify({
+      decisionId: 'sha256:' + 'a'.repeat(64), policyDigest: 'sha256:' + 'b'.repeat(64),
+    }))
     const record = env => run([process.execPath, 'eng/verify-receipt.mjs', '--record', ...steps, '--host-baseline', 'eng/baselines/host-test-baseline.json'], env)
 
     record()

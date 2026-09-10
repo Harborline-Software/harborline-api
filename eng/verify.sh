@@ -102,6 +102,11 @@ step exact-clone             node eng/run-exact-clone.mjs --host-baseline "$host
 # even before tickets 337 and 340 produce Cobertura and SARIF artifacts.
 step quality                 node eng/quality-step.mjs
 
+# Ticket 370: a branch must see a newly introduced quality finding during verification, rather than
+# after the merge tree is assembled in land.sh. quality_baseline_gate writes one disposable candidate
+# because the evidence-only quality step above does not retain one.
+step quality-baseline        bash -c 'source eng/quality-baseline-landing.sh; quality_baseline_gate "$PWD"'
+
 # pack-consume
 step packages                bash eng/verify-packages.sh
 
