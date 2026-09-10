@@ -20,8 +20,47 @@ public interface IEntityValidator
 public sealed class EntityValidationException : Exception
 {
     /// <summary>Creates a validation exception with the given message.</summary>
-    public EntityValidationException(string message) : base(message) { }
+    public EntityValidationException(string message)
+        : this(message, "entity.validation.body_invalid", Array.Empty<string>())
+    {
+    }
+
+    /// <summary>Creates a structured validation refusal without retaining the candidate body.</summary>
+    public EntityValidationException(
+        string message,
+        string reasonCode,
+        IReadOnlyList<string>? pointers = null)
+        : base(message)
+    {
+        ReasonCode = string.IsNullOrWhiteSpace(reasonCode)
+            ? throw new ArgumentException("A validation refusal must have a reason code.", nameof(reasonCode))
+            : reasonCode;
+        Pointers = pointers ?? Array.Empty<string>();
+    }
 
     /// <summary>Creates a validation exception wrapping an inner cause.</summary>
-    public EntityValidationException(string message, Exception inner) : base(message, inner) { }
+    public EntityValidationException(string message, Exception inner)
+        : this(message, "entity.validation.body_invalid", Array.Empty<string>(), inner)
+    {
+    }
+
+    /// <summary>Creates a structured validation refusal wrapping an inner cause.</summary>
+    public EntityValidationException(
+        string message,
+        string reasonCode,
+        IReadOnlyList<string>? pointers,
+        Exception inner)
+        : base(message, inner)
+    {
+        ReasonCode = string.IsNullOrWhiteSpace(reasonCode)
+            ? throw new ArgumentException("A validation refusal must have a reason code.", nameof(reasonCode))
+            : reasonCode;
+        Pointers = pointers ?? Array.Empty<string>();
+    }
+
+    /// <summary>Stable machine-readable refusal reason.</summary>
+    public string ReasonCode { get; }
+
+    /// <summary>RFC 6901 pointers to the invalid candidate locations.</summary>
+    public IReadOnlyList<string> Pointers { get; }
 }

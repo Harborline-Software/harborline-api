@@ -21,8 +21,10 @@ public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
     IEntityValidator validator,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    AuthorizationGate gate,
+    NodeEntitySchemaCatalog? schemas = null) : IEntityWriteCoordinator
 {
+    private readonly SchemaId _legalEntitySchema = schemas?.LegalEntity ?? Health.EntityRoutes.LegalEntitySchema;
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
         IEntityValidator validator,
@@ -70,17 +72,14 @@ public sealed class NodeEntityWriter(
         if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
             throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
 
-        if (!ReferenceEquals(validator, NullEntityValidator.Instance))
+        using var candidate = JsonSerializer.SerializeToDocument(new
         {
-            using var candidate = JsonSerializer.SerializeToDocument(new
-            {
-                legalName = command.LegalName,
-                kind = command.Kind,
-                taxClassification = command.TaxClassification,
-                commonControlGroupId = command.CommonControlGroupId,
-            });
-            await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
-        }
+            legalName = command.LegalName,
+            kind = command.Kind,
+            taxClassification = command.TaxClassification,
+            commonControlGroupId = command.CommonControlGroupId,
+        });
+        await validator.ValidateAsync(_legalEntitySchema, candidate, ct).ConfigureAwait(false);
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -112,6 +111,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,6 +126,9 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Entity '{id}' was not found.");
+        await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }

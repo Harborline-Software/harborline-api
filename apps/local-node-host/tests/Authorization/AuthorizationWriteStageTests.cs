@@ -69,6 +69,11 @@ public sealed class AuthorizationWriteStageTests
 
         var order = new List<string>();
         DateTimeOffset? storedAt = null;
+        validator.ValidateAsync(default, default!, default).ReturnsForAnyArgs(call =>
+        {
+            order.Add("validator");
+            return Task.CompletedTask;
+        });
         store.CreateAsync(default, default!, default!, default).ReturnsForAnyArgs(call =>
         {
             order.Add("store");
@@ -82,7 +87,7 @@ public sealed class AuthorizationWriteStageTests
                 Assert.Equal(authority.At, request.At);
             }));
         await allowed.CreateAsync("schema", body, options, authority);
-        Assert.Equal(["gate", "store"], order);
+        Assert.Equal(["gate", "validator", "store"], order);
         Assert.Equal(authority.At, storedAt);
     }
 

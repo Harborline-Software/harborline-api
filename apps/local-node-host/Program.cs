@@ -2249,8 +2249,9 @@ builder.Services.AddNodeForms(
         services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter(
             sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>(),
             entityMutations(sp),
-            sp.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(),
-            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.SchemaRegistryEntityValidator>(),
+            sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+            sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntitySchemaCatalog>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
         services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(sp =>
@@ -2265,6 +2266,8 @@ builder.Services.AddNodeForms(
                 sp.GetRequiredService<TimeProvider>()));
         services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
     });
+builder.Services.TryAddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.SchemaRegistryEntityValidator>();
+builder.Services.TryAddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntitySchemaCatalog>();
 
 // Card 3750 finding 2 — structural guard against silent re-regression: if either role branch above is
 // deleted (or reordered after AddNodeForms so the volatile TryAdd default wins), the node must refuse to

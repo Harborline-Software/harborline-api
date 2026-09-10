@@ -504,6 +504,20 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal(0, doc.GetProperty("entities").GetArrayLength());
     }
 
+    [Fact(DisplayName = "Entity route: authorization refusal precedes an invalid body")]
+    public async Task Create_WithoutRecordsWrite_RefusesBeforeValidation()
+    {
+        _authorization.Allow(Harborline.Api.Foundation.IdentityAtlas.TeamRolePermissions.RecordsRead);
+        _validator.RejectWith("body is invalid");
+
+        var resp = await _client.PostAsJsonAsync(Route, new { legalName = "Unauthorized invalid LLC" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("authorization.permission_required", body.GetProperty("code").GetString());
+        Assert.Empty(_validator.SeenTopLevelKeys);
+    }
+
     [Fact(DisplayName = "Entity route: create runs the registered validator and refuses on failure (422)")]
     public async Task Create_WhenValidatorRejects_IsRefused()
     {
@@ -513,6 +527,8 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("validation_failed", body.GetProperty("error").GetString());
+        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        Assert.Equal(0, body.GetProperty("pointers").GetArrayLength());
 
         // The validator sees WIRE-SHAPED (camelCase) keys — the JSON as the client sent it, not the
         // C# DTO's PascalCase (a real schema validator would silently miss every property otherwise).
