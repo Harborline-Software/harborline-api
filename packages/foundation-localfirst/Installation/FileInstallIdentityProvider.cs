@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Harborline.Api.Foundation.LocalFirst.Installation;
@@ -28,6 +29,10 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
     // Test seam: runs after a new record is durable and before it becomes visible at the
     // identity path, so a test can observe what a concurrent launcher would see in that window.
     internal Func<Task>? PublishBarrier { get; set; }
+
+    // Test seam: the POSIX link(2) the Unix publish path uses. Injecting it exercises that path,
+    // and its races, on Windows. Production leaves it null.
+    internal Func<string, string, int>? UnixLink { get; set; }
 
     /// <inheritdoc />
     public async ValueTask<InstallIdentity> GetInstallIdentityAsync(CancellationToken ct)
@@ -63,10 +68,15 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
                 await barrier().ConfigureAwait(false);
             }
 
-            // The record becomes visible at the identity path only as a whole: a concurrent
-            // launcher either does not see the path or reads a complete record. An in-place
-            // write exposed an empty file between create and write, which readers refused.
-            File.Move(temporaryPath, _identityFilePath, overwrite: false);
+            // The publish is also the election, and it must be atomic on every platform: either
+            // the whole record becomes visible at the identity path, or this launcher lost and
+            // reads the winner's complete record. A concurrent launcher never sees a partial
+            // record, which an in-place write exposed between create and write.
+            if (!TryPublish(temporaryPath))
+            {
+                return await ReadWhenAvailableAsync(ct).ConfigureAwait(false);
+            }
+
             return identity;
         }
         catch (IOException) when (File.Exists(_identityFilePath))
@@ -81,6 +91,44 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
             }
         }
     }
+
+    /// <summary>Publishes the candidate at the identity path, or reports that another writer won.</summary>
+    private bool TryPublish(string temporaryPath)
+    {
+        if (UnixLink is null && OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.Move(temporaryPath, _identityFilePath, overwrite: false);
+                return true;
+            }
+            catch (IOException) when (File.Exists(_identityFilePath))
+            {
+                return false;
+            }
+        }
+
+        var link = UnixLink ?? Link;
+        if (link(temporaryPath, _identityFilePath) == 0)
+        {
+            return true;
+        }
+
+        var errno = Marshal.GetLastWin32Error();
+        if (errno == Eexist)
+        {
+            return false;
+        }
+
+        throw new IOException(
+            $"Publishing install identity record '{_identityFilePath}' failed with errno {errno}.");
+    }
+
+    // EEXIST is 17 on Linux and on macOS.
+    private const int Eexist = 17;
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int Link(string oldPath, string newPath);
 
     private async Task<InstallIdentity> ReadWhenAvailableAsync(CancellationToken ct)
     {

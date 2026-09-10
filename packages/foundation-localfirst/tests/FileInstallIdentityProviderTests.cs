@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 using Harborline.Api.Foundation.LocalFirst.Installation;
@@ -56,6 +57,69 @@ public sealed class FileInstallIdentityProviderTests : IDisposable
         var launches = Enumerable.Range(0, 16).Select(async _ =>
         {
             var provider = new FileInstallIdentityProvider(identityFilePath);
+            await start.Task;
+            return await provider.GetInstallIdentityAsync(CancellationToken.None);
+        }).ToArray();
+
+        start.SetResult();
+        var identities = await Task.WhenAll(launches);
+
+        Assert.Single(identities.Distinct());
+    }
+
+    // link(2): creates newPath only if it does not exist, atomically, and fails with EEXIST
+    // otherwise. File.Copy(overwrite: false) is the atomic create-if-absent this box has.
+    private static int SimulatedUnixLink(string oldPath, string newPath)
+    {
+        try
+        {
+            File.Copy(oldPath, newPath, overwrite: false);
+            return 0;
+        }
+        catch (IOException) when (File.Exists(newPath))
+        {
+            Marshal.SetLastPInvokeError(17);
+            return -1;
+        }
+    }
+
+    [Fact]
+    public async Task UnixPublish_WhenAnotherWriterPublishesInsideTheWindow_ObservesOneInstallIdentity()
+    {
+        var identityFilePath = Path.Combine(_directory, "unix-publish-race", "install.identity");
+        var loser = new FileInstallIdentityProvider(identityFilePath) { UnixLink = SimulatedUnixLink };
+        InstallIdentity? winnerIdentity = null;
+
+        // The barrier is the window a non-atomic publish leaves open: after this writer decided
+        // the path was free and before it publishes, a second writer publishes in full. An
+        // existence check plus rename(2) would replace that record silently; link(2) loses.
+        loser.PublishBarrier = async () =>
+        {
+            if (winnerIdentity is null)
+            {
+                var winner = new FileInstallIdentityProvider(identityFilePath) { UnixLink = SimulatedUnixLink };
+                winnerIdentity = await winner.GetInstallIdentityAsync(CancellationToken.None);
+            }
+        };
+
+        var observed = await loser.GetInstallIdentityAsync(CancellationToken.None);
+
+        Assert.NotNull(winnerIdentity);
+        Assert.Equal(winnerIdentity, observed);
+        Assert.Equal(
+            winnerIdentity!.Value.Value,
+            await File.ReadAllTextAsync(identityFilePath, Encoding.ASCII));
+    }
+
+    [Fact]
+    public async Task UnixPublish_ConcurrentFirstLaunchers_ObserveOneInstallIdentity()
+    {
+        var identityFilePath = Path.Combine(_directory, "unix-publish-launchers", "install.identity");
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var launches = Enumerable.Range(0, 16).Select(async _ =>
+        {
+            var provider = new FileInstallIdentityProvider(identityFilePath) { UnixLink = SimulatedUnixLink };
             await start.Task;
             return await provider.GetInstallIdentityAsync(CancellationToken.None);
         }).ToArray();
