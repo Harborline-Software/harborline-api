@@ -9,7 +9,8 @@
     "POST /api/local-node/packs/deactivate": "pack deactivate",
     "POST /api/local-node/data-exports": "export",
     "POST /api/local-node/packs/export": "pack export",
-    "POST /api/local-node/packs/verify": "pack verify"
+    "POST /api/local-node/packs/verify": "pack verify",
+    "POST /api/local-node/entities": "entity create"
   },
   "exemptions": {
     "* /api/llm/{**rest}": "Session-gated LLM reverse-proxy transport; plumbing for the web client, not an operator action.",
@@ -189,7 +190,6 @@
     "POST /api/local-node/document-templates/render": "Interactive product surface for the desktop/web client; product data and workflows are not node operation. Whole-graph rule per wave-1 finding opcli-1: every pair is named here so a new operator route can never hide in an audience class.",
     "POST /api/local-node/documents": "Interactive product surface for the desktop/web client; product data and workflows are not node operation. Whole-graph rule per wave-1 finding opcli-1: every pair is named here so a new operator route can never hide in an audience class.",
     "POST /api/local-node/documents/{id}/attach": "Interactive product surface for the desktop/web client; product data and workflows are not node operation. Whole-graph rule per wave-1 finding opcli-1: every pair is named here so a new operator route can never hide in an audience class.",
-    "POST /api/local-node/entities": "Interactive product surface for the desktop/web client; product data and workflows are not node operation. Whole-graph rule per wave-1 finding opcli-1: every pair is named here so a new operator route can never hide in an audience class.",
     "POST /api/local-node/forms/definitions/{formId}/restore": "Interactive Forms product surface for the desktop client; authoring and case work are product workflows, not node operation.",
     "POST /api/local-node/forms/{formId}/submit": "Interactive Forms product surface for the desktop client; authoring and case work are product workflows, not node operation.",
     "POST /api/local-node/governance/lifecycle/finish-setup": "Interactive product surface for the desktop/web client; product data and workflows are not node operation. Whole-graph rule per wave-1 finding opcli-1: every pair is named here so a new operator route can never hide in an audience class.",

@@ -41,6 +41,10 @@ public static class OperatorCli
             ["tenant", "list"] => new HttpRequestMessage(
                 HttpMethod.Get,
                 new Uri(parsed.BaseUri, "/api/local-node/teams")),
+            ["entity", "create", "--legal-name", var legalName] => JsonPost(
+                parsed.BaseUri,
+                "/api/local-node/entities",
+                new { legalName }),
             ["export"] => JsonPost(
                 parsed.BaseUri,
                 "/api/local-node/data-exports",

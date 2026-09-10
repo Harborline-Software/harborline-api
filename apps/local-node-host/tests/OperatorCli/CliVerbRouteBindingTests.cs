@@ -31,6 +31,7 @@ public sealed class CliVerbRouteBindingTests
             {
                 ["health"] = () => VerbFixture.Create("health"),
                 ["tenant list"] = () => VerbFixture.Create("tenant", "list"),
+                ["entity create"] = () => VerbFixture.Create("entity", "create", "--legal-name", "Operator LLC"),
                 ["pack install"] = () => VerbFixture.WithPackFile("install"),
                 ["pack verify"] = () => VerbFixture.WithPackFile("verify"),
                 ["pack activate"] = () => VerbFixture.Create(

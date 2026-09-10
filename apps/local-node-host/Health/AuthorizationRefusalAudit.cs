@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
@@ -68,6 +69,30 @@ public sealed class AuthorizationRefusalAudit
         CancellationToken ct = default) =>
         RecordCoreAsync(refusal, permission, principal, tenant, at, decision, AuthorizationRefusedEventType, ct);
 
+    /// <summary>
+    /// Records a schema-validation refusal after the write gate has allowed the act. It has no refused
+    /// authorization decision to project, so the trace uses the established pre-decision-refusal shape,
+    /// extended with the validator's safe RFC 6901 pointers.
+    /// </summary>
+    public ValueTask<Guid?> RecordValidationRefusalAsync(
+        EntityValidationException refusal,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        var traceRefusal = new AuthorizationRefusal(
+            refusal.Code,
+            "Record validation refused.",
+            refusal.Message,
+            "Correct the values at the reported JSON pointer(s) and retry.",
+            "entity validation refusal");
+        return RecordCoreAsync(traceRefusal, permission, principal, tenant, at, decision: null,
+            AuthorizationRefusedEventType, ct, refusal.Pointers, preDecisionRefusal: true);
+    }
+
     internal async ValueTask RecordAsync(AuthorizationDecision decision, CancellationToken ct)
     {
         if (decision.Verdict != AuthorizationVerdict.Denied) return;
@@ -95,7 +120,9 @@ public sealed class AuthorizationRefusalAudit
         DateTimeOffset at,
         AuthorizationDecision? decision,
         AuditEventType eventType,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<string>? pointers = null,
+        bool preDecisionRefusal = false)
     {
         ArgumentNullException.ThrowIfNull(refusal);
         try
@@ -106,8 +133,9 @@ public sealed class AuthorizationRefusalAudit
                 ["permission"] = permission,
                 ["remedy"] = refusal.Remediation,
                 ["preDecision"] = decision is null,
-                ["preDecisionRefusal"] = decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode
-                    ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation) : null,
+                ["preDecisionRefusal"] = preDecisionRefusal
+                    || (decision is null && refusal.Code == MemberRoster.NoBrickingFloorCode)
+                    ? new AuthorizationPreDecisionRefusal(refusal.Code, refusal.Detail, refusal.Remediation, pointers) : null,
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),
             };

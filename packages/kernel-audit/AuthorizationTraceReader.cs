@@ -24,7 +24,11 @@ public enum AuthorizationTraceAvailability
 }
 
 /// <summary>The public reason recorded by a pre-decision guard, without its classified diagnostic.</summary>
-public sealed record AuthorizationPreDecisionRefusal(string Code, string Detail, string Remediation);
+public sealed record AuthorizationPreDecisionRefusal(
+    string Code,
+    string Detail,
+    string Remediation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Pointers = null);
 
 /// <summary>
 /// The answer to "why was this decided that way?" for ONE recorded decision: the four ordered public steps
@@ -112,7 +116,7 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
                 && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Detail), out var detail)
                 && TryReadReportString(value, nameof(AuthorizationPreDecisionRefusal.Remediation), out var remedy))
                 return (new AuthorizationTraceRead(AuthorizationTraceAvailability.PreDecisionRefusal,
-                    null, [], null, new(code, detail, remedy)), decision);
+                    null, [], null, new(code, detail, remedy, ReadPointers(value))), decision);
         }
 
         // Keyed by ORDINAL, not by stage: an entry whose act also went through the separation-of-duty
@@ -146,6 +150,24 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         }
         text = string.Empty;
         return false;
+    }
+
+    private static IReadOnlyList<string>? ReadPointers(JsonElement value)
+    {
+        foreach (var property in value.EnumerateObject())
+        {
+            if (string.Equals(property.Name, nameof(AuthorizationPreDecisionRefusal.Pointers),
+                    StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.Array)
+            {
+                return property.Value.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()!)
+                    .ToArray();
+            }
+        }
+
+        return null;
     }
 
     // ponytail: a linear scan of the tenant's trail — IAuditTrail has no by-id query and the node-local

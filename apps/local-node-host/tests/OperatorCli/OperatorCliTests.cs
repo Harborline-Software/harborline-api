@@ -76,6 +76,39 @@ public sealed class OperatorCliTests
     }
 
     [Fact]
+    public async Task Entity_create_posts_the_headless_record_write_and_preserves_a_validation_refusal()
+    {
+        HttpRequestMessage? observed = null;
+        using var client = new HttpClient(new RecordingHandler(request =>
+        {
+            observed = request;
+            return new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = new StringContent(
+                    "{\"code\":\"entity.validation.body_invalid\",\"pointers\":[\"/legalName\"]}",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        }));
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        var exitCode = await NodeOperatorCommand.RunAsync(
+            ["--url", "http://127.0.0.1:7312", "--json", "entity", "create", "--legal-name", "Invalid LLC"],
+            client,
+            stdout,
+            stderr);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal(HttpMethod.Post, observed!.Method);
+        Assert.Equal("http://127.0.0.1:7312/api/local-node/entities", observed.RequestUri!.AbsoluteUri);
+        Assert.Equal("{\"legalName\":\"Invalid LLC\"}", await observed.Content!.ReadAsStringAsync());
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("entity.validation.body_invalid", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("/legalName", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Pack_install_json_posts_pack_bytes_to_existing_route()
     {
         var packPath = Path.Combine(Path.GetTempPath(), $"harborline-cli-{Guid.NewGuid():N}.pack");

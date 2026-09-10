@@ -11,6 +11,7 @@ using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
@@ -93,5 +94,42 @@ public sealed class SchemaRegistryEntityValidatorTests
         using var provider = services.BuildServiceProvider();
 
         Assert.IsType<SchemaRegistryEntityValidator>(provider.GetRequiredService<IEntityValidator>());
+    }
+
+    [Fact]
+    public async Task RefusedRecordWrite_RecordsCodeAndPointersInTheDecisionTraceWithoutTheBody()
+    {
+        const string marker = "entity-validation-trace-marker";
+        var registry = new InMemorySchemaRegistry(TimeProvider.System);
+        var schema = await registry.RegisterAsync(RecordsSchema);
+        var trail = new InMemoryAuditTrail();
+        using var keys = Harborline.Api.Foundation.Crypto.KeyPair.Generate();
+        var audit = new Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit(
+            trail,
+            new Harborline.Api.Foundation.Crypto.Ed25519Signer(keys),
+            NullLogger<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>.Instance);
+        var store = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
+        var writer = new NodeEntityWriter(
+            Substitute.For<IDbContextFactory<LocalNodeDbContext>>(),
+            store,
+            new SchemaRegistryEntityValidator(registry),
+            TestAuthorization.Gate(true),
+            audit);
+        var actor = new ActorId("trace-operator");
+        var tenant = new TenantId("validator-trace-test");
+        var authority = new AuthorizationWriteContext(actor, tenant, DateTimeOffset.UtcNow);
+        var options = new CreateOptions("entity", "test", "trace-refusal", actor, tenant,
+            ExplicitLocalPart: "trace-refusal");
+        using var invalid = JsonDocument.Parse("{\"name\":\"" + marker + "\",\"count\":\"one\"}");
+
+        await Assert.ThrowsAsync<EntityValidationException>(
+            () => writer.CreateAsync(schema.Id, invalid, options, authority).AsTask());
+
+        var entries = new List<AuditRecord>();
+        await foreach (var entry in trail.QueryAsync(new AuditQuery(tenant))) entries.Add(entry);
+        var trace = JsonSerializer.Serialize(Assert.Single(entries).Payload.Payload);
+        Assert.Contains("entity.validation.body_invalid", trace, StringComparison.Ordinal);
+        Assert.Contains("/count", trace, StringComparison.Ordinal);
+        Assert.DoesNotContain(marker, trace, StringComparison.Ordinal);
     }
 }

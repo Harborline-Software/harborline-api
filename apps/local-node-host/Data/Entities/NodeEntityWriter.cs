@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Microsoft.EntityFrameworkCore;
+using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
@@ -21,7 +22,8 @@ public sealed class NodeEntityWriter(
     IDbContextFactory<LocalNodeDbContext> factory,
     IEntityMutationStore entities,
     IEntityValidator validator,
-    AuthorizationGate gate) : IEntityWriteCoordinator
+    AuthorizationGate gate,
+    AuthorizationRefusalAudit? refusalAudit = null) : IEntityWriteCoordinator
 {
     internal NodeEntityWriter(
         IDbContextFactory<LocalNodeDbContext> factory,
@@ -77,7 +79,7 @@ public sealed class NodeEntityWriter(
             taxClassification = command.TaxClassification,
             commonControlGroupId = command.CommonControlGroupId,
         });
-        await validator.ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, ct).ConfigureAwait(false);
+        await ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct).ConfigureAwait(false);
 
         var instant = (Instant)authority.At;
         var entity = new LegalEntity(
@@ -109,7 +111,7 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
         return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -126,7 +128,7 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
         var existing = await entities.GetAsync(id, ct: ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-        await validator.ValidateAsync(existing.Schema, body, ct).ConfigureAwait(false);
+        await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
         return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
@@ -182,5 +184,32 @@ public sealed class NodeEntityWriter(
             options,
             new AuthorizationWriteContext(principal, tenant, at),
             ct);
+    }
+
+    private async Task ValidateAsync(
+        SchemaId schema,
+        JsonDocument body,
+        AuthorizationWriteContext authority,
+        CancellationToken ct)
+    {
+        try
+        {
+            await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        }
+        catch (EntityValidationException refusal)
+        {
+            if (refusalAudit is not null)
+            {
+                await refusalAudit.RecordValidationRefusalAsync(
+                    refusal,
+                    RecordsWrite.Value,
+                    authority.Principal,
+                    authority.Tenant,
+                    authority.At,
+                    ct).ConfigureAwait(false);
+            }
+
+            throw;
+        }
     }
 }
