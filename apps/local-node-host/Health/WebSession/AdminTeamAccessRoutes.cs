@@ -30,6 +30,9 @@ internal static class AdminTeamAccessRoutes
     internal const string RevokeMemberPath = "/api/session/admin/members/revoke";
     internal const string UpdateMemberPermissionsPath = "/api/session/admin/members/permissions";
 
+    /// <summary>Ticket 362 - an administrator narrows a member's conferred grant (revoke-and-reissue).</summary>
+    internal const string NarrowMemberPath = "/api/session/admin/members/narrow";
+
     internal sealed record IssueInvitationRequest(
         IReadOnlyList<string>? RequestedPermissions,
         string? IdempotencyKey);
@@ -43,6 +46,11 @@ internal static class AdminTeamAccessRoutes
     internal sealed record UpdateMemberPermissionsRequest(
         string? GrantId,
         IReadOnlyList<string>? RequestedPermissions);
+
+    /// <param name="NarrowedPermissions">Must be a strict subset of the set the grant holds in force.</param>
+    internal sealed record NarrowMemberRequest(
+        string? GrantId,
+        IReadOnlyList<string>? NarrowedPermissions);
 
     private sealed record MemberView(
         string PartyId,
@@ -70,6 +78,8 @@ internal static class AdminTeamAccessRoutes
         DateTimeOffset AbsoluteExpiresAtUtc);
 
     private sealed record RevokeResponse(string Status, string? SuccessorGrantId = null);
+
+    private sealed record NarrowResponse(string Status, string? NarrowedGrantId = null);
 
     private sealed record ErrorResponse(string Error, string Message);
 
@@ -104,6 +114,10 @@ internal static class AdminTeamAccessRoutes
             UpdateMemberPermissionsPath,
             (UpdateMemberPermissionsRequest? request, HttpContext context) =>
                 UpdateMemberPermissionsAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+        app.MapPost(
+            NarrowMemberPath,
+            (NarrowMemberRequest? request, HttpContext context) =>
+                NarrowMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
     }
 
     internal static async Task<IResult> ListMembersAsync(
@@ -305,6 +319,80 @@ internal static class AdminTeamAccessRoutes
                     "The last administrator in force cannot be revoked; hand over administration first."),
                 statusCode: StatusCodes.Status409Conflict),
             // NotFound is deliberately indistinguishable from a non-existent grant — no enumeration.
+            _ => Results.Json(
+                new ErrorResponse("member_not_found", "No live grant with that id exists in this tenant."),
+                statusCode: StatusCodes.Status404NotFound),
+        };
+    }
+
+    /// <summary>
+    /// Ticket 362 - the same handle/tenant binding and decision evidence as <see cref="RevokeMemberAsync"/>;
+    /// the authority independently reloads every authority fact and is the only gate.
+    /// </summary>
+    internal static async Task<IResult> NarrowMemberAsync(
+        IAdminTeamAccessAuthority authority,
+        IWebAntiforgeryPolicy antiforgery,
+        NarrowMemberRequest? request,
+        HttpContext context,
+        DateTimeOffset at)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var (handle, principal) = ReadSelected(context);
+        if (handle is null || principal is null)
+        {
+            return Refused();
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.GrantId) || request.NarrowedPermissions is null)
+        {
+            return Results.Json(
+                new ErrorResponse("invalid_request", "A target grant id and a narrowed permission set are required."),
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!await antiforgery.ConsumeSelectedAsync(context, handle).ConfigureAwait(false))
+        {
+            return AntiforgeryFailed();
+        }
+
+        _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
+
+        AdminNarrowMemberGrantResult? result;
+        try
+        {
+            result = await authority.NarrowMemberGrantAsync(
+                    handle,
+                    principal.TenantId.Value,
+                    request.GrantId,
+                    request.NarrowedPermissions,
+                    WriteAuthority(principal, at),
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+        }
+        catch (AuthorizationDeniedException denial)
+        {
+            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted)
+                .ConfigureAwait(false);
+        }
+        if (result is null)
+        {
+            return Refused();
+        }
+
+        return result.Status switch
+        {
+            AdminNarrowMemberGrantStatus.Narrowed => Results.Ok(
+                new NarrowResponse("narrowed", result.NarrowedGrantId)),
+            AdminNarrowMemberGrantStatus.NotASubset => Results.Json(
+                new ErrorResponse(
+                    "not_a_subset",
+                    "A member's access can only be narrowed; the requested set is not a subset of the one in force."),
+                statusCode: StatusCodes.Status409Conflict),
+            AdminNarrowMemberGrantStatus.SelfNarrowRefused => Results.Json(
+                new ErrorResponse(
+                    "self_narrow_refused",
+                    "An administrator cannot narrow the access backing their own session."),
+                statusCode: StatusCodes.Status409Conflict),
             _ => Results.Json(
                 new ErrorResponse("member_not_found", "No live grant with that id exists in this tenant."),
                 statusCode: StatusCodes.Status404NotFound),
