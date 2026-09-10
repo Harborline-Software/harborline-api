@@ -9,12 +9,14 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Validation;
+using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Compose;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -248,6 +250,77 @@ public sealed class ComposeCeremonyTests
         Assert.Single(ceremony.GetDraft(outcome.Draft.ComposeId, Tenant)!.Warnings);
     }
 
+    [Fact(DisplayName = "ticket 357: composing a bound type TOGETHER with its form carries propertyFormBinding at the 1.1.0 shape")]
+    public async Task Compose_carries_property_form_binding_when_the_form_is_a_leaf()
+    {
+        var tenant = new TenantId("compose-binding");
+        var now = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        var formId = new FormDefinitionId("condenser-props");
+        var formVersion = new SemanticVersion(1, 2, 0);
+
+        var schemas = new InMemorySchemaRegistry(TimeProvider.System);
+        var schema = await schemas.RegisterAsync(FormSchemaJson);
+        using var forms = new InMemoryFormDefinitionStore(TimeProvider.System);
+        await forms.RegisterAsync(new FormDefinition(
+            Envelope: new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
+                Identity: formId,
+                Version: formVersion,
+                Tenant: tenant,
+                CascadeLayer: CascadeLayer.Tenant,
+                Provenance: new FormDefinitionProvenance(new IdentityRef("party", Principal), Lineage: null),
+                Requires: Array.Empty<DefinitionRequirement>()),
+            Status: FormDefinitionStatus.Draft,
+            SchemaRef: schema.Id,
+            Overlay: ValidOverlay(),
+            CreatedAt: now,
+            UpdatedAt: now));
+        await forms.PublishAsync(new DefinitionCoordinates(tenant, formId.Value, formVersion.ToString()));
+
+        var provider = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
+        var registry = provider.GetRequiredService<IEntityTypeRegistry>();
+        var typeId = new EntityTypeId("general.condenser");
+        registry.SeedType(new EntityTypeSeed(
+            typeId,
+            new EntityTypeDescriptor(
+                DisplayName: "Condenser",
+                Traits: EntityTrait.Maintainable,
+                PropertyFormBinding: new FormBindingRef(formId.Value, new SemanticVersion(1, 0, 0)),
+                InspectionFormBindings: new Dictionary<DisciplineTag, FormBindingRef>
+                {
+                    [new DisciplineTag("electrical")] = new FormBindingRef("condenser-elec", new SemanticVersion(2, 0, 0)),
+                }),
+            CascadeLayer.Pack));
+
+        var ceremony = new ComposeCeremony(
+            registry, new PackContentCanonicalizer(), new PackDcpCanonicalizer(), new InMemoryDraftCompositionStore(),
+            clock: TimeProvider.System, forms: forms, schemas: schemas);
+
+        var outcome = await ceremony.ComposeAsync(
+            new ComposeRequest(
+                ComposeId: null, Key: "acme.hvac", Version: "1.0.0", Name: "HVAC", Description: "",
+                ScopeTier: PackScopeTier.Horizontal, TypeIds: new[] { typeId.Value }, Dcp: GeneralDcp(),
+                FormIds: new[] { formId.Value }),
+            tenant);
+
+        Assert.Equal(ComposeStatus.Ok, outcome.Status);
+        var typeLeaf = Assert.Single(outcome.Draft!.Leaves, l => l.Kind == PackContentKind.AssetTypeDefinition);
+
+        // (i) the binding travels as the form's PACK CONTENT KEY — the same key the FormDefinition leaf carries.
+        Assert.Equal(
+            formId.Value,
+            typeLeaf.Content!.AsObject()["propertyFormBinding"]!.GetValue<string>());
+        Assert.Contains(outcome.Draft.Leaves, l => l.Kind == PackContentKind.FormDefinition && l.Key == formId.Value);
+
+        // (ii) the leaf declares the shape version that introduced the field.
+        Assert.Equal(PackAssetTypeContent.FormBindingShapeVersion, typeLeaf.Version);
+        Assert.Equal("1.1.0", typeLeaf.Version);
+
+        // (iii) propertyFormBinding is NOT lossy any more — only the still-dropped inspection map is named.
+        var warning = Assert.Single(outcome.Draft.Warnings);
+        Assert.Equal(ComposeWarningCodes.ProjectionLossyFormBinding, warning.Code);
+        Assert.Equal("inspectionFormBindings", warning.Params["fields"]);
+    }
+
     [Fact(DisplayName = "a non-counsel-cleared RegulatoryClass hard-blocks at export (Q1)")]
     public async Task Non_general_class_refused_at_export()
     {
@@ -262,4 +335,30 @@ public sealed class ComposeCeremonyTests
         Assert.Equal(ComposeStatus.ValidationFailed, exported.Status);
         Assert.Contains(exported.Errors, e => e.Code == "pack.dcp.regulatory_class.not_cleared");
     }
+
+    private const string FormSchemaJson = """
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"]
+        }
+        """;
+
+    private static HarborlineOverlay ValidOverlay() => new(
+        Fields: new Dictionary<string, FieldOverlay>
+        {
+            ["name"] = new(InternationalizedText.FromInvariant("Name"), ControlHint: "text"),
+        },
+        Sections:
+        [
+            new FormSection(
+                Id: "main",
+                Title: InternationalizedText.FromInvariant("Main"),
+                Fields: ["name"],
+                Access: new SectionAccess(ReadRoles: [], WriteRoles: [])),
+        ],
+        Rules: Array.Empty<RuleDefinition>());
 }

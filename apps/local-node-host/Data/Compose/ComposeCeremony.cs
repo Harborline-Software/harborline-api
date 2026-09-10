@@ -116,6 +116,10 @@ public sealed class ComposeCeremony
             // the content key is a pack-local key, so a binding into another pack (or into a form the author
             // did not select) cannot resolve on the target node and is dropped here — never silently, the
             // existing lossy-binding warning names it.
+            // The exported binding is a KEY only, so it re-pins to whatever version of that form THIS
+            // composition snapshots (below, at the form's current published version) — it does not preserve
+            // the version the source descriptor bound. Key-only is the self-consistent choice: the
+            // alternative pins a version this pack may not carry.
             var propertyForm = descriptor.PropertyFormBinding;
             var bindingTravels = propertyForm is not null
                                  && formIds.Contains(propertyForm.Definition.Value, StringComparer.Ordinal);
