@@ -29,7 +29,10 @@ public sealed class GrantProjectionResolverTests
         var projected = GrantRecordProjections.Project(row);
 
         Assert.Equal(row.AccountId, projected.PrincipalId);
-        Assert.Equal(PermissionCompositions.Member, projected.LegacyPermissions);
+        // 293 s5: a projected grant carries no permission set. The legacy row's own JSON set is not
+        // authority for anything; what the principal may do is the gate's answer over the grant store.
+        Assert.Null(typeof(ProjectedGrant).GetProperty("LegacyPermissions"));
+        Assert.Null(projected.Role);
         Assert.Equal(ProjectedAuthorityScope.Installation, projected.Scope);
         Assert.Equal(row.IssuerId, projected.GrantedBy);
         Assert.Null(projected.Reason);
@@ -54,7 +57,6 @@ public sealed class GrantProjectionResolverTests
         var projected = GrantRecordProjections.Project(grant);
 
         Assert.Equal(Principal.Value, projected.PrincipalId);
-        Assert.Null(projected.LegacyPermissions);
         Assert.Equal(grant.Role, projected.Role);
         Assert.Equal(grant.Grant, projected.Grant);
         Assert.Equal(GrantProjectionScopeKind.Tenant, projected.Scope.Kind);
@@ -79,7 +81,7 @@ public sealed class GrantProjectionResolverTests
         var projected = GrantRecordProjections.Project(Principal, membership);
 
         Assert.Equal(Principal.Value, projected.PrincipalId);
-        Assert.Equal(PermissionCompositions.Admin, projected.LegacyPermissions);
+        Assert.Null(projected.Role);
         Assert.Equal(GrantProjectionScopeKind.Tenant, projected.Scope.Kind);
         Assert.Equal(Tenant, projected.Scope.TenantId);
         Assert.Equal("/", projected.Scope.RecordScope!.Value);

@@ -296,8 +296,10 @@ internal sealed class PairingTokenGatedAdmitter
 
         // (8) Post-admit step 5 — SoD compensating-control audit (fail-safe-but-loud). Mode "web-pairing" so the
         //     audit trail distinguishes a web-admitted-member device pairing from a plain invite.
-        var grantedPermissions = newRoster.PermissionsOf(request.JoiningPartyId)?.Permissions
-            ?? Array.Empty<string>();
+        // Ticket 293 slice 5 — the set the bridge CONFERRED on this admission (signed into the admission and
+        // staged as the party's own grant), carried back on the outcome. The roster cannot answer this: since
+        // slice 3b2 a replicated member carries no permission set, so reading it back would audit an empty set.
+        var grantedPermissions = bridgeOutcome.ConferredPermissions?.Permissions ?? Array.Empty<string>();
         var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
             ?? request.JoiningPrincipalPublicKey;
         await _sodAudit.RecordMemberAdmittedAsync(

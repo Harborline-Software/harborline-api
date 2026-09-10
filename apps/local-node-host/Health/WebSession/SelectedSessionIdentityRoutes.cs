@@ -100,25 +100,30 @@ internal static class SelectedSessionIdentityRoutes
     }
 
     /// <summary>
-    /// Returns permissions from the current verified roster snapshot. A selected web session uses
-    /// its revalidated canonical Party exactly as before. A bootstrap-bearer desktop request has no
-    /// selected principal, so it uses the active roster's genesis Party. The caller supplies neither
-    /// Party id nor role, and every other audience is refused.
+    /// Returns the node's own answer for what the caller holds. A selected web session is answered by the
+    /// request-scoped PEP snapshot bound by the selected-cookie accept; a bootstrap-bearer desktop request
+    /// has no selected principal, so the active roster's genesis Party is read from the grant store through
+    /// <c>IRosterAuthority</c>. The caller supplies neither Party id nor role, and every other audience is
+    /// refused.
     /// </summary>
     /// <remarks>
-    /// KNOWN DIVERGENCE on a JOINED node, stated plainly because the sentence above reads as a
-    /// reassurance it does not give. Genesis is the local operator ONLY on a node that founded its
-    /// own team. After a wire enrollment, <c>NodeEnrollmentJoinService</c> flips the active team to
-    /// the ADOPTED one, so <c>roster.GenesisPartyId</c> becomes the ADMITTING node's founder party.
-    /// A joined desktop node therefore reports the admitter's owner permissions rather than the
-    /// permissions its own admission granted it.
-    ///
-    /// This is not a regression -- before this change the renderer granted the full set to every
-    /// resolved principal unconditionally -- and nav visibility is not the enforcement boundary
-    /// (<c>AdminTeamAccessRoutes</c> requires a selected-session principal a bootstrap bearer
-    /// cannot hold). But it does relocate the synthesis to the server rather than removing it,
-    /// which is not what "the node decides" claims. The node already knows its own party id, so the
-    /// information to answer correctly is present and unused.
+    /// <para>
+    /// <b>Ticket 293 slice 5 — one authority.</b> Both branches answer from grants decided by
+    /// <c>AuthorizationGate</c>. Neither reads a permission set off the roster: since slice 3b2 the wire
+    /// record carries none, so the roster's only contributions to authorization are membership and ejection
+    /// (<c>EffectiveMemberPermissions.Read</c>), and they reach the gate as inputs rather than as an answer.
+    /// An authority that cannot answer yields <see cref="Unresolved"/>, never a composition this node never
+    /// granted.
+    /// </para>
+    /// <para>
+    /// KNOWN DIVERGENCE on a JOINED node, stated plainly. Genesis is the local operator ONLY on a node that
+    /// founded its own team. After a wire enrollment, <c>NodeEnrollmentJoinService</c> flips the active team
+    /// to the ADOPTED one, so <c>roster.GenesisPartyId</c> becomes the ADMITTING node's founder party. A
+    /// joined desktop node therefore reports the admitter's grant rather than the one its own admission
+    /// conferred. Nav visibility is not the enforcement boundary (<c>AdminTeamAccessRoutes</c> requires a
+    /// selected-session principal a bootstrap bearer cannot hold), but the node knows its own party id, so
+    /// the information to answer correctly is present and unused.
+    /// </para>
     /// </remarks>
     internal static async Task<IResult> PermissionsAsync(
         HttpContext context,
@@ -143,57 +148,43 @@ internal static class SelectedSessionIdentityRoutes
             return Refused();
         }
 
+        // Ticket 293 slice 5 — ONE read, the gate's. A selected session's answer is the request-scoped PEP
+        // snapshot the selected-cookie accept already bound (SelectedSessionPermissionResolver: the grant
+        // store's install-root closure for this principal, every atom decided by AuthorizationGate, the
+        // signed roster edge contributing membership and ejection only). There is no roster fallback and no
+        // client-visible baseline: the roster carries no permission set for a replicated member since slice
+        // 3b2, so a fallback could only report an empty set or a composition this node never granted. An
+        // unresolved snapshot is "we cannot answer", which is what Unresolved says.
+        if (selectedSession)
+        {
+            var bound = context.RequestServices.GetService<SelectedSessionTenantContext>()?.EffectivePermissions;
+            return bound is null
+                ? Unresolved()
+                : Permissions(PermissionSet.From(bound));
+        }
+
+        // The desktop bootstrap bearer binds no selected principal, so there is no request-scoped PEP to
+        // read — and the only party it may be answered about is the active roster's CHAIN ROOT. Its
+        // authority is the root floor of its own genesis self-admission, which is the same rule the
+        // replicated rebuild applies (RosterCrdtProjection.AuthorityFor: genesis keeps the root floor,
+        // every other party is read from the grant store) and for the same reason — the root is what makes
+        // the chain authoritative, so it cannot be derived from a grant the chain itself authorizes. The
+        // roster is asked WHO the root is, never what any member holds: since slice 3b2 it carries no
+        // permission set for a replicated member, and reading one here would report an empty set for
+        // exactly the members it was asked about.
         try
         {
-            var tenantId = selectedSession
-                ? principal!.TenantId
-                : ActiveTeamTenantContext.ProjectTenantId(activeTeam!.Active!.TeamId);
             var roster = await rosterReader
-                .ReadAsync(tenantId, context.RequestAborted)
+                .ReadAsync(ActiveTeamTenantContext.ProjectTenantId(activeTeam!.Active!.TeamId), context.RequestAborted)
                 .ConfigureAwait(false);
-            var partyId = selectedSession
-                ? principal!.CanonicalParty.Value
-                : roster.GenesisPartyId;
-            if (string.IsNullOrWhiteSpace(partyId))
+            if (string.IsNullOrWhiteSpace(roster.GenesisPartyId))
             {
-                // A degenerate roster has a blank genesis party, and PermissionsOf throws on it —
-                // uncaught, that is a 500 on a read the client makes on every boot. Found by the test
-                // for this branch, not in production. There is no party to answer about, so say so.
+                // A degenerate roster has a blank genesis party: a broken install, not a deferred
+                // admission. There is no party to answer about, so say so rather than 500 on a read the
+                // client makes on every boot, and rather than invent a set from a fault.
                 return Unresolved();
             }
-            // The roster UNDER-REPORTS a documented class of member. A web invitee is admitted on the
-            // tenant-identity plane — account, Party binding, live grant, Active membership — but the
-            // signed atlas admission is DEFERRED to first wire enrollment (Option A, and
-            // WebAdmittedMemberAtlasBridge says so in its own summary). The bridge runs only from the
-            // device-pairing path, so someone who accepts an invitation in a browser and never pairs a
-            // device is authenticated, listed by the admin screen, and absent from the roster forever.
-            // PermissionsOf returns null for them, which would project to an empty set and blank the
-            // entire product — for exactly the population the invite flow creates.
-            //
-            // Reaching this line at all means the session authority already revalidated the account,
-            // the membership, and the grant owner-version pins, so a grant-anchored member here holds a
-            // LIVE grant by construction. The baseline is not a guess either: AdmissionCoordinator's
-            // redeemed-invite admission writes PermissionCompositions.Member, so this is the same set
-            // the bridge will sign onto the roster when enrollment eventually happens. Answering it now
-            // makes the browser and the paired-device views agree instead of differing by a blank app.
-            // The selected-session gate has already bound the same request-scoped PEP used by route
-            // authorization. Prefer that snapshot whenever this is a production composed request;
-            // the direct route tests retain the legacy fixture fallback when no inner scope exists.
-            var bound = selectedSession
-                ? context.RequestServices.GetService<SelectedSessionTenantContext>()?.EffectivePermissions
-                : null;
-            var held = bound is not null
-                ? PermissionSet.From(bound)
-                : roster.PermissionsOf(partyId)
-                    ?? (selectedSession ? PermissionCompositions.Member : null);
-
-            // Project the navigation vocabulary separately from the raw atomic snapshot. The
-            // navigation asks its questions in a vocabulary that shares only 8 of the 21 strings
-            // with the roster's, while mutation affordances need the exact PEP vocabulary. The
-            // projected set is for navigation only; neither client value is an authorization input.
-            return Results.Ok(new EffectivePermissionsResponse(
-                NavigationPermissionProjection.Project(held),
-                held?.Permissions ?? Array.Empty<string>()));
+            return Permissions(PermissionCompositions.Owner);
         }
         catch (VerifiedTenantRosterRefusedException)
         {
@@ -202,6 +193,17 @@ internal static class SelectedSessionIdentityRoutes
             return Unresolved();
         }
     }
+
+    /// <summary>
+    /// Project ONE resolved set to the wire. The navigation vocabulary is projected separately from the raw
+    /// atomic snapshot: navigation asks its questions in a vocabulary that shares only 8 of the 21 strings
+    /// with the authorization one, while mutation affordances need the exact PEP vocabulary. Neither client
+    /// value is an authorization input.
+    /// </summary>
+    private static IResult Permissions(PermissionSet held) =>
+        Results.Ok(new EffectivePermissionsResponse(
+            NavigationPermissionProjection.Project(held),
+            held.Permissions));
 
     internal static async Task<IResult> DescribeAsync(
         IWebSelectedSessionIdentityAuthority authority,
