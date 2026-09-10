@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import * as fsExtra from 'node:fs'
+import {repositoryRelativePath} from '../normalize-roslyn-sarif.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
@@ -49,4 +51,19 @@ test('normalizer makes Windows and POSIX locations repository-relative and clone
   }
   assert.equal(normalized[0].partialFingerprints['harborline/primary-location/v1'],
     normalized[1].partialFingerprints['harborline/primary-location/v1'])
+})
+
+test('a location under the root’s resolved real path is inside the repository (macOS /var -> /private/var)', () => {
+  const {realpathSync, symlinkSync, mkdirSync} = fsExtra
+  const base = mkdtempSync(path.join(tmpdir(), 'sarif-real-'))
+  try {
+    const real = path.join(base, 'real'); mkdirSync(real)
+    const link = path.join(base, 'link'); symlinkSync(real, link, 'junction')
+    const resolved = realpathSync.native(link)
+    const uri = 'file:///' + path.posix.join(resolved.split(path.sep).join('/'), 'src/A.cs').replace(/^\//, '')
+    assert.equal(repositoryRelativePath(uri, link), 'src/A.cs')
+    assert.equal(repositoryRelativePath(uri, resolved), 'src/A.cs')
+  } finally {
+    rmSync(base, {recursive: true, force: true})
+  }
 })
