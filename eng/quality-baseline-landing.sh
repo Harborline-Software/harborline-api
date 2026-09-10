@@ -24,13 +24,56 @@ for (const finding of candidate.filter(f => !baseline.has(f.fingerprint))) {
 }
 NODE
 }
+quality_baseline_finding_count() {
+  local baseline=$1
+  node - "$baseline" <<'NODE'
+const {readFileSync} = require('node:fs')
+console.log(JSON.parse(readFileSync(process.argv[2], 'utf8')).findings.length)
+NODE
+}
+quality_baseline_engine_table() {
+  local candidate=$1
+  node - "$candidate" <<'NODE'
+const {readFileSync} = require('node:fs')
+const engines = JSON.parse(readFileSync(process.argv[2], 'utf8')).engines
+if (!Array.isArray(engines) || !engines.length) console.log('none\tunknown\tno engine status recorded')
+else for (const row of engines) console.log(`${row.engine}\t${row.status}\t${row.detail ?? ''}`)
+NODE
+}
+quality_baseline_print_engine_table() {
+  local candidate=$1 engine status detail
+  echo 'quality-baseline: engine table:' >&2
+  while IFS="$(printf '\t')" read -r engine status detail; do
+    echo "quality-baseline: engine $engine status=$status detail=$detail" >&2
+  done <<EOF
+$(quality_baseline_engine_table "$candidate")
+EOF
+}
 quality_baseline_gate_candidate_compare() {
-  local candidate=$1 baseline=$2 counts new resolved
+  local candidate=$1 baseline=$2 counts new resolved baseline_count engine status detail engine_failed=0
+  while IFS="$(printf '\t')" read -r engine status detail; do
+    if [ "$status" = 'analyzer-error' ]; then
+      echo "quality-baseline: engine $engine failed (analyzer-error); the comparison is hollow, not a pass" >&2
+      engine_failed=1
+    fi
+  done <<EOF
+$(quality_baseline_engine_table "$candidate")
+EOF
+  if [ "$engine_failed" -ne 0 ]; then
+    quality_baseline_print_engine_table "$candidate"
+    return 1
+  fi
   counts=$(quality_baseline_sets_compare "$candidate" "$baseline") || return 1
   read -r new resolved <<<"$counts"
   if [ "$new" -gt 0 ]; then
     echo "quality-baseline: $new new, $resolved resolved" >&2
     quality_baseline_new_findings "$candidate" "$baseline" >&2 || return 1
+    return 1
+  fi
+  baseline_count=$(quality_baseline_finding_count "$baseline") || return 1
+  if [ "$resolved" -gt 50 ] && [ "$((resolved * 10))" -gt "$baseline_count" ]; then
+    echo "quality-baseline: resolved $resolved of $baseline_count looks like an engine failure, not a clean-up; run the tool by hand" >&2
+    quality_baseline_print_engine_table "$candidate"
     return 1
   fi
   if [ "$resolved" -gt 0 ]; then
