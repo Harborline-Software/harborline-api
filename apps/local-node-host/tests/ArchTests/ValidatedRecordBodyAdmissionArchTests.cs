@@ -53,7 +53,7 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
 
     private const string TokenSourcePath = "packages/foundation/Assets/Entities/ValidatedRecordBody.cs";
 
-    [Fact(DisplayName = "Ticket 366: the record-write mint has exactly the reviewed call sites")]
+    [Fact(DisplayName = "Ticket 366: the record-write mint has exactly the reviewed call sites (holds RW-9 RW-H2)")]
     public void OwnValidatedMintSitesEqualTheReviewedSet()
     {
         Assert.Equal(MintSiteRows(), DiscoveredMintSites());
@@ -61,7 +61,7 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
         Assert.Empty(ExceptionRows);
     }
 
-    [Fact(DisplayName = "Ticket 366: nothing outside the token's own type can construct one")]
+    [Fact(DisplayName = "Ticket 366: nothing outside the token's own type can construct one (holds RW-9 RW-H2)")]
     public void ValidatedRecordBodyHasNoReachableConstructor()
     {
         var constructors = typeof(ValidatedRecordBody).GetConstructors(
@@ -84,7 +84,7 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
         Assert.Empty(reflectors);
     }
 
-    [Fact(DisplayName = "Ticket 366: the record seam takes the token; the raw seam is not public")]
+    [Fact(DisplayName = "Ticket 366: the record seam takes the token; the raw seam is not public (holds RW-9 RW-H2)")]
     public void RecordSeamTakesTheTokenAndTheRawSeamIsInternal()
     {
         var port = typeof(IEntityMutationStore);
@@ -111,7 +111,7 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
         Assert.True(batch.IsAssembly, "CreateBatchAsync must be internal to the envelope writers");
     }
 
-    [Fact(DisplayName = "Ticket 366: the raw seam is visible only to the named non-record write owners")]
+    [Fact(DisplayName = "Ticket 366: the raw seam is visible only to the named non-record write owners (holds RW-9 RW-H2)")]
     public void RawSeamFriendsAreTheReviewedSet()
     {
         // apps/local-node-host is deliberately absent: that absence is what makes a raw record write a
@@ -127,7 +127,7 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
         Assert.DoesNotContain("Harborline.Api.LocalNodeHost", friends);
     }
 
-    [Fact(DisplayName = "Ticket 366: a raw-body record write does not compile outside the friend set")]
+    [Fact(DisplayName = "Ticket 366: a raw-body record write does not compile outside the friend set (holds RW-9 RW-H2)")]
     public void RawBodyWriteDoesNotCompile()
     {
         const string snippet = """

@@ -15,7 +15,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
     private static readonly SchemaId Thing = new("thing");
     private static readonly SchemaId Other = new("other");
 
-    [Fact(DisplayName = "Ticket 366: the mint refuses before validating when the gate did not allow")]
+    [Fact(DisplayName = "Ticket 366: the mint refuses before validating when the gate did not allow (holds RW-1 RW-2)")]
     public async Task MintRefusesWithoutAnAllowedDecision()
     {
         var validator = new CountingValidator();
@@ -29,7 +29,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         Assert.Equal(0, validator.Calls);
     }
 
-    [Fact(DisplayName = "Ticket 366: the mint validates, then the token carries that schema")]
+    [Fact(DisplayName = "Ticket 366: the mint validates, then the token carries that schema (holds RW-2 RW-9)")]
     public async Task MintValidatesAndCarriesTheSchema()
     {
         var validator = new CountingValidator();
@@ -42,7 +42,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         Assert.Same(body, token.Body);
     }
 
-    [Fact(DisplayName = "Ticket 366: the store refuses an update token minted against another schema")]
+    [Fact(DisplayName = "Ticket 366: the store refuses an update token minted against another schema (holds RW-2 RW-9)")]
     public async Task StoreRefusesATokenFromAnotherSchema()
     {
         var validator = new CountingValidator();
@@ -71,7 +71,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         Assert.Equal(1, stored.CurrentVersion.Sequence);
     }
 
-    [Fact(DisplayName = "Ticket 366: a token for the record's own schema updates it")]
+    [Fact(DisplayName = "Ticket 366: a token for the record's own schema updates it (holds RW-2)")]
     public async Task StoreAcceptsATokenForTheRecordsOwnSchema()
     {
         var validator = new CountingValidator();
