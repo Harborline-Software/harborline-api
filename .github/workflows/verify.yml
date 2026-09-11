@@ -1,0 +1,77 @@
+# verify: eng/verify.sh on a self-hosted macOS runner, as a pull-request check and as the merge-queue
+# check. This is the same gate the Mac slice-gate wrapper ran by ssh; the runner replaces the wrapper,
+# the merge queue replaces the receipt-by-tree landing (control: docs/velocity/landing.md).
+#
+# Fork safety: harborline-api is public and this job runs on our own machines. It runs only for
+# pull requests whose head lives in this repository, and for merge-queue groups (which are built from
+# already-reviewed heads). A fork PR gets the hosted checks only.
+name: verify
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'merge_group' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DEVELOPER_DIR: /Library/Developer/CommandLineTools
+      # 339 s4 / 2026-09-10: without this the roslyn SARIF is never produced and the quality step
+      # compares an empty set. Coverage stays with the merge-queue run only (2026-09-08 ruling).
+      HARBORLINE_GATE_QUALITY: '1'
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Resolve the host pin directories
+        run: |
+          lanes="$HOME/Projects/Harborline/lanes"
+          test -d "$lanes/control-gh/.git" || { echo "control-gh clone missing under $lanes"; exit 6; }
+          echo "HARBORLINE_CONTROL_REPO=$lanes/control-gh" >> "$GITHUB_ENV"
+          echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
+          echo "HARBORLINE_QUALITY_REPO=$lanes/quality-pin" >> "$GITHUB_ENV"
+
+      - name: Refresh the control, quality and platform pins (the wrapper's lines)
+        run: |
+          git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "warning: control-gh pull failed"
+          qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
+          if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null; git -C "$HARBORLINE_QUALITY_REPO" checkout -q --detach "$qpin" 2>/dev/null || echo "warning: quality pin $qpin not checked out"; fi
+          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
+          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q "$HOME/Projects/Harborline/lanes/platform-gh" "$HARBORLINE_PLATFORM_REPO" && git -C "$HARBORLINE_PLATFORM_REPO" remote set-url origin https://github.com/Harborline-Software/harborline-platform.git; fi
+          git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin && git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
+          echo "control $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)  quality $qpin  platform $pin"
+
+      - name: Build the local platform feed
+        run: node eng/build-local-feed.mjs
+
+      - name: eng/verify.sh
+        run: bash eng/verify.sh
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            .git/harborline-api-verify-receipt.json
+            .git/harborline-api-quality-decision.json
+            .claude/land-evidence/
+            artifacts/quality/
