@@ -174,6 +174,65 @@ public sealed class AuthorizationTraceReadTests
         Assert.Equal(AuthorizationTraceAvailability.Refused, missing.Availability);
     }
 
+    // Ticket 331 slice 2 (s1 review minor): the trace route is HTTP-reachable, so the by-id read must not
+    // scan the trail. The query names the entry and the trail answers with that one record out of 10,001.
+    [Fact]
+    public async Task ByIdTraceReadIsAnsweredWithoutScanningTheTrail()
+    {
+        await using var h = await Harness.CreateAsync();
+        var audit = new AuthorizationRefusalAudit(h.Trail, new Ed25519Signer(KeyPair.Generate()),
+            NullLogger<AuthorizationRefusalAudit>.Instance);
+        var id = await audit.RecordAsync(
+            new AuthorizationRefusal(MemberRoster.NoBrickingFloorCode, "d", "d", "r", "classified"),
+            Permission.MembersRevoke, h.Subject, Tenant, At, null);
+        Assert.NotNull(id);
+
+        var rows = new List<AuditRecord>();
+        await foreach (var row in h.Trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
+        var filler = Assert.Single(rows);
+        for (var i = 0; i < 10_000; i++)
+            await h.Trail.AppendAsync(filler with { AuditId = Guid.NewGuid() });
+
+        var all = 0;
+        await foreach (var _ in h.Trail.QueryAsync(new AuditQuery(Tenant))) all++;
+        Assert.Equal(10_001, all);
+
+        var byId = new List<AuditRecord>();
+        await foreach (var row in h.Trail.QueryAsync(new AuditQuery(Tenant, AuditId: id.Value))) byId.Add(row);
+        Assert.Equal(id.Value, Assert.Single(byId).AuditId);
+
+        var read = await h.Reader.ReadAsync(Tenant, Auditor, id.Value, At);
+        Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, read.Availability);
+    }
+
+    // Ticket 331 slice 2 (s1 review minor): the act is already committed when it is recorded, so an append
+    // fault is logged and answered with no id -- never raised into the caller's accepted response.
+    [Fact]
+    public async Task AcceptedActAuditAnswersWithNoIdWhenTheAppendFaults()
+    {
+        var sink = new AuthorizedActAudit(new FaultingTrail(), new Ed25519Signer(KeyPair.Generate()),
+            NullLogger<AuthorizedActAudit>.Instance);
+        var decision = await TestAuthorization.AllowGate().DecideAsync(
+            new AuthorizationWriteContext(new ActorId("actor-331"), Tenant, At)
+                .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite), "record", "r-331"));
+        Assert.Null(await sink.RecordAsync(
+            new AuditEventType("RecordWritten"), decision, new Dictionary<string, object?>()));
+    }
+
+    private sealed class FaultingTrail : IAuthorizedAuditTrail
+    {
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default)
+            => throw new IOException("the audit store is unavailable");
+
+        public ValueTask AppendAuthorizedAsync(AuditRecord record, AuthorizationDecision decision,
+            CancellationToken ct = default,
+            Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision? approval = null)
+            => throw new IOException("the audit store is unavailable");
+
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default)
+            => throw new NotSupportedException();
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;

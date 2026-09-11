@@ -11,6 +11,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Data.Entities;
 
+/// <summary>
+/// Ticket 331 slice 2 -- a persisted legal entity and the audit id of the decision that permitted the
+/// write, so the route can answer "why was this allowed?" with an addressable id. The id is null when no
+/// audit sink is composed or its append faulted; the write itself stands either way.
+/// </summary>
+public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
+
 public sealed record CreateLegalEntityCommand(
     LegalEntityId Id,
     string? LegalName,
@@ -24,8 +31,27 @@ public sealed class NodeEntityWriter(
     IEntityMutationStore entities,
     [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
     AuthorizationGate gate,
-    Health.AuthorizationRefusalAudit? refusals = null) : IEntityWriteCoordinator
+    Health.AuthorizationRefusalAudit? refusals = null,
+    Health.AuthorizedActAudit? accepted = null) : IEntityWriteCoordinator
 {
+    /// <summary>The event type an accepted record write is recorded under (ticket 331 slice 2).</summary>
+    public static readonly Kernel.Audit.AuditEventType RecordWrittenEventType = new("RecordWritten");
+
+    /// <summary>
+    /// Records the accepted write against the ONE decision that permitted it and returns that entry's
+    /// audit id. Every accepted write on this coordinator goes through here, so no write path is
+    /// addressable while a sibling is silent. It carries the record's identity and schema and never a
+    /// member of its body.
+    /// </summary>
+    private ValueTask<Guid?> RecordAcceptedAsync(
+        AuthorizationDecision decision, SchemaId schema, string recordId, CancellationToken ct)
+        => accepted is null
+            ? ValueTask.FromResult<Guid?>(null)
+            : accepted.RecordAsync(
+                RecordWrittenEventType,
+                decision,
+                new Dictionary<string, object?> { ["recordId"] = recordId, ["schema"] = schema.Value },
+                ct);
     /// <summary>
     /// Stage two (ADR 0065 clause 4), with its refusal recorded where the decision trace reads it
     /// (ticket 151). Every record write on this coordinator goes through here so the trace entry cannot
@@ -44,7 +70,7 @@ public sealed class NodeEntityWriter(
         catch (EntityValidationException refusal)
         {
             if (refusals is not null)
-                await refusals.RecordValidationRefusalAsync(
+                refusal.AuditId = await refusals.RecordValidationRefusalAsync(
                     refusal.ReasonCode, refusal.Pointers, TeamRolePermissions.RecordsWrite,
                     authority.Principal, authority.Tenant, authority.At, ct).ConfigureAwait(false);
             throw;
@@ -81,7 +107,7 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
     }
 
-    public async ValueTask<LegalEntity> CreateLegalEntityAsync(
+    public async ValueTask<LegalEntityWritten> CreateLegalEntityAsync(
         CreateLegalEntityCommand command,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
@@ -130,7 +156,10 @@ public sealed class NodeEntityWriter(
         await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
         context.Set<LegalEntity>().Add(entity);
         await context.SaveChangesAsync(ct).ConfigureAwait(false);
-        return entity;
+        return new LegalEntityWritten(
+            entity,
+            await RecordAcceptedAsync(decision, Health.EntityRoutes.LegalEntitySchema, command.Id.Value, ct)
+                .ConfigureAwait(false));
     }
 
     public async ValueTask<EntityId> CreateAsync(
@@ -150,8 +179,10 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
         await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
-        return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
+        var created = await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
+        await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false);
+        return created;
     }
 
     public async ValueTask<VersionId> UpdateAsync(
@@ -166,10 +197,14 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
         // The new body is validated against the record's OWN activated schema. A missing entity is
         // the store's refusal to raise, and it cannot persist anything.
-        if (await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing)
-            await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
-        return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
+        var stored = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false);
+        if (stored is not null)
+            await ValidateAsync(stored.Schema, body, authority, ct).ConfigureAwait(false);
+        var version = await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
+        await RecordAcceptedAsync(decision, stored?.Schema ?? new SchemaId("unknown"), id.LocalPart, ct)
+            .ConfigureAwait(false);
+        return version;
     }
 
     public async ValueTask DeleteAsync(

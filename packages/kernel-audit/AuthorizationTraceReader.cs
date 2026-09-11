@@ -148,12 +148,13 @@ public sealed class AuthorizationTraceReader(IAuditTrail trail, AuthorizationGat
         return false;
     }
 
-    // ponytail: a linear scan of the tenant's trail — IAuditTrail has no by-id query and the node-local
-    // trail is one install's. Add an AuditId filter to AuditQuery if a trail ever gets large enough to
-    // notice.
+    // Ticket 331 slice 2: the query names the one entry, so the trail answers by its own index
+    // (InMemoryAuditTrail) or its own filter rather than handing this read the whole trail to scan — this
+    // route is reachable over HTTP by anyone the gate admits.
     private async ValueTask<AuditRecord?> FindAsync(TenantId tenant, Guid auditId, CancellationToken ct)
     {
-        await foreach (var record in _trail.QueryAsync(new AuditQuery(tenant), ct).ConfigureAwait(false))
+        await foreach (var record in _trail
+            .QueryAsync(new AuditQuery(tenant, AuditId: auditId), ct).ConfigureAwait(false))
         {
             if (record.AuditId == auditId) return record;
         }

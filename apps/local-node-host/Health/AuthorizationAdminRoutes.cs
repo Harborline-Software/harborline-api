@@ -200,17 +200,19 @@ public static class AuthorizationAdminRoutes
             AccessHoldersRead.ReadAsync(http, RequestTenant(), timeProvider, ct));
     }
 
-    private static async ValueTask<Guid> RecordBindingAsync(
+    /// <summary>The event type a narrowed capability binding is recorded under.</summary>
+    private static readonly AuditEventType BindingNarrowedEventType = new("AuthorizationBindingNarrowed");
+
+    // Ticket 331 slice 2 (s1 review minor): the narrowing is ALREADY committed when this runs, so the
+    // receipt append goes through the fail-safe-but-loud sink -- an append fault is logged and the caller
+    // gets a 200 whose auditId is absent, never a 500 for a write that happened.
+    private static ValueTask<Guid?> RecordBindingAsync(
         HttpContext http, Guid definitionId, AuthorizationDecision decision, CancellationToken ct)
-    {
-        var payload = await http.RequestServices.GetRequiredService<IOperationSigner>().SignAsync(new AuditPayload(new Dictionary<string, object?> { ["definitionId"] = definitionId }), decision.Request.At, Guid.NewGuid(), ct).ConfigureAwait(false);
-        var auditRecord = new AuditRecord(Guid.NewGuid(), decision.Request.Tenant, new AuditEventType("AuthorizationBindingNarrowed"),
-            decision.Request.At, payload, [], Actor: decision.Request.Principal,
-            Target: decision.Request.Target, Act: decision.Request.Act);
-        await http.RequestServices.GetRequiredService<IAuthorizedAuditTrail>()
-            .AppendAuthorizedAsync(auditRecord, decision, ct).ConfigureAwait(false);
-        return auditRecord.AuditId;
-    }
+        => http.RequestServices.GetRequiredService<AuthorizedActAudit>().RecordAsync(
+            BindingNarrowedEventType,
+            decision,
+            new Dictionary<string, object?> { ["definitionId"] = definitionId },
+            ct);
 
     private static RoleDefinitionDto ToDto(RoleDefinition role) => new(
         role.RoleDefinitionId.Value,

@@ -145,6 +145,7 @@ internal sealed class EventLogBackedAuditTrail : IAuditTrail
         if (query.OccurredAfter is { } after && record.OccurredAt < after) return false;
         if (query.OccurredBefore is { } before && record.OccurredAt > before) return false;
         if (query.IssuedBy is { } issuer && record.Payload.IssuerId != issuer) return false;
+        if (query.AuditId is { } auditId && record.AuditId != auditId) return false;
         return true;
     }
 

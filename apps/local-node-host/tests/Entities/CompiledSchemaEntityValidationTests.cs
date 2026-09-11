@@ -238,7 +238,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
         var created = await Writer.CreateLegalEntityAsync(
             new CreateLegalEntityCommand(LegalEntityId.NewId(), "Headless LLC", "Llc", "DisregardedEntity", null),
             Authority());
-        Assert.Equal("Headless LLC", created.LegalName);
+        Assert.Equal("Headless LLC", created.Entity.LegalName);
     }
 
     // (f) — invalidation: re-activation replaces the compiled artefact; the next write sees v2.

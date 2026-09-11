@@ -40,6 +40,11 @@ public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTra
 {
     private readonly ConcurrentQueue<AuditRecord> _records = new();
 
+    // Ticket 331 slice 2: the decision-trace route is HTTP-reachable and addresses ONE entry by id, so the
+    // by-id read is a dictionary hit rather than a scan of the whole trail. Appends are the only writers
+    // and an audit id is unique by construction (Guid.NewGuid at the sink), so last-write-wins is moot.
+    private readonly ConcurrentDictionary<Guid, AuditRecord> _byId = new();
+
     /// <summary>Creates a development/test trail.</summary>
     public InMemoryAuditTrail() { }
 
@@ -77,6 +82,7 @@ public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTra
                 "AuditRecord.TenantId must be non-default per IMustHaveTenant.", nameof(record));
         ct.ThrowIfCancellationRequested();
         _records.Enqueue(record);
+        _byId[record.AuditId] = record;
     }
 
     /// <inheritdoc />
@@ -87,8 +93,11 @@ public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTra
         ArgumentNullException.ThrowIfNull(query);
 
         // Snapshot the queue to avoid yielding while iterating; the queue
-        // is concurrent so this is a stable read at call time.
-        var snapshot = _records.ToArray();
+        // is concurrent so this is a stable read at call time. A by-id query reads the index instead:
+        // the remaining filters are still applied, so the answer cannot differ from the scan's.
+        var snapshot = query.AuditId is { } wanted
+            ? (_byId.TryGetValue(wanted, out var found) ? new[] { found } : [])
+            : _records.ToArray();
         foreach (var record in snapshot)
         {
             ct.ThrowIfCancellationRequested();
