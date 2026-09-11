@@ -52,7 +52,7 @@
       "firstSeen": "2026-09-06",
       "expires": "2026-10-06",
       "verdict": "a-pre-existing-at-sha (load-sensitive)",
-      "measuredRate": "red once in the ticket 094 land re-gate under box load (land-evidence 20260907T055836Z-791ee7014cd67e973a39d6bc607c8022a1893396.json: Failed 1, Passed 3358); green on the re-run",
+      "measuredRate": "red once in the ticket 094 gate re-run under box load (gate-evidence 20260907T055836Z-791ee7014cd67e973a39d6bc607c8022a1893396.json: Failed 1, Passed 3358); green on the re-run",
       "cause": "the 30 s window the assertion allows for the blocked writer to be observed is not enough when the box is saturated.",
       "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
       "retryLimit": 1
