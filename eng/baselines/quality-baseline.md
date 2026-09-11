@@ -30,3 +30,10 @@ carries the line, so unchanged findings below a moved line read as new. Re-pinne
 known cost of the exact identity; the follow-up (control ticket) is a baseline computed
 for the merge-base by the main push run, so a landing that moves lines does not red
 the next PR.
+
+2026-09-11 (340 s2) — the ESLint engine joins: packages/contracts runs
+@typescript-eslint/no-floating-promises (HLQ.TS.1000) with the SARIF formatter into
+artifacts/quality/eslint/contracts.sarif, normalised with the same three partials and
+engine name `eslint`. Its findings on the current tree are not in this file yet; the
+first gate run of the branch reports them and the re-pin from that run's artifact adds
+them (the lane's sandbox could not install the formatter).

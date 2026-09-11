@@ -55,16 +55,21 @@ const fingerprint = (result, project) => {
 const projectFingerprint = project => 'sha256:' + createHash('sha256').update(project).digest('hex')
 const v2Fingerprint = (location, project) => 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
 
-export const normalizeSarifFile = (file, repoRoot) => {
+// ESLint SARIF (340 s2) goes through the same normaliser: the caller names the engine and the package
+// as the project identity; Roslyn callers pass nothing and get the ErrorLog basename and driver mapping.
+export const normalizeSarifFile = (file, repoRoot, {engine, project: projectOption} = {}) => {
   const sarif = JSON.parse(readFileSync(file, 'utf8'))
   if (sarif.version !== '2.1.0' || !Array.isArray(sarif.runs)) throw new Error('expected SARIF 2.1.0')
   // Directory.Build.targets names each compiler ErrorLog after MSBuildProjectName. Including that
   // stable output identity prevents diagnostics at one source location from different projects from
   // collapsing into one quality-baseline identity.
-  const project = path.basename(file).replace(/\.sarif$/i, '')
+  const project = projectOption ?? path.basename(file).replace(/\.sarif$/i, '')
   for (const run of sarif.runs) {
     if (!Array.isArray(run.results)) throw new Error('SARIF run has no results array')
-    if (run.tool?.driver?.name === 'Microsoft (R) Visual C# Compiler') run.tool.driver.name = 'roslyn'
+    if (engine) {
+      if (!run.tool?.driver) throw new Error('SARIF run has no tool driver')
+      run.tool.driver.name = engine
+    } else if (run.tool?.driver?.name === 'Microsoft (R) Visual C# Compiler') run.tool.driver.name = 'roslyn'
     run.results = run.results.filter(result => {
       const physical = result.locations?.[0]?.physicalLocation
       return typeof result.ruleId === 'string'

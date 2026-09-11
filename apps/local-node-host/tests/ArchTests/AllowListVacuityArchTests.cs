@@ -96,6 +96,9 @@ public sealed class AllowListVacuityArchTests
         new("ServiceRegistrationExtensionSpellingArchTests", "Slice7TailAllowList",
             ServiceRegistrationExtensionSpellingArchTests.Slice7TailAllowListRows,
             ServiceRegistrationExtensionSpellingArchTests.DiscoveredRetiredRegistrationSymbols),
+        new("EntityValidatorImplementationFenceTests", "AllowedImplementers",
+            EntityValidatorImplementationFenceTests.AllowedImplementerNames,
+            EntityValidatorImplementationFenceTests.DiscoveredImplementers),
     ];
 
     /// <summary>

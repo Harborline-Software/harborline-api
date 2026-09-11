@@ -50,15 +50,18 @@ git_r -C "$seed" config user.name 'Land Test'
 git_r -C "$seed" config user.email 'land-test@example.invalid'
 mkdir -p "$seed/eng"
 cp "$source_root/eng/land.sh" "$source_root/eng/land-resolve.sh" "$source_root/eng/land-evidence.sh" \
-  "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$source_root/eng/quality-baseline-landing.sh" "$seed/eng/"
+  "$source_root/eng/gate-lock.sh" "$source_root/eng/repin-baseline.mjs" "$source_root/eng/splice-generic.js" "$source_root/eng/quality-baseline-landing.sh" "$source_root/eng/quality-baseline-compare.mjs" "$seed/eng/"
 cat > "$seed/eng/gate-lock.sh" <<'EOF'
 gate_lock_acquire() { :; }
 gate_lock_release() { :; }
 EOF
 cat > "$seed/eng/quality-step.mjs" <<'EOF'
 // Fixture stand-in for the quality tool: 339 s4's landing comparison runs it on the merged tree.
-import {writeFileSync} from 'node:fs'
-writeFileSync(process.argv[process.argv.indexOf('--write-baseline') + 1], JSON.stringify({findings: []}))
+import {mkdirSync, writeFileSync} from 'node:fs'
+const index = process.argv.indexOf('--write-baseline')
+if (index !== -1) writeFileSync(process.argv[index + 1], JSON.stringify({findings: []}))
+mkdirSync('artifacts/quality', {recursive: true})
+writeFileSync('artifacts/quality/findings.json', JSON.stringify({findings: []}))
 EOF
 mkdir -p "$seed/eng/baselines"
 printf '{"findings": []}
