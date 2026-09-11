@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import * as fsExtra from 'node:fs'
 import {repositoryRelativePath} from '../normalize-roslyn-sarif.mjs'
 import {tmpdir} from 'node:os'
@@ -35,7 +35,9 @@ test('normalizer makes Windows and POSIX locations repository-relative and clone
   ]
 
   const normalized = fixtures.map(fixture => {
-    const file = path.join(directory, `${fixture.name}.sarif`)
+    const projectDirectory = path.join(directory, fixture.name)
+    mkdirSync(projectDirectory)
+    const file = path.join(projectDirectory, 'Fixture.Project.sarif')
     writeFileSync(file, JSON.stringify(sarifWith(fixture.uri)))
     const result = spawnSync(process.execPath,
       [normalizer, '--repo-root', fixture.repoRoot, file], {encoding: 'utf8'})
@@ -49,8 +51,28 @@ test('normalizer makes Windows and POSIX locations repository-relative and clone
     assert.doesNotMatch(result.locations[0].physicalLocation.artifactLocation.uri,
       /^(?:file:|[A-Za-z]:|\/)/)
   }
-  assert.equal(normalized[0].partialFingerprints['harborline/primary-location/v1'],
-    normalized[1].partialFingerprints['harborline/primary-location/v1'])
+  assert.equal(normalized[0].partialFingerprints['harborline/primary-location/v2'],
+    normalized[1].partialFingerprints['harborline/primary-location/v2'])
+  assert.match(normalized[0].partialFingerprints['harborline/primary-location/v2'], /^sha256:[a-f0-9]{64}$/)
+})
+
+test('normalizer fingerprints findings from distinct project outputs separately and maps the compiler driver to roslyn', t => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'roslyn-normalizer-project-test-'))
+  t.after(() => rmSync(directory, {recursive: true, force: true}))
+  const fixture = sarifWith('C:/clones/api/packages/foo/Source.cs')
+  fixture.runs[0].tool.driver.name = 'Microsoft (R) Visual C# Compiler'
+  const normalized = ['Project.One', 'Project.Two'].map(project => {
+    const file = path.join(directory, `${project}.sarif`)
+    writeFileSync(file, JSON.stringify(fixture))
+    const result = spawnSync(process.execPath,
+      [normalizer, '--repo-root', 'C:/clones/api', file], {encoding: 'utf8'})
+    assert.equal(result.status, 0, result.stderr)
+    return JSON.parse(readFileSync(file, 'utf8')).runs[0]
+  })
+  assert.equal(normalized[0].tool.driver.name, 'roslyn')
+  assert.equal(normalized[1].tool.driver.name, 'roslyn')
+  assert.notEqual(normalized[0].results[0].partialFingerprints['harborline/primary-location/v2'],
+    normalized[1].results[0].partialFingerprints['harborline/primary-location/v2'])
 })
 
 test('a location under the root’s resolved real path is inside the repository (macOS /var -> /private/var)', () => {

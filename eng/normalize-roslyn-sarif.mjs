@@ -2,7 +2,7 @@
 // Roslyn's compiler ErrorLog includes assembly-level diagnostics that have no
 // physical location, while CQG intentionally refuses such unanchored findings.
 // Rewrite every retained location relative to the repository, and add a stable
-// partial fingerprint derived from that clone-independent location.
+// partial fingerprint derived from that clone-independent location and project output.
 import {createHash} from 'node:crypto'
 import {readFileSync, writeFileSync, realpathSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
@@ -37,11 +37,12 @@ export const repositoryRelativePath = (uri, repoRoot) => {
   throw new Error(`SARIF location is outside repository: ${uri}`)
 }
 
-const fingerprint = result => {
+const fingerprint = (result, project) => {
   const physical = result.locations[0].physicalLocation
   const location = physical.artifactLocation.uri
   const region = physical.region
   return 'sha256:' + createHash('sha256').update(JSON.stringify([
+    ...(project === undefined ? [] : [project]),
     result.ruleId,
     location,
     region.startLine,
@@ -51,11 +52,18 @@ const fingerprint = result => {
   ])).digest('hex')
 }
 
+const projectFingerprint = project => 'sha256:' + createHash('sha256').update(project).digest('hex')
+
 export const normalizeSarifFile = (file, repoRoot) => {
   const sarif = JSON.parse(readFileSync(file, 'utf8'))
   if (sarif.version !== '2.1.0' || !Array.isArray(sarif.runs)) throw new Error('expected SARIF 2.1.0')
+  // Directory.Build.targets names each compiler ErrorLog after MSBuildProjectName. Including that
+  // stable output identity prevents diagnostics at one source location from different projects from
+  // collapsing into one quality-baseline identity.
+  const project = path.basename(file).replace(/\.sarif$/i, '')
   for (const run of sarif.runs) {
     if (!Array.isArray(run.results)) throw new Error('SARIF run has no results array')
+    if (run.tool?.driver?.name === 'Microsoft (R) Visual C# Compiler') run.tool.driver.name = 'roslyn'
     run.results = run.results.filter(result => {
       const physical = result.locations?.[0]?.physicalLocation
       return typeof result.ruleId === 'string'
@@ -71,7 +79,12 @@ export const normalizeSarifFile = (file, repoRoot) => {
       result.partialFingerprints = {
         ...(result.partialFingerprints && typeof result.partialFingerprints === 'object'
           ? result.partialFingerprints : {}),
+        // Retain v1 for a compatibility bridge while the baseline is re-pinned. v2 adds
+        // the project output, and project/v1 lets the baseline writer use the same input
+        // without depending on a host-specific artifact path.
         'harborline/primary-location/v1': fingerprint(result),
+        'harborline/project/v1': projectFingerprint(project),
+        'harborline/primary-location/v2': fingerprint(result, project),
       }
     }
   }
