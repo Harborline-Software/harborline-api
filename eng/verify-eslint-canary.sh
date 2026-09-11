@@ -22,6 +22,11 @@ printf 'async function plantedFloatingPromise(): Promise<void> {
 void plantedFloatingPromise;
 ' > "$canary"
 
+# The boundaries step runs before the exact clone installs the package; install once, frozen, when eslint is absent.
+if [[ ! -x "$contracts/node_modules/.bin/eslint" ]]; then
+  ( cd "$contracts" && pnpm install --frozen-lockfile --ignore-scripts >/dev/null ) || { echo "eslint canary FAIL — pnpm install --frozen-lockfile failed in packages/contracts" >&2; exit 1; }
+fi
+
 set +e
 ( cd "$contracts" && pnpm exec eslint "src/quality-floating-promise-canary.ts" --format @microsoft/eslint-formatter-sarif --output-file "$sarif" )
 status=$?
