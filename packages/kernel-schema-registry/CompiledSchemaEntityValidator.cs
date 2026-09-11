@@ -56,15 +56,21 @@ public sealed class CompiledSchemaEntityValidator(
         }
         else
         {
-            // holds RW-3 — an unknown, missing or unresolvable schema is a named refusal, never a pass.
-            // closes RW-H3: a mis-registered record type cannot persist unchecked.
-            throw new EntityValidationException(
-                $"No compiled validator is activated for schema '{schema.Value}'.",
-                SchemaUnknown,
-                [string.Empty]);
+            throw UnknownSchema(schema);
         }
 
-        var result = await registry.ValidateAsync(compiled, Utf8(body), ct).ConfigureAwait(false);
+        SchemaValidationResult result;
+        try
+        {
+            result = await registry.ValidateAsync(compiled, Utf8(body), ct).ConfigureAwait(false);
+        }
+        catch (SchemaNotFoundException)
+        {
+            // RW-3: a catalog binding can outlive a registry artefact (for example after a registry
+            // restart); treat that missing compiled artefact as the same named refusal as no binding.
+            throw UnknownSchema(schema);
+        }
+
         if (result.IsValid)
         {
             return;
@@ -86,6 +92,14 @@ public sealed class CompiledSchemaEntityValidator(
             BodyInvalid,
             pointers);
     }
+
+    // holds RW-3 — an unknown, missing or unresolvable schema is a named refusal, never a pass.
+    // closes RW-H3: a mis-registered record type cannot persist unchecked.
+    private static EntityValidationException UnknownSchema(SchemaId schema) =>
+        new(
+            $"No compiled validator is activated for schema '{schema.Value}'.",
+            SchemaUnknown,
+            [string.Empty]);
 
     private static ReadOnlyMemory<byte> Utf8(JsonDocument body)
     {
