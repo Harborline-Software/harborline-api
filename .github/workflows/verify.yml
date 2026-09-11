@@ -68,6 +68,14 @@ jobs:
           git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
           echo "control $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)  quality $qpin  platform $pin"
 
+      - name: Rust toolchain for the runner account
+        # rustup's default toolchain is per user (~/.rustup); the runner account starts with none, and
+        # verify.sh's contracts-rust step needs one. Set once, kept in the account's own home.
+        run: |
+          rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
+          rustup show active-toolchain
+          cargo --version
+
       - name: Build the local platform feed
         run: node eng/build-local-feed.mjs
 
