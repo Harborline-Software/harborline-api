@@ -22,6 +22,17 @@ _gate_lock_nonce() {
   od -An -N16 -tx1 /dev/urandom | tr -d ' \n'
 }
 
+# The owner record is visible to every process that needs to wait on the lock. Store only a
+# one-way proof there: the nonce itself stays in the owner's exported environment and is never
+# persisted in the lock directory.
+_gate_lock_nonce_proof() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{ print $1 }'
+  else
+    printf '%s' "$1" | shasum -a 256 | awk '{ print $1 }'
+  fi
+}
+
 # Portable stand-in for `mv -T`, which is GNU-only: BSD/macOS mv rejects the flag, so on macOS the
 # publish never happened and gate_lock_acquire retried forever without printing a thing (ticket 286).
 # Plain mv would nest SRC inside DST when DST is an existing directory, which is exactly what -T
@@ -40,41 +51,44 @@ _gate_lock_move_dir() {
 }
 
 _gate_lock_may_reuse() {
-  local caller_parent_pid=$1
-  # An inherited token admits descendants through any subshell topology. Bind it
+  local caller_parent_pid=$1 presented_nonce_proof
+  # An inherited nonce admits descendants through any subshell topology. Bind it
   # to the complete owner record and a live process with the same start time;
   # stale environments and recycled PIDs must never grant re-entry.
-  [ -n "${HARBORLINE_GATE_LOCK_OWNER_PID:-}" ] &&
+  if [ -n "${HARBORLINE_GATE_LOCK_OWNER_PID:-}" ] &&
     [ -n "${HARBORLINE_GATE_LOCK_OWNER_START:-}" ] &&
-    [ -n "${HARBORLINE_GATE_LOCK_OWNER_NONCE:-}" ] &&
+    [ -n "${HARBORLINE_GATE_LOCK_REENTRY_NONCE:-}" ]; then
+    presented_nonce_proof=$(_gate_lock_nonce_proof "$HARBORLINE_GATE_LOCK_REENTRY_NONCE") || return 1
     [ "$GATE_LOCK_HOLDER_PID" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] &&
-    [ "$GATE_LOCK_HOLDER_PROCESS_START" = "$HARBORLINE_GATE_LOCK_OWNER_START" ] &&
-    [ "$GATE_LOCK_HOLDER_NONCE" = "$HARBORLINE_GATE_LOCK_OWNER_NONCE" ] &&
-    _gate_lock_is_same_process "$HARBORLINE_GATE_LOCK_OWNER_PID" "$HARBORLINE_GATE_LOCK_OWNER_START" || return 1
-  # Keep the original parent-pid path for callers carrying only the older fields.
-  [ "$caller_parent_pid" = "$HARBORLINE_GATE_LOCK_OWNER_PID" ] ||
-    [ "${HARBORLINE_GATE_LOCK_REENTRY_TOKEN:-}" = "$GATE_LOCK_HOLDER_PID:$GATE_LOCK_HOLDER_PROCESS_START:$GATE_LOCK_HOLDER_NONCE" ]
+      [ "$GATE_LOCK_HOLDER_PROCESS_START" = "$HARBORLINE_GATE_LOCK_OWNER_START" ] &&
+      [ "$GATE_LOCK_HOLDER_NONCE_PROOF" = "$presented_nonce_proof" ] &&
+      _gate_lock_is_same_process "$HARBORLINE_GATE_LOCK_OWNER_PID" "$HARBORLINE_GATE_LOCK_OWNER_START" && return 0
+  fi
+  # Keep the original parent-pid path as a topology-dependent fallback. A caller with the
+  # owner's live process as its direct parent needs no nonce, which preserves older callers.
+  [ "$caller_parent_pid" = "$GATE_LOCK_HOLDER_PID" ] &&
+    _gate_lock_is_same_process "$GATE_LOCK_HOLDER_PID" "$GATE_LOCK_HOLDER_PROCESS_START"
 }
 
 _gate_lock_read() {
   local owner_path=${1:-"$HARBORLINE_GATE_LOCK_PATH/owner"}
   GATE_LOCK_HOLDER_PID=""
   GATE_LOCK_HOLDER_PROCESS_START=""
-  GATE_LOCK_HOLDER_NONCE=""
+  GATE_LOCK_HOLDER_NONCE_PROOF=""
   GATE_LOCK_HOLDER_COMMAND="unknown"
   GATE_LOCK_HOLDER_STARTED="unknown"
   [ -f "$owner_path" ] || return 1
   {
     IFS= read -r GATE_LOCK_HOLDER_PID &&
       IFS= read -r GATE_LOCK_HOLDER_PROCESS_START &&
-      IFS= read -r GATE_LOCK_HOLDER_NONCE &&
+      IFS= read -r GATE_LOCK_HOLDER_NONCE_PROOF &&
       IFS= read -r GATE_LOCK_HOLDER_COMMAND &&
       IFS= read -r GATE_LOCK_HOLDER_STARTED &&
       ! IFS= read -r _
   } < "$owner_path" || return 1
   [ -n "$GATE_LOCK_HOLDER_PID" ] &&
     [ -n "$GATE_LOCK_HOLDER_PROCESS_START" ] &&
-    [ -n "$GATE_LOCK_HOLDER_NONCE" ]
+    [ -n "$GATE_LOCK_HOLDER_NONCE_PROOF" ]
 }
 
 _gate_lock_remove_known_directory() {
@@ -94,17 +108,18 @@ _gate_lock_test_pause() {
 }
 
 gate_lock_release() {
-  local tombstone
+  local tombstone owner_nonce_proof
   if [ -n "${HARBORLINE_GATE_LOCK_CANDIDATE:-}" ]; then
     _gate_lock_remove_known_directory "$HARBORLINE_GATE_LOCK_CANDIDATE"
     HARBORLINE_GATE_LOCK_CANDIDATE=""
   fi
   [ "${HARBORLINE_GATE_LOCK_OWNED:-0}" = 1 ] || return 0
+  owner_nonce_proof=$(_gate_lock_nonce_proof "${HARBORLINE_GATE_LOCK_REENTRY_NONCE:-}") || return 1
   if _gate_lock_read &&
      [ "$GATE_LOCK_HOLDER_PID" = "$$" ] &&
      [ "$GATE_LOCK_HOLDER_PROCESS_START" = "$HARBORLINE_GATE_LOCK_OWNER_START" ] &&
-     [ "$GATE_LOCK_HOLDER_NONCE" = "$HARBORLINE_GATE_LOCK_OWNER_NONCE" ]; then
-    tombstone="${HARBORLINE_GATE_LOCK_PATH}.release.$$.$HARBORLINE_GATE_LOCK_OWNER_NONCE"
+     [ "$GATE_LOCK_HOLDER_NONCE_PROOF" = "$owner_nonce_proof" ]; then
+    tombstone="${HARBORLINE_GATE_LOCK_PATH}.release.$$.$(_gate_lock_nonce)"
     if _gate_lock_move_dir "$HARBORLINE_GATE_LOCK_PATH" "$tombstone"; then
       _gate_lock_remove_known_directory "$tombstone"
     fi
@@ -120,7 +135,7 @@ _gate_lock_signal() {
 
 _gate_lock_take_stale() {
   local observed_pid=$GATE_LOCK_HOLDER_PID
-  local observed_nonce=$GATE_LOCK_HOLDER_NONCE
+  local observed_nonce_proof=$GATE_LOCK_HOLDER_NONCE_PROOF
   local observed_command=$GATE_LOCK_HOLDER_COMMAND
   local observed_started=$GATE_LOCK_HOLDER_STARTED
   local tombstone="${HARBORLINE_GATE_LOCK_PATH}.tombstone.$$.$(_gate_lock_nonce)"
@@ -130,8 +145,8 @@ _gate_lock_take_stale() {
   _gate_lock_test_pause HARBORLINE_GATE_LOCK_TEST_PAUSE_AFTER_MARKER
 
   if _gate_lock_read &&
-     [ -n "$observed_nonce" ] &&
-     [ "$GATE_LOCK_HOLDER_NONCE" = "$observed_nonce" ] &&
+     [ -n "$observed_nonce_proof" ] &&
+     [ "$GATE_LOCK_HOLDER_NONCE_PROOF" = "$observed_nonce_proof" ] &&
      ! _gate_lock_is_same_process "$GATE_LOCK_HOLDER_PID" "$GATE_LOCK_HOLDER_PROCESS_START"; then
     if _gate_lock_move_dir "$HARBORLINE_GATE_LOCK_PATH" "$tombstone"; then
       printf 'gate: taking over stale %s pid %s since %s\n' \
@@ -161,12 +176,15 @@ gate_lock_acquire() {
 
   HARBORLINE_GATE_LOCK_OWNER_PID=$$
   HARBORLINE_GATE_LOCK_OWNER_START=$self_start
-  HARBORLINE_GATE_LOCK_OWNER_NONCE=$(_gate_lock_nonce) || return 1
-  [ -n "$HARBORLINE_GATE_LOCK_OWNER_NONCE" ] || return 1
+  HARBORLINE_GATE_LOCK_REENTRY_NONCE=$(_gate_lock_nonce) || return 1
+  [ -n "$HARBORLINE_GATE_LOCK_REENTRY_NONCE" ] || return 1
+  local nonce_proof
+  nonce_proof=$(_gate_lock_nonce_proof "$HARBORLINE_GATE_LOCK_REENTRY_NONCE") || return 1
+  [ -n "$nonce_proof" ] || return 1
   started=$(date -u +%Y-%m-%dT%H:%M:%SZ) || return 1
-  candidate="${HARBORLINE_GATE_LOCK_PATH}.candidate.$$.$HARBORLINE_GATE_LOCK_OWNER_NONCE"
+  candidate="${HARBORLINE_GATE_LOCK_PATH}.candidate.$$.$(_gate_lock_nonce)"
   export HARBORLINE_GATE_LOCK_PATH HARBORLINE_GATE_LOCK_OWNER_PID \
-    HARBORLINE_GATE_LOCK_OWNER_START HARBORLINE_GATE_LOCK_OWNER_NONCE
+    HARBORLINE_GATE_LOCK_OWNER_START HARBORLINE_GATE_LOCK_REENTRY_NONCE
   trap gate_lock_release EXIT
   trap '_gate_lock_signal 130' INT
   trap '_gate_lock_signal 143' TERM
@@ -175,12 +193,11 @@ gate_lock_acquire() {
     if mkdir "$candidate" 2>/dev/null; then
       HARBORLINE_GATE_LOCK_CANDIDATE=$candidate
       if printf '%s\n%s\n%s\n%s\n%s\n' "$$" "$self_start" \
-           "$HARBORLINE_GATE_LOCK_OWNER_NONCE" "$gate_command" "$started" > "$candidate/owner"; then
+           "$nonce_proof" "$gate_command" "$started" > "$candidate/owner"; then
         _gate_lock_test_pause HARBORLINE_GATE_LOCK_TEST_PAUSE_BEFORE_PUBLISH
         if _gate_lock_move_dir "$candidate" "$HARBORLINE_GATE_LOCK_PATH"; then
           HARBORLINE_GATE_LOCK_CANDIDATE=""
           HARBORLINE_GATE_LOCK_OWNED=1
-          export HARBORLINE_GATE_LOCK_REENTRY_TOKEN="$$:$self_start:$HARBORLINE_GATE_LOCK_OWNER_NONCE"
           return 0
         fi
       fi
