@@ -57,6 +57,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
     private AuthorizationCapabilityDefinition _definition = null!;
     private InMemoryStandingRuleDefinitionStore _standingRules = null!;
     private InMemorySchemaRegistry _schemas = null!;
+    private Harborline.Api.Kernel.Audit.InMemoryAuditTrail _trail = null!;
 
     public async Task InitializeAsync()
     {
@@ -76,8 +77,13 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<ActiveTeamAuthorizationContext>();
         // The gate reads durable grants directly. Calling this context's permission
         // answer from a grant source would re-enter the gate it is already awaiting.
-        builder.Services.AddSingleton<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>(new Harborline.Api.Kernel.Audit.InMemoryAuditTrail());
+        _trail = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
+        builder.Services.AddSingleton<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>(_trail);
         builder.Services.AddSingleton<IOperationSigner>(new Ed25519Signer(KeyPair.Generate()));
+        // Ticket 331 slice 2: the binding receipt is appended through AuthorizedActAudit, which the
+        // production host registers (Program.cs). This fixture composes its own container, so it has to
+        // register it too -- the route requires the sink and a missing one is a 500, not a silent gap.
+        builder.Services.AddAuthorizedActAudit();
         builder.Services.AddTestKernelClock();
         _grantStore = await Harborline.Api.LocalNodeHost.Tests.Search.SearchTestStore.CreateAsync();
         builder.Services.AddSingleton(_grantStore.Factory);
@@ -273,6 +279,18 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         var list = await _client.GetFromJsonAsync<AuthorizationDefinitionDto[]>(
             $"{AuthorizationAdminRoutes.RouteBase}/capability-definitions");
         Assert.Empty(Assert.Single(list!).Binding.EffectiveRoles);
+
+        // Ticket 331 slice 2: ONE act, ONE audited entry. The replay is answered from the stored result,
+        // so it must not append a second authorized act, and its auditId must be the first one's.
+        var replayed = await replayResponse.Content.ReadFromJsonAsync<NarrowAuthorizationBindingResponse>();
+        Assert.Equal(result.AuditId, replayed!.AuditId);
+        Assert.NotNull(result.AuditId);
+        var narrowings = new List<Harborline.Api.Kernel.Audit.AuditRecord>();
+        await foreach (var record in _trail.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(
+            NodeTenant.Resolve(_activeTeam),
+            new Harborline.Api.Kernel.Audit.AuditEventType("AuthorizationBindingNarrowed"))))
+            narrowings.Add(record);
+        Assert.Equal(result.AuditId, Assert.Single(narrowings).AuditId);
     }
 
     [Fact]

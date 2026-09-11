@@ -135,10 +135,10 @@ public static class EntityRoutes
 
             var entityId = LegalEntityId.NewId();
 
-            LegalEntity entity;
+            LegalEntityWritten written;
             try
             {
-                entity = await writer.CreateLegalEntityAsync(
+                written = await writer.CreateLegalEntityAsync(
                     new CreateLegalEntityCommand(
                         entityId,
                         body?.LegalName,
@@ -153,8 +153,10 @@ public static class EntityRoutes
                 // A NAMED contract, not an anonymous shape, and no prose `error` key: the dotted code
                 // IS the machine-readable reason (FormsErrorEnvelopeArchTests already forbids a prose
                 // key in the Forms family, and the record surface must not re-introduce one).
+                // Ticket 331 slice 2: the refusal's own audit id, so "why was this refused?" is askable
+                // too. It is the sink's id for THIS refusal -- never the accepted write's.
                 return Results.UnprocessableEntity(
-                    new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers));
+                    new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers, ex.AuditId));
             }
             catch (ArgumentException ex)
             {
@@ -162,8 +164,9 @@ public static class EntityRoutes
             }
 
             return Results.Created(
-                $"{RouteBase}/{Uri.EscapeDataString(entity.Id.Value)}",
-                new EntityCreatedResponse(entity.Id.Value, entity.LegalName));
+                $"{RouteBase}/{Uri.EscapeDataString(written.Entity.Id.Value)}",
+                new EntityCreatedResponse(
+                    written.Entity.Id.Value, written.Entity.LegalName, written.AuditId));
         });
     }
 }
@@ -179,7 +182,9 @@ public static class EntityRoutes
 public sealed record EntityValidationRefusal(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("detail")] string Detail,
-    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers);
+    [property: JsonPropertyName("pointers")] IReadOnlyList<string> Pointers,
+    [property: JsonPropertyName("auditId"),
+        JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null);
 
 /// <summary>List response envelope matching the Bridge <c>/api/v1/entities</c> shape.</summary>
 public sealed record EntityListResponse(
@@ -203,9 +208,16 @@ public sealed record EntityItemDto(
 }
 
 /// <summary>201 Created response after a successful entity creation.</summary>
+/// <summary>
+/// Ticket 331 slice 2 -- <c>auditId</c> is the audit id of the decision that permitted this write; it is
+/// what <c>GET /api/local-node/authorization/traces/{auditId}</c> answers for. OPTIONAL and last, so every
+/// existing reader of the 201 keeps working; absent only when the audit append faulted.
+/// </summary>
 public sealed record EntityCreatedResponse(
     [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("legalName")] string LegalName);
+    [property: JsonPropertyName("legalName")] string LegalName,
+    [property: JsonPropertyName("auditId"),
+        JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null);
 
 /// <summary>Request body for <c>POST /api/local-node/entities</c>.</summary>
 public sealed record CreateEntityRequest(

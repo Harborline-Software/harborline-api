@@ -49,6 +49,13 @@ public sealed class EntityValidationException : Exception
     /// <summary>Stable refusal code, e.g. <c>entity.validation.schema_unknown</c>.</summary>
     public string ReasonCode { get; }
 
+    /// <summary>
+    /// Ticket 331 slice 2 -- the audit id of the entry this refusal was recorded under, set by the writer
+    /// that recorded it so the caller's 422 is addressable on the decision-trace route. Null when the
+    /// refusal was not recorded (no audit sink composed, or the append faulted).
+    /// </summary>
+    public Guid? AuditId { get; set; }
+
     /// <summary>RFC 6901 pointers into the rejected body (empty string = document root).</summary>
     public IReadOnlyList<string> Pointers { get; }
 }

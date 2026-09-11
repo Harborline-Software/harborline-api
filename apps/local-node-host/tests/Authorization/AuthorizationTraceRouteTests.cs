@@ -6,6 +6,7 @@ using Harborline.Api.Contracts;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -150,6 +151,88 @@ public sealed class AuthorizationTraceRouteTests
         var restarted = await host.ReadAsync(id);
         Assert.Equal((int)AuthorizationTraceAvailability.NotAvailable, restarted.GetProperty("availability").GetInt32());
         Assert.Empty(restarted.GetProperty("steps").EnumerateArray());
+    }
+
+    // Ticket 331 slice 2 (M3 acceptance 5 clause 6): the accepted record write the first install actually
+    // drives — the headless `harborline-node record create` POST — answers with the audit id of the decision
+    // that permitted it, and the trace route answers for THAT id on a clean node, as the same operator
+    // session. 331.A4/A5/A6, H12-H14.
+    [Fact]
+    public async Task Accepted_record_write_carries_its_audit_id_and_the_trace_route_answers_for_it()
+    {
+        await using var host = await Host.OpenAsync();
+
+        using var created = await host.Client.PostAsJsonAsync(
+            EntityRoutes.RouteBase, new { legalName = "331 s2 Co" });
+        Assert.True(created.IsSuccessStatusCode,
+            $"{created.StatusCode}: {await created.Content.ReadAsStringAsync()}");
+        var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var recordId = body.GetProperty("id").GetString()!;
+        var auditId = body.GetProperty("auditId").GetGuid();
+
+        // 331.A4/H12: the id names the decision on THIS record's records:write act, not the route's
+        // install-wide guard decision and not another write's.
+        var trace = await host.ReadAsync(auditId);
+        Assert.Equal((int)AuthorizationTraceAvailability.Available,
+            trace.GetProperty("availability").GetInt32());
+        var steps = trace.GetProperty("steps").EnumerateArray().ToArray();
+        Assert.Equal(4, steps.Length);
+        Assert.Equal(Enumerable.Range(1, 4), steps.Select(step => step.GetProperty("ordinal").GetInt32()));
+        var facts = steps.SelectMany(step => step.GetProperty("facts").EnumerateArray()
+            .Select(fact => fact.GetString()!)).ToArray();
+        Assert.Contains($"act:{TeamRolePermissions.RecordsWrite}@/records/{recordId}", facts);
+        Assert.Contains($"target:record/{recordId}@/records/{recordId}", facts);
+        Assert.Contains("verdict:allowed", facts);
+        // The deciding grant is named, so the answer to "why was this allowed" is a grant, not a shrug.
+        Assert.Contains(facts, fact => fact.StartsWith("deciding:grant:", StringComparison.Ordinal));
+
+        // 331.A6/H13: a second principal holds no read coverage over this entry and is refused; nothing
+        // about the entry is disclosed, its steps included.
+        var stranger = await host.Services.GetRequiredService<AuthorizationTraceReader>()
+            .ReadAsync(host.Tenant, new ActorId("s331-s2-stranger"), auditId, host.Now);
+        Assert.Equal(AuthorizationTraceAvailability.Refused, stranger.Availability);
+        Assert.Empty(stranger.Steps);
+
+        // The stage-two refusal the same CLI drives (an out-of-enum kind) is addressable too, and its
+        // trace reads as the pre-decision refusal it is.
+        using var refused = await host.Client.PostAsJsonAsync(
+            EntityRoutes.RouteBase, new { legalName = "331 s2 Refused Co", kind = "NotAnEntityKind" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var refusedBody = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("entity.validation.body_invalid", refusedBody.GetProperty("code").GetString());
+        var refusedTrace = await host.ReadAsync(refusedBody.GetProperty("auditId").GetGuid());
+        Assert.Equal((int)AuthorizationTraceAvailability.PreDecisionRefusal,
+            refusedTrace.GetProperty("availability").GetInt32());
+        Assert.Equal("entity.validation.body_invalid",
+            refusedTrace.GetProperty("refusal").GetProperty("code").GetString());
+
+        // 331.A6 over HTTP: with both audit read capabilities unbound the route renders the refusal and no
+        // trace, for a write it just accepted. The read is authorized like the decision it explains.
+        foreach (var operation in new[] { Permission.AuditTraceRead, Permission.AuditRead })
+        {
+            var definitions = await host.Services
+                .GetRequiredService<IAuthorizationDefinitionCatalogueReader>().ListAsync(host.Tenant);
+            var definition = Assert.Single(definitions, row => row.Definition.Operation.Value == operation);
+            await host.Services.GetRequiredService<AuthorizationDefinitionWriter>().WriteAsync(
+                new NarrowCapabilityRoleBinding(host.Tenant, definition.Definition.DefinitionId,
+                    RoleBindingSet.Empty, host.Actor, host.Now,
+                    new BindingChangeReason("331 s2 trace read unbound")),
+                new AuthorizationWriteContext(host.Actor, host.Tenant, host.Now));
+        }
+
+        await host.RestartAsync();
+        using var again = await host.Client.PostAsJsonAsync(
+            EntityRoutes.RouteBase, new { legalName = "331 s2 Unreadable Co" });
+        Assert.True(again.IsSuccessStatusCode,
+            $"{again.StatusCode}: {await again.Content.ReadAsStringAsync()}");
+        var unreadable = (await again.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("auditId").GetGuid();
+        using var denied = await host.Client.GetAsync(PathFor(unreadable));
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var deniedBody = await denied.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(AuthorizationRefusalRenderer.PermissionRequiredCode,
+            deniedBody.GetProperty("code").GetString());
+        Assert.False(deniedBody.TryGetProperty("steps", out _));
     }
 
     private static void AssertShape(JsonElement read, AuthorizationDecision decision)

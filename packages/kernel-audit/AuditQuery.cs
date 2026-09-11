@@ -18,9 +18,11 @@ namespace Harborline.Api.Kernel.Audit;
 /// <param name="OccurredAfter">Optional. Inclusive lower bound on <see cref="AuditRecord.OccurredAt"/>.</param>
 /// <param name="OccurredBefore">Optional. Inclusive upper bound on <see cref="AuditRecord.OccurredAt"/>.</param>
 /// <param name="IssuedBy">Optional. Match records whose payload signature was issued by this principal.</param>
+/// <param name="AuditId">Optional (ticket 331 slice 2). One entry by its audit id; a trail may answer it from an index instead of scanning.</param>
 public sealed record AuditQuery(
     TenantId TenantId,
     AuditEventType? EventType = null,
     DateTimeOffset? OccurredAfter = null,
     DateTimeOffset? OccurredBefore = null,
-    PrincipalId? IssuedBy = null);
+    PrincipalId? IssuedBy = null,
+    Guid? AuditId = null);
