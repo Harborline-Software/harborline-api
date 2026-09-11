@@ -213,12 +213,14 @@ public sealed class NodeHierarchyCompositeCoordinator(
             var target = newEntities[index];
             if (target.Options.Tenant != tenant)
                 throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
-            authorization.Require(replacementIds[index]);
-            // Ticket 151 (L1418): a split mints RECORDS, so stage two runs here too — after the
-            // composite admission above, before the store sees the body.
-            await validator.ValidateAsync(target.Schema, target.Body, ct).ConfigureAwait(false);
+            // Ticket 151 (L1418) / ticket 366: a split mints RECORDS, so stage two runs here too — after
+            // the composite admission, before the store sees the body. The SAME decision the admission
+            // returned is what the mint requires, so the ordering cannot be swapped or re-decided.
+            var admission = authorization.Require(replacementIds[index]);
+            var admitted = await ValidatedRecordBody.AdmitAsync(
+                validator, admission, target.Schema, target.Body, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
-                target.Schema, target.Body, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
+                admitted, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
 
         var reassigned = new List<EntityId>();
@@ -274,12 +276,14 @@ public sealed class NodeHierarchyCompositeCoordinator(
         DateTimeOffset effectiveAt,
         CancellationToken ct)
     {
-        authorization.Require(expectedNewId);
+        var admission = authorization.Require(expectedNewId);
         if (newOptions.Tenant != tenant)
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
-        await validator.ValidateAsync(newSchema, newBody, ct).ConfigureAwait(false);
+        // Ticket 366: the merge target is a RECORD, minted from the same decision the admission returned.
+        var admitted = await ValidatedRecordBody.AdmitAsync(
+            validator, admission, newSchema, newBody, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
-            newSchema, newBody, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
+            admitted, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)
             throw new InvalidOperationException("The entity store minted an id different from the pre-authorized merge target.");
         var reassigned = new List<EntityId>();

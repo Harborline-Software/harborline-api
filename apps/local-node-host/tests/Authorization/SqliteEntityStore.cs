@@ -63,6 +63,15 @@ internal sealed class SqliteEntityStore : IEntityMutationStore, IDisposable
                 : DateTimeOffset.Parse(reader.GetString(6), null, System.Globalization.DateTimeStyles.RoundtripKind));
     }
 
+    /// <summary>Ticket 366: the record seam. This fixture serves definition-envelope contracts, which use
+    /// the raw seam, so the token path simply unwraps and delegates.</summary>
+    public Task<EntityId> CreateAsync(ValidatedRecordBody body, CreateOptions options, CancellationToken ct = default) =>
+        CreateAsync(body.Schema, body.Body, options, ct);
+
+    /// <inheritdoc cref="CreateAsync(ValidatedRecordBody, CreateOptions, CancellationToken)" />
+    public Task<VersionId> UpdateAsync(EntityId id, ValidatedRecordBody newBody, UpdateOptions options, CancellationToken ct = default) =>
+        UpdateAsync(id, newBody.Body, options, ct);
+
     public async Task<EntityId> CreateAsync(
         SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default)
     {

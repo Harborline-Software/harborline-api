@@ -1150,6 +1150,19 @@ public sealed class RoleGateAdmissionTests
             return inner.CreateAsync(schema, body, options, ct);
         }
 
+        public Task<EntityId> CreateAsync(ValidatedRecordBody body, CreateOptions options, CancellationToken ct = default)
+        {
+            order.Add("writer");
+            return inner.CreateAsync(body, options, ct);
+        }
+
+        public Task<VersionId> UpdateAsync(
+            EntityId id, ValidatedRecordBody body, UpdateOptions options, CancellationToken ct = default)
+        {
+            order.Add("writer");
+            return inner.UpdateAsync(id, body, options, ct);
+        }
+
         public Task<IReadOnlyList<EntityId>> CreateBatchAsync(
             IEnumerable<EntityDraft> drafts, CancellationToken ct = default)
         {

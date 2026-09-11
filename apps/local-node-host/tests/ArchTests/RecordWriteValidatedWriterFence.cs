@@ -6,39 +6,34 @@ using Harborline.Api.LocalNodeHost.Data.Entities;
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
 /// <summary>
-/// Ticket 151 slice 2 (judge) — the bypass fence's discovery and its allow-list.
+/// Ticket 151 slice 2 (judge), narrowed by ticket 366 slice 1 — the bypass fence's discovery and its
+/// allow-list, now covering only what the type system cannot.
 /// <para>
-/// Every production call of the entity store's create/update ports is a record write. The property row 6 of
-/// <c>RecordWriteValidationJudgeTests</c> states is that each such call site sits inside a NAMED validated
-/// writer — a type the slice has shown runs the gate and then the validator before persistence — and that
-/// the exception list is empty. It lives in this namespace so
-/// <see cref="AllowListVacuityArchTests"/>'s by-type coverage scan sees it.
+/// RW-9 on the RECORD seam is held by <see cref="ValidatedRecordBody"/>: that seam takes a token only its
+/// own mint can produce, so a record write that skips the gate or the validator does not compile and needs
+/// no row here. What remains is the store's RAW (internal) seam, reachable only by the assemblies that own
+/// a NON-record write shape. Row 6 of <c>RecordWriteValidationJudgeTests</c> is therefore: every raw-seam
+/// call site is one of the named envelope writers below, and the exception list is empty. It lives in this
+/// namespace so <see cref="AllowListVacuityArchTests"/>'s by-type coverage scan sees it.
 /// </para>
 /// </summary>
 internal static class RecordWriteValidatedWriterFence
 {
     /// <summary>
-    /// The writers permitted to reach the entity store's create/update ports (path prefixes of the call
-    /// site). Two labelled kinds, and every row carries the reason it is here:
-    /// <list type="bullet">
-    ///   <item><b>Record writers</b> — gated (RW-1) then validated by the record validator (RW-2) before
-    ///     persistence. RW-9's "a writer that skips RW-1 or RW-2 fails it" bites on these.</item>
-    ///   <item><b>Non-record envelope writers</b> — the RW-8 shapes. The body is a definition envelope or a
-    ///     form instance, not a record, so the RECORD validator deliberately does not run on them; each
-    ///     keeps its own admission, named per row. A record writer must never be added to this block.</item>
-    /// </list>
+    /// The writers permitted to reach the entity store's RAW create/update seam (path prefixes of the call
+    /// site). Every row is a <b>non-record envelope writer</b> — an RW-8 shape. The body is a definition
+    /// envelope or a form instance, not a record, so the RECORD validator deliberately does not run on
+    /// them; each keeps its own admission, named per row. A record writer can no longer be added to this
+    /// block even by mistake: ticket 366 slice 1 made the raw seam internal to exactly these assemblies,
+    /// and the record writers (NodeEntityWriter, NodeHierarchyCompositeCoordinator) now reach the token
+    /// seam instead — their two rows were deleted with that change because the type makes those call sites
+    /// impossible.
     /// </summary>
     internal static readonly string[] ValidatedWriters =
     [
-        // ── Record writers: gate → record validator → persistence ──
-        // Route and headless-CLI create/update. Validates in NodeEntityWriter.ValidateAsync, after the gate.
-        "apps/local-node-host/Data/Entities/NodeEntityWriter.cs",
-        // Hierarchy split/merge mints records; validates each minted body after the composite admission.
-        "apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs",
-
-        // ── Non-record envelope writers (RW-8): the record validator deliberately does not run ──
-        // Not a write of its own: the port's `CreateBatchAsync` default interface member fans out to
-        // `CreateAsync`, so the body it forwards was already admitted by whichever row above called it.
+        // Not a write of its own: the port's internal `CreateBatchAsync` default interface member fans out
+        // to the internal `CreateAsync`. It has no production caller at all now that the record writers use
+        // the token seam, so the body it would forward could only come from an envelope writer.
         "packages/foundation/Assets/Entities/IEntityStore.cs",
         // Body is a serialized DEFINITION envelope on a lifecycle status transition; admitted by the
         // definition lifecycle's own allowed-from transition guard, which a record schema cannot express.
@@ -70,12 +65,19 @@ internal static class RecordWriteValidatedWriterFence
         .Order(StringComparer.Ordinal)
         .ToArray();
 
+    /// <summary>
+    /// The store's RAW seam only (ticket 366 slice 1): a create/update whose body is a
+    /// <see cref="System.Text.Json.JsonDocument"/>. The token overloads are excluded because
+    /// <see cref="ValidatedRecordBody"/> already proves what a row here would assert.
+    /// </summary>
     private static bool IsRecordWrite(MethodBase target)
     {
         if (target is not MethodInfo method || method.DeclaringType is not { } declaring) return false;
         if (method.Name is not (nameof(IEntityMutationStore.CreateAsync)
             or nameof(IEntityMutationStore.UpdateAsync)
 )) return false;
+        if (!method.GetParameters().Any(p => p.ParameterType == typeof(System.Text.Json.JsonDocument)))
+            return false;
         return declaring == typeof(IEntityMutationStore)
             || typeof(IEntityMutationStore).IsAssignableFrom(declaring);
     }

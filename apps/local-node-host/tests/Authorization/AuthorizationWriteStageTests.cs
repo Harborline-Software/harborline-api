@@ -69,10 +69,11 @@ public sealed class AuthorizationWriteStageTests
 
         var order = new List<string>();
         DateTimeOffset? storedAt = null;
-        store.CreateAsync(default, default!, default!, default).ReturnsForAnyArgs(call =>
+        // Ticket 366: the writer reaches the store's TOKEN seam, so that is the overload to stub.
+        store.CreateAsync(default(ValidatedRecordBody)!, default!, default).ReturnsForAnyArgs(call =>
         {
             order.Add("store");
-            storedAt = call.ArgAt<CreateOptions>(2).ValidFrom;
+            storedAt = call.ArgAt<CreateOptions>(1).ValidFrom;
             return Task.FromResult(new EntityId("entity", "test", "direct"));
         });
         var allowed = new NodeEntityWriter(factory, store, validator,
