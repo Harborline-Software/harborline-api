@@ -104,6 +104,21 @@ The single team in that list is the genesis team, seeded at first boot from the 
 it is how you know genesis ran. `apps/node-operator-cli/README.md` has the rest of the verbs and the
 exit-code contract.
 
+## 5. What the first-boot operator may do
+
+Genesis does not hand out an administrator. The installer's authorization seed issues exactly one
+holding to the desktop operator party — principal `local`, the party every loopback call carrying
+`LocalNode__SessionToken` resolves to — and that holding is the sealed `node-operator` package role at
+scope `/`. It offers only the operations the desktop route families actually resolve at the gate,
+`packages:operate` and `packages:author` among them, which is why the founder can author, export,
+verify, install and activate a pack on a freshly started node and cannot, for example, grant
+permissions to anyone (`grant:permissions` is deliberately not offered to it: that is an
+Administrator's act, requested through the Access forms). The grant is durable, recorded and
+revocable like any other — it is in the grant store under the source reference
+`authorization-seed:node-operator`, not an ambient bypass — and every pack route decides each command
+through the one `AuthorizationGate`, about that principal. Nothing in the first-install path is
+allowed because a caller said so.
+
 ## Is it still true?
 
 `eng/verify-install-artefact.sh` (gate step `install-artefact`) is this page, executed: it publishes

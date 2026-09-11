@@ -124,7 +124,10 @@ public sealed partial class ComposedHostBootSmokeTests
             rootSeedHex: rootSeedHex);
         await bootstrapHost.AwaitReadinessAsync();
         await bootstrapHost.StopAsync();
-        await GrantPackOperationToHostInstallerAsync(bootstrapHost, rootSeedHex);
+        // Ticket 379: this used to inject an Administrator grant for the node's SIGNING KEY id, because the
+        // install path re-decided about that key rather than about the acting operator. With the principal
+        // fixed at the route, the operator's ordinary seeded `packages:operate` holding is what admits the
+        // install — so the compensating grant is gone and this stays a clean-node proof.
 
         await using var host = ComposedHost.Start(
             "pack navigation shipping route after grant",
@@ -231,14 +234,18 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.False(panel.GetProperty("defaultOpen").GetBoolean());
     }
 
-    private static async Task GrantPackOperationToHostInstallerAsync(
+    /// <summary>
+    /// Appends an Administrator grant straight into a stopped host's grant store, for a named principal.
+    /// Ticket 379: the principal is REQUIRED. It used to default to the node's signing key id, which is the
+    /// actor nothing ever grants — and that default is what kept the first-boot install defect green here.
+    /// </summary>
+    private static async Task GrantAdministratorAsync(
         ComposedHost host,
         string rootSeedHex,
-        string? principalOverride = null)
+        string principalId)
     {
         var rootSeed = Convert.FromHexString(rootSeedHex);
-        using var signer = new NodePrincipalSigner(rootSeed);
-        var principal = new ActorId(principalOverride ?? signer.Signer.IssuerId.ToBase64Url());
+        var principal = new ActorId(principalId);
         var tenant = ActiveTeamTenantContext.ProjectTenantId(GenesisTeamId.Derive(rootSeed));
         var services = new ServiceCollection();
         services.AddLogging();
