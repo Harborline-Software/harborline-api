@@ -63,7 +63,9 @@ node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/arch-sarif.test.mjs" || exit 1
-bash "$repo_root/eng/tests/verify-arch-canary.test.sh" || exit 1
+# The arch canary needs the built host tests and is a quality-engine control: it runs where the quality steps
+# run (HARBORLINE_GATE_QUALITY=1, the macOS verify), not in the hosted jobs.
+if [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; then bash "$repo_root/eng/tests/verify-arch-canary.test.sh" || exit 1; else echo "arch canary: skipped (HARBORLINE_GATE_QUALITY unset)"; fi
 bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
 node --test "$repo_root/eng/tests/quality-artifacts.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/receipt-accept.test.mjs" || exit 1
