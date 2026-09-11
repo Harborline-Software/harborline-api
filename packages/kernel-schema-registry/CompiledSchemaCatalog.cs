@@ -53,6 +53,9 @@ public sealed class CompiledSchemaCatalog(ISchemaRegistry registry)
         string jsonSchemaText,
         CancellationToken ct = default)
     {
+        // RW-5 / RW-H7: do not retain a previous compiled artefact when re-activation faults or
+        // declines to register. A later write must refuse this name instead of using stale rules.
+        _activated.TryRemove(name, out _);
         var schema = await registry.RegisterAsync(jsonSchemaText, ct: ct).ConfigureAwait(false);
         if (schema is null)
         {
