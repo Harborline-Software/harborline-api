@@ -113,6 +113,13 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       NUGET_PACKAGES: C:\nuget-runner
     steps:
+      - name: Git Bash on PATH for the service account
+        # Only C:\Program Files\Git\cmd is on the machine PATH; bash.exe lives in ...\Git\bin.
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
