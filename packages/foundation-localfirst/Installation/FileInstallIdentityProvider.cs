@@ -11,7 +11,7 @@ namespace Harborline.Api.Foundation.LocalFirst.Installation;
 /// the identity value. The first opener atomically creates a random value, so two installs cannot
 /// collide because their tenant or environment labels happen to match.
 /// </remarks>
-public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
+public sealed partial class FileInstallIdentityProvider : IInstallIdentityProvider
 {
     private readonly string _identityFilePath;
 
@@ -114,7 +114,7 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
             return true;
         }
 
-        var errno = Marshal.GetLastWin32Error();
+        var errno = Marshal.GetLastPInvokeError();
         if (errno == Eexist)
         {
             return false;
@@ -127,8 +127,8 @@ public sealed class FileInstallIdentityProvider : IInstallIdentityProvider
     // EEXIST is 17 on Linux and on macOS.
     private const int Eexist = 17;
 
-    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
-    private static extern int Link(string oldPath, string newPath);
+    [LibraryImport("libc", EntryPoint = "link", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
+    private static partial int Link(string oldPath, string newPath);
 
     private async Task<InstallIdentity> ReadWhenAvailableAsync(CancellationToken ct)
     {
