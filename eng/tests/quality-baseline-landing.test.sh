@@ -19,6 +19,8 @@ gate_root="$fixture/gate"
 mkdir -p "$gate_root/eng/baselines" "$gate_root/artifacts/quality"
 cp "$committed" "$gate_root/eng/baselines/quality-baseline.json"
 cp "$committed" "$gate_root/artifacts/quality/findings.json"
-fallback_out=$(quality_baseline_gate "$gate_root" 2>&1)
+# This check is about the fallback; the CI verify exports HARBORLINE_QUALITY_BASELINE (the merge-base artifact),
+# which would compare the fixture against the real set and fail the assignment silently under set -e.
+fallback_out=$(HARBORLINE_QUALITY_BASELINE= quality_baseline_gate "$gate_root" 2>&1)
 grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json" <<<"$fallback_out" || { echo 'FAIL missing committed fallback message'; exit 1; }
 echo 'quality-baseline-landing: 4 checks passed (identical sets across formats; resolved counted; new counted; committed fallback message)'
