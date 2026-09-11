@@ -35,12 +35,15 @@ const referenceLine = (repoRoot, edge) => {
 
 export const failuresFromTrx = trx => {
   const failures = []
-  for (const match of trx.matchAll(/<UnitTestResult\b([^>]*)>([\s\S]*?)<\/UnitTestResult>/g)) {
+  // Passed results are self-closing (<UnitTestResult ... />); a pattern that only knows the open/close
+  // form lets a passed tag swallow the failed element that follows it, and the TRX order is not stable.
+  for (const match of trx.matchAll(/<UnitTestResult\b([^>]*?)(?:\/>|>([\s\S]*?)<\/UnitTestResult>)/g)) {
     const testName = decode(attribute(match[1], 'testName') ?? '')
     // TRX testName is the display name ("R2: foundation references no blocks projects"), not the class.
     if (attribute(match[1], 'outcome') !== 'Failed' || !/^R\d+: /.test(testName)) continue
-    const cdata = /<Message><!\[CDATA\[([\s\S]*?)\]\]><\/Message>/.exec(match[2])?.[1]
-    const plain = /<Message>([\s\S]*?)<\/Message>/.exec(match[2])?.[1]
+    const body = match[2] ?? ''
+    const cdata = /<Message><!\[CDATA\[([\s\S]*?)\]\]><\/Message>/.exec(body)?.[1]
+    const plain = /<Message>([\s\S]*?)<\/Message>/.exec(body)?.[1]
     failures.push({testName, message: decode(cdata ?? plain ?? '')})
   }
   return failures

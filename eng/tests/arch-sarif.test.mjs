@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {writeArchSarif} from '../arch-sarif.mjs'
+import {writeArchSarif, failuresFromTrx} from '../arch-sarif.mjs'
 
 const trx = ({outcome = 'Failed', message = ''} = {}) => `<?xml version="1.0"?><TestRun><Results><UnitTestResult outcome="${outcome}" testName="R2: foundation references no blocks projects"><Output><ErrorInfo><Message><![CDATA[${message}]]></Message></ErrorInfo></Output></UnitTestResult></Results></TestRun>`
 
@@ -36,4 +36,10 @@ test('arch adapter produces a successful zero-result run for a passing fence', t
   const run = JSON.parse(readFileSync(output, 'utf8')).runs[0]
   assert.equal(run.invocations[0].executionSuccessful, true)
   assert.deepEqual(run.results, [])
+})
+
+test('a passed self-closing result before the failed one does not swallow it (TRX order is not stable)', () => {
+  const failure = 'System.InvalidOperationException : R2: foundation references no blocks projects failed (1 violating edges):\n  packages/foundation-a/A.csproj -> packages/blocks-b/B.csproj (foundation -> blocks)'
+  const text = `<?xml version="1.0"?><TestRun><Results><UnitTestResult outcome="Passed" testName="R1: kernel references no foundation or blocks projects" /><UnitTestResult outcome="Failed" testName="R2: foundation references no blocks projects"><Output><ErrorInfo><Message><![CDATA[${failure}]]></Message></ErrorInfo></Output></UnitTestResult><UnitTestResult outcome="Passed" testName="R3: packages reference no apps projects" /></Results></TestRun>`
+  assert.equal(failuresFromTrx(text).length, 1)
 })
