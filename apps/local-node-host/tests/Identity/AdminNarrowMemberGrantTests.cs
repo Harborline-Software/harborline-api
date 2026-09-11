@@ -28,20 +28,6 @@ public sealed class AdminNarrowMemberGrantTests
     private static readonly DateTimeOffset Now = new(2026, 7, 23, 9, 25, 0, TimeSpan.Zero);
     private const string FounderPrincipal = "principal-founder";
 
-    /// <summary>
-    /// Catalogued operations to probe test (d) with. The test picks the first one the administrator does NOT
-    /// hold and fails loudly if the founder's composition ever grows to cover all of them - the no-escalation
-    /// guard needs a real act outside the caller's set, not an invented string (an uncatalogued operation is
-    /// refused by the definition admission long before the subset check).
-    /// </summary>
-    private static readonly string[] UnheldCandidates =
-    [
-        Permission.WorkshopUnlock,
-        Permission.OrgTransferOwnership,
-        Permission.FinancialPeriodOverrideSoftClose,
-        Permission.PackagesAuthor,
-    ];
-
     private static AuthorizationWriteContext FounderAuthority(string tenantId) =>
         new(new ActorId(FounderPrincipal), new TenantId(tenantId), Now);
 
@@ -171,7 +157,7 @@ public sealed class AdminNarrowMemberGrantTests
     }
 
     /// <summary>(f) the authorization epoch advances EXACTLY once and a pinned live session re-evaluates.</summary>
-    [Fact(DisplayName = "the narrowing advances the authorization epoch exactly once and a pinned live session re-evaluates")]
+    [Fact(DisplayName = "holds 362.A2: the narrowing advances the epoch exactly once and the pinned live session's next read is refused")]
     public async Task Epoch_Advances_Exactly_Once_And_The_Pinned_Session_Re_Evaluates()
     {
         var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
@@ -196,6 +182,40 @@ public sealed class AdminNarrowMemberGrantTests
         // The already-pinned live session re-evaluates on its NEXT request and loses the narrowed act
         // without being handed a wider cached closure.
         Assert.False(await HasPermissionAsync(h, principal, Permission.SchedulingAuthor));
+    }
+
+    /// <summary>
+    /// (h) 362.A3 — the REVOKE leg of the same production surface
+    /// (<c>IAdminTeamAccessAuthority.RevokeMemberGrantAsync</c>): a live pinned session's next read of the
+    /// revoked grant's act is refused. The member's session survives (the revoked grant is not the one the
+    /// session pins), so the refusal is the PEP re-deriving the conferred closure, not a dead session.
+    /// </summary>
+    [Fact(DisplayName = "holds 362.A3: after a revoke through the production surface the pinned live session's next read is refused")]
+    public async Task Revoking_Through_The_Surface_Refuses_The_Pinned_Sessions_Next_Read()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var joinerHandle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        var principal = await h.SelectedSessionPrincipals.AuthenticateAsync(joinerHandle);
+        Assert.NotNull(principal);
+        var member = principal!.PrincipalUserId.Value;
+        var conferred = await ConferAsync(
+            h, tenant, member, Permission.ContactsRead, Permission.SchedulingAuthor);
+        Assert.True(await HasPermissionAsync(h, principal, Permission.SchedulingAuthor));
+
+        var revoked = await h.AdminTeam.RevokeMemberGrantAsync(
+            setup.FounderSelectedHandle, setup.TenantId, conferred.GrantId.ToString(),
+            FounderAuthority(setup.TenantId));
+
+        Assert.NotNull(revoked);
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, revoked!.Status);
+        var row = await h.ReadGrantRowAsync(conferred.GrantId.ToString());
+        Assert.Equal((int)GrantStatus.Revoked, row.Status);
+        Assert.NotNull(row.RevokedAtUnixMs);
+        // The already-pinned live session loses the act on its NEXT request, with no re-login.
+        Assert.False(await HasPermissionAsync(h, principal, Permission.SchedulingAuthor));
+        Assert.DoesNotContain(Permission.SchedulingAuthor, await AtomsAsync(h, tenant, member));
     }
 
     /// <summary>(g) both audit rows carry one correlation id and the reason "member-narrowed".</summary>

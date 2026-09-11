@@ -21,7 +21,7 @@ public sealed class AdminTeamAccessRoutesTests
     [Theory]
     [InlineData(AdminTeamAccessRoutes.InvitationsPath)]
     [InlineData(AdminTeamAccessRoutes.RevokeMemberPath)]
-    [InlineData(AdminTeamAccessRoutes.UpdateMemberPermissionsPath)]
+    [InlineData(AdminTeamAccessRoutes.NarrowMemberPath)]
     public async Task Write_Authorization_Denial_Returns_Rendered_403(string path)
     {
         var operation = AuthorizationOperation.Parse("members:manage");
@@ -36,7 +36,7 @@ public sealed class AdminTeamAccessRoutesTests
             ? new AdminTeamAccessRoutes.IssueInvitationRequest(["records:read"], "idem-1")
             : path == AdminTeamAccessRoutes.RevokeMemberPath
                 ? new AdminTeamAccessRoutes.RevokeMemberRequest("grant-9")
-                : new AdminTeamAccessRoutes.UpdateMemberPermissionsRequest("grant-9", ["records:read"]);
+                : new AdminTeamAccessRoutes.NarrowMemberRequest("grant-9", ["records:read"]);
 
         var response = await InvokePostAsync(path, authority, request, antiforgery: antiforgery);
 
@@ -470,48 +470,57 @@ public sealed class AdminTeamAccessRoutesTests
         Assert.Equal(StatusCodes.Status204NoContent, logout.Response.StatusCode);
     }
 
+    /// <summary>
+    /// Ticket 362 slice 2 - the route-level row the retired permissions route used to hold, moved onto the
+    /// one surviving member-permissions writer: the narrow route binds the tenant from the PRINCIPAL (never
+    /// the request body), passes the grant id and the requested set through unchanged, and rotates
+    /// antiforgery.
+    /// </summary>
     [Fact]
     [Trait("PlanCard", "MTW-3770")]
-    public async Task Update_Member_Permissions_Returns_Updated_On_The_Principal_Tenant()
+    public async Task Narrow_Member_Returns_Narrowed_On_The_Principal_Tenant()
     {
         var authority = new RecordingAuthority
         {
-            Update = new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.Updated),
+            Narrow = new AdminNarrowMemberGrantResult(
+                AdminNarrowMemberGrantStatus.Narrowed, "grant-narrowed"),
         };
         var antiforgery = new RecordingAntiforgeryPolicy();
 
         var response = await InvokePostAsync(
-            AdminTeamAccessRoutes.UpdateMemberPermissionsPath,
+            AdminTeamAccessRoutes.NarrowMemberPath,
             authority,
-            new AdminTeamAccessRoutes.UpdateMemberPermissionsRequest(
+            new AdminTeamAccessRoutes.NarrowMemberRequest(
                 "grant-9", new[] { "assets:read", "forms:read" }),
             antiforgery: antiforgery);
 
         Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
-        Assert.Contains("\"status\":\"updated\"", response.Body, StringComparison.Ordinal);
-        Assert.Equal("tenant-1", authority.UpdateTenantId);
-        Assert.Equal("grant-9", authority.UpdateGrantId);
-        Assert.Equal(new[] { "assets:read", "forms:read" }, authority.UpdatePermissions);
+        Assert.Contains("\"status\":\"narrowed\"", response.Body, StringComparison.Ordinal);
+        Assert.Contains("grant-narrowed", response.Body, StringComparison.Ordinal);
+        Assert.Equal("tenant-1", authority.NarrowTenantId);
+        Assert.Equal("grant-9", authority.NarrowGrantId);
+        Assert.Equal(new[] { "assets:read", "forms:read" }, authority.NarrowPermissions);
         Assert.Equal(SelectedHandle, antiforgery.RotatedSelectedHandle);
     }
 
     [Fact]
     [Trait("PlanCard", "MTW-3770")]
-    public async Task Update_Member_Permissions_Empty_Set_Is_Refused_Before_Authority()
+    public async Task Narrow_Member_Without_A_Permission_Set_Is_Refused_Before_Authority()
     {
         var authority = new RecordingAuthority
         {
-            Update = new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.Updated),
+            Narrow = new AdminNarrowMemberGrantResult(
+                AdminNarrowMemberGrantStatus.Narrowed, "grant-narrowed"),
         };
 
         var response = await InvokePostAsync(
-            AdminTeamAccessRoutes.UpdateMemberPermissionsPath,
+            AdminTeamAccessRoutes.NarrowMemberPath,
             authority,
-            new AdminTeamAccessRoutes.UpdateMemberPermissionsRequest("grant-9", Array.Empty<string>()));
+            new AdminTeamAccessRoutes.NarrowMemberRequest("grant-9", null));
 
         Assert.Equal(StatusCodes.Status400BadRequest, response.StatusCode);
         Assert.Contains("invalid_request", response.Body, StringComparison.Ordinal);
-        Assert.Null(authority.UpdateGrantId);
+        Assert.Null(authority.NarrowGrantId);
         Assert.Null(response.Antiforgery);
     }
 
@@ -526,7 +535,7 @@ public sealed class AdminTeamAccessRoutesTests
                      AdminTeamAccessRoutes.MembersPath,
                      AdminTeamAccessRoutes.InvitationsPath,
                      AdminTeamAccessRoutes.RevokeMemberPath,
-                     AdminTeamAccessRoutes.UpdateMemberPermissionsPath,
+                     AdminTeamAccessRoutes.NarrowMemberPath,
                  })
         {
             Assert.DoesNotContain('{', path);
@@ -670,9 +679,9 @@ public sealed class AdminTeamAccessRoutesTests
             : path == AdminTeamAccessRoutes.RevokeMemberPath
                 ? await AdminTeamAccessRoutes.RevokeMemberAsync(
                     authority, antiforgery, (AdminTeamAccessRoutes.RevokeMemberRequest)request, context, Now)
-                : await AdminTeamAccessRoutes.UpdateMemberPermissionsAsync(
+                : await AdminTeamAccessRoutes.NarrowMemberAsync(
                     authority, antiforgery,
-                    (AdminTeamAccessRoutes.UpdateMemberPermissionsRequest)request, context, Now);
+                    (AdminTeamAccessRoutes.NarrowMemberRequest)request, context, Now);
         await result.ExecuteAsync(context);
         var response = await ReadAsync(context, responseBody);
         return (
@@ -740,8 +749,6 @@ public sealed class AdminTeamAccessRoutesTests
 
         public AdminRevokeMemberResult? Revoke { get; init; }
 
-        public AdminUpdateMemberPermissionsResult? Update { get; init; }
-
         public AdminNarrowMemberGrantResult? Narrow { get; init; }
 
         public string? NarrowTenantId { get; private set; }
@@ -762,12 +769,6 @@ public sealed class AdminTeamAccessRoutesTests
 
         public string? RevokeGrantId { get; private set; }
         public string? RevokeSuccessorPrincipalId { get; private set; }
-
-        public string? UpdateTenantId { get; private set; }
-
-        public string? UpdateGrantId { get; private set; }
-
-        public IReadOnlyCollection<string>? UpdatePermissions { get; private set; }
 
         public Task<AdminTeamMembersResult?> ListMembersAsync(
             string selectedSessionHandle, string tenantId, CancellationToken cancellationToken = default)
@@ -810,21 +811,6 @@ public sealed class AdminTeamAccessRoutesTests
             RevokeSuccessorPrincipalId = successorPrincipalId;
             if (Denial is not null) return Task.FromException<AdminRevokeMemberResult?>(Denial);
             return Task.FromResult(Revoke);
-        }
-
-        public Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
-            string selectedSessionHandle,
-            string tenantId,
-            string grantId,
-            IReadOnlyCollection<string> requestedPermissions,
-            AuthorizationWriteContext authority,
-            CancellationToken cancellationToken = default)
-        {
-            UpdateTenantId = tenantId;
-            UpdateGrantId = grantId;
-            UpdatePermissions = requestedPermissions;
-            if (Denial is not null) return Task.FromException<AdminUpdateMemberPermissionsResult?>(Denial);
-            return Task.FromResult(Update);
         }
 
         // Ticket 362 - the narrow route's recording leg.

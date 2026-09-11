@@ -45,8 +45,9 @@ public sealed class RouteAudienceGraphTests
         // request, three transitions), all DesktopPlaneOnly.
         // Ticket 329 adds the holders read to the existing desktop administration group in all six.
         // Ticket 331 adds one desktop-only authorized trace read in each profile.
-        // Ticket 362 adds the selected-session narrow-member route (POST, beside revoke) in the four web-enabled profiles.
-        int[] expectedClassifiedCounts = [219, 237, 238, 230, 248, 249];
+        // Ticket 362 adds the selected-session narrow-member route (POST, beside revoke) in the four
+        // web-enabled profiles, and slice 2 retires the permissions route from the same four.
+        int[] expectedClassifiedCounts = [219, 236, 237, 230, 247, 248];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)
