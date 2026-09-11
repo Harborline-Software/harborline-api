@@ -559,8 +559,8 @@ public sealed class AccountSetupAcceptRouteE2E
             string actorAccountId, string authorityEvidenceDigest, string accountId,
             TenantMembershipMutation mutation, CancellationToken ct) => Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
-            string accountId, TenantMembershipSnapshot membership, CancellationToken ct) => Task.CompletedTask;
+        public Task<long> ValidateExistingAsync(
+            string accountId, TenantMembershipSnapshot membership, CancellationToken ct) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class RecordingMembershipStore(string tenantId) : ITenantMembershipAuthorityStore

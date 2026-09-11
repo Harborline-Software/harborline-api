@@ -964,10 +964,10 @@ public sealed class InstallationIdentityCoordinatorServiceTests
             TenantMembershipMutation mutation,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class RejectingAdmission : ITenantMembershipAuthorityAdmission
@@ -980,10 +980,10 @@ public sealed class InstallationIdentityCoordinatorServiceTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("canonical tenant authority refused the mutation");
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class RejectExistingAdmission : ITenantMembershipAuthorityAdmission
@@ -995,7 +995,7 @@ public sealed class InstallationIdentityCoordinatorServiceTests
             TenantMembershipMutation mutation,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
             CancellationToken cancellationToken) =>
@@ -1029,10 +1029,10 @@ public sealed class InstallationIdentityCoordinatorServiceTests
             await context.SaveChangesAsync(cancellationToken);
         }
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private abstract class DelegatingMembershipStore(ITenantMembershipAuthorityStore inner)

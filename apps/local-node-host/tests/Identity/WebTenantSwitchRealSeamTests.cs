@@ -430,10 +430,10 @@ public sealed class WebTenantSwitchRealSeamTests
             TenantMembershipMutation mutation,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator

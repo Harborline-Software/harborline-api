@@ -799,7 +799,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             throw new InvalidOperationException("membership validator must remain untouched on denial");
         }
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
             CancellationToken cancellationToken)

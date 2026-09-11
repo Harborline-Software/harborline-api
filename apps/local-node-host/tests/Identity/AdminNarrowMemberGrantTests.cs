@@ -179,9 +179,85 @@ public sealed class AdminNarrowMemberGrantTests
 
         // EXACTLY once: the revoke leg and the reissue leg share one advance inside the one transaction.
         Assert.Equal(epochBefore + 1, await EpochAsync(h, tenant, member));
-        // The already-pinned live session re-evaluates on its NEXT request and loses the narrowed act
-        // without being handed a wider cached closure.
+        // The already-pinned live session loses the narrowed act on its NEXT request. This refusal is the
+        // epoch fence on the pinned principal — the pin is invalidated wholesale, which is what the
+        // narrowing act intends for a LIVE session. The re-derived-closure property belongs to the
+        // member's NEXT login and is held below by the 362.A5/A6 rows (and at the resolver in
+        // SelectedSessionPepTests).
         Assert.False(await HasPermissionAsync(h, principal, Permission.SchedulingAuthor));
+    }
+
+    /// <summary>
+    /// 362 slice 3 — the positive property the narrowing act owes the member. Narrowing advances the
+    /// member's per-principal authorization epoch (NodeEfAuthorizationConfigurationStore
+    /// .NarrowAdmissionGrantAsync → AdvanceEpochAsync) and nothing re-pins the tenant-membership
+    /// document, so the admission seam treats the document's epoch as a monotone FLOOR and hands the
+    /// live epoch back as the re-pin for the snapshot the session mint pins
+    /// (LiveTenantMembershipAuthorityAdmission.ValidateExistingAsync →
+    /// InstallationIdentityCoordinatorService.ResolveUsableMembershipAsync). A narrowed member therefore
+    /// logs in again over the FULL production path — challenge, tenant selection, AuthenticateAsync —
+    /// and the closure that fresh session resolves is the NARROWED one, not a blanket refusal and not
+    /// the pre-act set.
+    /// </summary>
+    [Fact(DisplayName = "holds 362.A5 and 362.A6: after a narrow the member logs in again and the re-derived closure refuses only the narrowed act")]
+    public async Task Narrowed_Member_Logs_In_Again_And_The_Closure_Is_The_Narrowed_One()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var conferred = await ConferAsync(
+            h, tenant, member, Permission.ContactsRead, Permission.SchedulingAuthor);
+
+        var result = await h.AdminTeam.NarrowMemberGrantAsync(
+            setup.FounderSelectedHandle, setup.TenantId, conferred.GrantId.ToString(),
+            new[] { Permission.ContactsRead }, FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminNarrowMemberGrantStatus.Narrowed, result!.Status);
+
+        // 362.A5 — a narrowed member can still log in: the real challenge + tenant selection mint a
+        // session and the production principal authority authenticates it.
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        var principal = await h.SelectedSessionPrincipals.AuthenticateAsync(handle);
+        Assert.NotNull(principal);
+        // 362.A6 — the closure that fresh session re-derives is the narrowed one: the removed act is
+        // refused and the RETAINED act is still allowed (so this is not blanket invalidation).
+        Assert.False(await HasPermissionAsync(h, principal!, Permission.SchedulingAuthor));
+        Assert.True(await HasPermissionAsync(h, principal!, Permission.ContactsRead));
+    }
+
+    /// <summary>
+    /// 362 slice 3 — the same property for the REVOKE leg. Revoking ONE conferred grant does NOT remove
+    /// the member's tenant membership: the membership pins the web-plane membership grant written at
+    /// invitation acceptance, a DIFFERENT grant from the admission-conferred one this act revokes. So the
+    /// member keeps membership and logs in again (362.A5), and the closure that fresh session re-derives
+    /// has lost the revoked grant's act while KEEPING the act their membership grant carries (362.A6) —
+    /// the joiner's invitation conferred ContactsRead on that grant, so this is a real retention and not
+    /// a blanket refusal. Revoke removes the conferred grant, never the membership.
+    /// </summary>
+    [Fact(DisplayName = "holds 362.A5 and 362.A6: after a revoke the member keeps membership, logs in again and the re-derived closure loses only the revoked act")]
+    public async Task Revoked_Member_Logs_In_Again_And_Loses_Only_The_Revoked_Act()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var conferred = await ConferAsync(
+            h, tenant, member, Permission.ContactsRead, Permission.SchedulingAuthor);
+
+        var revoked = await h.AdminTeam.RevokeMemberGrantAsync(
+            setup.FounderSelectedHandle, setup.TenantId, conferred.GrantId.ToString(),
+            FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, revoked!.Status);
+
+        // 362.A5 — membership survives a grant revocation, so the member logs in again over the full
+        // production path and the production principal authority authenticates the fresh session.
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        var principal = await h.SelectedSessionPrincipals.AuthenticateAsync(handle);
+        Assert.NotNull(principal);
+        // 362.A6 — the closure it re-derives lost the revoked grant's act and kept the membership
+        // grant's act.
+        Assert.False(await HasPermissionAsync(h, principal!, Permission.SchedulingAuthor));
+        Assert.True(await HasPermissionAsync(h, principal!, Permission.ContactsRead));
     }
 
     /// <summary>
@@ -213,7 +289,9 @@ public sealed class AdminNarrowMemberGrantTests
         var row = await h.ReadGrantRowAsync(conferred.GrantId.ToString());
         Assert.Equal((int)GrantStatus.Revoked, row.Status);
         Assert.NotNull(row.RevokedAtUnixMs);
-        // The already-pinned live session loses the act on its NEXT request, with no re-login.
+        // The already-pinned live session loses the act on its NEXT request, with no re-login. Same note as
+        // 362.A2 above: on a pinned (pre-act) principal this refusal is the epoch fence, not a re-derived
+        // closure. The re-derived closure after a fresh login is held by the 362.A5/A6 revoke row below.
         Assert.False(await HasPermissionAsync(h, principal, Permission.SchedulingAuthor));
         Assert.DoesNotContain(Permission.SchedulingAuthor, await AtomsAsync(h, tenant, member));
     }

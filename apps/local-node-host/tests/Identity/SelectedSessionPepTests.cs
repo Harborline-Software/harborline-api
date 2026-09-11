@@ -71,12 +71,40 @@ public sealed class SelectedSessionPepTests
             permission: "grant-bundle-must-not-be-used"));
     }
 
-    // Ticket 362 slice 2 - the two narrowing rows that lived here drove the fixture's conferred map
-    // directly, which is a test-only writer of a member's permission set. Both properties they held (the
-    // PEP refuses the narrowed act on the session's NEXT read, with and without an authorization-epoch
-    // advance - the pinned principal bound below carries the pre-act epoch) are now held through the
-    // PRODUCTION narrowing surface by AdminNarrowMemberGrantTests "holds 362.A2", over the real
-    // composition. The revoke direction is "holds 362.A3" in the same class.
+    // Ticket 362 slice 2 fix 2 - these two rows stay HERE. The equivalent property cannot be
+    // held through the production narrowing surface: an administrator narrowing advances the
+    // member's per-principal authorization epoch, the member's tenant-membership row still pins the
+    // old one, and no production writer ever re-pins it (see the fix-2 finding in the slice report
+    // and Narrowing_Bricks_The_Members_Login in AdminNarrowMemberGrantTests), so no current-epoch
+    // principal of that member can exist after the act. The fixture writer below is a test-only
+    // dictionary in this class, not a production second writer.
+
+    [Fact(DisplayName = "a narrowed conferred grant is denied after the authorization epoch advances")]
+    public async Task Narrowing_And_Epoch_Bump_Denies()
+    {
+        var fixture = await Fixture.CreateAsync(PermissionSet.Of("records:read"));
+
+        Assert.True(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+
+        fixture.NarrowConferredGrant(PrincipalA, PermissionSet.Empty);
+        fixture.Epoch.Current = 2;
+
+        Assert.False(await fixture.CheckAsync("member-a", "party-member-a", "session-a", epoch: 2));
+    }
+
+    [Fact(DisplayName = "a narrowed conferred grant is denied without an authorization epoch advance")]
+    public async Task Narrowing_Without_Epoch_Bump_Denies()
+    {
+        var fixture = await Fixture.CreateAsync(PermissionSet.Of("records:read"));
+
+        Assert.True(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+
+        // No epoch advance: the PEP must re-derive the conferred set on EVERY request rather than cache it by
+        // epoch. That is the property the old roster-narrowing row held; the narrowing is now a grant one.
+        fixture.NarrowConferredGrant(PrincipalA, PermissionSet.Empty);
+
+        Assert.False(await fixture.CheckAsync("member-a", "party-member-a", "session-a"));
+    }
 
     [Fact(DisplayName = "an ejected roster member never falls back to the grant bundle without an authorization epoch advance")]
     public async Task Ejected_Member_Without_Epoch_Bump_Denies()
@@ -367,6 +395,14 @@ public sealed class SelectedSessionPepTests
 
         /// <summary>The conferred install-root grant set per principal - the authority the gate decides on.</summary>
         internal Dictionary<string, PermissionSet> Conferred { get; private init; } = null!;
+
+        /// <summary>
+        /// Narrow (or empty) the admitted party's CONFERRED grant: the wider set is revoked and the narrower one
+        /// conferred under the same subject key. That is the production shape of "an administrator narrows a
+        /// member" after ticket 293 slice 4 - the roster edge carries no permission set left to narrow.
+        /// </summary>
+        internal void NarrowConferredGrant(string principalId, PermissionSet narrower) =>
+            Conferred[principalId] = narrower;
 
         internal async Task<bool> CheckAsync(
             string principalId,

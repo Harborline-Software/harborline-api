@@ -290,10 +290,10 @@ public sealed class FounderTenantMembershipAttachTests
             TenantMembershipMutation mutation,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class FixedPartyReader(

@@ -224,7 +224,18 @@ internal interface ITenantMembershipAuthorityAdmission
         TenantMembershipMutation mutation,
         CancellationToken cancellationToken);
 
-    Task ValidateExistingAsync(
+    /// <summary>
+    /// Admits an EXISTING membership and returns the authorization epoch in force for it now.
+    /// Ticket 362 slice 3: the stored epoch is a monotone floor, not an equality fence. An
+    /// administrator's narrowing/revocation advances the member's per-principal epoch and no writer
+    /// re-pins the membership document (the coordinator's re-pin arm is retired — see
+    /// <c>InstallationIdentityCoordinatorService.ApplyGrantMutationAsync</c>), so an equality fence
+    /// here locked a narrowed member out of their own install permanently. The caller re-pins the
+    /// snapshot it mints a session from to the value returned here, AFTER this seam re-read the live
+    /// grant row; a LOWER live epoch than the pin is still refused, so the fence can only move
+    /// forward and a stale pin can never be resurrected.
+    /// </summary>
+    Task<long> ValidateExistingAsync(
         string accountId,
         TenantMembershipSnapshot membership,
         CancellationToken cancellationToken);

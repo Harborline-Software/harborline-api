@@ -666,8 +666,8 @@ public sealed class SelectedSessionRequestPrincipalTests
         public Task ValidateMutationAsync(string actorAccountId, string authorityEvidenceDigest,
             string accountId, TenantMembershipMutation mutation,
             CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task ValidateExistingAsync(string accountId, TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<long> ValidateExistingAsync(string accountId, TenantMembershipSnapshot membership,
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class NoTeamAccessor : IActiveTeamAccessor
