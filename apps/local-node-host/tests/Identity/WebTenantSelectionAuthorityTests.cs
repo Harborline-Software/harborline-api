@@ -608,9 +608,9 @@ public sealed class WebTenantSelectionAuthorityTests
         public Task ValidateMutationAsync(
             string actorAccountId, string authorityEvidenceDigest, string accountId,
             TenantMembershipMutation mutation, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId, TenantMembershipSnapshot membership,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator

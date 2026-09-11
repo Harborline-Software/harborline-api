@@ -49,9 +49,11 @@ internal sealed class LiveTenantMembershipAuthorityAdmission(
             mutation.GrantId,
             mutation.ExpectedGrantOwnerVersion,
             mutation.AuthorizationEpoch,
+            exactEpoch: true,
             cancellationToken);
 
-    public Task ValidateExistingAsync(
+    /// <inheritdoc />
+    public Task<long> ValidateExistingAsync(
         string accountId,
         TenantMembershipSnapshot membership,
         CancellationToken cancellationToken) =>
@@ -61,14 +63,16 @@ internal sealed class LiveTenantMembershipAuthorityAdmission(
             membership.GrantId,
             membership.GrantOwnerVersion,
             membership.AuthorizationEpoch,
+            exactEpoch: false,
             cancellationToken);
 
-    private async Task ValidateAsync(
+    private async Task<long> ValidateAsync(
         string tenantId,
         string principalId,
         string grantId,
         long grantOwnerVersion,
         long authorizationEpoch,
+        bool exactEpoch,
         CancellationToken cancellationToken)
     {
         var tenant = new TenantId(Guid.Parse(tenantId).ToString("D"));
@@ -96,13 +100,23 @@ internal sealed class LiveTenantMembershipAuthorityAdmission(
         var epoch = await grants.GrantAuthorizationEpochs.AsNoTracking().SingleOrDefaultAsync(row =>
                 row.TenantId == tenant.Value && row.PrincipalId == principal.Value,
             cancellationToken).ConfigureAwait(false);
+        // The grant teeth stay EXACT for both arms: the membership names one grant row and one owner
+        // version, and a drifted or revoked grant is refused. Only the epoch differs. An admission-time
+        // mutation must match the epoch it claimed to have read (exactEpoch); an existing membership
+        // admits a live epoch at or ABOVE its pin and the caller re-pins to it, because the narrowing
+        // act advances that epoch with no writer to refresh the document. A live epoch BELOW the pin is
+        // a rollback and is refused, so this can only move the fence forward.
         if (grant is null ||
             grant.OwnerVersion != grantOwnerVersion ||
             epoch is null ||
-            epoch.AuthorizationEpoch != authorizationEpoch)
+            (exactEpoch
+                ? epoch.AuthorizationEpoch != authorizationEpoch
+                : epoch.AuthorizationEpoch < authorizationEpoch))
         {
             Refuse();
         }
+
+        return epoch!.AuthorizationEpoch;
     }
 
     private static void Refuse() =>

@@ -71,6 +71,14 @@ public sealed class SelectedSessionPepTests
             permission: "grant-bundle-must-not-be-used"));
     }
 
+    // Ticket 362 slice 2 fix 2 - these two rows stay HERE. The equivalent property cannot be
+    // held through the production narrowing surface: an administrator narrowing advances the
+    // member's per-principal authorization epoch, the member's tenant-membership row still pins the
+    // old one, and no production writer ever re-pins it (see the fix-2 finding in the slice report
+    // and Narrowing_Bricks_The_Members_Login in AdminNarrowMemberGrantTests), so no current-epoch
+    // principal of that member can exist after the act. The fixture writer below is a test-only
+    // dictionary in this class, not a production second writer.
+
     [Fact(DisplayName = "a narrowed conferred grant is denied after the authorization epoch advances")]
     public async Task Narrowing_And_Epoch_Bump_Denies()
     {

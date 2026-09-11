@@ -392,12 +392,21 @@ internal sealed class InstallationIdentityCoordinatorService : IInvitationAccept
         {
             return null;
         }
-        await _admission.ValidateExistingAsync(accountId, membership, cancellationToken)
+        // Ticket 362 slice 3 — the one re-pin. The admission seam re-read the live grant row and the
+        // live per-principal epoch; the snapshot every session mint pins (WebTenantSelectionAuthority,
+        // WebTenantSwitchAuthority, WebSelectedSessionPrincipalAuthority) carries the CURRENT epoch, so
+        // an administrator's narrowing or revocation no longer bricks the member's next login. It widens
+        // nothing: the closure is re-derived from the live grants at every PEP read, the grant id and
+        // owner-version teeth are still exact, the epoch can only move forward, and an ALREADY-minted
+        // session keeps its own older pin and is refused (MatchesPinnedAuthority, and the resolver's
+        // epoch fence) — which is exactly the invalidation the narrowing act intends.
+        var liveAuthorizationEpoch = await _admission
+            .ValidateExistingAsync(accountId, membership, cancellationToken)
             .ConfigureAwait(false);
         return await IsAccountFencedAsync(accountId, excludedCorrelationId, cancellationToken)
             .ConfigureAwait(false)
             ? null
-            : membership;
+            : membership with { AuthorizationEpoch = liveAuthorizationEpoch };
     }
 
     private async Task<InstallationIdentityCoordinationResult> ResumeCoreAsync(

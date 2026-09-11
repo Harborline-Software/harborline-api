@@ -152,6 +152,8 @@ public sealed class AllowListVacuityArchTests
             "the IL opcode table the disassembler reads (OpCode carries a Name), not an allow-list",
         ["AdministratorAuthorityBoundaryArchTests.ExcludedSegments"] =
             "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
+        ["MemberPermissionsSingleWriterFenceTests.ExcludedSegments"] =
+            "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
         ["AllowListVacuityArchTests.SelfVerifying"] =
             "this classification map itself; the stale-entry assertion below keeps it exact",
         ["AuthorizationGateArchTests.ReflectedReadAllowList"] =

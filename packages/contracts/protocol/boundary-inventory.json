@@ -1926,14 +1926,6 @@
       "status": "deferred"
     },
     {
-      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:UpdateMemberPermissionsPath",
-      "kind": "local-node-http",
-      "method": "POST",
-      "routeExpression": "UpdateMemberPermissionsPath",
-      "source": "apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs",
-      "status": "deferred"
-    },
-    {
       "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/ConnectDeviceRoutes.cs:ConnectPath",
       "kind": "local-node-http",
       "method": "POST",

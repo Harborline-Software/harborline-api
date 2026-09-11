@@ -95,17 +95,6 @@ public enum AdminRevokeMemberStatus
 /// <param name="SuccessorGrantId">The Administrator grant minted by a handover; null otherwise.</param>
 public sealed record AdminRevokeMemberResult(AdminRevokeMemberStatus Status, string? SuccessorGrantId = null);
 
-/// <summary>Outcome of an admin member permission-bundle update.</summary>
-public enum AdminUpdateMemberPermissionsStatus
-{
-    Updated,
-    NotFound,
-    SelfUpdateRefused,
-}
-
-/// <summary>The result of an admin member permission-bundle update.</summary>
-public sealed record AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus Status);
-
 /// <summary>Outcome of an administrator narrowing a member's admission-conferred grant (ticket 362).</summary>
 public enum AdminNarrowMemberGrantStatus
 {
@@ -189,14 +178,6 @@ public interface IAdminTeamAccessAuthority
         AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Replaces a live grant's PBAC permission bundle through the fenced mutation path.</summary>
-    Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
-        string selectedSessionHandle,
-        string tenantId,
-        string grantId,
-        IReadOnlyCollection<string> requestedPermissions,
-        AuthorizationWriteContext authority,
-        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -641,59 +622,6 @@ internal sealed class AdminTeamAccessAuthority(
             .ConfigureAwait(false);
         return new AdminNarrowMemberGrantResult(
             AdminNarrowMemberGrantStatus.Narrowed, narrowing.Reissued.GrantId.ToString());
-    }
-
-    /// <inheritdoc />
-    public async Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
-        string selectedSessionHandle,
-        string tenantId,
-        string grantId,
-        IReadOnlyCollection<string> requestedPermissions,
-        AuthorizationWriteContext authority,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureAuthorityTenant(tenantId, authority);
-        var coverage = await _gate.DecideAsync(
-            authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId),
-            cancellationToken).ConfigureAwait(false);
-        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
-        coverage.RequireAllowed();
-        if (requestedPermissions is null || requestedPermissions.Count == 0)
-        {
-            return new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.NotFound);
-        }
-
-        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
-                requireGrantCoverage: true,
-                authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId))
-            .ConfigureAwait(false);
-        if (context is null || _partitions is null || _coordinator is null)
-        {
-            return null;
-        }
-
-        var decision = context.Decision;
-        if (string.IsNullOrWhiteSpace(grantId) || !Guid.TryParse(grantId, out var parsedGrant))
-        {
-            return new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.NotFound);
-        }
-
-        if (context.Session.PinnedGrantOwnerVersions.Any(pin =>
-                string.Equals(pin.GrantId, parsedGrant.ToString("D"), StringComparison.OrdinalIgnoreCase)))
-        {
-            return new AdminUpdateMemberPermissionsResult(
-                AdminUpdateMemberPermissionsStatus.SelfUpdateRefused);
-        }
-
-        var nextPermissions = PermissionSet.From(requestedPermissions);
-        if (!nextPermissions.IsSubsetOf(context.CallerPermissions))
-        {
-            return null;
-        }
-
-        // Ticket 204 retires permission-bundle mutation. The compatibility route remains fail-closed
-        // while clients move to revoke-and-reissue; it cannot reach the old coordinator mutation path.
-        return new AdminUpdateMemberPermissionsResult(AdminUpdateMemberPermissionsStatus.NotFound);
     }
 
     /// <summary>The refusal event type; the only one the idempotence scan does not de-duplicate.</summary>

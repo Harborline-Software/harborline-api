@@ -119,24 +119,6 @@ internal static class Slice3AuthorizationTestExtensions
             ct);
     }
 
-    internal static Task<AdminUpdateMemberPermissionsResult?> UpdateMemberPermissionsAsync(
-        this IAdminTeamAccessAuthority authority,
-        string selectedSessionHandle,
-        string tenantId,
-        string grantId,
-        IReadOnlyCollection<string> requestedPermissions,
-        CancellationToken ct = default)
-    {
-        var at = authority is AdminTeamAccessAuthority admin ? admin.CurrentInstant : TestAuthorization.At;
-        return authority.UpdateMemberPermissionsAsync(
-            selectedSessionHandle,
-            tenantId,
-            grantId,
-            requestedPermissions,
-            TestAuthorization.Write(
-                new TenantId(Guid.Parse(tenantId).ToString("D")), "principal-admin", at),
-            ct);
-    }
 
     internal static Task<AdministratorAuthorityResult> AppendRemovalAsync(
         this NodeAdministratorAuthority authority,

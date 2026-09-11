@@ -507,11 +507,15 @@ public sealed class AdminTeamAccessAuthorityTests
     }
 
     /// <summary>
-    /// Ticket 362 (d) - the no-escalation guard. The target grant holds records:read in force, so narrowing
-    /// to it IS a narrowing; but the caller's admitted decision carries members:manage only, so conferring
-    /// records:read would hand out an act the administrator does not hold. Fail-closed null, nothing written.
+    /// Ticket 362 (d) - the no-escalation guard, proved by CONTRAST (slice 1 review note F3). The target
+    /// grant holds records:read in force, so narrowing to it IS a narrowing; the caller's admitted decision
+    /// carries members:manage only, so conferring records:read would hand out an act the administrator does
+    /// not hold. The guard's signature is the fail-closed NULL, and the control arm below - the same call
+    /// with the same target, differing only in the CALLER's set - returns a non-null refusal instead. So the
+    /// null is attributable to this guard and to nothing downstream of it; F3's reading (the refusal could
+    /// have come from the shared-role NotFound further down) cannot explain the difference between the arms.
     /// </summary>
-    [Fact(DisplayName = "narrowing refuses an act the caller does not hold, and writes nothing")]
+    [Fact(DisplayName = "narrowing refuses with a fail-closed null ONLY when the caller does not hold the act")]
     public async Task Narrowing_Refuses_An_Act_The_Caller_Does_Not_Hold()
     {
         await using var fixture = await Fixture.CreateAsync(
@@ -528,6 +532,15 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Equal(before.OwnerVersion, after.OwnerVersion);
         Assert.Equal((int)GrantStatus.Active, after.Status);
         Assert.Equal(1, await grants.Grants.AsNoTracking().CountAsync(g => g.SubjectId == "principal-web"));
+
+        // Control arm: the SAME fixture, the SAME target grant, and a requested set that is equally a
+        // strict subset of the set in force - differing only in that the caller (whose admitted set here is
+        // members:manage) DOES hold this act. That call gets past the no-escalation guard and returns a
+        // non-null refusal from further down. So the null above is this guard's, not something later: the
+        // two arms differ by exactly the guard's predicate.
+        var permitted = await fixture.Authority.NarrowMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, new[] { TeamRolePermissions.MembersManage });
+        Assert.NotNull(permitted);
     }
 
     [Fact]
@@ -938,6 +951,10 @@ public sealed class AdminTeamAccessAuthorityTests
         private static readonly PermissionAtomSet Manage =
             PermissionAtomSet.Of(PermissionAtom.Parse("members:manage@/"));
 
+        private static PermissionAtomSet Atoms(PermissionSet set) =>
+            PermissionAtomSet.Of(set.Permissions
+                .Select(permission => PermissionAtom.Parse(permission + "@/")).ToArray());
+
         public async ValueTask<PermissionAtomSet> UserPermissionsAsync(
             TenantId tenantId, ActorId principal, DateTimeOffset at, CancellationToken ct = default)
         {
@@ -961,8 +978,7 @@ public sealed class AdminTeamAccessAuthorityTests
             TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
             ValueTask.FromResult(
                 memberRoleSet is not null && role == AccessGrantAuthorizationSeed.MemberRole
-                    ? PermissionAtomSet.Of(memberRoleSet.Permissions
-                        .Select(permission => PermissionAtom.Parse(permission + "@/")).ToArray())
+                    ? Atoms(memberRoleSet)
                     : Manage);
     }
 

@@ -73,7 +73,7 @@ public sealed class AuthorizationRefusalRenderingFenceTests
             + "and its message never reaches the wire; "
             + "RevokeMemberAsync: the denial is rendered through the read-filtered refusal renderer "
             + "and its message never reaches the wire; "
-            + "UpdateMemberPermissionsAsync: the denial is rendered through the read-filtered refusal renderer "
+            + "NarrowMemberAsync: the denial is rendered through the read-filtered refusal renderer "
             + "and its message never reaches the wire. All three catches hand the exception to "
             + "RequestAuthorization.RefusedAsync, which renders it through AuthorizationRefusalRenderer and "
             + "audits it. The exception's message is never read",

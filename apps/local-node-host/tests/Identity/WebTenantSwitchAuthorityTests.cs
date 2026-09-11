@@ -516,11 +516,11 @@ public sealed class WebTenantSwitchAuthorityTests
             CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
             CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+            Task.FromResult(membership.AuthorizationEpoch);
     }
 
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator

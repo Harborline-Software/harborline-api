@@ -28,7 +28,6 @@ internal static class AdminTeamAccessRoutes
     internal const string MembersPath = "/api/session/admin/members";
     internal const string InvitationsPath = "/api/session/admin/invitations";
     internal const string RevokeMemberPath = "/api/session/admin/members/revoke";
-    internal const string UpdateMemberPermissionsPath = "/api/session/admin/members/permissions";
 
     /// <summary>Ticket 362 - an administrator narrows a member's conferred grant (revoke-and-reissue).</summary>
     internal const string NarrowMemberPath = "/api/session/admin/members/narrow";
@@ -42,10 +41,6 @@ internal static class AdminTeamAccessRoutes
     /// Administrator grant land as one transaction.
     /// </param>
     internal sealed record RevokeMemberRequest(string? GrantId, string? SuccessorPrincipalId = null);
-
-    internal sealed record UpdateMemberPermissionsRequest(
-        string? GrantId,
-        IReadOnlyList<string>? RequestedPermissions);
 
     /// <param name="NarrowedPermissions">Must be a strict subset of the set the grant holds in force.</param>
     internal sealed record NarrowMemberRequest(
@@ -110,10 +105,6 @@ internal static class AdminTeamAccessRoutes
             RevokeMemberPath,
             (RevokeMemberRequest? request, HttpContext context) =>
                 RevokeMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
-        app.MapPost(
-            UpdateMemberPermissionsPath,
-            (UpdateMemberPermissionsRequest? request, HttpContext context) =>
-                UpdateMemberPermissionsAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
         app.MapPost(
             NarrowMemberPath,
             (NarrowMemberRequest? request, HttpContext context) =>
@@ -392,71 +383,6 @@ internal static class AdminTeamAccessRoutes
                 new ErrorResponse(
                     "self_narrow_refused",
                     "An administrator cannot narrow the access backing their own session."),
-                statusCode: StatusCodes.Status409Conflict),
-            _ => Results.Json(
-                new ErrorResponse("member_not_found", "No live grant with that id exists in this tenant."),
-                statusCode: StatusCodes.Status404NotFound),
-        };
-    }
-
-    internal static async Task<IResult> UpdateMemberPermissionsAsync(
-        IAdminTeamAccessAuthority authority,
-        IWebAntiforgeryPolicy antiforgery,
-        UpdateMemberPermissionsRequest? request,
-        HttpContext context,
-        DateTimeOffset at)
-    {
-        context.Response.Headers.CacheControl = "no-store";
-        var (handle, principal) = ReadSelected(context);
-        if (handle is null || principal is null)
-        {
-            return Refused();
-        }
-
-        if (string.IsNullOrWhiteSpace(request?.GrantId) ||
-            request.RequestedPermissions is null || request.RequestedPermissions.Count == 0)
-        {
-            return Results.Json(
-                new ErrorResponse("invalid_request", "A non-empty permission set and target grant id are required."),
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (!await antiforgery.ConsumeSelectedAsync(context, handle).ConfigureAwait(false))
-        {
-            return AntiforgeryFailed();
-        }
-
-        _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
-
-        AdminUpdateMemberPermissionsResult? result;
-        try
-        {
-            result = await authority.UpdateMemberPermissionsAsync(
-                    handle,
-                    principal.TenantId.Value,
-                    request.GrantId,
-                    request.RequestedPermissions,
-                    WriteAuthority(principal, at),
-                    context.RequestAborted)
-                .ConfigureAwait(false);
-        }
-        catch (AuthorizationDeniedException denial)
-        {
-            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted)
-                .ConfigureAwait(false);
-        }
-        if (result is null)
-        {
-            return Refused();
-        }
-
-        return result.Status switch
-        {
-            AdminUpdateMemberPermissionsStatus.Updated => Results.Ok(new RevokeResponse("updated")),
-            AdminUpdateMemberPermissionsStatus.SelfUpdateRefused => Results.Json(
-                new ErrorResponse(
-                    "self_update_refused",
-                    "An administrator cannot change the access backing their own session."),
                 statusCode: StatusCodes.Status409Conflict),
             _ => Results.Json(
                 new ErrorResponse("member_not_found", "No live grant with that id exists in this tenant."),

@@ -72,11 +72,31 @@ public sealed class LiveTenantMembershipAuthorityAdmissionTests
         await AssertRefusedAsync(admission);
     }
 
+    /// <summary>
+    /// Ticket 362 slice 3 — an ADVANCED live epoch admits and is handed back as the re-pin value. An
+    /// administrator's narrowing or revocation advances the member's per-principal epoch and nothing
+    /// refreshes the membership document, so the pin is a monotone floor: the caller re-pins the
+    /// snapshot it mints a session from to the value returned here. This widens nothing — the grant row
+    /// and owner version are still matched exactly, the closure is re-derived from the live grants, and
+    /// an already-minted session pinning the OLD epoch is still refused by the session authority.
+    /// </summary>
     [Fact]
     [Trait("PlanCard", "MTW-2-2614")]
-    public async Task Authorization_Epoch_Drift_Refuses()
+    public async Task Advanced_Authorization_Epoch_Is_Admitted_And_Returned_As_The_Re_Pin()
     {
         await using var store = await SeedGrantAuthorityAsync(ownerVersion: 4, authorizationEpoch: 8);
+        var admission = CreateAdmission(store);
+
+        Assert.Equal(8, await admission.ValidateExistingAsync(
+            "account-1", Membership(), CancellationToken.None));
+    }
+
+    /// <summary>A live epoch BELOW the pin is a rollback: the fence only ever moves forward.</summary>
+    [Fact]
+    [Trait("PlanCard", "MTW-2-2614")]
+    public async Task Authorization_Epoch_Below_The_Pin_Refuses()
+    {
+        await using var store = await SeedGrantAuthorityAsync(ownerVersion: 4, authorizationEpoch: 6);
         var admission = CreateAdmission(store);
 
         await AssertRefusedAsync(admission);
@@ -86,7 +106,9 @@ public sealed class LiveTenantMembershipAuthorityAdmissionTests
         new(new FixedPartyReader(), store.Factory, new FixedTimeProvider(Now));
 
     private static async Task AssertAdmittedAsync(LiveTenantMembershipAuthorityAdmission admission) =>
-        await admission.ValidateExistingAsync("account-1", Membership(), CancellationToken.None);
+        Assert.Equal(
+            7,
+            await admission.ValidateExistingAsync("account-1", Membership(), CancellationToken.None));
 
     private static async Task AssertRefusedAsync(LiveTenantMembershipAuthorityAdmission admission)
     {

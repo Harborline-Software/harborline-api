@@ -247,7 +247,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
 
     [Theory]
     [InlineData("team-access")]
-    [InlineData("team-update")]
+    [InlineData("team-narrow")]
     [InlineData("invitation")]
     [InlineData("initial-grant")]
     [InlineData("node-administrator")]
@@ -269,7 +269,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         switch (administrator)
         {
             case "team-access":
-            case "team-update":
+            case "team-narrow":
             {
                 var grantStore = Substitute.For<IGrantStore>();
                 var invitationIssuer = new InvitationIssuerSpy();
@@ -281,8 +281,8 @@ public sealed class AuthorizationSlice3AcceptanceTests
                     denied, new FixedTimeProvider(At), new NoopRosterMemberRevocationAuthority(),
                     new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(),
                     new Harborline.Api.Foundation.Crypto.Ed25519Signer(Harborline.Api.Foundation.Crypto.KeyPair.Generate()), refusalAudit: capture.Audit);
-                if (administrator == "team-update")
-                    await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.UpdateMemberPermissionsAsync(
+                if (administrator == "team-narrow")
+                    await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.NarrowMemberGrantAsync(
                         "selected", adminTenant.Value, "grant", [TeamRolePermissions.RecordsRead], authority));
                 else await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.RevokeMemberGrantAsync(
                     "selected", adminTenant.Value, "grant", authority));
@@ -345,7 +345,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             }
         }
 
-        if (administrator is "team-access" or "team-update" or "invitation" or "recovery-invitation")
+        if (administrator is "team-access" or "team-narrow" or "invitation" or "recovery-invitation")
         {
             var evidence = Assert.Single(capture.Evidence);
             Assert.False(evidence.Allowed);
@@ -799,7 +799,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
             throw new InvalidOperationException("membership validator must remain untouched on denial");
         }
 
-        public Task ValidateExistingAsync(
+        public Task<long> ValidateExistingAsync(
             string accountId,
             TenantMembershipSnapshot membership,
             CancellationToken cancellationToken)
