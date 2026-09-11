@@ -10,7 +10,7 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 /// <para>Spec §3.1. Phase A plan notes:</para>
 /// <list type="bullet">
 ///   <item><description>
-///     <b>D-VERSION-STORE-SHAPE:</b> <see cref="IEntityMutationStore.UpdateAsync"/> accepts a full body, not a JSON Patch.
+///     <b>D-VERSION-STORE-SHAPE:</b> <see cref="IEntityMutationStore.UpdateAsync(EntityId, ValidatedRecordBody, UpdateOptions, CancellationToken)"/> accepts a full body, not a JSON Patch.
 ///     The patch-flavoured signature from spec §3.1 is deferred to Phase B.
 ///   </description></item>
 ///   <item><description>
@@ -35,15 +35,37 @@ public interface IEntityStore
 /// Raw entity persistence used only beneath admitted write coordinators. This port is deliberately
 /// not registered in DI; production consumers resolve <see cref="IEntityStore"/>, which is read-only.
 /// </summary>
+/// <remarks>
+/// Two write seams (ticket 366 slice 1). The RECORD seam is public and takes a
+/// <see cref="ValidatedRecordBody"/>, so persistence cannot be reached without the gate-then-validation
+/// stages that mint one. The raw-body seam is <c>internal</c>, visible only to the assemblies that own a
+/// NON-record write shape — a definition envelope or a form instance, each keeping its own admission
+/// because a record schema cannot judge it. <c>Harborline.Api.LocalNodeHost</c> is deliberately not in
+/// that friend set: a raw record write there does not compile.
+/// </remarks>
 public interface IEntityMutationStore : IEntityStore
 {
+    /// <summary>
+    /// Mints a new record from a validated body. Idempotent on <c>(Scheme, Authority, Nonce, Issuer)</c>
+    /// exactly as the raw seam is.
+    /// </summary>
+    // holds RW-9: the signature, not an allow-list, is what keeps an unvalidated record body out.
+    Task<EntityId> CreateAsync(ValidatedRecordBody body, CreateOptions options, CancellationToken ct = default);
+
+    /// <summary>
+    /// Appends a new version from a validated body. The token's <see cref="ValidatedRecordBody.Schema"/>
+    /// must equal the stored record's schema: an update validated against a different schema is refused
+    /// rather than persisted.
+    /// </summary>
+    Task<VersionId> UpdateAsync(EntityId id, ValidatedRecordBody newBody, UpdateOptions options, CancellationToken ct = default);
+
     /// <summary>
     /// Mints a new entity. Idempotent on <c>(Scheme, Authority, Nonce, Issuer)</c> — repeating
     /// the call with the same tuple and same body returns the same <see cref="EntityId"/> rather
     /// than minting a duplicate. A matching tuple with a different body raises
     /// <see cref="IdempotencyConflictException"/>.
     /// </summary>
-    Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default);
+    internal Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default);
 
     /// <summary>
     /// Mints a batch of entities in a single call.
@@ -57,7 +79,7 @@ public interface IEntityMutationStore : IEntityStore
     /// <remarks>
     /// <para>
     /// <b>Atomicity is backend-dependent.</b> The default interface implementation (DIM) is a
-    /// sequential loop over <see cref="CreateAsync"/>. It is <em>not atomic</em>: a failure on
+    /// sequential loop over <see cref="CreateAsync(SchemaId, JsonDocument, CreateOptions, CancellationToken)"/>. It is <em>not atomic</em>: a failure on
     /// draft <c>N</c> leaves drafts <c>0..N-1</c> already committed. Backend implementations
     /// that can provide true all-or-nothing semantics (e.g. <c>InMemoryEntityStore</c>) override
     /// this method to do so.
@@ -68,7 +90,7 @@ public interface IEntityMutationStore : IEntityStore
     /// backend in the current release.
     /// </para>
     /// </remarks>
-    async Task<IReadOnlyList<EntityId>> CreateBatchAsync(
+    internal async Task<IReadOnlyList<EntityId>> CreateBatchAsync(
         IEnumerable<EntityDraft> drafts,
         CancellationToken ct = default)
     {
@@ -87,7 +109,7 @@ public interface IEntityMutationStore : IEntityStore
     /// Appends a new version with the given body and returns its <see cref="VersionId"/>.
     /// The entity's materialized current body is updated atomically.
     /// </summary>
-    Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default);
+    internal Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default);
 
     /// <summary>
     /// Inserts a tombstone version. Reads via the default selector return <c>null</c> afterwards,
@@ -97,14 +119,14 @@ public interface IEntityMutationStore : IEntityStore
 
 }
 
-/// <summary>Raised when <see cref="IEntityMutationStore.CreateAsync"/> detects a conflicting duplicate mint.</summary>
+/// <summary>Raised when the mutation port's create seam detects a conflicting duplicate mint.</summary>
 public sealed class IdempotencyConflictException : Exception
 {
     /// <summary>Creates the exception with a descriptive message.</summary>
     public IdempotencyConflictException(string message) : base(message) { }
 }
 
-/// <summary>Raised when an optimistic-concurrency guard fails in <see cref="IEntityMutationStore.UpdateAsync"/>.</summary>
+/// <summary>Raised when an optimistic-concurrency guard fails in the mutation port's update seam.</summary>
 public sealed class ConcurrencyException : Exception
 {
     /// <summary>Creates the exception with a descriptive message.</summary>

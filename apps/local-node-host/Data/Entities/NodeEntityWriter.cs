@@ -34,12 +34,13 @@ public sealed class NodeEntityWriter(
     /// </summary>
     // holds RW-2, RW-5 · closes RW-H1, RW-H2, RW-H7: the ONE place this writer validates, so no record
     // path reaches persistence unvalidated and a validator fault propagates instead of passing.
-    private async Task ValidateAsync(
+    private async Task<ValidatedRecordBody> AdmitAsync(
+        AuthorizationDecision decision,
         SchemaId schema, JsonDocument body, AuthorizationWriteContext authority, CancellationToken ct)
     {
         try
         {
-            await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+            return await ValidatedRecordBody.AdmitAsync(validator, decision, schema, body, ct).ConfigureAwait(false);
         }
         catch (EntityValidationException refusal)
         {
@@ -103,7 +104,9 @@ public sealed class NodeEntityWriter(
             commonControlGroupId = command.CommonControlGroupId,
         }))
         {
-            await ValidateAsync(Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct)
+            // The token is discarded: this path persists through EF, not the entity store. It is minted
+            // anyway so the refusal recording below is the one place every record write validates.
+            _ = await AdmitAsync(decision, Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct)
                 .ConfigureAwait(false);
         }
 
@@ -144,13 +147,13 @@ public sealed class NodeEntityWriter(
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
         var recordId = options.ExplicitLocalPart ?? options.Nonce;
         // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
-        // so an unauthorized caller learns nothing about the schema. holds RW-9: this is a named
-        // validated writer in RecordWriteValidatedWriterFence's inventory.
+        // so an unauthorized caller learns nothing about the schema. RW-9 is held by the signature now:
+        // the store's record seam takes a ValidatedRecordBody, which only AdmitAsync below can mint.
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        await ValidateAsync(schema, body, authority, ct).ConfigureAwait(false);
-        return await entities.CreateAsync(schema, body, options with { ValidFrom = authority.At }, ct)
+        var admitted = await AdmitAsync(decision, schema, body, authority, ct).ConfigureAwait(false);
+        return await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
 
@@ -164,11 +167,13 @@ public sealed class NodeEntityWriter(
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
-        // The new body is validated against the record's OWN activated schema. A missing entity is
-        // the store's refusal to raise, and it cannot persist anything.
-        if (await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing)
-            await ValidateAsync(existing.Schema, body, authority, ct).ConfigureAwait(false);
-        return await entities.UpdateAsync(id, body, options with { ValidFrom = authority.At }, ct)
+        // The new body is validated against the record's OWN activated schema, so the token the store's
+        // record seam receives carries that schema and its schema-match guard passes by construction. A
+        // missing entity is refused here with the store's own message; nothing is persisted either way.
+        var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+        var admitted = await AdmitAsync(decision, existing.Schema, body, authority, ct).ConfigureAwait(false);
+        return await entities.UpdateAsync(id, admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
     }
 

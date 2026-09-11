@@ -34,8 +34,15 @@ public sealed record AuthorizationResolutionStep
     public IReadOnlyList<string> Outputs { get; }
 }
 
-public sealed class AuthorizationDecision
+public sealed class AuthorizationDecision : Assets.Entities.IWriteAdmission
 {
+    /// <summary>
+    /// The one fact the record-write mint needs (ticket 366 slice 1). Explicit, so the decision's own
+    /// surface keeps <see cref="Verdict"/> as the thing callers reason about and nobody starts treating
+    /// a bool as the authorization answer.
+    /// </summary>
+    bool Assets.Entities.IWriteAdmission.IsAllowed => Verdict is AuthorizationVerdict.Allowed;
+
     internal static AuthorizationDecision CreateBootstrap(
         AuthorizationGateRequest request,
         string evidence) => new(
