@@ -15,7 +15,10 @@ printf '{"schemaVersion":1,"commit":"new","generatedAt":"2026-09-08T12:00:00.000
 [ "$(quality_baseline_sets_compare "$candidate" "$committed")" = "0 1" ] || { echo 'FAIL a resolved finding was not counted'; exit 1; }
 printf '{"schemaVersion":1,"commit":"new","generatedAt":"2026-09-08T12:00:00.000Z","findings":[%s,%s,%s]}' "$(row a)" "$(row b)" "$(row c)" > "$candidate"
 [ "$(quality_baseline_sets_compare "$candidate" "$committed")" = "1 0" ] || { echo 'FAIL a new finding was not counted'; exit 1; }
-# The refusal line the landing prints, from the same counts.
-out=$(quality_baseline_sets_compare "$candidate" "$committed"); read -r n r <<<"$out"
-[ "$n" -eq 1 ] && [ "$r" -eq 0 ]
-echo 'quality-baseline-landing: 3 checks passed (identical sets across formats; resolved counted; new counted)'
+gate_root="$fixture/gate"
+mkdir -p "$gate_root/eng/baselines" "$gate_root/artifacts/quality"
+cp "$committed" "$gate_root/eng/baselines/quality-baseline.json"
+cp "$committed" "$gate_root/artifacts/quality/findings.json"
+fallback_out=$(quality_baseline_gate "$gate_root" 2>&1)
+grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json" <<<"$fallback_out" || { echo 'FAIL missing committed fallback message'; exit 1; }
+echo 'quality-baseline-landing: 4 checks passed (identical sets across formats; resolved counted; new counted; committed fallback message)'
