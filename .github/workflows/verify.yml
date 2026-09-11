@@ -10,6 +10,9 @@ name: verify
 on:
   pull_request:
   merge_group:
+  schedule:
+    - cron: '17 6 * * *'   # nightly Windows datapoint against main (verify-windows below)
+  workflow_dispatch:
 
 concurrency:
   group: verify-${{ github.event.pull_request.number || github.ref }}
@@ -94,3 +97,71 @@ jobs:
             .git/harborline-api-quality-decision.json
             .claude/land-evidence/
             artifacts/quality/
+
+  # Windows datapoint: verify.sh has no Windows-only steps, only a Windows-specific host baseline, and
+  # the Windows-only defect class (File.Move semantics, path separators) has shown up the other way
+  # round. So this is a nightly, non-required run against main, never a PR or merge-queue check.
+  verify-windows:
+    if: vars.ACTIONS_ENABLED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      HARBORLINE_GATE_QUALITY: '1'
+      NUGET_PACKAGES: C:\nuget-runner
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Per-user toolchain for the runner account (pnpm, rustup), once
+        run: |
+          command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl -fsSLo "$RUNNER_TEMP/rustup-init.exe" https://win.rustup.rs/x86_64
+            "$RUNNER_TEMP/rustup-init.exe" -y --profile minimal --default-toolchain stable
+          fi
+          echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
+          echo "$APPDATA\npm" >> "$GITHUB_PATH"
+
+      - name: Host pins (fresh clones under the runner account; public over HTTPS)
+        run: |
+          lanes="$USERPROFILE/Projects/Harborline/lanes"; mkdir -p "$lanes"
+          [ -d "$lanes/platform-pin/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$lanes/platform-pin"
+          echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
+          # control and quality are private: they need HARBORLINE_PINS_TOKEN; without it the steps that read them are skipped by verify.sh's own refusal and this job reports it.
+          if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
+            for r in control-gh:harborline-control quality-pin:harborline-quality; do
+              d="$lanes/${r%%:*}"; [ -d "$d/.git" ] || git clone -q "https://x-access-token:${{ secrets.HARBORLINE_PINS_TOKEN }}@github.com/Harborline-Software/${r##*:}.git" "$d"
+              git -C "$d" fetch -q origin
+            done
+            echo "HARBORLINE_CONTROL_REPO=$lanes/control-gh" >> "$GITHUB_ENV"
+            echo "HARBORLINE_QUALITY_REPO=$lanes/quality-pin" >> "$GITHUB_ENV"
+          else
+            echo "note: HARBORLINE_PINS_TOKEN not set; control and quality pins unavailable on this runner"
+          fi
+          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
+          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
+          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
+
+      - name: Build the local platform feed
+        run: node eng/build-local-feed.mjs
+
+      - name: eng/verify.sh
+        run: bash eng/verify.sh
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-windows-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            .git/harborline-api-verify-receipt.json
+            .git/harborline-api-quality-decision.json
+            .claude/land-evidence/
