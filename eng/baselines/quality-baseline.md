@@ -20,3 +20,13 @@ unchanged at 2,352. This file is now the tool's own product: the 88 normalised S
 from the macOS verify run for PR 92 (run 34617871284) were fed to
 `node eng/quality-step.mjs --write-baseline eng/baselines/quality-baseline.json`.
 No finding was added or removed; only those 38 identities moved to the gate's.
+
+2026-09-11 (third re-pin) — after api #87 and #93 landed, the merge group for PR 92
+reported 7 new / 8 resolved: those landings moved lines in apps/local-node-host
+(Program.cs, RosterSyncBootstrapHostedService.cs and neighbours), and the identity
+carries the line, so unchanged findings below a moved line read as new. Re-pinned by
+`quality-step.mjs --write-baseline` from the merge-group run 34622462871's SARIFs
+(tree main bab2770b + this branch): 2,351 rows. The identity's line sensitivity is a
+known cost of the exact identity; the follow-up (control ticket) is a baseline computed
+for the merge-base by the main push run, so a landing that moves lines does not red
+the next PR.
