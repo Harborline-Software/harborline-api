@@ -77,6 +77,11 @@ public sealed class AuthorizationRefusalRenderingFenceTests
             + "and its message never reaches the wire. All three catches hand the exception to "
             + "RequestAuthorization.RefusedAsync, which renders it through AuthorizationRefusalRenderer and "
             + "audits it. The exception's message is never read",
+        ["Harborline.Api.LocalNodeHost.Health.AuthorizationDenialTranslation"] =
+            "ticket 380 slice 1: the node's one translation of a denial a handler met as an exception. It "
+            + "hands the CARRIED decision to RequestAuthorization.RefusedAsync, which renders it through "
+            + "AuthorizationRefusalRenderer and audits it; the exception's message is never read, and "
+            + "nothing is re-decided",
         ["Harborline.Api.Foundation.Packs.Install.PackInstaller"] =
             "swallows the denial to fail the install step closed; it writes no response text",
     };
