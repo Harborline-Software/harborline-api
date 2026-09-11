@@ -23,6 +23,7 @@ name: packages
 # ---------------------------------------------------------------------------
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
     tags: ["v*-preview.*", "v*-alpha.*", "v*-beta.*", "v*-rc.*"]
