@@ -129,11 +129,14 @@ try {
   // invocation, so the single solution build cannot overwrite one global log.
   const qualityDirectory = path.join(apiRoot, 'artifacts', 'quality')
   const roslynDirectory = path.join(qualityDirectory, 'roslyn')
+  const eslintDirectory = path.join(qualityDirectory, 'eslint')
   const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
+    rmSync(eslintDirectory, {recursive: true, force: true})
     mkdirSync(roslynDirectory, {recursive: true})
+    mkdirSync(eslintDirectory, {recursive: true})
     buildArgs.push(`-p:HarborlineRoslynSarifDirectory=${roslynDirectory}`)
   }
   run('dotnet-build', 'dotnet', buildArgs, clone)
@@ -177,6 +180,35 @@ try {
   // carries — the exact class of gap this gate exists to surface. Moving these three steps earlier
   // does not weaken that; they still install and build from the clone alone.
   run('capability-contracts-install', 'pnpm', ['install', '--frozen-lockfile'], path.join(clone, 'packages/contracts'))
+  if (qualityEnabled) {
+    const eslintSarif = path.join(eslintDirectory, 'contracts.sarif')
+    // Preview findings deliberately leave ESLint with its normal nonzero result;
+    // SARIF is the quality engine's evidence and decides whether they block.
+    run('contracts-eslint', 'pnpm', ['exec', 'eslint', 'src', '--format', '@microsoft/eslint-formatter-sarif', '--output-file', eslintSarif],
+      path.join(clone, 'packages/contracts'), {expectNonZero: true})
+    run('eslint-sarif-normalize', process.execPath,
+      ['eng/normalize-eslint-sarif.mjs', '--repo-root', clone, 'contracts', eslintSarif], clone)
+    let eslintSarifCheck = {passed: false, reason: 'not written'}
+    try {
+      const sarif = JSON.parse(readFileSync(eslintSarif, 'utf8'))
+      const results = sarif.runs?.flatMap(run => run.results ?? []) ?? []
+      const hasResultShape = results.every(result => typeof result.ruleId === 'string'
+        && /^[^/:]+(?:\/[^/:]+)*$/.test(result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? '')
+        && Number.isInteger(result.locations?.[0]?.physicalLocation?.region?.startLine)
+        && result.partialFingerprints && typeof result.partialFingerprints === 'object')
+      eslintSarifCheck = {
+        passed: sarif.version === '2.1.0'
+          && sarif.runs?.every(run => run.tool?.driver?.name === 'eslint')
+          && hasResultShape,
+        resultCount: results.length,
+        sarifCount: 1,
+        driver: sarif.runs?.[0]?.tool?.driver?.name,
+      }
+    } catch (error) {
+      eslintSarifCheck = {passed: false, reason: String(error)}
+    }
+    steps.push({id: 'eslint-sarif', ...eslintSarifCheck})
+  }
   run('capability-contracts-build', 'pnpm', ['run', 'build'], path.join(clone, 'packages/contracts'))
   // 246: the contracts package carries its own tests, including the package-name fence; a clone that
   // only builds it would let a retired-name regression through this route.
