@@ -22,9 +22,10 @@ namespace Harborline.Api.Kernel.Schema;
 /// </para>
 /// <para>
 /// <b>Re-activation replaces atomically.</b> Activating a name again registers the new text
-/// (content-addressed, so a changed schema is a different id) and swaps the single binding entry
-/// in one dictionary write. A write in flight uses either the old or the new compiled artefact,
-/// never a half-built one; the old artefact stays valid for anything still holding it.
+/// (content-addressed, so a changed schema is a different id) first removes the prior binding and
+/// then installs the new one in a dictionary write. During that re-activation, an in-flight write
+/// can observe neither catalog entry and is refused fail-closed with
+/// <c>entity.validation.schema_unknown</c> (RW-6); it never uses a half-built or stale artefact.
 /// </para>
 /// <para>
 /// <b>Restart recompiles.</b> Nothing compiled is persisted — the artefact is a live object graph
