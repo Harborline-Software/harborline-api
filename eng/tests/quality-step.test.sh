@@ -17,7 +17,7 @@ trap cleanup EXIT
 mkdir -p "$fixture/eng/baselines" "$fixture/src" "$fixture/artifacts/quality"
 cp "$root/eng/quality-pin.json" "$fixture/eng/quality-pin.json"
 cp "$root/eng/quality-policy.yaml" "$fixture/eng/quality-policy.yaml"
-cp "$root/eng/verify-receipt.mjs" "$root/eng/host-baseline.mjs" "$root/eng/pre-push-receipt.mjs" "$root/eng/coverage.mjs" "$fixture/eng/"
+cp "$root/eng/verify-receipt.mjs" "$root/eng/host-baseline.mjs" "$root/eng/coverage.mjs" "$fixture/eng/"
 printf 'before\n' > "$fixture/src/example.cs"
 git -C "$fixture" init -q
 git -C "$fixture" config user.name QualityTest
@@ -61,8 +61,8 @@ HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" 
 grep -q 'quality: recorded sha256:' "$fixture/.git/zero.out"
 git -C "$fixture" add artifacts/quality
 git -C "$fixture" commit --no-verify -qm 'record quality artifact'
-  # The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
-  # artifacts, so the flag must not leak into it (337 precedent in host-baseline.test.mjs; batch 1 land red).
+  # The merge-queue gate exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
+  # artifacts, so the flag must not leak into it.
 ( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
 node -e 'const r=require(process.argv[1]), q=r.steps.find(s=>typeof s === "object" && s.id === "quality"); if(!q || !/^sha256:[a-f0-9]{64}$/.test(q.decisionDigest) || !/^sha256:[a-f0-9]{64}$/.test(q.policyDigest)) process.exit(1)' "$fixture/.git/harborline-api-verify-receipt.json"
 

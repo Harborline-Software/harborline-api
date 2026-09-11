@@ -436,8 +436,8 @@ const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, .
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
 // then throws ENOENT on its final line, discarding the verdict it just spent that long computing.
 // --record writes the committed evidence. A FAIL without --record is written OUTSIDE the tracked tree
-// (.claude/land-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
-// stays clean; eng/land-evidence.sh reads it from there before the land worktree is removed.
+// (.claude/gate-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
+// stays clean.
 const target = evidenceTarget({record, status: report.status, apiRoot, evidencePath})
 if (target) {
   mkdirSync(path.dirname(target), {recursive: true})

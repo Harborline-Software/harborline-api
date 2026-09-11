@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Local verification for harborline-api — the replacement for GitHub Actions.
-#
-# Actions is switched off here (see the ACTIONS_ENABLED block at the top of
-# .github/workflows/packages.yml): the org is on the free plan, private-repo minutes ran out on
-# 2026-08-24, and until these repositories are public the workflows only produce red checks that
-# never ran. This script runs what those workflows ran, in the same order, and on success records a
-# receipt that .githooks/pre-push requires.
+# Local verification for harborline-api.
 #
 # The step ids below MUST stay in sync with requiredStepIds in eng/verify-receipt.mjs. The receipt
 # recorder refuses a receipt that is missing any of them, so deleting a step here fails loudly at
-# the end rather than quietly narrowing what the hook accepts.
+# the end rather than quietly narrowing the recorded evidence.
 #
 # Not covered, deliberately: the `publish` job. Publishing is a release action, not a verification,
 # and it stays gated on a tag or an explicit dispatch.
@@ -20,15 +14,6 @@ cd "$root"
 # shellcheck source=gate-lock.sh
 source "$root/eng/gate-lock.sh"
 gate_lock_acquire "eng/verify.sh"
-
-# Wire the hooks path here, not only in the README. core.hooksPath is LOCAL config and git skips a
-# missing hooks path WITHOUT an error, so a fresh clone enforces nothing and does not say so — and
-# git cannot fix that: it deliberately never clones hooks or local config. What it CAN do is make
-# sure that anyone who has demonstrated intent to verify is wired from then on. Idempotent.
-if [ "$(git config core.hooksPath || true)" != ".githooks" ]; then
-  git config core.hooksPath .githooks
-  echo "wired core.hooksPath -> .githooks (pre-push will now require a receipt)"
-fi
 
 passed=()
 step() {
@@ -102,9 +87,9 @@ step exact-clone             node eng/run-exact-clone.mjs --host-baseline "$host
 # even before tickets 337 and 340 produce Cobertura and SARIF artifacts.
 step quality                 node eng/quality-step.mjs
 
-# Ticket 370: a branch must see a newly introduced quality finding during verification, rather than
-# after the merge tree is assembled in land.sh. quality_baseline_gate writes one disposable candidate
-# because the evidence-only quality step above does not retain one.
+# Ticket 370: a branch must see a newly introduced quality finding during verification.
+# quality_baseline_gate writes one disposable candidate because the evidence-only quality step above
+# does not retain one.
 step quality-baseline        bash -c 'source eng/quality-baseline-landing.sh; quality_baseline_gate "$PWD"'
 
 # pack-consume
