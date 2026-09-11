@@ -8,6 +8,8 @@
 name: verify
 
 on:
+  push:
+    branches: [main]
   pull_request:
   merge_group:
   schedule:
@@ -19,13 +21,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
   verify:
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
-      (github.event_name == 'merge_group' ||
+      (github.event_name == 'push' ||
+       github.event_name == 'merge_group' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, macOS]
     timeout-minutes: 60
@@ -41,6 +45,35 @@ jobs:
         with:
           fetch-depth: 0
           clean: true
+
+      - name: Fetch the merge-base quality findings
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        # gh is deliberately absent from the hlrunner account. curl uses the job token and the
+        # artifact REST endpoint, so no cross-run action credential or runner-local state is needed.
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          name="quality-findings-$base"
+          api="https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=$name&per_page=100"
+          listing=$(curl --fail --silent --show-error --retry 3 \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Authorization: Bearer ${{ github.token }}' "$api") || listing='{}'
+          url=$(printf '%s' "$listing" | node -e "let data=''; process.stdin.on('data', c => data += c).on('end', () => { const artifact = (JSON.parse(data).artifacts || []).find(a => !a.expired && a.name === process.argv[1]); process.stdout.write(artifact?.archive_download_url || '') })" "$name")
+          if [ -z "$url" ]; then
+            echo "quality-baseline: merge-base artifact $name unavailable; committed fallback will be used"
+            exit 0
+          fi
+          destination="$RUNNER_TEMP/quality-findings-$base"
+          mkdir -p "$destination"
+          if curl --fail --silent --show-error --retry 3 --location \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Authorization: Bearer ${{ github.token }}' "$url" -o "$destination/findings.zip" \
+            && unzip -q "$destination/findings.zip" -d "$destination" \
+            && [ -f "$destination/findings.json" ]; then
+            echo "HARBORLINE_QUALITY_BASELINE=$destination/findings.json" >> "$GITHUB_ENV"
+            echo "quality-baseline: using merge-base artifact $name"
+          else
+            echo "quality-baseline: merge-base artifact $name could not be downloaded; committed fallback will be used"
+          fi
 
       - name: Resolve the host pin directories
         run: |
@@ -84,6 +117,15 @@ jobs:
 
       - name: eng/verify.sh
         run: bash eng/verify.sh
+
+      - name: Publish main quality findings
+        if: github.event_name == 'push' && success()
+        uses: actions/upload-artifact@v5
+        with:
+          name: quality-findings-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs the pinned Harborline Quality checkout and persists its evidence beside the verification receipt.
 import {execFileSync} from 'node:child_process'
-import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -23,12 +23,12 @@ const refuse = (variable, reason) => { console.error(`quality: ${variable} ${rea
 export const baselineFingerprint = finding => {
   try {
     const partial = JSON.parse(finding.enginePartial)
+    if (typeof partial['harborline/primary-location/v2'] === 'string') return partial['harborline/primary-location/v2']
     const location = partial['harborline/primary-location/v1']
     const project = partial['harborline/project/v1']
     if (typeof location === 'string' && typeof project === 'string') {
       return 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
     }
-    if (typeof partial['harborline/primary-location/v2'] === 'string') return partial['harborline/primary-location/v2']
   } catch { /* malformed or legacy partials retain the analyzer fingerprint */ }
   return finding.fingerprint
 }
@@ -101,21 +101,25 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-quality-'))
   const receipt = receiptDirectory(apiRoot)
   const diff = path.join(scratch, 'base-to-head.diff')
+  const candidate = path.resolve(apiRoot, baselineOutput ?? path.join('artifacts', 'quality', 'findings.json'))
+  const evidenceDirectory = path.join(apiRoot, 'artifacts', 'quality')
   const decision = path.join(receipt, 'harborline-api-quality-decision.json')
   try {
     const base = git('merge-base', 'origin/main', 'HEAD')
     // A baseline re-pin makes the branch diff exceed spawn's 1 MiB default (ENOBUFS on the Mac runner, PR 92).
     writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}))
+    mkdirSync(path.dirname(candidate), {recursive: true})
+    mkdirSync(evidenceDirectory, {recursive: true})
+    writeFileSync(path.join(evidenceDirectory, 'base-to-head.diff'), readFileSync(diff))
     const args = ['bin/cqg.mjs', 'analyze', ...artifacts.sarif.flatMap(file => ['--sarif', file]), ...artifacts.cobertura.flatMap(file => ['--cobertura', file]),
       '--diff', diff, '--baseline', path.join(apiRoot, 'eng', 'baselines', 'quality-baseline.json'),
       '--policy-defaults', control.policyDefaults,
       '--policy', path.join(apiRoot, 'eng', 'quality-policy.yaml'), '--repo-root', apiRoot, '--out', decision]
-    if (baselineOutput) args.push('--write-baseline', path.resolve(apiRoot, baselineOutput))
+    args.push('--write-baseline', candidate)
     execFileSync(process.execPath, args, {cwd: checkout.quality, env, stdio: 'inherit'})
     const record = JSON.parse(readFileSync(decision, 'utf8'))
     if (!/^sha256:[a-f0-9]{64}$/.test(record.decisionId) || !/^sha256:[a-f0-9]{64}$/.test(record.policyDigest)) throw new Error('quality decision is missing its decision or policy digest')
-    if (baselineOutput) {
-      const candidate = path.resolve(apiRoot, baselineOutput)
+    {
       const failedEngines = new Map((record.reasons ?? [])
         .filter(reason => reason?.kind === 'analyzer-error')
         .map(reason => [typeof reason.engine === 'string' ? reason.engine : 'unknown', typeof reason.message === 'string' ? reason.message : 'analyzer-error']))
@@ -125,7 +129,13 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
         status: failedEngines.has(engine) ? 'analyzer-error' : 'ok',
         detail: failedEngines.get(engine) ?? '',
       }))
+      const source = new Map(record.findings.map(finding => [baselineFingerprint(finding), finding]))
       const baseline = distinctBaseline(JSON.parse(readFileSync(candidate, 'utf8')))
+      baseline.findings = baseline.findings.map(finding => {
+        const original = source.get(finding.fingerprint)
+        const location = original?.primaryLocation
+        return Number.isInteger(location?.startLine) ? {...finding, line: location.startLine, project: JSON.parse(original.enginePartial ?? '{}')['harborline/project/v1'] ?? ''} : finding
+      })
       baseline.engines = engines
       writeFileSync(candidate, JSON.stringify(baseline) + '\n')
     }
