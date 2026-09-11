@@ -129,11 +129,14 @@ try {
   // invocation, so the single solution build cannot overwrite one global log.
   const qualityDirectory = path.join(apiRoot, 'artifacts', 'quality')
   const roslynDirectory = path.join(qualityDirectory, 'roslyn')
+  const archDirectory = path.join(qualityDirectory, 'arch')
   const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
+    rmSync(archDirectory, {recursive: true, force: true})
     mkdirSync(roslynDirectory, {recursive: true})
+    mkdirSync(archDirectory, {recursive: true})
     buildArgs.push(`-p:HarborlineRoslynSarifDirectory=${roslynDirectory}`)
   }
   run('dotnet-build', 'dotnet', buildArgs, clone)
@@ -202,7 +205,23 @@ try {
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
+  if (qualityEnabled) {
+    const archSarif = path.join(archDirectory, 'api-tier-dependency.sarif')
+    run('arch-sarif', process.execPath,
+      ['eng/arch-sarif.mjs', '--repo-root', clone, path.join(hostResultsDirectory, 'host-tests.trx'), archSarif], clone)
+    const sarif = JSON.parse(readFileSync(archSarif, 'utf8'))
+    const results = sarif.runs?.flatMap(run => run.results ?? []) ?? []
+    const run = sarif.runs?.[0]
+    const hasResultShape = results.every(result => result.ruleId === 'HLQ.ARCH.1000'
+      && /^[^/:]+(?:\/[^/:]+)*$/.test(result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? '')
+      && Number.isInteger(result.locations?.[0]?.physicalLocation?.region?.startLine)
+      && result.partialFingerprints && typeof result.partialFingerprints === 'object')
+    steps.push({id: 'arch-sarif', passed: sarif.version === '2.1.0' && run?.tool?.driver?.name === 'arch'
+      && run?.invocations?.every(invocation => invocation.executionSuccessful === true) && hasResultShape,
+    resultCount: results.length, sarifCount: 1, driver: run?.tool?.driver?.name})
+  }
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
+  run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
   if (collectCoverage) {
     copyCoberturaReport({resultsDirectory: hostResultsDirectory, target: coveragePaths.host,
       label: 'unit-tests', sourceRoot: '.'})
