@@ -62,6 +62,10 @@ public static class PackVerificationCodes
     /// version older than the shape version that introduced the field (ticket 357) — the leaf claims a shape
     /// it does not have, so it is refused rather than read.</summary>
     public const string FormBindingSchemaUnsupported = "pack.verify.content.form_binding_schema_unsupported";
+    /// <summary>An inspection-form map names a key that is not a <c>FormDefinition</c> leaf of this pack.</summary>
+    public const string InspectionFormBindingNotInPack = "pack.verify.content.inspection_form_binding_not_in_pack";
+    /// <summary>An inspection-form map appears under a content version older than its declared shape.</summary>
+    public const string InspectionFormBindingSchemaUnsupported = "pack.verify.content.inspection_form_binding_schema_unsupported";
     /// <summary>The signer key is not recognized by any trust root (fail-closed refuse, S-1).</summary>
     public const string SignerUntrusted = "pack.verify.signer_untrusted";
     /// <summary>The signer is recognized but the epoch is sealed/retired (S-11).</summary>

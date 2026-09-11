@@ -112,10 +112,9 @@ public sealed class ComposeCeremony
                     $"asset type '{typeId.Value}' was selected more than once."));
             }
 
-            // The property-form binding travels ONLY when the bound form is a leaf of THIS pack (ticket 357):
-            // the content key is a pack-local key, so a binding into another pack (or into a form the author
-            // did not select) cannot resolve on the target node and is dropped here — never silently, the
-            // existing lossy-binding warning names it.
+            // Every form binding travels ONLY when its bound form is a leaf of THIS pack: the content key is
+            // pack-local, so an unselected or cross-pack form cannot resolve on the target node and is dropped
+            // here — never silently, the existing lossy-binding warning names it.
             // The exported binding is a KEY only, so it re-pins to whatever version of that form THIS
             // composition snapshots (below, at the form's current published version) — it does not preserve
             // the version the source descriptor bound. Key-only is the self-consistent choice: the
@@ -123,7 +122,15 @@ public sealed class ComposeCeremony
             var propertyForm = descriptor.PropertyFormBinding;
             var bindingTravels = propertyForm is not null
                                  && formIds.Contains(propertyForm.Definition.Value, StringComparer.Ordinal);
-            var composedDescriptor = bindingTravels ? descriptor : descriptor with { PropertyFormBinding = null };
+            var inspectionBindings = descriptor.InspectionFormBindings
+                .Where(pair => formIds.Contains(pair.Value.Definition.Value, StringComparer.Ordinal))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            var inspectionBindingsTravel = inspectionBindings.Count == descriptor.InspectionFormBindings.Count;
+            var composedDescriptor = descriptor with
+            {
+                PropertyFormBinding = bindingTravels ? propertyForm : null,
+                InspectionFormBindings = inspectionBindings,
+            };
 
             var content = PackAssetTypeContent.ToContent(typeId, composedDescriptor);
             var item = _canonicalizer.Canonicalize(new PackContentSource(
@@ -142,6 +149,10 @@ public sealed class ComposeCeremony
             if (propertyForm is not null && !bindingTravels)
             {
                 droppedFormBindings.Insert(0, "propertyFormBinding");
+            }
+            if (!inspectionBindingsTravel)
+            {
+                droppedFormBindings.Add("inspectionFormBindings");
             }
             if (droppedFormBindings.Count > 0)
             {

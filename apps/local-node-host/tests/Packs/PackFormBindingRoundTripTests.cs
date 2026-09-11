@@ -64,6 +64,8 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
     private const string TypeKey = "notes.entry";
     private const string FormKey = "notes.capture";
     private const string FormVersion = "1.2.0";
+    private const string ElectricalFormKey = "notes.electrical";
+    private const string MechanicalFormKey = "notes.mechanical";
     private const string AssetTypesRoute = "/api/local-node/asset-registry/types";
 
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-000000000357"));
@@ -257,6 +259,68 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             doc.RootElement.GetProperty("details").EnumerateArray().Select(e => e.GetString()));
     }
 
+    [Fact(DisplayName = "ticket 364: a two-entry inspection map verifies, installs, activates, and resolves each published form")]
+    public async Task Inspection_form_bindings_round_trip_headlessly_and_resolve()
+    {
+        var inspectionBindings = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["electrical"] = ElectricalFormKey,
+            ["mechanical"] = MechanicalFormKey,
+        };
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.2.0",
+            inspectionBindings: inspectionBindings));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using (var doc = JsonDocument.Parse(verify.Stdout))
+        {
+            Assert.Equal("Verified", doc.RootElement.GetProperty("verdict").GetString());
+        }
+
+        Assert.Equal(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
+        Assert.Equal(0, (await CliAsync(
+            "pack", "activate", "--pack-key", PackKey, "--version", "1.0.0")).ExitCode);
+
+        var detail = await GetTypeDetailAsync(TypeKey);
+        var inspectionForms = detail.GetProperty("inspectionForms").EnumerateArray()
+            .ToDictionary(
+                form => form.GetProperty("discipline").GetString()!,
+                form => (form.GetProperty("definition").GetString(), form.GetProperty("version").GetString()),
+                StringComparer.Ordinal);
+        Assert.Equal((ElectricalFormKey, FormVersion), inspectionForms["electrical"]);
+        Assert.Equal((MechanicalFormKey, FormVersion), inspectionForms["mechanical"]);
+
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        foreach (var formKey in inspectionBindings.Values)
+        {
+            var published = await _forms.GetAsync(new DefinitionCoordinates(tenant, formKey, FormVersion));
+            Assert.Equal(FormDefinitionStatus.Published, published.Status);
+        }
+    }
+
+    [Fact(DisplayName = "ticket 364: an inspection map naming a form the pack does not contain is refused at verify by name")]
+    public async Task Inspection_form_binding_outside_the_pack_is_refused_at_verify()
+    {
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.2.0",
+            inspectionBindings: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["electrical"] = "other.pack.form",
+            }));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using var doc = JsonDocument.Parse(verify.Stdout);
+        Assert.Equal("VerificationFailed", doc.RootElement.GetProperty("verdict").GetString());
+        Assert.Contains(
+            PackVerificationCodes.InspectionFormBindingNotInPack,
+            doc.RootElement.GetProperty("details").EnumerateArray().Select(e => e.GetString()));
+        Assert.NotEqual(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
+    }
+
     // ── the headless driver ────────────────────────────────────────────────────────────────────────────
 
     private async Task<string> CliExportAsync(object body)
@@ -291,7 +355,10 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
 
     // ── the hand-authored pack: one Records type + one Form it binds ───────────────────────────────────
 
-    private static object PackBody(string? bindingKey, string typeContentVersion)
+    private static object PackBody(
+        string? bindingKey,
+        string typeContentVersion,
+        IReadOnlyDictionary<string, string>? inspectionBindings = null)
     {
         var typeContent = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -304,6 +371,30 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         {
             typeContent["propertyFormBinding"] = bindingKey;
         }
+        if (inspectionBindings is { Count: > 0 })
+        {
+            typeContent["inspectionFormBindings"] = inspectionBindings;
+        }
+
+        var contents = new List<object>
+        {
+            new
+            {
+                key = TypeKey,
+                kind = "AssetTypeDefinition",
+                version = typeContentVersion,
+                content = typeContent,
+            },
+            FormContent(FormKey),
+        };
+        foreach (var formKey in inspectionBindings?.Values.Distinct(StringComparer.Ordinal) ?? [])
+        {
+            if (!string.Equals(formKey, FormKey, StringComparison.Ordinal)
+                && !string.Equals(formKey, "other.pack.form", StringComparison.Ordinal))
+            {
+                contents.Add(FormContent(formKey));
+            }
+        }
 
         return new
         {
@@ -312,47 +403,39 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             name = "Notes Lite",
             description = "One Records type and the Form bound to it (ticket 357).",
             scopeTier = "Horizontal",
-            contents = new object[]
-            {
-                new
-                {
-                    key = TypeKey,
-                    kind = "AssetTypeDefinition",
-                    version = typeContentVersion,
-                    content = typeContent,
-                },
-                new
-                {
-                    key = FormKey,
-                    kind = "FormDefinition",
-                    version = FormVersion,
-                    content = new
-                    {
-                        overlay = new
-                        {
-                            fields = new Dictionary<string, object>
-                            {
-                                ["note"] = new { label = Text("Note"), controlHint = "text", piiSensitivity = "None" },
-                            },
-                            sections = new object[]
-                            {
-                                new { id = "main", title = Text("Main"), fields = new[] { "note" } },
-                            },
-                            rules = Array.Empty<object>(),
-                            title = Text("Note capture"),
-                            description = Text("Capture a note."),
-                        },
-                        fieldsMeta = new Dictionary<string, object>
-                        {
-                            ["note"] = new { type = "text", required = true, options = (string[]?)null },
-                        },
-                    },
-                },
-            },
+            contents,
             dependencies = Array.Empty<object>(),
             capabilityRequirements = Array.Empty<string>(),
         };
     }
+
+    private static object FormContent(string key) => new
+    {
+        key,
+        kind = "FormDefinition",
+        version = FormVersion,
+        content = new
+        {
+            overlay = new
+            {
+                fields = new Dictionary<string, object>
+                {
+                    ["note"] = new { label = Text("Note"), controlHint = "text", piiSensitivity = "None" },
+                },
+                sections = new object[]
+                {
+                    new { id = "main", title = Text("Main"), fields = new[] { "note" } },
+                },
+                rules = Array.Empty<object>(),
+                title = Text("Note capture"),
+                description = Text("Capture a note."),
+            },
+            fieldsMeta = new Dictionary<string, object>
+            {
+                ["note"] = new { type = "text", required = true, options = (string[]?)null },
+            },
+        },
+    };
 
     private static object Text(string en) => new
     {
