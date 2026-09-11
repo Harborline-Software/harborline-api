@@ -121,10 +121,9 @@ internal static class PackInstallRoutes
             // fails names no pack; that request is install-wide and the installer refuses it on its own.
             var naming = installer.Preview(
                 bytes, new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge));
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(
-                    gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate,
-                    naming.PackKey, ct)
+                .RefusalAsync(gate, authority, PackOperation.Operate, naming.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -142,11 +141,15 @@ internal static class PackInstallRoutes
                 breakGlass = new BreakGlass(justification, authorizingPrincipal);
             }
 
-            // Ticket 151: the installer REQUIRES the acting principal — the same server-derived
-            // authenticated identity the break-glass ceremony binds (never a client-asserted value).
+            // Ticket 151: the installer REQUIRES the acting principal. Ticket 379: it is the principal
+            // THIS request was just decided about — `authority.Principal`, the one the guard above
+            // resolved — and NOT `authorizingPrincipal`, which is the node's own signing key id (the
+            // break-glass authorizer). The installer re-resolves the same act at the gate, so naming the
+            // key id there asked about an actor no grant is ever issued to and every first-boot install
+            // was refused as a 500 (m3 exit run, 2026-09-10).
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge, breakGlass,
-                Principal: authorizingPrincipal);
+                Principal: authority.Principal.Value);
             var outcome = installer.Install(bytes, context);
 
             logger.LogInformation(
@@ -177,10 +180,9 @@ internal static class PackInstallRoutes
 
             var tenant = NodeTenant.Resolve(activeTeam);
             // The pointer flip is an act ON the named pack — that pack is the record target.
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(
-                    gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate,
-                    request.PackKey, ct)
+                .RefusalAsync(gate, authority, PackOperation.Operate, request.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -188,10 +190,11 @@ internal static class PackInstallRoutes
             }
 
             // Ticket 151 cluster: the pointer flip carries the same server-derived acting principal
-            // the install path does (never a client-asserted value).
+            // the install path does (never a client-asserted value) — the principal this request was
+            // decided about, not the node's signing key id (ticket 379).
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
-                Principal: authorizingPrincipal,
+                Principal: authority.Principal.Value,
                 OwnershipResolutions: (request.Resolutions ?? Array.Empty<CollisionResolutionDto>())
                     .Where(r => !string.IsNullOrWhiteSpace(r.ContentKey) && !string.IsNullOrWhiteSpace(r.OwningPackKey))
                     .ToDictionary(r => r.ContentKey, r => r.OwningPackKey, StringComparer.Ordinal));
@@ -258,10 +261,9 @@ internal static class PackInstallRoutes
 
             var tenant = NodeTenant.Resolve(activeTeam);
             // Retraction is an act ON the named pack — that pack is the record target.
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(
-                    gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate,
-                    request.PackKey, ct)
+                .RefusalAsync(gate, authority, PackOperation.Operate, request.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -269,7 +271,7 @@ internal static class PackInstallRoutes
             }
             var context = new PackInstallContext(
                 tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
-                Principal: authorizingPrincipal);
+                Principal: authority.Principal.Value);
             var outcome = installer.Deactivate(context, request.PackKey, request.Version);
             logger.LogInformation(
                 "Pack DEACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → deactivated={Deactivated} [{Error}].",

@@ -51,7 +51,7 @@ public sealed partial class ComposedHostBootSmokeTests
         await using var bootstrap = StartAccessHost();
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
-        await GrantPackOperationToHostInstallerAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        await GrantAdministratorAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
         await using var host = StartAccessHost(bootstrap.DataDirectory);
         using var client = await AccessClientAsync(host);
         using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
@@ -94,7 +94,7 @@ public sealed partial class ComposedHostBootSmokeTests
         await using var bootstrap = StartAccessHost();
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
-        await GrantPackOperationToHostInstallerAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        await GrantAdministratorAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
         await using var host = StartAccessHost(bootstrap.DataDirectory);
         string issuedGrantId;
         using (var client = await AccessClientAsync(host))
