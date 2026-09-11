@@ -62,6 +62,8 @@ node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
+node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
+bash "$repo_root/eng/tests/verify-eslint-canary.test.sh" || exit 1
 bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
 node --test "$repo_root/eng/tests/quality-artifacts.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/receipt-accept.test.mjs" || exit 1
