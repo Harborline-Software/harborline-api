@@ -267,6 +267,10 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         // Install this after caller-auth so rejected callers cannot populate the replay store.
         NodeMutationIdempotency.UseOnce(_app, timeProvider);
 
+        // Ticket 380 slice 1: a gate denial a handler met as an exception (a family that authorizes again
+        // inside the service it calls) becomes the node's rendered, audited 403 here — never an empty 500.
+        AuthorizationDenialTranslation.Use(_app);
+
         _app.MapSelectedSessionProductGroup()
             .MapPost("/membrane/invoke", (CapabilityRuntimeInvokeRequest _) => Results.Json(new { }))
             .WithCapabilityCorrelationTracing<CapabilityRuntimeInvokeRequest>(request => request.CorrelationId);
@@ -331,6 +335,10 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
             _logger);
         UnclassifiedRouteAudienceGuard.Use(_app, _logger);
         NodeMutationIdempotency.UseOnce(_app, timeProvider);
+
+        // Ticket 380 slice 1: a gate denial a handler met as an exception (a family that authorizes again
+        // inside the service it calls) becomes the node's rendered, audited 403 here — never an empty 500.
+        AuthorizationDenialTranslation.Use(_app);
         _app.MapSelectedSessionProductGroup()
             .MapPost("/membrane/invoke", (CapabilityRuntimeInvokeRequest _) => Results.Json(new { }))
             .WithCapabilityCorrelationTracing<CapabilityRuntimeInvokeRequest>(request => request.CorrelationId);
