@@ -37,6 +37,20 @@
     <!-- Pattern C worked-example test assembly needs MacaroonCodec for wire-format
          encode/decode of bearer credentials across HTTP (spec §10.4, Issue #11). -->
     <InternalsVisibleTo Include="Harborline.Federation.PatternC.Tests" />
+    <!-- Ticket 366 slice 1: the entity store's RAW (non-token) write seam is internal. Exactly the
+         assemblies that own a NON-record write shape see it, each keeping its own admission because a
+         record schema cannot judge their body: a definition envelope (foundation's own Definitions),
+         a form definition envelope (Forms), a form instance whose Sensitive fields are ciphertext
+         (Forms.Engine) and a workflow definition envelope (Blocks.Workflow).
+         Harborline.Api.LocalNodeHost is deliberately NOT here: that absence is what makes a raw record
+         write in NodeEntityWriter or NodeHierarchyCompositeCoordinator a compile error. -->
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Forms" />
+    <InternalsVisibleTo Include="Harborline.Api.Foundation.Forms.Engine" />
+    <InternalsVisibleTo Include="Harborline.Api.Blocks.Workflow" />
+    <!-- The host test assembly's existing entity-store doubles and NSubstitute mocks implement the
+         port, so both need the internal seam to compile. Tests, not production. -->
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

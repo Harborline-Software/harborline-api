@@ -85,7 +85,23 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
     }
 
     /// <inheritdoc />
-    public Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default) =>
+    /// <summary>
+    /// Mints a record from a validated body — the public record seam (ticket 366 slice 1). Delegates to
+    /// the raw core; the token is what proves the validator ran, so there is nothing extra to check here.
+    /// </summary>
+    public Task<EntityId> CreateAsync(ValidatedRecordBody body, CreateOptions options, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        // Straight to the core, not through the raw seam: the fence over that seam stays an inventory of
+        // non-record ENVELOPE writers, with no row for the store calling itself (ticket 366 slice 1).
+        return _storage.ExecuteExclusiveAsync(() => CreateCoreAsync(body.Schema, body.Body, options, ct), ct);
+    }
+
+    /// <inheritdoc />
+    internal Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default) =>
+        _storage.ExecuteExclusiveAsync(() => CreateCoreAsync(schema, body, options, ct), ct);
+
+    Task<EntityId> IEntityMutationStore.CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct) =>
         _storage.ExecuteExclusiveAsync(() => CreateCoreAsync(schema, body, options, ct), ct);
 
     private async Task<EntityId> CreateCoreAsync(
@@ -159,9 +175,14 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
     /// Locks are acquired in a deterministic order (lexicographic on the derived <see cref="EntityId"/>)
     /// to prevent deadlocks when concurrent batches overlap.
     /// </remarks>
-    public Task<IReadOnlyList<EntityId>> CreateBatchAsync(
+    internal Task<IReadOnlyList<EntityId>> CreateBatchAsync(
         IEnumerable<EntityDraft> drafts,
         CancellationToken ct = default) =>
+        _storage.ExecuteExclusiveAsync(() => CreateBatchCoreAsync(drafts, ct), ct);
+
+    Task<IReadOnlyList<EntityId>> IEntityMutationStore.CreateBatchAsync(
+        IEnumerable<EntityDraft> drafts,
+        CancellationToken ct) =>
         _storage.ExecuteExclusiveAsync(() => CreateBatchCoreAsync(drafts, ct), ct);
 
     private async Task<IReadOnlyList<EntityId>> CreateBatchCoreAsync(
@@ -297,7 +318,31 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
     }
 
     /// <inheritdoc />
-    public Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default) =>
+    /// <summary>
+    /// Appends a version from a validated body — the public record seam (ticket 366 slice 1). The token's
+    /// schema must be the stored record's own schema: a body validated against a different schema is
+    /// refused rather than persisted.
+    /// </summary>
+    public async Task<VersionId> UpdateAsync(EntityId id, ValidatedRecordBody newBody, UpdateOptions options, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(newBody);
+        if (await GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false) is { } existing
+            && existing.Schema != newBody.Schema)
+        {
+            throw new EntityValidationException(
+                $"The body was validated against schema '{newBody.Schema}', but record '{id}' is '{existing.Schema}'.",
+                "entity.validation.schema_mismatch",
+                ["/schema"]);
+        }
+        return await _storage.ExecuteExclusiveAsync(
+            () => UpdateCoreAsync(id, newBody.Body, options, ct), ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    internal Task<VersionId> UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct = default) =>
+        _storage.ExecuteExclusiveAsync(() => UpdateCoreAsync(id, newBody, options, ct), ct);
+
+    Task<VersionId> IEntityMutationStore.UpdateAsync(EntityId id, JsonDocument newBody, UpdateOptions options, CancellationToken ct) =>
         _storage.ExecuteExclusiveAsync(() => UpdateCoreAsync(id, newBody, options, ct), ct);
 
     private async Task<VersionId> UpdateCoreAsync(

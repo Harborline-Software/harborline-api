@@ -115,6 +115,13 @@ public sealed class AllowListVacuityArchTests
             "a per-call-site exception list held empty by construction (RecordWriteValidationJudgeTests row "
             + "6 reports any unlisted call site); the first real row must be registered above against a "
             + "discovery with the exception list bypassed",
+        ["ValidatedRecordBodyAdmissionArchTests.MintSites"] =
+            "the inventory of record-write mint sites the ticket-366 scan compares against the set "
+            + "discovered from source, both directions; a site it does not hold is reported, not excused",
+        ["ValidatedRecordBodyAdmissionArchTests.ExceptionRows"] =
+            "a per-call-site exception list held empty by construction, pinned by "
+            + "OwnValidatedMintSitesEqualTheReviewedSet; the token's private constructor means an "
+            + "exception row cannot compile, so the first real row must be registered above",
         ["JsonProjectionConstraintTests.KnownAllowedRawJsonColumnRefs"] =
             "a per-column skip list held empty by construction, pinned by JsonProjectionConstraintTests."
             + "KnownAllowedRawJsonColumnRefs_IsEmpty; the first real row must be registered above against "
