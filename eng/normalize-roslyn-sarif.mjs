@@ -4,7 +4,7 @@
 // Rewrite every retained location relative to the repository, and add a stable
 // partial fingerprint derived from that clone-independent location.
 import {createHash} from 'node:crypto'
-import {readFileSync, writeFileSync} from 'node:fs'
+import {readFileSync, writeFileSync, realpathSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import path from 'node:path'
 
@@ -21,12 +21,18 @@ export const repositoryRelativePath = (uri, repoRoot) => {
     location = decodeURIComponent(location)
   }
   location = slash(location).replace(/^\/([A-Za-z]:\/)/, '$1')
-  const root = trimTrailingSlash(slash(repoRoot).replace(/^\/([A-Za-z]:\/)/, '$1'))
-  const windows = /^[A-Za-z]:\//.test(root)
+  // The compiler writes the RESOLVED path. On macOS the temp clone lives under /var/folders, a
+  // symlink to /private/var, so the root as given and the root the compiler saw differ; both count.
+  const asRoot = value => trimTrailingSlash(slash(value).replace(/^\/([A-Za-z]:\/)/, '$1'))
+  const roots = [asRoot(repoRoot)]
+  try { const real = asRoot(realpathSync.native(repoRoot)); if (!roots.includes(real)) roots.push(real) } catch { /* a root that does not exist compares as given */ }
+  const windows = /^[A-Za-z]:\//.test(roots[0])
   const comparableLocation = windows ? location.toLowerCase() : location
-  const comparableRoot = windows ? root.toLowerCase() : root
-  if (comparableLocation === comparableRoot) throw new Error('SARIF location names the repository directory')
-  if (comparableLocation.startsWith(`${comparableRoot}/`)) return location.slice(root.length + 1)
+  for (const root of roots) {
+    const comparableRoot = windows ? root.toLowerCase() : root
+    if (comparableLocation === comparableRoot) throw new Error('SARIF location names the repository directory')
+    if (comparableLocation.startsWith(`${comparableRoot}/`)) return location.slice(root.length + 1)
+  }
   if (!/^(?:[A-Za-z]:\/|\/|\/\/)/.test(location)) return location.replace(/^\.\//, '')
   throw new Error(`SARIF location is outside repository: ${uri}`)
 }
