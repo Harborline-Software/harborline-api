@@ -2,6 +2,7 @@
 // Runs the pinned Harborline Quality checkout and persists its evidence beside the verification receipt.
 import {execFileSync} from 'node:child_process'
 import {existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs'
+import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -15,6 +16,28 @@ const root = path.resolve(optionValue('--root') ?? process.cwd())
 const baselineOutput = optionValue('--write-baseline')
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()
 const refuse = (variable, reason) => { console.error(`quality: ${variable} ${reason}; refusing to skip the quality gate.`); process.exit(1) }
+
+// The pinned analyzer keeps its historical broad fingerprint for matching, but each normalized
+// Roslyn result carries a clone-stable location plus project identity. Persist that precise identity
+// into the baseline so the landing set comparison cannot collapse distinct diagnostics.
+export const baselineFingerprint = finding => {
+  try {
+    const partial = JSON.parse(finding.enginePartial)
+    const location = partial['harborline/primary-location/v1']
+    const project = partial['harborline/project/v1']
+    if (typeof location === 'string' && typeof project === 'string') {
+      return 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
+    }
+    if (typeof partial['harborline/primary-location/v2'] === 'string') return partial['harborline/primary-location/v2']
+  } catch { /* malformed or legacy partials retain the analyzer fingerprint */ }
+  return finding.fingerprint
+}
+
+export const distinctBaseline = baseline => {
+  const findings = baseline.findings.map(finding => ({...finding, fingerprint: baselineFingerprint(finding)}))
+    .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint))
+  return {...baseline, findings: findings.filter((finding, index) => index === 0 || findings[index - 1].fingerprint !== finding.fingerprint)}
+}
 
 export function readQualityPin(file = path.join(root, 'eng', 'quality-pin.json')) {
   const pin = JSON.parse(readFileSync(file, 'utf8'))
@@ -81,7 +104,8 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const decision = path.join(receipt, 'harborline-api-quality-decision.json')
   try {
     const base = git('merge-base', 'origin/main', 'HEAD')
-    writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8'}))
+    // A baseline re-pin makes the branch diff exceed spawn's 1 MiB default (ENOBUFS on the Mac runner, PR 92).
+    writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}))
     const args = ['bin/cqg.mjs', 'analyze', ...artifacts.sarif.flatMap(file => ['--sarif', file]), ...artifacts.cobertura.flatMap(file => ['--cobertura', file]),
       '--diff', diff, '--baseline', path.join(apiRoot, 'eng', 'baselines', 'quality-baseline.json'),
       '--policy-defaults', control.policyDefaults,
@@ -101,7 +125,7 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
         status: failedEngines.has(engine) ? 'analyzer-error' : 'ok',
         detail: failedEngines.get(engine) ?? '',
       }))
-      const baseline = JSON.parse(readFileSync(candidate, 'utf8'))
+      const baseline = distinctBaseline(JSON.parse(readFileSync(candidate, 'utf8')))
       baseline.engines = engines
       writeFileSync(candidate, JSON.stringify(baseline) + '\n')
     }
