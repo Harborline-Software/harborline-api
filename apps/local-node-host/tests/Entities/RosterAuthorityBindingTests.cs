@@ -9,7 +9,6 @@ using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Tests.Search;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
@@ -52,6 +51,18 @@ public sealed class RosterAuthorityBindingTests
         var rebuilt = await reader.ReadAsync(Tenant, default);
         Assert.Contains(rebuilt.Members, m => m.PartyId == "admin");
         Assert.Contains(rebuilt.Members, m => m.PartyId == "chain");
+    }
+
+    [Fact(DisplayName = "holds 354.A1: a clean node rebuilds a chained admission from live grants without a boot backfill")]
+    public async Task Clean_node_rebuilds_a_chained_admission_from_live_grants()
+    {
+        await using var store = await SearchTestStore.CreateAsync();
+        var signers = await SeedChainAsync(store, Admitter);
+        await using var host = ComposedHost(store, signers.Founder);
+
+        var rebuilt = await host.GetRequiredService<IVerifiedTenantRosterReader>().ReadAsync(Tenant, default);
+
+        Assert.Contains(rebuilt.Members, member => member.PartyId == "chain");
     }
 
     [Theory]
@@ -137,8 +148,8 @@ public sealed class RosterAuthorityBindingTests
 
     /// <summary>
     /// founder (genesis) admits "admin" with <paramref name="adminPermissions"/>; "admin" admits "chain".
-    /// The durable rows carry the pre-version-3 signed atoms, and the boot backfill turns them into the grants
-    /// the replicated path now reads. Optionally appends admin's signed revocation of "chain".
+    /// The clean node holds the complete durable chain and its live grants before the replicated path reads it.
+    /// Optionally appends admin's signed revocation of "chain".
     /// </summary>
     private static async Task<Signers> SeedChainAsync(
         SearchTestStore store, PermissionSet adminPermissions, bool revokeChain = false)
@@ -156,45 +167,30 @@ public sealed class RosterAuthorityBindingTests
         if (revokeChain)
             revocation = roster.SignRevoke("admin", admin, "chain", verifier, At.AddSeconds(1), Guid.NewGuid()).Signed;
 
-        NodeRosterRecord Row(MemberAdmissionRecord record, PermissionSet granted)
-        {
-            var row = NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)
-                .AttestReceipt(founder, "founder", record.Admission.IssuedAt));
-            // What this party is GRANTED - the only thing the one-time backfill can convert.
-            row.SignedPermissionsJson = System.Text.Json.JsonSerializer.Serialize(granted.Permissions.ToArray());
-            return row;
-        }
+        NodeRosterRecord Row(MemberAdmissionRecord record) => NodeRosterRecord.FromCrdtState(
+            RosterRecordCrdtState.FromAdmission(record).AttestReceipt(founder, "founder", record.Admission.IssuedAt));
 
         var admissions = roster.EnumerateAdmissions().ToDictionary(a => a.PartyId, StringComparer.Ordinal);
 
-        // The genesis root and the party IT admitted are reachable without any grant (the self-admission is the
-        // root evidence), so the frozen slice 3a backfill can convert exactly those two into grants first.
+        // A clean node receives the complete durable chain before it performs its first rebuild.
         await using (var db = store.CreateRosterContext())
         {
             await db.Database.MigrateAsync();
-            db.RosterRecords.Add(Row(admissions["founder"], roster.PermissionsOf("founder") ?? PermissionSet.Empty));
-            db.RosterRecords.Add(Row(admissions["admin"], adminPermissions));
-            await db.SaveChangesAsync();
-        }
-
-        var converted = await new RosterAdmissionGrantBackfill(
-            new RosterFactory(store),
-            new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary()),
-            verifier,
-            NullLogger<RosterAdmissionGrantBackfill>.Instance).RunAsync();
-        Assert.Equal(2, converted);
-
-        // The CHAINED admission (and its revocation) arrive over sync afterwards - the records whose fate the
-        // grant store now decides.
-        await using (var db = store.CreateRosterContext())
-        {
-            db.RosterRecords.Add(Row(admissions["chain"], PlainMember));
+            db.RosterRecords.AddRange(admissions.Values.Select(Row));
             if (revocation is not null)
                 db.RosterRecords.Add(NodeRosterRecord.FromCrdtState(
                     RosterRecordCrdtState.FromRevocation(revocation).AttestReceipt(
                         admin, "admin", revocation.Signed.IssuedAt)));
             await db.SaveChangesAsync();
         }
+
+        await using (var db = store.CreateContext())
+        {
+            await db.Database.MigrateAsync();
+        }
+        var grants = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
+        await grants.ConferAdmissionGrantAsync(Tenant, "admin", "founder", adminPermissions, At);
+        await grants.ConferAdmissionGrantAsync(Tenant, "chain", "admin", PlainMember, At);
 
         return new Signers(founder, admin, chainKey, roster);
     }

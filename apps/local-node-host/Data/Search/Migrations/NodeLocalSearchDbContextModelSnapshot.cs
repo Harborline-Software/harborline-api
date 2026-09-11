@@ -14,20 +14,12 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260908030000_RosterAdmissionGrantBackfill";
+    public override string LastMigrationId => "20260902202756_TenantScopedSearchProjectionKeys";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
-
-        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Roster.RosterAdmissionGrantBackfillRow", b =>
-        {
-            b.Property<int>("Id").HasColumnType("INTEGER").HasColumnName("id");
-            b.Property<int>("RecordCount").HasColumnType("INTEGER").HasColumnName("record_count");
-            b.HasKey("Id");
-            b.ToTable("roster_admission_grant_backfill");
-        });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Authorization.AuthorizationBindingRevisionRow", b =>
             {

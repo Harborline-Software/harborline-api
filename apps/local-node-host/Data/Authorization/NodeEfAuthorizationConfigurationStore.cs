@@ -1,8 +1,6 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text;
 using Harborline.Api.Foundation.Crypto;
-using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
@@ -27,61 +25,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     : AuthorizationConfigurationStateReader, IAuthorizationConfigurationStore, IAuthorizationDefinitionReader,
         IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader
 {
-    /// <summary>Boot-only publication: signed roster provenance and completion commit under one fence.</summary>
-    /// <remarks>
-    /// Ticket 294 slice 2a: <c>new ActorId(admission.PartyId)</c> below is correct BY CONSTRUCTION now that
-    /// the roster's <c>PartyId</c> is the canonical tenant principal id — it is the same key this store's
-    /// own <c>SubjectId</c> column and every closure read use, so the backfilled grant lands under the key
-    /// the gate reads. No column, index, migration or backfill row changes for that; only the meaning of
-    /// the value already being written.
-    /// </remarks>
-    internal async Task<int> CommitRosterAdmissionMigrationAsync(
-        IDbContextFactory<NodeLocalRosterDbContext> rosterFactory, IOperationVerifier verifier, CancellationToken ct)
-    {
-        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await db.Database.MigrateAsync(ct).ConfigureAwait(false);
-        return await HomeEpochFenceTransaction.RunAsync(db, async () =>
-        {
-            if (await db.Set<RosterAdmissionGrantBackfillRow>().AnyAsync(ct).ConfigureAwait(false)) return 0;
-            await using var rosterDb = await rosterFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var rows = await rosterDb.RosterRecords.AsNoTracking().ToArrayAsync(ct).ConfigureAwait(false);
-            var reader = new VerifiedTenantRosterReader(rosterFactory, verifier);
-            var converted = 0;
-            foreach (var group in rows.GroupBy(row => row.TeamId))
-            {
-                var tenant = new TenantId(group.Key);
-                // Verification holds the shared database's write lock; no peer append can race it.
-                var roster = await reader.ReadAsync(tenant, ct).ConfigureAwait(false);
-                foreach (var admission in roster.EnumerateAdmissions())
-                {
-                    var signed = admission.Admission;
-                    var source = RosterRecordCrdtState.FromAdmission(admission).RecordId;
-                    var id = StableId(group.Key + ":" + source);
-                    var removal = roster.Contains(admission.PartyId) ? null : group
-                        .Where(row => row.Kind == (int)RosterRecordKind.Revocation && row.PartyId == admission.PartyId)
-                        .Select(NodeRosterRecord.ToCrdtState).Select(state => state.ToRevocationOrNull()!)
-                        .Where(record => !roster.RefusedRevocations.Any(refusal => refusal.Revocation == record))
-                        .OrderBy(record => record.Signed.IssuedAt).ThenBy(record => record.Signed.Nonce).First();
-                    var revocation = removal is null ? null : new GrantRevocation(
-                        new ActorId(removal.Signed.RevokedByPartyId), removal.Signed.IssuedAt,
-                        new GrantReason(GrantReasonCodes.RevocationReview, removal.Signed.Nonce.ToString("D")));
-                    await StageAdmissionGrantAsync(
-                        db, tenant, id, admission.PartyId, signed.AdmittedByPartyId,
-                        HistoricalSignedAtoms(group, admission.PartyId), signed.IssuedAt, signed.Nonce,
-                        revocation, "roster-migration:" + id.ToString("D"), ct).ConfigureAwait(false);
-                    converted++;
-                }
-            }
-            db.Set<RosterAdmissionGrantBackfillRow>().Add(new() { Id = 1, RecordCount = converted });
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return converted;
-        }, ct).ConfigureAwait(false);
-    }
-
     /// <summary>
-    /// ADR 0066 clause 3 (293 slice 4 fix 3) — the ONE derivation from "party X was admitted carrying
-    /// permissions P" to a durable grant. The 3a boot backfill (verified historical admissions) and every
-    /// LIVE admission conferral both go through here, so the two can never write a different grant shape.
+    /// ADR 0066 clause 3 — the ONE derivation from a live admission to a durable grant.
     /// The grant is keyed on the ROSTER PARTY ID: that is the actor id the roster plane's own reads use
     /// (<c>AdminTeamAccessAuthority.ListMembersAsync</c> asks the gate for
     /// <c>InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId), ...)</c>), so the gate's reader
@@ -129,8 +74,7 @@ public sealed class NodeEfAuthorizationConfigurationStore(
                 new GrantReason(GrantReasonCodes.Manual, nonce.ToString("D")), granter),
             issuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
         db.Grants.Add(NodeEfGrantStore.ToRow(grant, sourceReference));
-        // Ticket 293 slice 4 fix 4 — the boot backfill advances the epoch (it rewrites history before any
-        // session exists); a LIVE conferral must NOT. The admitted principal's web session has just had its
+        // A live conferral must NOT advance the admitted principal's authorization epoch. The admitted principal's web session has just had its
         // (grant owner-version, authorization epoch) pins verified by the admission itself, and bumping the
         // epoch underneath them invalidates the very pins that authorized the admission: the second admission
         // of the same party then refuses "grant_unavailable" instead of "already_member", and a revoked
@@ -142,14 +86,13 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     }
 
     /// <summary>
-    /// Confer one LIVE admission's grant — the same derivation the 3a backfill runs over history, under one
-    /// fence with its own commit. What it writes is a grant of the admission's OWN per-admission role carrying
+    /// Confer one LIVE admission's grant under one fence with its own commit. What it writes is a grant of the admission's OWN per-admission role carrying
     /// the permission set the admission signed, anchored to that admission. It is NOT the web-plane membership
     /// grant — <see cref="InitialGrantIssuanceService"/> writes that one, at invitation acceptance, under the
     /// same subject key and at the same scope — and it OUTLIVES it: revoking the membership grant leaves the
     /// admitted party's signed authority standing. Returns null when this admission's grant already exists;
     /// idempotent on (tenant, admitted party), so a second admission of the same party mints no rival. Unlike
-    /// the boot backfill it does NOT advance the admitted principal's authorization epoch (see
+    /// the live conferral does NOT advance the admitted principal's authorization epoch (see
     /// <c>StageAdmissionGrantAsync</c>). The caller treats a throw as an admission failure: the roster write it
     /// guards must not be published.
     /// </summary>
@@ -241,22 +184,6 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             result = new AdmissionGrantNarrowing(reissued, revoked);
         }, ct).ConfigureAwait(false);
         return result;
-    }
-
-    /// <summary>
-    /// What a pre-wire-version-3 install admitted a member with. A version-3 admission carries no permission
-    /// set at all (293 slice 3b2), so the durable <c>signed_permissions</c> column written by the earlier wire
-    /// versions is the only evidence this one-time migration can convert into grants. An install that never
-    /// held a signed set (a fresh one, or a member admitted after version 3) migrates a grant with no
-    /// capability definitions - grants, not the roster, then decide every act.
-    /// </summary>
-    private static PermissionSet HistoricalSignedAtoms(IEnumerable<NodeRosterRecord> rows, string partyId)
-    {
-        var json = rows.FirstOrDefault(row =>
-            row.Kind == (int)RosterRecordKind.Admission && row.PartyId == partyId)?.SignedPermissionsJson;
-        return string.IsNullOrWhiteSpace(json)
-            ? PermissionSet.Empty
-            : PermissionSet.From(JsonSerializer.Deserialize<string[]>(json) ?? []);
     }
 
     private static Guid StableId(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
