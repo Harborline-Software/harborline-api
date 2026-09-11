@@ -172,8 +172,8 @@ public sealed class PackAssetTypeContentRoundTripTests
         Assert.Null(descriptor.PropertyFormBinding);
     }
 
-    [Fact(DisplayName = "an inspection-form binding is detected as a dropped field")]
-    public void Inspection_form_binding_is_detected()
+    [Fact(DisplayName = "ticket 364: inspection-form bindings emit as discipline-to-pack-form-key map and parse back")]
+    public void Inspection_form_bindings_round_trip()
     {
         var descriptor = new EntityTypeDescriptor(
             DisplayName: "Condenser",
@@ -181,16 +181,40 @@ public sealed class PackAssetTypeContentRoundTripTests
             InspectionFormBindings: new Dictionary<DisciplineTag, FormBindingRef>
             {
                 [new DisciplineTag("electrical")] = new FormBindingRef("condenser-elec", new SemanticVersion(2, 0, 0)),
+                [new DisciplineTag("mechanical")] = new FormBindingRef("condenser-mech", new SemanticVersion(3, 1, 0)),
             });
 
-        Assert.Equal(new[] { "inspectionFormBindings" }, PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+        var emitted = PackAssetTypeContent.ToContent(new EntityTypeId("g.condenser"), descriptor);
+        var bindings = emitted["inspectionFormBindings"]!.AsObject();
+        Assert.Equal("condenser-elec", bindings["electrical"]!.GetValue<string>());
+        Assert.Equal("condenser-mech", bindings["mechanical"]!.GetValue<string>());
+        Assert.Empty(PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+
+        Assert.True(
+            PackAssetTypeContent.TryParse(
+                emitted,
+                PackAssetTypeContent.InspectionFormBindingShapeVersion,
+                key => key switch
+                {
+                    "condenser-elec" => "2.0.0",
+                    "condenser-mech" => "3.1.0",
+                    _ => null,
+                },
+                out _,
+                out var parsed,
+                out var error),
+            error);
+        Assert.Equal(
+            new FormBindingRef("condenser-elec", new SemanticVersion(2, 0, 0)),
+            parsed.InspectionFormBindings[new DisciplineTag("electrical")]);
+        Assert.Equal(
+            new FormBindingRef("condenser-mech", new SemanticVersion(3, 1, 0)),
+            parsed.InspectionFormBindings[new DisciplineTag("mechanical")]);
     }
 
-    [Fact(DisplayName = "both form bindings set → only the inspection bindings remain dropped")]
-    public void Only_inspection_bindings_remain_dropped()
+    [Fact(DisplayName = "both form binding shapes select the newest declared content version")]
+    public void Content_version_bumps_for_all_form_bindings()
     {
-        // ToContent now carries propertyFormBinding; InspectionFormBindings stays dropped (it is a
-        // per-discipline MAP, a second content shape plus a per-discipline resolution — not free).
         var descriptor = new EntityTypeDescriptor(
             DisplayName: "Condenser",
             Traits: EntityTrait.Maintainable,
@@ -201,8 +225,8 @@ public sealed class PackAssetTypeContentRoundTripTests
             });
 
         Assert.Equal(
-            new[] { "inspectionFormBindings" },
-            PackAssetTypeContent.DroppedFormBindingFields(descriptor));
+            PackAssetTypeContent.InspectionFormBindingShapeVersion,
+            PackAssetTypeContent.ContentVersionFor(descriptor, "1.0.0"));
     }
 
     [Fact(DisplayName = "ticket 357: a bound type's leaf declares at least the form-binding shape version")]

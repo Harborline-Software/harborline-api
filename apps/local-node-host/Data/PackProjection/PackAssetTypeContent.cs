@@ -39,8 +39,8 @@ internal static class PackAssetTypeContent
     /// </summary>
     /// <param name="content">The canonical content body.</param>
     /// <param name="declaredVersion">The version the SIGNED manifest declares for this leaf — the pinned
-    /// content-shape version (see <see cref="FormBindingShapeVersion"/>). A body carrying
-    /// <c>propertyFormBinding</c> under an older declared version is refused by name, never read.</param>
+    /// content-shape version (see <see cref="FormBindingShapeVersion"/>). A body carrying either form-binding
+    /// field under an older declared version is refused by name, never read.</param>
     /// <param name="formVersionByKey">Resolves a pack-local <c>FormDefinition</c> content key to the version
     /// that item declares — the SAME (key, version) tuple <see cref="PackSeedProjector"/> publishes the form
     /// under, so the binding rides ONE key space and never a second one. <see langword="null"/> means no
@@ -135,6 +135,10 @@ internal static class PackAssetTypeContent
         {
             return false;
         }
+        if (!TryReadInspectionFormBindings(obj, declaredVersion, formVersionByKey, out var inspectionForms, out error))
+        {
+            return false;
+        }
 
         id = new EntityTypeId(idStr.Trim());
         descriptor = new EntityTypeDescriptor(
@@ -143,7 +147,7 @@ internal static class PackAssetTypeContent
             ParentType: parentType,
             PropertyFormBinding: propertyForm,
             Disciplines: disciplines,
-            InspectionFormBindings: null,
+            InspectionFormBindings: inspectionForms,
             ExpectedUsefulLifeYears: life,
             TypicalReplacementCost: null,
             ConditionScaleMax: conditionScaleMax);
@@ -198,6 +202,20 @@ internal static class PackAssetTypeContent
             obj["propertyFormBinding"] = propertyForm.Definition.Value;
         }
 
+        if (descriptor.InspectionFormBindings.Count > 0)
+        {
+            var bindings = new JsonObject();
+            foreach (var (discipline, form) in descriptor.InspectionFormBindings
+                         .OrderBy(pair => pair.Key.Value, StringComparer.Ordinal))
+            {
+                if (!string.IsNullOrWhiteSpace(discipline.Value) && !string.IsNullOrWhiteSpace(form.Definition.Value))
+                {
+                    bindings[discipline.Value] = form.Definition.Value;
+                }
+            }
+            if (bindings.Count > 0) obj["inspectionFormBindings"] = bindings;
+        }
+
         if (descriptor.Disciplines is { Count: > 0 } disciplines)
         {
             var arr = new JsonArray();
@@ -215,30 +233,22 @@ internal static class PackAssetTypeContent
     }
 
     /// <summary>
-    /// The form-binding field tokens a live descriptor may SET that <see cref="ToContent"/> cannot carry
-    /// (it emits ONLY the fields <see cref="TryParse"/> reads — the pinned <c>AssetTypeDefinition</c> content
-    /// shape has no place for a form binding). Compose-time detection (#141): a Composer that snapshots such
-    /// a type would DROP these bindings SILENTLY; the ceremony instead surfaces a
+    /// The form-binding field tokens a live descriptor may SET that <see cref="ToContent"/> cannot carry.
+    /// Compose-time detection (#141): a Composer that snapshots such a type would DROP these bindings SILENTLY;
+    /// the ceremony instead surfaces a
     /// <see cref="Harborline.Api.LocalNodeHost.Data.Compose.ComposeWarningCodes.ProjectionLossyFormBinding"/>
     /// warning carrying this list.
     /// </summary>
     /// <remarks>
     /// Kept next to <see cref="ToContent"/> ON PURPOSE: this list is exactly the descriptor fields that
-    /// method omits. If a future content-schema revision teaches <see cref="ToContent"/> to emit one of these
-    /// (and <see cref="TryParse"/> to read it back), REMOVE it here in the same change — otherwise a
-    /// now-lossless field would raise a false warning. Returns an EMPTY list for a type that sets none (the
-    /// #127 General pack — its six types carry no form binding — so the common path warns nothing).
+    /// method omits. The current versioned shape carries both form-binding fields, so this is empty; it remains
+    /// the single compose inventory for future descriptor binding fields.
     /// </remarks>
     public static IReadOnlyList<string> DroppedFormBindingFields(EntityTypeDescriptor descriptor)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
 
-        var dropped = new List<string>(capacity: 1);
-        if (descriptor.InspectionFormBindings.Count > 0)
-        {
-            dropped.Add("inspectionFormBindings");
-        }
-        return dropped;
+        return Array.Empty<string>();
     }
 
     /// <summary>
@@ -252,18 +262,23 @@ internal static class PackAssetTypeContent
     /// </summary>
     public const string FormBindingShapeVersion = "1.1.0";
 
+    /// <summary>The content-shape version that introduced the <c>inspectionFormBindings</c> map.</summary>
+    public const string InspectionFormBindingShapeVersion = "1.2.0";
+
     /// <summary>
     /// The content-shape version a leaf carrying <paramref name="descriptor"/> must declare, given the
-    /// <paramref name="declaredVersion"/> its composer would otherwise stamp. A bound type needs at least
-    /// <see cref="FormBindingShapeVersion"/>; an unbound one keeps the composer's version unchanged.
+    /// <paramref name="declaredVersion"/> its composer would otherwise stamp. It selects the newest shape
+    /// needed by either binding; an unbound type keeps the composer's version unchanged.
     /// </summary>
     public static string ContentVersionFor(EntityTypeDescriptor descriptor, string declaredVersion)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
-        return descriptor.PropertyFormBinding is null
-               || PackVersion.Compare(declaredVersion, FormBindingShapeVersion) >= 0
-            ? declaredVersion
-            : FormBindingShapeVersion;
+        var requiredVersion = descriptor.InspectionFormBindings.Count > 0
+            ? InspectionFormBindingShapeVersion
+            : descriptor.PropertyFormBinding is not null
+                ? FormBindingShapeVersion
+                : declaredVersion;
+        return PackVersion.Compare(declaredVersion, requiredVersion) >= 0 ? declaredVersion : requiredVersion;
     }
 
     private static bool TryReadPropertyFormBinding(
@@ -309,6 +324,63 @@ internal static class PackAssetTypeContent
         }
 
         binding = new FormBindingRef(new FormDefinitionId(key), pinned);
+        return true;
+    }
+
+    private static bool TryReadInspectionFormBindings(
+        JsonObject obj,
+        string declaredVersion,
+        Func<string, string?>? formVersionByKey,
+        out IReadOnlyDictionary<DisciplineTag, FormBindingRef> bindings,
+        out string error)
+    {
+        bindings = new Dictionary<DisciplineTag, FormBindingRef>();
+        error = string.Empty;
+        if (obj["inspectionFormBindings"] is null)
+        {
+            return true;
+        }
+        if (obj["inspectionFormBindings"] is not JsonObject entries)
+        {
+            error = "'inspectionFormBindings' must be a JSON object";
+            return false;
+        }
+        if (PackVersion.Compare(declaredVersion ?? string.Empty, InspectionFormBindingShapeVersion) < 0)
+        {
+            error = "'inspectionFormBindings' requires a declared content version of at least "
+                    + $"{InspectionFormBindingShapeVersion} (this leaf declares '{declaredVersion}')";
+            return false;
+        }
+
+        var parsed = new Dictionary<DisciplineTag, FormBindingRef>();
+        foreach (var (rawDiscipline, node) in entries)
+        {
+            var discipline = rawDiscipline.Trim();
+            var key = node is JsonValue value && value.TryGetValue<string>(out var formKey)
+                ? formKey.Trim()
+                : string.Empty;
+            if (string.IsNullOrWhiteSpace(discipline) || string.IsNullOrWhiteSpace(key))
+            {
+                error = "'inspectionFormBindings' entries require non-blank discipline and FormDefinition key";
+                return false;
+            }
+            var formVersion = formVersionByKey?.Invoke(key);
+            if (string.IsNullOrWhiteSpace(formVersion))
+            {
+                error = $"'inspectionFormBindings' names '{key}', which is not a FormDefinition in this pack";
+                return false;
+            }
+            try
+            {
+                parsed.Add(new DisciplineTag(discipline), new FormBindingRef(new FormDefinitionId(key), SemanticVersion.Parse(formVersion)));
+            }
+            catch (FormatException)
+            {
+                error = $"the FormDefinition '{key}' this type binds declares an unparseable version '{formVersion}'";
+                return false;
+            }
+        }
+        bindings = parsed;
         return true;
     }
 

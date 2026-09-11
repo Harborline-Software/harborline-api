@@ -201,16 +201,15 @@ public sealed class PackVerifier : IPackVerifier
     }
 
     /// <summary>
-    /// The content-shape version that introduced <c>propertyFormBinding</c> on an
-    /// <c>AssetTypeDefinition</c> body — the host-side parser
-    /// (<c>PackAssetTypeContent.FormBindingShapeVersion</c>) pins the same number; a leaf declaring less
-    /// than this may not carry the field.
+    /// The content-shape versions that introduced the form-binding fields on an <c>AssetTypeDefinition</c>
+    /// body — the host-side parser pins the same numbers; a leaf declaring less may not carry the field.
     /// </summary>
     private const string FormBindingShapeVersion = "1.1.0";
+    private const string InspectionFormBindingShapeVersion = "1.2.0";
 
     /// <summary>
-    /// Verifies that every <c>AssetTypeDefinition</c> property-form binding names a <c>FormDefinition</c>
-    /// leaf of the SAME pack, under a declared content version that admits the field. Returns a failing
+    /// Verifies that every <c>AssetTypeDefinition</c> form binding names a <c>FormDefinition</c> leaf of the
+    /// SAME pack, under a declared content version that admits the field. Returns a failing
     /// result on the first offending leaf (codes are distinct + order-stable), else <c>null</c>.
     /// </summary>
     private static PackVerificationResult? VerifyFormBindings(
@@ -226,10 +225,12 @@ public sealed class PackVerifier : IPackVerifier
         foreach (var item in items.Where(i => i.Kind == PackContentKind.AssetTypeDefinition))
         {
             string? binding;
+            JsonObject? content;
             try
             {
-                binding = JsonNode.Parse(item.CanonicalBytes.Span) is JsonObject obj
-                          && obj.TryGetPropertyValue("propertyFormBinding", out var node)
+                content = JsonNode.Parse(item.CanonicalBytes.Span) as JsonObject;
+                binding = content is not null
+                          && content.TryGetPropertyValue("propertyFormBinding", out var node)
                           && node is JsonValue value
                           && value.TryGetValue<string>(out var key)
                     ? key.Trim()
@@ -242,18 +243,35 @@ public sealed class PackVerifier : IPackVerifier
                 continue;
             }
 
-            if (string.IsNullOrEmpty(binding))
-            {
-                continue;
-            }
-
-            if (Install.PackVersion.Compare(item.Version ?? string.Empty, FormBindingShapeVersion) < 0)
+            if (!string.IsNullOrEmpty(binding)
+                && Install.PackVersion.Compare(item.Version ?? string.Empty, FormBindingShapeVersion) < 0)
             {
                 errors.Add(PackVerificationCodes.FormBindingSchemaUnsupported);
             }
-            else if (!formKeys.Contains(binding))
+            else if (!string.IsNullOrEmpty(binding) && !formKeys.Contains(binding))
             {
                 errors.Add(PackVerificationCodes.FormBindingNotInPack);
+            }
+
+            if (content?["inspectionFormBindings"] is not JsonObject inspectionBindings)
+            {
+                continue;
+            }
+            if (Install.PackVersion.Compare(item.Version ?? string.Empty, InspectionFormBindingShapeVersion) < 0)
+            {
+                errors.Add(PackVerificationCodes.InspectionFormBindingSchemaUnsupported);
+                continue;
+            }
+            foreach (var (_, formNode) in inspectionBindings)
+            {
+                var inspectionKey = formNode is JsonValue inspectionValue
+                                    && inspectionValue.TryGetValue<string>(out var key)
+                    ? key.Trim()
+                    : string.Empty;
+                if (string.IsNullOrWhiteSpace(inspectionKey) || !formKeys.Contains(inspectionKey))
+                {
+                    errors.Add(PackVerificationCodes.InspectionFormBindingNotInPack);
+                }
             }
         }
 

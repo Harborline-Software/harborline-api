@@ -250,12 +250,14 @@ public sealed class ComposeCeremonyTests
         Assert.Single(ceremony.GetDraft(outcome.Draft.ComposeId, Tenant)!.Warnings);
     }
 
-    [Fact(DisplayName = "ticket 357: composing a bound type TOGETHER with its form carries propertyFormBinding at the 1.1.0 shape")]
-    public async Task Compose_carries_property_form_binding_when_the_form_is_a_leaf()
+    [Fact(DisplayName = "ticket 364: composing a type with its two inspection forms carries inspectionFormBindings at the 1.2.0 shape")]
+    public async Task Compose_carries_inspection_form_bindings_when_the_forms_are_leaves()
     {
         var tenant = new TenantId("compose-binding");
         var now = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
         var formId = new FormDefinitionId("condenser-props");
+        var electricalFormId = new FormDefinitionId("condenser-elec");
+        var mechanicalFormId = new FormDefinitionId("condenser-mech");
         var formVersion = new SemanticVersion(1, 2, 0);
 
         var schemas = new InMemorySchemaRegistry(TimeProvider.System);
@@ -275,6 +277,23 @@ public sealed class ComposeCeremonyTests
             CreatedAt: now,
             UpdatedAt: now));
         await forms.PublishAsync(new DefinitionCoordinates(tenant, formId.Value, formVersion.ToString()));
+        foreach (var inspectionFormId in new[] { electricalFormId, mechanicalFormId })
+        {
+            await forms.RegisterAsync(new FormDefinition(
+                Envelope: new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
+                    Identity: inspectionFormId,
+                    Version: formVersion,
+                    Tenant: tenant,
+                    CascadeLayer: CascadeLayer.Tenant,
+                    Provenance: new FormDefinitionProvenance(new IdentityRef("party", Principal), Lineage: null),
+                    Requires: Array.Empty<DefinitionRequirement>()),
+                Status: FormDefinitionStatus.Draft,
+                SchemaRef: schema.Id,
+                Overlay: ValidOverlay(),
+                CreatedAt: now,
+                UpdatedAt: now));
+            await forms.PublishAsync(new DefinitionCoordinates(tenant, inspectionFormId.Value, formVersion.ToString()));
+        }
 
         var provider = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var registry = provider.GetRequiredService<IEntityTypeRegistry>();
@@ -287,7 +306,8 @@ public sealed class ComposeCeremonyTests
                 PropertyFormBinding: new FormBindingRef(formId.Value, new SemanticVersion(1, 0, 0)),
                 InspectionFormBindings: new Dictionary<DisciplineTag, FormBindingRef>
                 {
-                    [new DisciplineTag("electrical")] = new FormBindingRef("condenser-elec", new SemanticVersion(2, 0, 0)),
+                    [new DisciplineTag("electrical")] = new FormBindingRef(electricalFormId.Value, new SemanticVersion(1, 0, 0)),
+                    [new DisciplineTag("mechanical")] = new FormBindingRef(mechanicalFormId.Value, new SemanticVersion(1, 0, 0)),
                 }),
             CascadeLayer.Pack));
 
@@ -299,7 +319,7 @@ public sealed class ComposeCeremonyTests
             new ComposeRequest(
                 ComposeId: null, Key: "acme.hvac", Version: "1.0.0", Name: "HVAC", Description: "",
                 ScopeTier: PackScopeTier.Horizontal, TypeIds: new[] { typeId.Value }, Dcp: GeneralDcp(),
-                FormIds: new[] { formId.Value }),
+                FormIds: new[] { formId.Value, electricalFormId.Value, mechanicalFormId.Value }),
             tenant);
 
         Assert.Equal(ComposeStatus.Ok, outcome.Status);
@@ -311,14 +331,15 @@ public sealed class ComposeCeremonyTests
             typeLeaf.Content!.AsObject()["propertyFormBinding"]!.GetValue<string>());
         Assert.Contains(outcome.Draft.Leaves, l => l.Kind == PackContentKind.FormDefinition && l.Key == formId.Value);
 
-        // (ii) the leaf declares the shape version that introduced the field.
-        Assert.Equal(PackAssetTypeContent.FormBindingShapeVersion, typeLeaf.Version);
-        Assert.Equal("1.1.0", typeLeaf.Version);
+        // (ii) every map entry travels as a form's pack content key and the leaf declares that shape.
+        var inspectionBindings = typeLeaf.Content!.AsObject()["inspectionFormBindings"]!.AsObject();
+        Assert.Equal(electricalFormId.Value, inspectionBindings["electrical"]!.GetValue<string>());
+        Assert.Equal(mechanicalFormId.Value, inspectionBindings["mechanical"]!.GetValue<string>());
+        Assert.Equal(PackAssetTypeContent.InspectionFormBindingShapeVersion, typeLeaf.Version);
+        Assert.Equal("1.2.0", typeLeaf.Version);
 
-        // (iii) propertyFormBinding is NOT lossy any more — only the still-dropped inspection map is named.
-        var warning = Assert.Single(outcome.Draft.Warnings);
-        Assert.Equal(ComposeWarningCodes.ProjectionLossyFormBinding, warning.Code);
-        Assert.Equal("inspectionFormBindings", warning.Params["fields"]);
+        // (iii) neither carried binding is lossy.
+        Assert.Empty(outcome.Draft.Warnings);
     }
 
     [Fact(DisplayName = "a non-counsel-cleared RegulatoryClass hard-blocks at export (Q1)")]
