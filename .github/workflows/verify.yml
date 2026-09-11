@@ -37,7 +37,7 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           clean: true
@@ -87,7 +87,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: verify-evidence-${{ github.run_id }}
           if-no-files-found: ignore
@@ -113,7 +113,7 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       NUGET_PACKAGES: C:\nuget-runner
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           clean: true
@@ -156,7 +156,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: verify-windows-evidence-${{ github.run_id }}
           if-no-files-found: ignore
