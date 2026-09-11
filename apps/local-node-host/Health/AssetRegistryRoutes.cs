@@ -10,6 +10,7 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Definitions.Compatibility;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -271,18 +272,32 @@ public static class AssetRegistryRoutes
         IEndpointRouteBuilder app, IEntityTypeRegistry types, IRegistryEntityRepository entities,
         ITypedRelationshipStore edges, IActiveTeamAccessor activeTeam, TimeProvider clock)
     {
-        app.MapGet($"{RouteBase}/entities", async (string? type, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/entities", async (string? type, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
+            // ADR 0060 (ticket 358): authority travels with the READ. The list's act is over the install's
+            // collection rather than any one row, so it carries RouteRecord.TheInstall and rides the
+            // install-wide declaration on records:read; the decision is resolved BEFORE the repository is
+            // touched, so an unauthorized caller learns nothing about what the tenant holds.
+            if (await RequestAuthorization.RefusalAsync(
+                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             var rows = type is { Length: > 0 }
                 ? await entities.ListByTypeAsync(tenant, new EntityTypeId(type), false, ct).ConfigureAwait(false)
                 : await entities.ListByTenantAsync(tenant, false, ct).ConfigureAwait(false);
             return Results.Ok(new EntityListResponse(rows.Select(ToEntityWire).ToArray()));
         });
 
-        app.MapGet($"{RouteBase}/entities/{{id}}", async (string id, CancellationToken ct) =>
+        app.MapGet($"{RouteBase}/entities/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
+            // The detail read names the record it addresses, so a grant scoped to another entity refuses
+            // here. The decision precedes the repository read: existence is not probeable through a refusal.
+            if (await RequestAuthorization.RefusalAsync(
+                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             var entity = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct).ConfigureAwait(false);
             if (entity is null)
                 return Results.NotFound();
