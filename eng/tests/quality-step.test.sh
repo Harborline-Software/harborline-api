@@ -59,6 +59,8 @@ grep -q 'coverage.maximumAggregateDrop' "$fixture/.git/old-control.out"
 
 HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/zero.out"
 grep -q 'quality: recorded sha256:' "$fixture/.git/zero.out"
+git -C "$fixture" add artifacts/quality
+git -C "$fixture" commit --no-verify -qm 'record quality artifact'
   # The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
   # artifacts, so the flag must not leak into it (337 precedent in host-baseline.test.mjs; batch 1 land red).
 ( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
@@ -73,6 +75,7 @@ JSON
 HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" node "$root/eng/quality-step.mjs" --root "$fixture" --write-baseline "$fixture/candidate.json" > "$fixture/.git/evaluate.out"
 node -e 'const d=require(process.argv[1]); if(d.wouldBlock !== true || d.conclusion !== "success" || d.findings.length !== 1) process.exit(1)' "$fixture/.git/harborline-api-quality-decision.json"
 node -e 'const d=require(process.argv[1]); const roslyn=d.engines.find(e=>e.engine==="roslyn"), eslint=d.engines.find(e=>e.engine==="eslint"); if(!roslyn || roslyn.status!=="analyzer-error" || !eslint || eslint.status!=="ok") process.exit(1)' "$fixture/candidate.json"
+node -e 'const d=require(process.argv[1]), f=d.findings[0]; if(!f || !Number.isInteger(f.line) || !Object.hasOwn(f,"project")) process.exit(1)' "$fixture/artifacts/quality/findings.json"
 printf 'mode: enforce\n' > "$fixture/eng/quality-policy.yaml"
 git -C "$fixture" add eng/quality-policy.yaml
 git -C "$fixture" commit --no-verify -qm enforce

@@ -33,6 +33,11 @@ export const baselineFingerprint = finding => {
   return finding.fingerprint
 }
 
+const findingProject = finding => {
+  try { return JSON.parse(finding?.enginePartial ?? '{}')['harborline/project/v1'] }
+  catch { return undefined }
+}
+
 export const distinctBaseline = baseline => {
   const findings = baseline.findings.map(finding => ({...finding, fingerprint: baselineFingerprint(finding)}))
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint))
@@ -101,7 +106,8 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-quality-'))
   const receipt = receiptDirectory(apiRoot)
   const diff = path.join(scratch, 'base-to-head.diff')
-  const candidate = path.resolve(apiRoot, baselineOutput ?? path.join('artifacts', 'quality', 'findings.json'))
+  const defaultCandidate = path.join(apiRoot, 'artifacts', 'quality', 'findings.json')
+  const candidate = path.resolve(apiRoot, baselineOutput ?? defaultCandidate)
   const evidenceDirectory = path.join(apiRoot, 'artifacts', 'quality')
   const decision = path.join(receipt, 'harborline-api-quality-decision.json')
   try {
@@ -134,10 +140,12 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
       baseline.findings = baseline.findings.map(finding => {
         const original = source.get(finding.fingerprint)
         const location = original?.primaryLocation
-        return Number.isInteger(location?.startLine) ? {...finding, line: location.startLine, project: JSON.parse(original.enginePartial ?? '{}')['harborline/project/v1'] ?? ''} : finding
+        return Number.isInteger(location?.startLine) ? {...finding, line: location.startLine, project: findingProject(original) ?? finding.project ?? ''} : finding
       })
       baseline.engines = engines
-      writeFileSync(candidate, JSON.stringify(baseline) + '\n')
+      const serialized = JSON.stringify(baseline) + '\n'
+      writeFileSync(candidate, serialized)
+      writeFileSync(defaultCandidate, serialized)
     }
     console.log(`quality: recorded ${record.decisionId} with policy ${record.policyDigest}`)
     return record
