@@ -152,8 +152,13 @@ jobs:
             echo "note: HARBORLINE_PINS_TOKEN not set; control and quality pins unavailable on this runner"
           fi
           pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
-          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
+          # A clone left half-made by an interrupted run cannot read its trees: fetch, and re-clone on failure.
+          if ! ( git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin && git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" ); then
+            rm -rf "$HARBORLINE_PLATFORM_REPO"
+            git clone -q https://github.com/Harborline-Software/harborline-platform.git "$HARBORLINE_PLATFORM_REPO"
+            git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin"
+          fi
+          git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
 
       - name: Build the local platform feed
         run: node eng/build-local-feed.mjs
