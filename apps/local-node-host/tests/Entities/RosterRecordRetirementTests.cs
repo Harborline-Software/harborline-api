@@ -32,7 +32,8 @@ public sealed class RosterRecordRetirementTests
     }
 
     [Fact]
-    public async Task Historical_signed_evidence_survives_for_the_boot_backfill_and_no_new_row_writes_it()
+    [Trait("Holds", "354.A1")]
+    public async Task Signed_permissions_column_and_boot_backfill_are_absent()
     {
         await using var store = await SearchTestStore.CreateAsync();
         await using var db = store.CreateRosterContext();
@@ -40,13 +41,11 @@ public sealed class RosterRecordRetirementTests
         var columns = await db.Database.SqlQueryRaw<string>(
             "SELECT name AS Value FROM pragma_table_info('roster_records')").ToArrayAsync();
 
-        // The column is the ONLY record a pre-version-3 install keeps of what a member was admitted with, and
-        // the slice 3a boot backfill converts exactly that into grants. It stays one more release; nothing
-        // writes it any more.
-        Assert.Contains("signed_permissions", columns);
-        var record = Fixture().EnumerateAdmissions().Single(a => a.PartyId == "member");
-        Assert.Equal(string.Empty,
-            NodeRosterRecord.FromCrdtState(RosterRecordCrdtState.FromAdmission(record)).SignedPermissionsJson);
+        Assert.DoesNotContain("signed_permissions", columns);
+        Assert.DoesNotContain(typeof(NodeRosterRecord).GetProperties(),
+            property => property.Name == "SignedPermissionsJson");
+        Assert.Null(typeof(NodeRosterRecord).Assembly.GetType(
+            "Harborline.Api.LocalNodeHost.Data.Roster.RosterAdmissionGrantBackfill"));
         Assert.False(db.Database.HasPendingModelChanges());
     }
 

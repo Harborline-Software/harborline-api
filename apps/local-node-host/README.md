@@ -48,6 +48,9 @@ Before the first customer seed is created:
 - Treat the admission and roster schemas as one operational migration set even though each `DbContext` records a
   separate history. Back up the encrypted node store before rollback. The pairing-binding `Down()` deletes pending
   bindings, and the roster-provenance `Down()` deletes admission evidence; a partial rollback is unsupported.
+- The retired boot grant backfill and `signed_permissions` roster column are not an upgrade path. New admissions
+  confer their durable grants when they are accepted, and there is no supported installation to migrate from the
+  retired pre-version-3 permission evidence.
 - Keep `LocalNode:Diagnostics:CommsDiagnosticLogging` off in the customer profile. Pairing diagnostics never log
   opaque token identifiers, even in development.
 

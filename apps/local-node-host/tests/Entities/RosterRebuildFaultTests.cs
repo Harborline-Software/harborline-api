@@ -390,8 +390,8 @@ public sealed class RosterRebuildFaultTests
         }
         /// <summary>
         /// A MALFORMED durable PAYLOAD - a public key that does not decode at all. The retired
-        /// signed_permissions column used to carry this vector as bad JSON (293 s3b2 stopped reading it), so the
-        /// property "a malformed durable payload seeds no trust" now rides the key field the rebuild does read.
+        /// The retired signed-permission column never participated in a rebuild, so the property "a malformed
+        /// durable payload seeds no trust" rides the key field the rebuild does read.
         /// </summary>
         public async Task CorruptPayloadAsync()
         {

@@ -83,20 +83,18 @@ owner-count: 69
 
 ## category-2-grant-store-surface
 scan: apps/local-node-host/Data/Search/**/*Grant*.cs
-owner-count: 9
+owner-count: 7
 - apps/local-node-host/Data/Search/Migrations/20260714104253_GrantFreshnessRows.Designer.cs
 - apps/local-node-host/Data/Search/Migrations/20260714104253_GrantFreshnessRows.cs
 - apps/local-node-host/Data/Search/Migrations/20260802103000_GrantAuthorizationEpochBackfill.cs
 - apps/local-node-host/Data/Search/Migrations/20260805090000_GrantPermissionSets.cs
-- apps/local-node-host/Data/Search/Migrations/20260908030000_RosterAdmissionGrantBackfill.Designer.cs
-- apps/local-node-host/Data/Search/Migrations/20260908030000_RosterAdmissionGrantBackfill.cs
 - apps/local-node-host/Data/Search/Vector/GrantAuthorizationEpochRow.cs
 - apps/local-node-host/Data/Search/Vector/GrantRow.cs
 - apps/local-node-host/Data/Search/Vector/NodeEfGrantStore.cs
 
 ## category-3-roster-authority
 scan: apps/local-node-host/Data/Roster/**/*.cs excluding Migrations/, plus Enrollment/NodeTeamRoster.cs
-owner-count: 14
+owner-count: 13
 - apps/local-node-host/Data/Roster/DesignTimeNodeLocalRosterDbContextFactory.cs
 - apps/local-node-host/Data/Roster/DurableGenesisIdentity.cs
 - apps/local-node-host/Data/Roster/GenesisStartupMessages.cs
@@ -106,7 +104,6 @@ owner-count: 14
 - apps/local-node-host/Data/Roster/NodeLocalRosterDbContext.cs
 - apps/local-node-host/Data/Roster/NodeRosterComposition.cs
 - apps/local-node-host/Data/Roster/NodeRosterRecord.cs
-- apps/local-node-host/Data/Roster/RosterAdmissionGrantBackfill.cs
 - apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
 - apps/local-node-host/Data/Roster/RosterRecordCrdtState.cs
 - apps/local-node-host/Data/Roster/VerifiedTenantRosterReader.cs
