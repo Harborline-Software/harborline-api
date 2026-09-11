@@ -10,8 +10,10 @@ import {spawnSync} from 'node:child_process'
 const root = path.resolve(import.meta.dirname, '../..')
 const normalizer = path.join(root, 'eng/normalize-roslyn-sarif.mjs')
 const repin = path.join(root, 'eng/repin-quality-baseline.mjs')
-const quality = 'C:/Users/Chris/AppData/Local/Temp/claude/C--Projects-Harborline/90e98f9a-7b65-4ac7-a0b9-c8603b865f60/scratchpad/quality-pin'
-const control = 'C:/Projects/Harborline/harborline-control'
+// The pinned quality tool and the control policy come from the same environment the gate sets (quality-step.test.sh reads the same two).
+const quality = process.env.HARBORLINE_QUALITY_REPO
+const pinsMissing = (!quality || !process.env.HARBORLINE_CONTROL_REPO) && 'needs HARBORLINE_QUALITY_REPO and HARBORLINE_CONTROL_REPO'
+const control = process.env.HARBORLINE_CONTROL_REPO
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {encoding: 'utf8', ...options})
@@ -122,7 +124,7 @@ test('a location under the root’s resolved real path is inside the repository 
   }
 })
 
-test('re-pin retains every gate-time engine partial and the pinned analyzer classifies them as existing', t => {
+test('re-pin retains every gate-time engine partial and the pinned analyzer classifies them as existing', {skip: pinsMissing}, t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'quality-repin-parity-'))
   t.after(() => rmSync(directory, {recursive: true, force: true}))
   const head = writeFixtureRepository(directory)
@@ -157,7 +159,7 @@ test('re-pin retains every gate-time engine partial and the pinned analyzer clas
   assert.equal(decision.resolved.length, 0)
 })
 
-test('a failed Roslyn execution with no results reports analyzer-error', t => {
+test('a failed Roslyn execution with no results reports analyzer-error', {skip: pinsMissing}, t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'quality-empty-engine-'))
   t.after(() => rmSync(directory, {recursive: true, force: true}))
   const head = writeFixtureRepository(directory)
