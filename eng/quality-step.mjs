@@ -90,6 +90,21 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
     execFileSync(process.execPath, args, {cwd: checkout.quality, env, stdio: 'inherit'})
     const record = JSON.parse(readFileSync(decision, 'utf8'))
     if (!/^sha256:[a-f0-9]{64}$/.test(record.decisionId) || !/^sha256:[a-f0-9]{64}$/.test(record.policyDigest)) throw new Error('quality decision is missing its decision or policy digest')
+    if (baselineOutput) {
+      const candidate = path.resolve(apiRoot, baselineOutput)
+      const failedEngines = new Map((record.reasons ?? [])
+        .filter(reason => reason?.kind === 'analyzer-error')
+        .map(reason => [typeof reason.engine === 'string' ? reason.engine : 'unknown', typeof reason.message === 'string' ? reason.message : 'analyzer-error']))
+      const requiredEngines = record.resolvedPolicy?.analysis?.requireSuccessfulEngines ?? []
+      const engines = [...new Set([...requiredEngines, ...failedEngines.keys()])].sort().map(engine => ({
+        engine,
+        status: failedEngines.has(engine) ? 'analyzer-error' : 'ok',
+        detail: failedEngines.get(engine) ?? '',
+      }))
+      const baseline = JSON.parse(readFileSync(candidate, 'utf8'))
+      baseline.engines = engines
+      writeFileSync(candidate, JSON.stringify(baseline) + '\n')
+    }
     console.log(`quality: recorded ${record.decisionId} with policy ${record.policyDigest}`)
     return record
   } finally {
