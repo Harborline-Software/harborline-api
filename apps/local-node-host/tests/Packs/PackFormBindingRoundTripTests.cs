@@ -300,6 +300,46 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         }
     }
 
+    [Fact(DisplayName = "ticket 364: a 1.1.0 leaf without inspectionFormBindings still verifies, installs, and activates")]
+    public async Task Inspection_form_binding_shape_predecessor_without_the_field_still_round_trips()
+    {
+        var packFile = await CliExportAsync(PackBody(bindingKey: null, typeContentVersion: "1.1.0"));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using (var doc = JsonDocument.Parse(verify.Stdout))
+        {
+            Assert.Equal("Verified", doc.RootElement.GetProperty("verdict").GetString());
+        }
+
+        Assert.Equal(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
+        Assert.Equal(0, (await CliAsync(
+            "pack", "activate", "--pack-key", PackKey, "--version", "1.0.0")).ExitCode);
+
+        var detail = await GetTypeDetailAsync(TypeKey);
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("propertyForm").ValueKind);
+    }
+
+    [Fact(DisplayName = "ticket 364: a 1.1.0 leaf with inspectionFormBindings is refused at verify by schema name")]
+    public async Task Inspection_form_bindings_under_the_predecessor_declared_version_are_refused()
+    {
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.1.0",
+            inspectionBindings: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["electrical"] = ElectricalFormKey,
+            }));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using var doc = JsonDocument.Parse(verify.Stdout);
+        Assert.Equal("VerificationFailed", doc.RootElement.GetProperty("verdict").GetString());
+        Assert.Contains(
+            PackVerificationCodes.InspectionFormBindingSchemaUnsupported,
+            doc.RootElement.GetProperty("details").EnumerateArray().Select(e => e.GetString()));
+    }
+
     [Fact(DisplayName = "ticket 364: an inspection map naming a form the pack does not contain is refused at verify by name")]
     public async Task Inspection_form_binding_outside_the_pack_is_refused_at_verify()
     {

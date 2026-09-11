@@ -342,6 +342,76 @@ public sealed class ComposeCeremonyTests
         Assert.Empty(outcome.Draft.Warnings);
     }
 
+    [Fact(DisplayName = "ticket 364: composing one of two inspection forms carries only the selected binding and persists a warning")]
+    public async Task Compose_carries_only_the_selected_inspection_form_binding()
+    {
+        var tenant = new TenantId("compose-partial-binding");
+        var now = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        var formId = new FormDefinitionId("condenser-props");
+        var electricalFormId = new FormDefinitionId("condenser-elec");
+        var mechanicalFormId = new FormDefinitionId("condenser-mech");
+        var formVersion = new SemanticVersion(1, 2, 0);
+
+        var schemas = new InMemorySchemaRegistry(TimeProvider.System);
+        var schema = await schemas.RegisterAsync(FormSchemaJson);
+        using var forms = new InMemoryFormDefinitionStore(TimeProvider.System);
+        foreach (var selectedFormId in new[] { formId, electricalFormId, mechanicalFormId })
+        {
+            await forms.RegisterAsync(new FormDefinition(
+                Envelope: new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
+                    Identity: selectedFormId,
+                    Version: formVersion,
+                    Tenant: tenant,
+                    CascadeLayer: CascadeLayer.Tenant,
+                    Provenance: new FormDefinitionProvenance(new IdentityRef("party", Principal), Lineage: null),
+                    Requires: Array.Empty<DefinitionRequirement>()),
+                Status: FormDefinitionStatus.Draft,
+                SchemaRef: schema.Id,
+                Overlay: ValidOverlay(),
+                CreatedAt: now,
+                UpdatedAt: now));
+            await forms.PublishAsync(new DefinitionCoordinates(tenant, selectedFormId.Value, formVersion.ToString()));
+        }
+
+        var provider = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
+        var registry = provider.GetRequiredService<IEntityTypeRegistry>();
+        var typeId = new EntityTypeId("general.condenser");
+        registry.SeedType(new EntityTypeSeed(
+            typeId,
+            new EntityTypeDescriptor(
+                DisplayName: "Condenser",
+                Traits: EntityTrait.Maintainable,
+                PropertyFormBinding: new FormBindingRef(formId.Value, new SemanticVersion(1, 0, 0)),
+                InspectionFormBindings: new Dictionary<DisciplineTag, FormBindingRef>
+                {
+                    [new DisciplineTag("electrical")] = new FormBindingRef(electricalFormId.Value, new SemanticVersion(1, 0, 0)),
+                    [new DisciplineTag("mechanical")] = new FormBindingRef(mechanicalFormId.Value, new SemanticVersion(1, 0, 0)),
+                }),
+            CascadeLayer.Pack));
+
+        var ceremony = new ComposeCeremony(
+            registry, new PackContentCanonicalizer(), new PackDcpCanonicalizer(), new InMemoryDraftCompositionStore(),
+            clock: TimeProvider.System, forms: forms, schemas: schemas);
+        var outcome = await ceremony.ComposeAsync(
+            new ComposeRequest(
+                ComposeId: null, Key: "acme.hvac", Version: "1.0.0", Name: "HVAC", Description: "",
+                ScopeTier: PackScopeTier.Horizontal, TypeIds: new[] { typeId.Value }, Dcp: GeneralDcp(),
+                FormIds: new[] { formId.Value, electricalFormId.Value }),
+            tenant);
+
+        Assert.Equal(ComposeStatus.Ok, outcome.Status);
+        var typeLeaf = Assert.Single(outcome.Draft!.Leaves, l => l.Kind == PackContentKind.AssetTypeDefinition);
+        var inspectionBindings = typeLeaf.Content!.AsObject()["inspectionFormBindings"]!.AsObject();
+        Assert.Equal(electricalFormId.Value, inspectionBindings["electrical"]!.GetValue<string>());
+        Assert.False(inspectionBindings.ContainsKey("mechanical"));
+
+        var warning = Assert.Single(outcome.Draft.Warnings);
+        Assert.Equal(ComposeWarningCodes.ProjectionLossyFormBinding, warning.Code);
+        Assert.Equal("inspectionFormBindings", warning.Params["fields"]);
+        var persistedWarning = Assert.Single(ceremony.GetDraft(outcome.Draft.ComposeId, tenant)!.Warnings);
+        Assert.Equal("inspectionFormBindings", persistedWarning.Params["fields"]);
+    }
+
     [Fact(DisplayName = "a non-counsel-cleared RegulatoryClass hard-blocks at export (Q1)")]
     public async Task Non_general_class_refused_at_export()
     {
