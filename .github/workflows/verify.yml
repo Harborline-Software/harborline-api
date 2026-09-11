@@ -47,15 +47,34 @@ jobs:
           echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
           echo "HARBORLINE_QUALITY_REPO=$lanes/quality-pin" >> "$GITHUB_ENV"
 
-      - name: Refresh the control, quality and platform pins (the wrapper's lines)
+      - name: Refresh the control, quality and platform pins (the wrapper's lines, under the runner account)
+        # The runner account holds no credentials. The public pin (platform) fetches over HTTPS; the
+        # private ones (control, quality) fetch only once a read-only token exists on the runner, and
+        # until then stay at the snapshot the account was seeded with. The log says which.
         run: |
-          git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "warning: control-gh pull failed"
+          for l in control-gh:harborline-control quality-pin:harborline-quality platform-pin:harborline-platform platform-gh:harborline-platform; do
+            d="$HOME/Projects/Harborline/lanes/${l%%:*}"; r="${l##*:}"
+            [ -d "$d/.git" ] && git -C "$d" remote set-url origin "https://github.com/Harborline-Software/$r.git"
+          done
+          git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "note: control-gh not refreshed (private; no token on the runner account); seeded snapshot $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
           qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
-          if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null; git -C "$HARBORLINE_QUALITY_REPO" checkout -q --detach "$qpin" 2>/dev/null || echo "warning: quality pin $qpin not checked out"; fi
+          if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then
+            git -C "$HARBORLINE_QUALITY_REPO" cat-file -e "$qpin^{commit}" 2>/dev/null || git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null || true
+            git -C "$HARBORLINE_QUALITY_REPO" checkout -q --detach "$qpin" 2>/dev/null || { echo "quality pin $qpin is not on this runner and cannot be fetched (private; no token)"; exit 6; }
+          fi
           pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q "$HOME/Projects/Harborline/lanes/platform-gh" "$HARBORLINE_PLATFORM_REPO" && git -C "$HARBORLINE_PLATFORM_REPO" remote set-url origin https://github.com/Harborline-Software/harborline-platform.git; fi
-          git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin && git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
+          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q https://github.com/Harborline-Software/harborline-platform.git "$HARBORLINE_PLATFORM_REPO"; fi
+          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
+          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
           echo "control $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)  quality $qpin  platform $pin"
+
+      - name: Rust toolchain for the runner account
+        # rustup's default toolchain is per user (~/.rustup); the runner account starts with none, and
+        # verify.sh's contracts-rust step needs one. Set once, kept in the account's own home.
+        run: |
+          rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
+          rustup show active-toolchain
+          cargo --version
 
       - name: Build the local platform feed
         run: node eng/build-local-feed.mjs
