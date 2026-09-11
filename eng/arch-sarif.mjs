@@ -33,7 +33,16 @@ const referenceLine = (repoRoot, edge) => {
   }
 }
 
-export const failuresFromTrx = trx => {
+// xUnit theories nest child results in <InnerResults>; a child's </UnitTestResult> would end the parent's
+// match before the parent's own <Output>. Peel the innermost nests first so every remaining element is flat.
+const withoutInnerResults = trx => {
+  let text = trx, previous
+  do { previous = text; text = text.replace(/<InnerResults>(?:(?!<InnerResults>)[\s\S])*?<\/InnerResults>/g, '') } while (text !== previous)
+  return text
+}
+
+export const failuresFromTrx = rawTrx => {
+  const trx = withoutInnerResults(rawTrx)
   const failures = []
   // Passed results are self-closing (<UnitTestResult ... />); a pattern that only knows the open/close
   // form lets a passed tag swallow the failed element that follows it, and the TRX order is not stable.

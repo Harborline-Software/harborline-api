@@ -43,3 +43,11 @@ test('a passed self-closing result before the failed one does not swallow it (TR
   const text = `<?xml version="1.0"?><TestRun><Results><UnitTestResult outcome="Passed" testName="R1: kernel references no foundation or blocks projects" /><UnitTestResult outcome="Failed" testName="R2: foundation references no blocks projects"><Output><ErrorInfo><Message><![CDATA[${failure}]]></Message></ErrorInfo></Output></UnitTestResult><UnitTestResult outcome="Passed" testName="R3: packages reference no apps projects" /></Results></TestRun>`
   assert.equal(failuresFromTrx(text).length, 1)
 })
+
+test('a nested InnerResults child before the parent Output does not hide the parent edge message (CRLF too)', () => {
+  const edge = 'R2: foundation references no blocks projects failed (1 violating edges):\r\n  packages/foundation-a/A.csproj -> packages/blocks-b/B.csproj (foundation -> blocks)'
+  const text = `<?xml version="1.0"?><TestRun><Results><UnitTestResult outcome="Failed" testName="R2: foundation references no blocks projects"><InnerResults><UnitTestResult outcome="Failed" testName="inner"><Output><ErrorInfo><Message>inner</Message></ErrorInfo></Output></UnitTestResult></InnerResults><Output><ErrorInfo><Message><![CDATA[${edge}]]></Message></ErrorInfo></Output></UnitTestResult></Results></TestRun>`
+  const failures = failuresFromTrx(text)
+  assert.equal(failures.length, 1)
+  assert.match(failures[0].message, /A\.csproj -> packages\/blocks-b\/B\.csproj/)
+})
