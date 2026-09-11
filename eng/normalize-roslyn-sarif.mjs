@@ -53,6 +53,7 @@ const fingerprint = (result, project) => {
 }
 
 const projectFingerprint = project => 'sha256:' + createHash('sha256').update(project).digest('hex')
+const v2Fingerprint = (location, project) => 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
 
 export const normalizeSarifFile = (file, repoRoot) => {
   const sarif = JSON.parse(readFileSync(file, 'utf8'))
@@ -76,15 +77,17 @@ export const normalizeSarifFile = (file, repoRoot) => {
         const artifact = location?.physicalLocation?.artifactLocation
         if (typeof artifact?.uri === 'string') artifact.uri = repositoryRelativePath(artifact.uri, repoRoot)
       }
+      const locationFingerprint = fingerprint(result)
+      const projectIdentity = projectFingerprint(project)
       result.partialFingerprints = {
         ...(result.partialFingerprints && typeof result.partialFingerprints === 'object'
           ? result.partialFingerprints : {}),
         // Retain v1 for a compatibility bridge while the baseline is re-pinned. v2 adds
         // the project output, and project/v1 lets the baseline writer use the same input
         // without depending on a host-specific artifact path.
-        'harborline/primary-location/v1': fingerprint(result),
-        'harborline/project/v1': projectFingerprint(project),
-        'harborline/primary-location/v2': fingerprint(result, project),
+        'harborline/primary-location/v1': locationFingerprint,
+        'harborline/project/v1': projectIdentity,
+        'harborline/primary-location/v2': v2Fingerprint(locationFingerprint, projectIdentity),
       }
     }
   }

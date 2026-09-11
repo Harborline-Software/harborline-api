@@ -21,11 +21,13 @@ const projectFor = source => {
   return path.basename(matches[0], '.csproj')
 }
 const projectFingerprint = project => 'sha256:' + createHash('sha256').update(project).digest('hex')
+const v2Fingerprint = (location, project) => 'sha256:' + createHash('sha256').update(JSON.stringify([location, project])).digest('hex')
 const baseline = JSON.parse(readFileSync(file, 'utf8'))
 baseline.findings = baseline.findings.map(finding => {
   const partial = JSON.parse(finding.enginePartial)
   if (typeof partial['harborline/primary-location/v1'] !== 'string') throw new Error(`missing v1 location identity for ${finding.path}`)
   partial['harborline/project/v1'] = projectFingerprint(projectFor(finding.path))
-  return {...finding, enginePartial: JSON.stringify(partial)}
+  partial['harborline/primary-location/v2'] = v2Fingerprint(partial['harborline/primary-location/v1'], partial['harborline/project/v1'])
+  return {...finding, enginePartial: JSON.stringify(Object.fromEntries(Object.entries(partial).sort(([left], [right]) => left.localeCompare(right))))}
 })
 writeFileSync(file, JSON.stringify(distinctBaseline(baseline)) + '\n')

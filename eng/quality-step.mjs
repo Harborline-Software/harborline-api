@@ -104,7 +104,8 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const decision = path.join(receipt, 'harborline-api-quality-decision.json')
   try {
     const base = git('merge-base', 'origin/main', 'HEAD')
-    writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8'}))
+    // A baseline re-pin makes the branch diff exceed spawn's 1 MiB default (ENOBUFS on the Mac runner, PR 92).
+    writeFileSync(diff, execFileSync('git', ['-C', apiRoot, 'diff', `${base}..HEAD`], {encoding: 'utf8', maxBuffer: 256 * 1024 * 1024}))
     const args = ['bin/cqg.mjs', 'analyze', ...artifacts.sarif.flatMap(file => ['--sarif', file]), ...artifacts.cobertura.flatMap(file => ['--cobertura', file]),
       '--diff', diff, '--baseline', path.join(apiRoot, 'eng', 'baselines', 'quality-baseline.json'),
       '--policy-defaults', control.policyDefaults,
