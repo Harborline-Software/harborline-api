@@ -856,6 +856,9 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
                 services.RemoveAll<IEnrollmentTransport>();
                 services.AddSingleton<IEnrollmentTransport>(new PairingDispatchTransport(dispatch));
             });
+        var searchFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>();
+        await using (var context = await searchFactory.CreateDbContextAsync())
+            await context.Database.MigrateAsync();
         var rosterFactory = provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var context = await rosterFactory.CreateDbContextAsync())
             await context.Database.MigrateAsync();
