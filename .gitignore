@@ -15,7 +15,7 @@ TestResults/
 **/obj-*/
 .test-results/
 .stryker/
-.claude/land-evidence/
+.claude/gate-evidence/
 
 # Python bytecode (245 fix 1 tracked one by mistake)
 __pycache__/
@@ -24,6 +24,3 @@ __pycache__/
 # Built from eng/platform-pin.json; CI also checks the producer out here.
 .feed/
 .platform/
-
-# land.sh preserves the red landing verify log here; it must never dirty the tree for the next gate (chain 358, 2026-09-10)
-.claude/land-verify-*.log

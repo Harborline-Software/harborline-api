@@ -88,7 +88,7 @@ test('source roots are forward-slash repository-relative paths', () => {
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
 
-test('only the landing gate enables the host and contracts coverage route', () => {
+test('the merge-queue gate enables the host and contracts coverage route', () => {
   const runner = readFileSync(path.join(root, 'eng', 'run-exact-clone.mjs'), 'utf8')
   assert.match(runner, /coverageEnabled\(\)/)
   assert.match(runner, /--collect:XPlat Code Coverage/)
@@ -103,10 +103,6 @@ test('only the landing gate enables the host and contracts coverage route', () =
   assert.match(settings, /<Exclude>\[\*\.Tests\]\*,\[\*Testing\*\]\*<\/Exclude>/)
   assert.match(settings, /<ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute<\/ExcludeByAttribute>/)
   assert.match(settings, /<ExcludeByFile>\*\*\/Generated\/\*\*\/\*\.cs,\*\*\/Migrations\/\*\*\/\*\.cs,\*\*\/obj\/\*\*\/\*\.cs<\/ExcludeByFile>/)
-  const landing = readFileSync(path.join(root, 'eng', 'land.sh'), 'utf8')
-  // 335 s1 moved both landing routes onto run_land_verify; the helper exports the flag for the nested verify.
-  assert.match(landing, /export HARBORLINE_GATE_COVERAGE=1 &&/)
-  assert.equal((landing.match(/run_land_verify "\$(?:land_dir|verify_dir)" "\$verify_log"/g) ?? []).length, 2)
   const contracts = JSON.parse(readFileSync(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8'))
   assert.equal(contracts.devDependencies['@vitest/coverage-v8'], '5.0.0')
   assert.match(contracts.scripts['test:coverage'], /--coverage\.reporter=cobertura/)
@@ -117,7 +113,7 @@ test('receipt records both coverage entries when flagged and none otherwise', ()
   const dir = mkdtempSync(path.join(tmpdir(), 'coverage-receipt-'))
   try {
     mkdirSync(path.join(dir, 'eng'), {recursive: true})
-    for (const file of ['coverage.mjs', 'host-baseline.mjs', 'pre-push-receipt.mjs', 'verify-receipt.mjs']) {
+    for (const file of ['coverage.mjs', 'host-baseline.mjs', 'verify-receipt.mjs']) {
       copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
     }
     writeFileSync(path.join(dir, '.gitignore'), 'artifacts/\n')

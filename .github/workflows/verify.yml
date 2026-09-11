@@ -137,7 +137,7 @@ jobs:
           path: |
             .git/harborline-api-verify-receipt.json
             .git/harborline-api-quality-decision.json
-            .claude/land-evidence/
+            .claude/gate-evidence/
             artifacts/quality/
 
   # Windows datapoint: verify.sh has no Windows-only steps, only a Windows-specific host baseline, and
@@ -218,4 +218,4 @@ jobs:
           path: |
             .git/harborline-api-verify-receipt.json
             .git/harborline-api-quality-decision.json
-            .claude/land-evidence/
+            .claude/gate-evidence/
