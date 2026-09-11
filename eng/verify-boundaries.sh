@@ -62,10 +62,7 @@ node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
 # The ESLint canary is a quality-engine control: it runs where the quality steps run (HARBORLINE_GATE_QUALITY=1,
 # the macOS verify), not in the hosted jobs, which have no pnpm on PATH (PR 96 pack-consume).
-if [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; then
-else
-  echo "eslint canary: skipped (HARBORLINE_GATE_QUALITY unset)"
-fi
+if [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; then bash "$repo_root/eng/tests/verify-eslint-canary.test.sh" || exit 1; else echo "eslint canary: skipped (HARBORLINE_GATE_QUALITY unset)"; fi
 node --test "$repo_root/eng/tests/arch-sarif.test.mjs" || exit 1
 # The arch canary needs the BUILT host tests, which this step's checkout does not have (verify.sh runs
 # boundaries before the clone build; the dll argument is invalid there). run-exact-clone.mjs runs it as
