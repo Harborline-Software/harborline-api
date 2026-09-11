@@ -176,6 +176,27 @@ public sealed class RosterPreInsertVerificationTests
     }
 
     [Fact]
+    public async Task FutureOrderTimeIsRefusedAndReceiptWindowEdgeIsAccepted()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var received = At.AddHours(2);
+        var forgedFuture = f.Admission(f.Founder, "founder", "forged-future",
+                received + NodeRosterRecord.ReceiveTimeWindow + TimeSpan.FromMilliseconds(1))
+            .AttestReceipt(f.Founder, "founder", received);
+        var atWindowEdge = f.Admission(f.Founder, "founder", "window-edge",
+                received + NodeRosterRecord.ReceiveTimeWindow)
+            .AttestReceipt(f.Founder, "founder", received);
+
+        await f.MergeRawAsync([forgedFuture, atWindowEdge]);
+
+        var stored = await f.StoredAsync();
+        Assert.DoesNotContain(stored, row => row.RecordId == forgedFuture.RecordId);
+        Assert.Contains(stored, row => row.RecordId == atWindowEdge.RecordId);
+        Assert.Contains("roster.record.order_time_future",
+            JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
+    [Fact]
     public async Task OldWireShapeIsRefusedAtTheVersionBoundary()
     {
         await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);

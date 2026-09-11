@@ -61,6 +61,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// <summary>Logical CRDT document id for the roster doctype (shared across replicas).</summary>
     public const string DocumentId = "roster";
 
+    private const string FutureOrderTimeRefusal = "roster.record.order_time_future";
+
     /// <summary>Reason recorded on an administrator removal the roster fold wrote (ticket 290).</summary>
     internal const string RosterRevocationRemovalReason = "administrator.removed_by_roster_revocation";
 
@@ -1023,6 +1025,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (!RosterReceiveAttestationSigning.Verify(
                 candidate.RecordId, recordNonce, receiveAttestation, _verifier, out var attestationRefusal))
             return attestationRefusal ?? "roster.record.receive_attestation_invalid";
+        if (!NodeRosterRecord.IsWithinReceiveTimeWindow(
+                NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc, receiveAttestation.ReceivedAt))
+            return FutureOrderTimeRefusal;
         var admission = candidate.ToAdmissionOrNull();
         var revocation = candidate.ToRevocationOrNull();
         var signatureValid = admission is not null
