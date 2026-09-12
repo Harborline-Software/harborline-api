@@ -661,9 +661,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     "PackSeedProjector: REFUSED pack {Pack} v{Version} — item '{Key}' ({Kind}) claims a "
                     + "sealed system record type ({Code}). Compiled platform types are not pack content.",
                     pack.PackKey, pack.Version, item.Key, item.Kind,
-                    PackSealedSystemTypeAdmission.RefusedCode);
+                    PackSealedSystemTypeAdmissionCodes.RefusedCode);
                 refusals.Add(new PackSeedProjectionRefusal(
-                    item.Key, item.Kind, PackSealedSystemTypeAdmission.RefusedCode));
+                    item.Key, item.Kind, PackSealedSystemTypeAdmissionCodes.RefusedCode,
+                    ContentPointer(pack, item)));
             }
 
             // Role names before the bindings that offer them: admission resolves every offered role

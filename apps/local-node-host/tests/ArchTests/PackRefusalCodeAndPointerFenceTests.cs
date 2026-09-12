@@ -24,6 +24,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         var documents = ProductionDocuments().ToArray();
         var sites = RefusalSites(documents).ToArray();
 
+        Known_code_producer_registry_is_type_keyed_and_requires_the_named_type(documents);
         Assert.NotEmpty(sites);
         foreach (var site in sites)
         {
@@ -33,6 +34,19 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                 resolution.Values.All(catalogue.Contains),
                 $"Refusal code at {site.Display} is not declared by a *Codes catalogue: {site.Code}.");
         }
+    }
+
+    private static void Known_code_producer_registry_is_type_keyed_and_requires_the_named_type(
+        IReadOnlyList<SourceDocument> documents)
+    {
+        var producer = KnownCodeProducers.First();
+
+        Assert.Equal(producer.Type, KnownCodeProducerDeclaration(producer, documents).Identifier.ValueText);
+
+        var missingType = producer with { Type = "MissingKnownCodeProducer" };
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+            () => KnownCodeProducerDeclaration(missingType, documents));
+        Assert.Contains("MissingKnownCodeProducer is absent from", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "394: every refusal construction supplies its pointer or has the ticketed pack-grain exemption")]
@@ -381,23 +395,19 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         new(
             "TemplateProjectionResult",
             "RefusalCode",
-            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs",
-            2597),
+            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs"),
         new(
             "FormProjectionResult",
             "RefusalCode",
-            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs",
-            2481),
+            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs"),
         new(
             "WorkflowProjectionResult",
             "RefusalCode",
-            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs",
-            2077),
+            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs"),
         new(
             "RetractionResult",
             "RefusalCode",
-            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs",
-            2966),
+            "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs"),
     ];
 
     internal static string[] KnownCodeProducerRows()
@@ -439,12 +449,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             var producerDocument = documents.SingleOrDefault(candidate =>
                 Path.GetRelativePath(RepositoryRoot(), candidate.Path).Replace('\\', '/') == producer.ProducerFile)
                 ?? throw new Xunit.Sdk.XunitException($"Known code producer source is missing: {producer.ProducerFile}.");
-            var declaration = producerDocument.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()
-                .SingleOrDefault(candidate => candidate.Identifier.ValueText == producer.Type)
-                ?? throw new Xunit.Sdk.XunitException(
-                    $"Known code producer {producer.Type} is absent from {producer.ProducerFile}:{producer.ProducerLine}.");
-            var declarationLine = declaration.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
-            Assert.Equal(producer.ProducerLine, declarationLine);
+            var declaration = KnownCodeProducerDeclaration(producer, documents);
             var propertyIndex = ConstructorParameters(declaration)
                 .Select((parameter, index) => (parameter, index))
                 .Where(entry => entry.parameter.Identifier.ValueText == producer.Property)
@@ -469,6 +474,19 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         }
 
         return false;
+    }
+
+    private static TypeDeclarationSyntax KnownCodeProducerDeclaration(
+        KnownCodeProducer producer,
+        IReadOnlyList<SourceDocument> documents)
+    {
+        var producerDocument = documents.SingleOrDefault(candidate =>
+            Path.GetRelativePath(RepositoryRoot(), candidate.Path).Replace('\\', '/') == producer.ProducerFile)
+            ?? throw new Xunit.Sdk.XunitException($"Known code producer source is missing: {producer.ProducerFile}.");
+        return producerDocument.Root.DescendantNodes().OfType<TypeDeclarationSyntax>()
+            .SingleOrDefault(candidate => candidate.Identifier.ValueText == producer.Type)
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Known code producer {producer.Type} is absent from {producer.ProducerFile}.");
     }
 
     private static bool IsCaughtExceptionReceiver(ExpressionSyntax receiver)
@@ -745,8 +763,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
     private sealed record KnownCodeProducer(
         string Type,
         string Property,
-        string ProducerFile,
-        int ProducerLine);
+        string ProducerFile);
 
     private sealed record CodeResolution(IReadOnlyList<string> Values, bool IsForwarded)
     {

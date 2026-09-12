@@ -319,7 +319,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         using var response = JsonDocument.Parse(await activation.Content.ReadAsStringAsync());
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(sealedKey, refusal.GetProperty("contentKey").GetString());
-        Assert.Equal(PackSealedSystemTypeAdmission.RefusedCode, refusal.GetProperty("code").GetString());
+        Assert.Equal(PackSealedSystemTypeAdmissionCodes.RefusedCode, refusal.GetProperty("code").GetString());
+        Assert.Equal("/contents/0/contentBase64", refusal.GetProperty("pointer").GetString());
 
         var tenant = NodeTenant.Resolve(_activeTeam);
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, sealedKey)));
