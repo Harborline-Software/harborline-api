@@ -180,7 +180,7 @@ public static class CatalogueRoutes
             if (principal is null) return Results.Unauthorized();
             var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct) is { } denied)
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct).ConfigureAwait(false) is { } denied)
                 return denied;
 
             if (!TryKind(http.Request.Query["kind"], out var kind))
@@ -197,7 +197,7 @@ public static class CatalogueRoutes
             if (principal is null) return Results.Unauthorized();
             var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct) is { } denied)
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct).ConfigureAwait(false) is { } denied)
                 return denied;
 
             if (!Enum.TryParse<PackContentKind>(kind, ignoreCase: true, out var parsed))
@@ -213,7 +213,7 @@ public static class CatalogueRoutes
             if (principal is null) return Results.Unauthorized();
             var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct) is { } denied)
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct).ConfigureAwait(false) is { } denied)
                 return denied;
             return Results.Ok(SystemRecordType.All);
         });
