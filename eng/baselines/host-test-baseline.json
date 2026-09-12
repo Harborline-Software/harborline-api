@@ -3,12 +3,12 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
-  "recordedAt": "2026-09-05T00:00:00Z",
+  "recordedAt": "2026-09-12T22:55:00Z",
   "totals": {
-    "total": 3832,
-    "passed": 3811,
+    "total": 3867,
+    "passed": 3845,
     "failed": 0,
-    "notExecuted": 21
+    "notExecuted": 22
   },
   "policy": [
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
@@ -72,15 +72,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3823,
-      "passed": 3802,
+      "total": 3832,
+      "passed": 3811,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3823 -> 3832; passed 3802 -> 3811; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "ticket 260 slice 4: entity-module interface renamed with every implementer; spelling fence test class added; host test count moves up",
-    "detectedBy": "controller chain: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build after merging main",
-    "arithmeticCrossCheck": "3823 + 9 = 3832; passed = total - notExecuted = 3832 - 21 = 3811."
+    "change": "total 3832 -> 3867; passed 3811 -> 3845; failed unchanged at 0; notExecuted 21 -> 22",
+    "cause": "35 tests were added since the pin at 3832 and nothing re-pinned the Windows host baseline. The exact-clone harness reported host-baseline-match:FAIL with newFailures EMPTY, failed 0, and every other step ok -- the gate was red on counts alone, which is what kept verify-windows red and winbox idle while six PRs queued behind two Macs.",
+    "detectedBy": "node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json on winbox at api main bf14a476; full host suite 3845 passed, 0 failed, 22 skipped in 4m18s",
+    "arithmeticCrossCheck": "3832 + 35 = 3867; passed = total - notExecuted = 3867 - 22 = 3845."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
