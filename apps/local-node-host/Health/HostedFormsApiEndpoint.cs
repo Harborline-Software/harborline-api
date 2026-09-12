@@ -188,14 +188,19 @@ public sealed class HostedFormsApiEndpoint : IHostedService
                 desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider, _restrictingKinds, _catalogue);
         });
 
-        _logger.LogInformation(
-            "ADR 0055 node-local dynamic-forms API registered — the engine is now LIVE " +
-            "(GET {RouteBase}/{{formId}}, POST {RouteBase}/{{formId}}/submit; " +
-            "GET/PUT {DefBase}[/{{formId}}] form-definition authoring). First-party forms only; " +
-            "packet-carried definitions are gated on the ADR-0135-A1 CP-reachability validator (follow-up).",
-            FormsRoutes.RouteBase,
-            FormsRoutes.RouteBase,
-            FormDefinitionRoutes.RouteBase);
+        // CA1873, as on the catalogue endpoint: guard the registration message so the arguments are
+        // not evaluated when Information is off.
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "ADR 0055 node-local dynamic-forms API registered — the engine is now LIVE " +
+                "(GET {RouteBase}/{{formId}}, POST {RouteBase}/{{formId}}/submit; " +
+                "GET/PUT {DefBase}[/{{formId}}] form-definition authoring). First-party forms only; " +
+                "packet-carried definitions are gated on the ADR-0135-A1 CP-reachability validator (follow-up).",
+                FormsRoutes.RouteBase,
+                FormsRoutes.RouteBase,
+                FormDefinitionRoutes.RouteBase);
+        }
 
         return Task.CompletedTask;
     }

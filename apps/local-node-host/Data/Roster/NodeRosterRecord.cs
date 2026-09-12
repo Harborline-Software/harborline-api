@@ -127,6 +127,10 @@ public sealed class NodeRosterRecord
     public static DateTimeOffset BoundedOrderTime(DateTimeOffset issued, DateTimeOffset? received) =>
         received is { } at && issued < at - ReceiveTimeWindow ? at : issued;
 
+    /// <summary>Current-wire records may advance their signed order no farther than the attested receipt skew.</summary>
+    internal static bool IsWithinReceiveTimeWindow(DateTimeOffset issued, DateTimeOffset received) =>
+        issued <= received + ReceiveTimeWindow;
+
     internal static Func<string, DateTimeOffset, DateTimeOffset> OrderTimes(IEnumerable<NodeRosterRecord> rows)
     {
         var receipts = rows.GroupBy(r => r.SignatureB64Url, StringComparer.Ordinal)

@@ -62,18 +62,6 @@
       "owner": "348",
       "firstSeen": "2026-09-08",
       "expires": "2026-10-08"
-    },
-    {
-      "test": "MD-2 G-4 atomicity: a promotion injected into the JE fence's read-through-write window CANNOT commit in the gap (the held BEGIN IMMEDIATE write lock serialises it) — no double-commit",
-      "method": "Harborline.Api.LocalNodeHost.Tests.Entities.HomeEpochFenceTests",
-      "owner": "361",
-      "firstSeen": "2026-09-09",
-      "expires": "2026-09-23",
-      "verdict": "a-pre-existing-at-sha (load-sensitive)",
-      "measuredRate": "red in the 294 s2b land verify (2026-09-09 21:40Z) and in batch 1 chain 7 gate (2026-09-10 01:5xZ) with no concurrent local workload; 8/8 green three times in isolation on the same tree",
-      "cause": "a wall-clock lock-window assertion under host contention; the test's own comment says the window should be driven from its deterministic hook (ticket 361 root-causes it)",
-      "handling": "knownFlaky, not permitted. One identical retry; a second red is the gate's verdict.",
-      "retryLimit": 1
     }
   ],
   "skips": {
