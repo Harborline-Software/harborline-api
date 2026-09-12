@@ -72,6 +72,10 @@
          export/install/activate routes, rather than maintaining a test-only look-alike. -->
     <None Include="..\..\..\_shared\packs\property-management\property-management-pack.export.json"
           Link="Packs\property-management-pack.export.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Ticket 401: enumerate the committed pack conformance corpus at runtime. -->
+    <None Include="..\..\..\_shared\conformance\packs\**\*"
+          Link="Conformance\Packs\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
     <!-- Ticket 193: the corpus link that used to live here is gone. Ticket 162 had to reach the one
          corpus file from this suite because no rule-engine test project existed; the real runner now
          lives in packages/foundation-rule-engine/tests and executes all ten files (with the

@@ -1,0 +1,17 @@
+{
+  "key": "test.standardscatalog",
+  "version": "1.0.0",
+  "name": "StandardsCatalog test pack",
+  "description": "Exercises install refusal for content without a projector.",
+  "scopeTier": "Vertical",
+  "contents": [
+    {
+      "key": "content",
+      "kind": "StandardsCatalog",
+      "version": "1.0.0",
+      "content": {}
+    }
+  ],
+  "dependencies": [],
+  "capabilityRequirements": []
+}
