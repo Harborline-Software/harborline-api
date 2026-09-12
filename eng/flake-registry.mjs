@@ -15,7 +15,7 @@
 // lives in this source file and the rows live in the baseline JSON, so growing the registry means
 // moving the literal in the same commit — a reviewable diff line rather than one more JSON row.
 // Shrinking is not a ratchet violation; the count is a ceiling, not an equality.
-export const REGISTERED_FLAKE_COUNT = 5 // 361: MD-2 G-4 (Windows), ConcurrentFirstLaunchers (macOS)
+export const REGISTERED_FLAKE_COUNT = 4 // 361 retired its MD-2 G-4 row after the tenth clean queue landing (2026-09-11); ConcurrentFirstLaunchers is owned by 348
 
 // ONE identical retry (ticket 284 scope: "retries the failing registered test once with the
 // identical configuration"). A larger limit turns a real regression that fails intermittently into

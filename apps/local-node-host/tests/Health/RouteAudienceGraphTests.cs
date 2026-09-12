@@ -47,7 +47,8 @@ public sealed class RouteAudienceGraphTests
         // Ticket 331 adds one desktop-only authorized trace read in each profile.
         // Ticket 362 adds the selected-session narrow-member route (POST, beside revoke) in the four
         // web-enabled profiles, and slice 2 retires the permissions route from the same four.
-        int[] expectedClassifiedCounts = [219, 236, 237, 230, 247, 248];
+        // Ticket 176 adds the catalogue list, item, and system-type reads in every profile.
+        int[] expectedClassifiedCounts = [222, 239, 240, 233, 250, 251];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)

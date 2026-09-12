@@ -75,6 +75,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     private InMemoryPackInstallStore _packStore = null!;
     private PackInstaller _installer = null!;
     private PackSeedProjector _projector = null!;
+    private AuthorizedFormDefinitionLifecycle _authorizedForms = null!;
+    private ICatalogue _catalogue = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private PackFileCodec _codec = null!;
 
@@ -128,6 +130,9 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         _executionWorkflows = _app.Services.GetRequiredService<IWorkflowDefinitionExecutionStore>();
         _templates = new InMemoryDocumentTemplateRegistry();
         var roleGate = _app.Services.GetRequiredService<Harborline.Api.Foundation.Authorization.IRoleGateAdmission>();
+        _authorizedForms = TestAuthorization.FormLifecycle(
+            _forms, Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), roleGate);
+        _catalogue = new ProjectedCatalogue(_authorizedForms);
         _projector = new PackSeedProjector(
             _packStore,
             _registry,
@@ -137,9 +142,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             schemas: _schemas,
             workflows: _workflows,
             time: TimeProvider.System,
-            authorizedForms: TestAuthorization.FormLifecycle(
-                _forms, Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
-                roleGate),
+            authorizedForms: _authorizedForms,
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(
                 _workflows, Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
                 roleGate));
@@ -283,6 +286,61 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             }
         }
         Assert.Single(revisions);
+    }
+
+    [Fact(DisplayName = "ticket 176: a pack-projected catalogue definition retains its authored title and pack ownership")]
+    public async Task Pack_Projected_Catalogue_Definition_Has_Authored_Title_And_Pack_Provenance()
+    {
+        const string formId = "general.catalogue-title";
+        var packBytes = await ExportAsync(FormPackBody(formId, "1.0.0", invalidRule: false));
+
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" })).StatusCode);
+
+        var entries = await _catalogue.ListAsync(NodeTenant.Resolve(_activeTeam), PackContentKind.FormDefinition);
+        var entry = Assert.Single(entries.Entries);
+        Assert.Equal("Asset intake", entry.Title!.Values["en"]);
+        Assert.Equal(PackKey, entry.Provenance.PackKey);
+        Assert.Equal("1.0.0", entry.Provenance.PackVersion);
+        Assert.Equal("pack", entry.Provenance.Kind);
+    }
+
+    [Fact(DisplayName = "ticket 176: a sealed compiled-kind claim is refused through pack admission and projects nothing")]
+    public async Task Sealed_System_Type_Claim_Is_Refused_Through_Admission_Path()
+    {
+        const string sealedKey = "fOrMdEfInItIoN";
+        var packBytes = await ExportAsync(FormPackBody(sealedKey, "1.0.0", invalidRule: false));
+
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+        var activation = await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
+        Assert.Equal(HttpStatusCode.OK, activation.StatusCode);
+        using var response = JsonDocument.Parse(await activation.Content.ReadAsStringAsync());
+        var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
+        Assert.Equal(sealedKey, refusal.GetProperty("contentKey").GetString());
+        Assert.Equal(PackSealedSystemTypeAdmission.RefusedCode, refusal.GetProperty("code").GetString());
+
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, sealedKey)));
+        var entries = await _catalogue.ListAsync(tenant, PackContentKind.FormDefinition);
+        Assert.Empty(entries.Entries);
+    }
+
+    [Fact(DisplayName = "ticket 176: a key that merely contains a compiled kind name is admitted")]
+    public async Task Substring_Of_Sealed_System_Type_Name_Is_Admitted_Through_Pack_Admission()
+    {
+        const string formId = "FormDefinitionTemplate";
+        var packBytes = await ExportAsync(FormPackBody(formId, "1.0.0", invalidRule: false));
+
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+        var activation = await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
+        Assert.Equal(HttpStatusCode.OK, activation.StatusCode);
+        using var response = JsonDocument.Parse(await activation.Content.ReadAsStringAsync());
+        Assert.Empty(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
+        Assert.NotNull(await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(NodeTenant.Resolve(_activeTeam), formId)));
     }
 
     [Fact(DisplayName = "pack form schema registration writes nothing to the blob store, incl. on a replayed activation")]

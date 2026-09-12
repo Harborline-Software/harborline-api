@@ -342,6 +342,30 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/Catalogue.cs:$\"{RouteBase}/{{kind}}/{{id}}\"",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "$\"{RouteBase}/{{kind}}/{{id}}\"",
+      "source": "apps/local-node-host/Health/Catalogue.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/Catalogue.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/Catalogue.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/Catalogue.cs:TypesRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "TypesRoute",
+      "source": "apps/local-node-host/Health/Catalogue.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:$\"{RouteBase}/{{id}}\"",
       "kind": "local-node-http",
       "method": "GET",

@@ -650,9 +650,25 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 continue;
             }
 
+            // Compiled system record types are catalogue authority, not portable pack content.
+            // Refuse only the claiming items so an otherwise valid pack remains projectable.
+            var sealedTypeClaims = seedItems
+                .Where(PackSealedSystemTypeAdmission.ClaimsSealedSystemType)
+                .ToArray();
+            foreach (var item in sealedTypeClaims)
+            {
+                _logger.LogError(
+                    "PackSeedProjector: REFUSED pack {Pack} v{Version} — item '{Key}' ({Kind}) claims a "
+                    + "sealed system record type ({Code}). Compiled platform types are not pack content.",
+                    pack.PackKey, pack.Version, item.Key, item.Kind,
+                    PackSealedSystemTypeAdmission.RefusedCode);
+                refusals.Add(new PackSeedProjectionRefusal(
+                    item.Key, item.Kind, PackSealedSystemTypeAdmission.RefusedCode));
+            }
+
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.
-            foreach (var item in seedItems.OrderBy(
+            foreach (var item in seedItems.Except(sealedTypeClaims).OrderBy(
                 i => i.Kind == PackContentKind.RoleDefinition ? 0 : 1))
             {
                 switch (item.Kind)
