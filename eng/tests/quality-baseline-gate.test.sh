@@ -24,7 +24,7 @@ printf '%s\n' "$out"
 
 printf '{"schemaVersion":1,"findings":[%s]}\n' "$(row a R001 src/kept.cs)" > "$candidate"
 out=$(quality_baseline_gate_candidate_compare "$candidate" "$committed")
-[ "$out" = 'quality-baseline: 0 new, 1 resolved (passing; re-pin belongs to land)' ] || { echo "FAIL resolved-only set: $out"; exit 1; }
+[ "$out" = 'quality-baseline: 0 new, 1 resolved (passing; re-pin is a follow-up PR)' ] || { echo "FAIL resolved-only set: $out"; exit 1; }
 printf '%s\n' "$out"
 
 printf '{"schemaVersion":1,"findings":[%s,%s,%s]}\n' "$(row a R001 src/kept.cs)" "$(row b R002 src/resolved.cs)" "$(row c VSTHRD002 src/PlantedFinding.cs)" > "$candidate"
@@ -69,6 +69,21 @@ printf '%s\n' "$out"
 
 large_baseline "$large_candidate" 2360 '[{"engine":"roslyn","status":"ok","detail":""},{"engine":"eslint","status":"ok","detail":""}]'
 out=$(quality_baseline_gate_candidate_compare "$large_candidate" "$large_committed")
-[ "$out" = 'quality-baseline: 0 new, 3 resolved (passing; re-pin belongs to land)' ] || { echo "FAIL small resolved set: $out"; exit 1; }
+[ "$out" = 'quality-baseline: 0 new, 3 resolved (passing; re-pin is a follow-up PR)' ] || { echo "FAIL small resolved set: $out"; exit 1; }
 printf '%s\n' "$out"
-echo 'quality-baseline-gate: 7 checks passed (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green)'
+# quality_baseline_gate itself: the committed fallback when no merge-base artifact is present, and the
+# merge-base artifact when HARBORLINE_QUALITY_BASELINE names one. (These rows lived in the retired landing
+# test; the gate is the only caller now.) The CI verify exports HARBORLINE_QUALITY_BASELINE, so the
+# fallback row clears it explicitly rather than inheriting the runner's.
+gate_root="$fixture/gate"
+mkdir -p "$gate_root/eng/baselines" "$gate_root/artifacts/quality"
+cp "$large_committed" "$gate_root/eng/baselines/quality-baseline.json"
+cp "$large_committed" "$gate_root/artifacts/quality/findings.json"
+out=$(HARBORLINE_QUALITY_BASELINE= quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with committed fallback exited non-zero: $out"; exit 1; }
+grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json" <<<"$out" || { echo "FAIL missing committed fallback message: $out"; exit 1; }
+artifact="$fixture/merge-base.json"; cp "$large_committed" "$artifact"
+out=$(HARBORLINE_QUALITY_BASELINE="$artifact" quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with merge-base artifact exited non-zero: $out"; exit 1; }
+grep -Fq "quality-baseline: using merge-base artifact $artifact" <<<"$out" || { echo "FAIL missing merge-base artifact message: $out"; exit 1; }
+echo 'quality-baseline-gate: 9 checks passed'
+# (the seven above plus: gate uses the committed fallback; gate uses the merge-base artifact)
+echo 'quality-baseline-gate: detail (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green)'

@@ -2,33 +2,24 @@
 // Local-verification receipt for harborline-api. Modelled on harborline-platform's
 // tooling/verify-phase4-receipt.mjs, for the same reason and with the same shape.
 //
-// Why this exists: GitHub Actions is switched off in this repository (see the ACTIONS_ENABLED
-// block at the top of .github/workflows/packages.yml — the org is on the free plan, private-repo
-// minutes ran out on 2026-08-24, and the workflows are a duplicate of checks that can run here).
-// With CI off, nothing was left that verified anything. `eng/verify.sh` is the replacement, and
-// this file is what stops it from being optional.
-//
 // The receipt lives inside .git/, NOT in the tree. That is deliberate and load-bearing: a receipt
 // that is a tracked file changes the tree it attests to, so it could never match itself.
 //
 // Keyed to HEAD rather than the index, because the expensive step (eng/run-exact-clone.mjs) clones
-// HEAD and refuses a dirty tree. The hook is therefore pre-push, which is also what CI triggered on.
+// HEAD and refuses a dirty tree.
 //
 //   node eng/verify-receipt.mjs --record   # written by eng/verify.sh on success
-//   node eng/verify-receipt.mjs            # verify; the pre-push hook calls this
 import {execFileSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
-import {baselineArgument, receiptBaselineProblem} from './host-baseline.mjs'
+import {baselineArgument} from './host-baseline.mjs'
 import {receiptCoverage} from './coverage.mjs'
-import {receiptCheckForPushRefs} from './pre-push-receipt.mjs'
 
 export const REPOSITORY = 'harborline-api'
 export const SCHEMA_VERSION = 1
 
 // The steps eng/verify.sh must have run and passed. A receipt missing any of these is refused, so
-// commenting a step out of verify.sh does not silently narrow what the hook accepts — the two
-// files have to move together.
+// commenting a step out of verify.sh does not silently narrow the evidence it records.
 export const requiredStepIds = [
   'boundaries',
   'identity-r3',
@@ -47,18 +38,8 @@ export const requiredStepIds = [
   'packages',
 ]
 
-// Ticket 350: eng/receipt-accept.mjs imports REPOSITORY, SCHEMA_VERSION and requiredStepIds from here so a
-// landing cannot accept a receipt this file would refuse. Importing must therefore not run git or verify
-// anything, so everything below is the entry-point body and nothing else.
+// Importing must not run git or record anything, so everything below is the entry-point body.
 if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/verify-receipt.mjs')) {
-  if (process.argv.includes('--pre-push')) {
-    const decision = receiptCheckForPushRefs(readFileSync(0, 'utf8'))
-    if (!decision.verify) {
-      if (decision.skipped) console.log(`${REPOSITORY}: receipt check was skipped for a feature branch`)
-      process.exit(0)
-    }
-  }
-
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {encoding: 'utf8'}).trim()
 const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'}).trim()
 const receiptPath = path.resolve(root, git('rev-parse', '--git-common-dir'), 'harborline-api-verify-receipt.json')
@@ -109,38 +90,4 @@ if (process.argv.includes('--record')) {
   process.exit(0)
 }
 
-const refuse = (why) => {
-  console.error(`\n  ${REPOSITORY}: refusing to push — ${why}`)
-  console.error('\n  GitHub Actions is off in this repository, so this receipt is the only thing that')
-  console.error('  verifies the commits you are pushing. Run:\n')
-  console.error('      bash eng/verify.sh\n')
-  console.error('  and push again. To push anyway (and own that nothing checked it): git push --no-verify\n')
-  process.exit(1)
-}
-
-if (!existsSync(receiptPath)) refuse('no verification receipt exists')
-
-let receipt
-try {
-  receipt = JSON.parse(readFileSync(receiptPath, 'utf8'))
-} catch {
-  refuse('the verification receipt is not readable JSON')
-}
-
-if (receipt.schemaVersion !== SCHEMA_VERSION) refuse(`receipt schemaVersion ${receipt.schemaVersion}, expected ${SCHEMA_VERSION}`)
-if (receipt.repository !== REPOSITORY) refuse(`receipt is for ${receipt.repository}, not ${REPOSITORY}`)
-// Default verification is landing-safe; --slice is explicit and cannot override --landing.
-const baselineProblem = receiptBaselineProblem(receipt, process.argv.includes('--slice') && !process.argv.includes('--landing'))
-if (baselineProblem) refuse(baselineProblem)
-if (receipt.testedTree !== tree) {
-  refuse(`the receipt attests to tree ${String(receipt.testedTree).slice(0, 12)}, but HEAD's tree is ${tree.slice(0, 12)}`)
-}
-if (receipt.baseHead !== head) {
-  refuse(`the receipt attests to commit ${String(receipt.baseHead).slice(0, 12)}, but HEAD is ${head.slice(0, 12)}`)
-}
-
-const missing = requiredStepIds.filter(id => !(receipt.steps ?? []).map(stepId).includes(id))
-if (missing.length > 0) refuse(`the receipt does not cover: ${missing.join(', ')}`)
-
-console.log(`${REPOSITORY}: verification receipt matches HEAD ${head.slice(0, 12)} — ${receipt.steps.length} steps`)
 }

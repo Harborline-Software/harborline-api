@@ -79,12 +79,10 @@ start_holder() {
 }
 
 if grep -Fq 'source "$root/eng/gate-lock.sh"' "$here/../verify.sh" &&
-   grep -Eq '^gate_lock_acquire ' "$here/../verify.sh" &&
-   grep -Fq 'source "$root/eng/gate-lock.sh"' "$here/../land.sh" &&
-   grep -Eq '^gate_lock_acquire ' "$here/../land.sh"; then
-  echo "ok   verify and land entry points acquire the lock"
+   grep -Eq '^gate_lock_acquire ' "$here/../verify.sh"; then
+  echo "ok   verify entry point acquires the lock"
 else
-  echo "FAIL verify or land entry point does not acquire the lock"
+  echo "FAIL verify entry point does not acquire the lock"
   fails=$((fails+1))
 fi
 

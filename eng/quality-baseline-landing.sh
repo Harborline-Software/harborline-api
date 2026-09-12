@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Shared by land.sh and its focused proof. The candidate is emitted by quality-step.mjs and compared to the
-# merge-base's artifact when CI supplied one; the committed baseline remains a stated compatibility fallback.
+# Shared by the gate-side quality comparison. The committed baseline re-pin is a deliberate follow-up PR from the gate host's artifact.
 quality_baseline_compare_result() {
   local candidate=$1 baseline=$2 diff=${3:-}
   node "$(dirname "${BASH_SOURCE[0]}")/quality-baseline-compare.mjs" "$candidate" "$baseline" "$diff"
@@ -70,7 +69,7 @@ EOF
     return 1
   fi
   if [ "$resolved" -gt 0 ]; then
-    echo "quality-baseline: 0 new, $resolved resolved (passing; re-pin belongs to land)"
+    echo "quality-baseline: 0 new, $resolved resolved (passing; re-pin is a follow-up PR)"
   else
     echo 'quality-baseline: unchanged (0 new, 0 resolved)'
   fi
@@ -91,24 +90,4 @@ quality_baseline_gate() {
   quality_baseline_gate_candidate_compare "$candidate" "$baseline" "$diff"
   outcome=$?
   return "$outcome"
-}
-quality_baseline_compare() {
-  local land_root=$1
-  local baseline="$land_root/eng/baselines/quality-baseline.json" candidate="$land_root/artifacts/quality/findings.json" diff="$land_root/artifacts/quality/base-to-head.diff" counts new resolved
-  if [ ! -f "$candidate" ] && ! ( cd "$land_root" && node eng/quality-step.mjs ); then
-    return 1
-  fi
-  counts=$(quality_baseline_sets_compare "$candidate" "$baseline" "$diff") || return 1
-  read -r new resolved <<<"$counts"
-  if [ "$new" -eq 0 ] && [ "$resolved" -eq 0 ]; then
-    echo 'land: quality baseline unchanged'
-    return 0
-  fi
-  if [ "$new" -gt 0 ]; then
-    echo "land: quality baseline has $new new, $resolved resolved" >&2
-    quality_baseline_new_findings "$candidate" "$baseline" "$diff" >&2
-    return 1
-  fi
-  echo "land: quality baseline re-pin is informational: 0 new, $resolved resolved"
-  return 0
 }

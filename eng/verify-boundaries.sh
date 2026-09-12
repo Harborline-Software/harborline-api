@@ -52,9 +52,6 @@ bash "$repo_root/eng/tests/gate-lock-portable-mv.test.sh" || exit 1
 
 # Ticket 333: prove nested lock reuse independently of Bash's last-command exec.
 bash "$repo_root/eng/tests/gate-lock-reentry.test.sh" || exit 1
-bash "$repo_root/eng/tests/land-verify-last-in-subshell.test.sh" || exit 1
-bash "$repo_root/eng/tests/land-main-moved.test.sh" || exit 1
-bash "$repo_root/eng/tests/land-dirty-tree.test.sh" || exit 1
 bash "$repo_root/eng/tests/fixture-git-retry.test.sh" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
@@ -66,10 +63,12 @@ node --test "$repo_root/eng/tests/normalize-eslint-sarif.test.mjs" || exit 1
 # The ESLint canary is a quality-engine control: it runs where the quality steps run (HARBORLINE_GATE_QUALITY=1,
 # the macOS verify), not in the hosted jobs, which have no pnpm on PATH (PR 96 pack-consume).
 if [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; then bash "$repo_root/eng/tests/verify-eslint-canary.test.sh" || exit 1; else echo "eslint canary: skipped (HARBORLINE_GATE_QUALITY unset)"; fi
+node --test "$repo_root/eng/tests/arch-sarif.test.mjs" || exit 1
+# The arch canary needs the BUILT host tests, which this step's checkout does not have (verify.sh runs
+# boundaries before the clone build; the dll argument is invalid there). run-exact-clone.mjs runs it as
+# its own 'arch-canary' step right after the clone's host tests, where the build exists.
 bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
 node --test "$repo_root/eng/tests/quality-artifacts.test.mjs" || exit 1
-node --test "$repo_root/eng/tests/receipt-accept.test.mjs" || exit 1
-bash "$repo_root/eng/tests/quality-baseline-landing.test.sh" || exit 1
 bash "$repo_root/eng/tests/quality-baseline-gate.test.sh" || exit 1
 
 echo "Harborline API consumer-neutral boundary: PASS"

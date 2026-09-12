@@ -99,6 +99,9 @@ public sealed class AllowListVacuityArchTests
         new("EntityValidatorImplementationFenceTests", "AllowedImplementers",
             EntityValidatorImplementationFenceTests.AllowedImplementerNames,
             EntityValidatorImplementationFenceTests.DiscoveredImplementers),
+        new("CompositionExtensionIsolationArchTests", "KnownCrossExtensionCollaborators",
+            CompositionExtensionIsolationArchTests.KnownCrossExtensionCollaboratorRows,
+            CompositionExtensionIsolationArchTests.DiscoveredKnownCrossExtensionCollaborators),
     ];
 
     /// <summary>

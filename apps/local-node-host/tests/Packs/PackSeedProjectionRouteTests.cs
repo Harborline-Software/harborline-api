@@ -1135,27 +1135,13 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         return draft;
     }
 
-    /// <summary>The 6-type General starter pack — the canonical content mirrored in
-    /// <c>_shared/packs/general/general-pack.export.json</c> (the dogfood seed source).</summary>
-    private static object GeneralPackBody() => new
+    /// <summary>The committed General starter-pack conformance fixture.</summary>
+    private static JsonObject GeneralPackBody()
     {
-        key = PackKey,
-        version = "1.0.0",
-        name = "General",
-        description = "Harborline General starter pack — baseline business asset types (slice 1).",
-        scopeTier = "Horizontal",
-        contents = new object[]
-        {
-            AssetTypeContent("general.equipment", "Equipment", new[] { "Maintainable" }, 10, 5),
-            AssetTypeContent("general.vehicle", "Vehicle", new[] { "Movable", "Maintainable" }, 8, 5),
-            AssetTypeContent("general.furniture", "Furniture", new[] { "Movable" }, 15, 5),
-            AssetTypeContent("general.it-computer", "IT / Computer", new[] { "Movable", "Maintainable" }, 4, 5),
-            AssetTypeContent("general.tool", "Tool", new[] { "Movable", "Maintainable" }, 7, 5),
-            AssetTypeContent("general.facility", "Property / Facility", new[] { "Container" }, 40, 5),
-        },
-        dependencies = Array.Empty<object>(),
-        capabilityRequirements = Array.Empty<string>(),
-    };
+        // The shipped pack, linked into test output by tests.csproj (the corpus refers to it by pack.ref).
+        var path = Path.Combine(AppContext.BaseDirectory, "Packs", "Fixtures", "general-pack.export.json");
+        return Assert.IsType<JsonObject>(JsonNode.Parse(File.ReadAllText(path)));
+    }
 
     private static object AssetTypeContent(string id, string displayName, string[] traits, int life, int scale) => new
     {
