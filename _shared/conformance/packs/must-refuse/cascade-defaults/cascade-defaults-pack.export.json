@@ -1,0 +1,17 @@
+{
+  "key": "test.cascadedefaults",
+  "version": "1.0.0",
+  "name": "CascadeDefaults test pack",
+  "description": "Exercises install refusal for content without a projector.",
+  "scopeTier": "Vertical",
+  "contents": [
+    {
+      "key": "content",
+      "kind": "CascadeDefaults",
+      "version": "1.0.0",
+      "content": {}
+    }
+  ],
+  "dependencies": [],
+  "capabilityRequirements": []
+}

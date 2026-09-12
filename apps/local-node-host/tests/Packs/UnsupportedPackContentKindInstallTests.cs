@@ -42,7 +42,7 @@ public sealed class UnsupportedPackContentKindInstallTests
     public async Task Install_refuses_standards_catalog_with_a_stated_reason()
     {
         var (installer, context, store, packBytes, keyPair) =
-            await CreateFixtureAsync(PackContentKind.StandardsCatalog);
+            await CreateFixtureAsync(LoadConformanceFixtureKind("standards-catalog"));
         using (keyPair)
         {
             var outcome = installer.Install(packBytes, context);
@@ -307,7 +307,7 @@ public sealed class UnsupportedPackContentKindInstallTests
     public async Task Install_refuses_cascade_defaults_with_a_stated_reason()
     {
         var (installer, context, store, packBytes, keyPair) =
-            await CreateFixtureAsync(PackContentKind.CascadeDefaults);
+            await CreateFixtureAsync(LoadConformanceFixtureKind("cascade-defaults"));
         using (keyPair)
         {
             var outcome = installer.Install(packBytes, context);
@@ -442,6 +442,16 @@ public sealed class UnsupportedPackContentKindInstallTests
             Tenant, trustStore, PackRevocationList.Empty, Now, TimeSpan.FromDays(30), Principal: "test-operator");
 
         return (installer, context, store, export.FileBytes!, keyPair);
+    }
+
+    private static PackContentKind LoadConformanceFixtureKind(string name)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Conformance", "Packs", "must-refuse", name,
+            $"{name}-pack.export.json");
+        var fixture = Assert.IsType<JsonObject>(JsonNode.Parse(File.ReadAllText(path)));
+        var contents = Assert.IsType<JsonArray>(fixture["contents"]);
+        var content = Assert.IsType<JsonObject>(Assert.Single(contents));
+        return Enum.Parse<PackContentKind>(content["kind"]!.GetValue<string>(), ignoreCase: false);
     }
 
     private static JsonNode OversizedNavigationContent()
