@@ -297,6 +297,45 @@ public sealed class OperatorCliTests
     }
 
     [Fact]
+    public async Task Pack_check_json_posts_pack_bytes_to_check_route()
+    {
+        var packPath = Path.Combine(Path.GetTempPath(), $"cli-check-{Guid.NewGuid():N}.pack");
+        byte[] packBytes = [0x50, 0x4B, 0x07, 0x08, 0xFF, 0x00];
+        await File.WriteAllBytesAsync(packPath, packBytes);
+        try
+        {
+            HttpRequestMessage? observed = null;
+            byte[]? observedBody = null;
+            using var client = new HttpClient(new RecordingHandler(request =>
+            {
+                observed = request;
+                observedBody = request.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"refusals\":[]}", Encoding.UTF8, "application/json"),
+                };
+            }));
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+
+            var exitCode = await NodeOperatorCommand.RunAsync(
+                ["--url", "http://127.0.0.1:7312", "--json", "pack", "check", "--file", packPath],
+                client, stdout, stderr);
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(HttpMethod.Post, observed!.Method);
+            Assert.Equal("http://127.0.0.1:7312/api/local-node/packs/check", observed.RequestUri!.AbsoluteUri);
+            Assert.Equal(packBytes, observedBody);
+            Assert.Equal("{\"refusals\":[]}" + Environment.NewLine, stdout.ToString());
+            Assert.Empty(stderr.ToString());
+        }
+        finally
+        {
+            File.Delete(packPath);
+        }
+    }
+
+    [Fact]
     public async Task Pack_export_json_posts_request_verbatim_and_writes_the_pack_file()
     {
         var requestPath = Path.Combine(Path.GetTempPath(), $"cli-export-{Guid.NewGuid():N}.json");

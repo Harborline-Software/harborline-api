@@ -11,12 +11,14 @@ harborline-node --url http://127.0.0.1:5050 --token <token> --json pack install 
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack activate --pack-key general --version 1.0.0
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack deactivate --pack-key general --version 1.0.0
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack verify --file general.pack
+harborline-node --url http://127.0.0.1:5050 --token <token> --json pack check --file general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json pack export --request general.export.json --out general.pack
 harborline-node --url http://127.0.0.1:5050 --token <token> --json export --scope forms
 harborline-node --url http://127.0.0.1:5050 --token <token> --json record create --file entity.json
 ```
 
 `pack verify` uploads the file byte-exact (like `pack install`) and prints the node's verdict.
+`pack check` uploads the file byte-exact and reports every non-terminal admission refusal without installing or activating the pack.
 `pack export` posts the composition request document verbatim — the node's route owns validation —
 and writes the signed pack bytes to `--out`, printing `{"file":…,"bytes":…}`.
 
