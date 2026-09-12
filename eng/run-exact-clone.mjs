@@ -239,6 +239,8 @@ try {
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
+  // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
+  run('globalization-canary', 'bash', ['eng/verify-globalization-canary.sh'], clone)
   if (qualityEnabled) {
     const archSarif = path.join(archDirectory, 'api-tier-dependency.sarif')
     run('arch-sarif', process.execPath,
@@ -436,8 +438,8 @@ const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, .
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
 // then throws ENOENT on its final line, discarding the verdict it just spent that long computing.
 // --record writes the committed evidence. A FAIL without --record is written OUTSIDE the tracked tree
-// (.claude/land-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
-// stays clean; eng/land-evidence.sh reads it from there before the land worktree is removed.
+// (.claude/gate-evidence/ is ignored) so a red gate never dirties the checkout it ran in and the rerun
+// stays clean.
 const target = evidenceTarget({record, status: report.status, apiRoot, evidencePath})
 if (target) {
   mkdirSync(path.dirname(target), {recursive: true})

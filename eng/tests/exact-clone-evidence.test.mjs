@@ -17,7 +17,7 @@ test('--record keeps the committed evidence path for PASS and FAIL', () => {
   }
 })
 
-test('FAIL without --record goes under .claude/land-evidence, outside the tracked tree', () => {
+test('FAIL without --record goes under .claude/gate-evidence, outside the tracked tree', () => {
   const target = evidenceTarget({record: false, status: 'FAIL', apiRoot, evidencePath})
   assert.equal(target, path.join(apiRoot, FAIL_EVIDENCE_RELATIVE))
   assert.notEqual(target, evidencePath)

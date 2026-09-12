@@ -161,7 +161,7 @@ test('every Ubuntu identity is owned, dated, reasoned, distinct, and compared ex
   assert.equal(compareHostBaseline({baseline: ubuntu, counts: {total: n, failed: n}, adjustedFailed: n,
     newFailures: [], trx: trxOf(output, {total: n, failed: n})}).passed, true)
 })
-test('OS selection and the actual gate and landing routes carry the baseline', () => {
+test('OS selection and the actual gate route carries the baseline', () => {
   assert.equal(hostBaselineFor('darwin'), MACOS_BASELINE)
   assert.equal(hostBaselineFor('linux'), UBUNTU_BASELINE)
   for (const platform of ['win32', 'freebsd']) assert.equal(hostBaselineFor(platform), WINDOWS_BASELINE)
@@ -175,20 +175,13 @@ test('OS selection and the actual gate and landing routes carry the baseline', (
   assert.match(runner, /host: baselineArgument\(process\.argv\.slice\(2\)\)/)
   assert.match(runner, /compareHostBaseline\(/)
   assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
-  const land = readFileSync(path.join(root, 'eng/land.sh'), 'utf8')
-  // Ticket 333: the shared verifier execs the nested verify as the LAST command of its subshell; both
-  // landing routes invoke that helper and perform the receipt check only after it returns.
-  assert.match(land, /else exec bash eng\/verify\.sh; fi \)/)
-  assert.equal((land.match(/run_land_verify "\$(?:land_dir|verify_dir)" "\$verify_log"/g) ?? []).length, 2)
-  assert.equal((land.match(/exec bash eng\/verify\.sh.*&&/g) ?? []).length, 0)
 })
-test('receipt CLI records baseline, accepts macOS slices and refuses macOS landing', () => {
+test('receipt CLI records its host baseline as per-run evidence', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))
   try {
     mkdirSync(path.join(dir, 'eng'))
-    for (const file of ['coverage.mjs', 'verify-receipt.mjs', 'pre-push-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
-    // The landing exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no
-    // coverage artifacts, so the flag must not leak into it (337: first red at the land step, not the gate).
+    for (const file of ['coverage.mjs', 'verify-receipt.mjs', 'host-baseline.mjs']) copyFileSync(path.join(root, 'eng', file), path.join(dir, 'eng', file))
+    // This fixture records a receipt with no coverage artifacts, so the coverage route must not leak in.
     const env = {...process.env}
     delete env.HARBORLINE_GATE_COVERAGE
     const run = (command, args) => spawnSync(command, args, {cwd: dir, encoding: 'utf8', env})
@@ -212,12 +205,6 @@ test('receipt CLI records baseline, accepts macOS slices and refuses macOS landi
       assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').decisionDigest, /^sha256:[a-f0-9]{64}$/)
       assert.match(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, /^sha256:[a-f0-9]{64}$/)
       assert.equal(receipt.steps.find(step => typeof step === 'object' && step.id === 'quality').policyDigest, 'sha256:' + 'b'.repeat(64))
-      assert.equal(cli(['--slice']).status, 0)
-      for (const args of [[], ['--landing'], ['--landing', '--slice']]) {
-        const checked = cli(args)
-        assert.equal(checked.status, [MACOS_BASELINE, UBUNTU_BASELINE].includes(file) ? 1 : 0, checked.stdout + checked.stderr)
-        if ([MACOS_BASELINE, UBUNTU_BASELINE].includes(file)) assert.match(checked.stderr, /host baseline receipts are slice-only; landings require the Windows host baseline/)
-      }
     }
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
