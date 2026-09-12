@@ -99,7 +99,9 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
             Description: document.Description ?? string.Empty, ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, true),
             Contents: (document.Contents ?? []).Select(item => new PackContentSource(item.Key,
                 Enum.Parse<PackContentKind>(item.Kind, true), item.Version,
-                JsonNode.Parse(item.Content!.Value.GetRawText())!)).ToArray(), Dependencies: [],
+                JsonNode.Parse(item.Content!.Value.GetRawText())!)).ToArray(),
+            Dependencies: (document.Dependencies ?? []).Select(dependency => new PackDependencyRef(
+                dependency.Key, dependency.Version, dependency.DeclaredDependencyKeys ?? [])).ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? [], Epoch: PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(authoringPrincipal));
     }

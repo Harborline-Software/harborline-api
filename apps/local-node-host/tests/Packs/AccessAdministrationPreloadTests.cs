@@ -213,15 +213,54 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Access_activation_without_the_platform_pack_is_refused_at_admission()
+    public async Task Access_preload_does_not_run_until_the_platform_pack_is_active()
     {
         await _preload.PreloadAsync(Tenant, CancellationToken.None);
 
         Assert.Null(_store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey));
-        var refusal = Assert.Single(_audit.Query(Tenant), entry =>
-            entry.Action == PackInstallAuditAction.Refused
-            && entry.PackKey == AccessAdministrationPreloadHostedService.PackKey);
-        Assert.StartsWith(PackInstallCodes.ActivatePlatformPackRequired, refusal.Detail, StringComparison.Ordinal);
+        Assert.Null(_store.GetVersion(
+            Tenant,
+            AccessAdministrationPreloadHostedService.PackKey,
+            AccessAdministrationPreloadHostedService.PackVersion));
+    }
+
+    [Fact]
+    public async Task Access_activation_with_a_declared_platform_dependency_is_refused_until_platform_is_active()
+    {
+        var context = new PackInstallContext(
+            Tenant,
+            TrustingTheNodeKey(),
+            PackRevocationList.Empty,
+            TimeProvider.System.GetUtcNow(),
+            PackInstallRoutes.RevocationMaxAge,
+            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        var platform = await ExportAsync(new PackExportRequest(
+            PlatformPackPreloadHostedService.PackKey,
+            PlatformPackPreloadHostedService.PackVersion,
+            "Platform dependency fixture",
+            "Installs the declared dependency but deliberately leaves it inactive.",
+            PackScopeTier.Horizontal,
+            [],
+            [],
+            [],
+            PackComposerRoutes.OwnRosterEpoch,
+            Dcp: DomainComplianceProfile.General(_signer.Signer.IssuerId.ToBase64Url())));
+        Assert.True(_installer.Install(platform, context).Installed);
+
+        // The request comes from the shipped export document. Removing its platform dependency is
+        // the mutation that turns this test red: this otherwise inactive platform fixture no longer
+        // invokes the declared-dependency activation refusal.
+        var access = await ExportAsync(AccessAdministrationPreloadHostedService.ReadExportRequest(
+            _signer.Signer.IssuerId.ToBase64Url()));
+        Assert.True(_installer.Install(access, context).Installed);
+
+        var activation = _installer.Activate(
+            context,
+            AccessAdministrationPreloadHostedService.PackKey,
+            AccessAdministrationPreloadHostedService.PackVersion);
+
+        Assert.False(activation.Activated);
+        Assert.StartsWith(PackInstallCodes.ActivatePlatformPackRequired, activation.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -448,6 +487,20 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     {
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         await _preload.PreloadAsync(Tenant, CancellationToken.None);
+    }
+
+    private async Task<byte[]> ExportAsync(PackExportRequest request)
+    {
+        var exporter = new PackExporter(
+            new PackContentCanonicalizer(),
+            new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()),
+            new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
+            new PackFileCodec(),
+            timeProvider: TimeProvider.System);
+        var exported = await exporter.ExportAsync(request, _signer.Signer, CancellationToken.None);
+        Assert.True(exported.Succeeded, string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
+        return exported.FileBytes!;
     }
 
     /// <summary>The composed node's posture: the node's own key is the current own-roster root.</summary>
