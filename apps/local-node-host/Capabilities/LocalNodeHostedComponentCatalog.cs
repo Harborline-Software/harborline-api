@@ -447,6 +447,11 @@ internal static class LocalNodeHostedComponentCatalog
             Describe<Harborline.Api.LocalNodeHost.Data.PackProjection.PackSeedProjectionHostedService>(
                 "local-node.projector.pack-seeds", 150, LocalNodeHostedComponentKind.Projector,
                 LocalNodeHostedActivation.Always),
+            // Ticket 176 slice 2: the platform package preload (harborline.platform) runs before the Access
+            // preload; Access activation is refused unless the platform pack is Active (L1056-L1058).
+            Describe<Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformPackPreloadHostedService>(
+                "local-node.seeder.platform-pack", 153, LocalNodeHostedComponentKind.Seeder,
+                LocalNodeHostedActivation.Always),
             // Ticket 208 slice 1: the Access administration package preload. Ordered immediately after the
             // seed projector so a restart reconciles the installed packs first and this is then a no-op.
             Describe<Harborline.Api.LocalNodeHost.Data.PackProjection.AccessAdministrationPreloadHostedService>(
@@ -522,7 +527,7 @@ internal static class LocalNodeHostedComponentCatalog
 
     private static void ValidateCatalog(ImmutableArray<LocalNodeHostedComponentDescriptor> catalog)
     {
-        if (catalog.Length != 30 ||
+        if (catalog.Length != 31 ||
             catalog.Select(item => item.ComponentKey)
                 .Distinct(StringComparer.Ordinal).Count() != catalog.Length ||
             catalog.Select(item => item.OperationalOrder).Distinct().Count() != catalog.Length ||
@@ -531,7 +536,7 @@ internal static class LocalNodeHostedComponentCatalog
             catalog.Select(item => item.ComponentType).Distinct().Count() != catalog.Length)
         {
             throw new InvalidOperationException(
-                "local-node.hosted-component.catalog_invalid: expected 29 unique ordered actors.");
+                "local-node.hosted-component.catalog_invalid: expected 31 unique ordered actors.");
         }
     }
 }

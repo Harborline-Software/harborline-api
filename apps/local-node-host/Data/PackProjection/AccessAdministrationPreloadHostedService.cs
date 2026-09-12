@@ -138,6 +138,20 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             return;
         }
 
+        // Ticket 176: this is the author-controlled bootstrap path. Do not even export or install
+        // Access until the platform catalogue it declares as a dependency is active. The installer
+        // repeats the same named refusal for all other callers of an artifact that declares it.
+        if (_store.GetActive(tenant, PlatformPackPreloadHostedService.PackKey) is null)
+        {
+            _logger.LogError(
+                "AccessAdministrationPreloadHostedService: preloading {PackKey} was REFUSED [{Code}] "
+                + "because {PlatformPackKey} is not active.",
+                PackKey,
+                PackInstallCodes.ActivatePlatformPackRequired,
+                PlatformPackPreloadHostedService.PackKey);
+            return;
+        }
+
         var pending = _store.GetVersion(tenant, PackKey, PackVersion) is not null;
 
         var request = ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
@@ -217,7 +231,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
     /// Reads the committed export document (<c>_shared/packs/access-administration/</c>, embedded at build)
     /// and maps it onto the same <see cref="PackExportRequest"/> the export route builds.
     /// </summary>
-    private static PackExportRequest ReadExportRequest(string authoringPrincipal)
+    internal static PackExportRequest ReadExportRequest(string authoringPrincipal)
     {
         using var stream = typeof(AccessAdministrationPreloadHostedService).Assembly
                                .GetManifestResourceStream(ResourceName)
@@ -243,7 +257,12 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             Description: document.Description ?? string.Empty,
             ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, ignoreCase: true),
             Contents: contents,
-            Dependencies: Array.Empty<PackDependencyRef>(),
+            Dependencies: (document.Dependencies ?? Array.Empty<ExportDependencyDto>())
+                .Select(dependency => new PackDependencyRef(
+                    dependency.Key,
+                    dependency.Version,
+                    dependency.DeclaredDependencyKeys ?? Array.Empty<string>()))
+                .ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? Array.Empty<string>(),
             Epoch: PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(authoringPrincipal));

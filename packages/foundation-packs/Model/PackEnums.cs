@@ -24,6 +24,12 @@ public enum PackScopeTier
 /// </summary>
 public enum PackContentKind
 {
+    /// <summary>
+    /// A catalogue item naming a compiled sealed system record type. It carries no schema and is only
+    /// admitted for the released platform package; ordinary packs cannot claim a sealed name.
+    /// </summary>
+    RecordType = 16,
+
     /// <summary>A dynamic-form definition (ADR 0055 <c>FormDefinition</c>).</summary>
     FormDefinition = 0,
 

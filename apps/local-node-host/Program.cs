@@ -2361,6 +2361,11 @@ Harborline.Api.LocalNodeHost.Data.AssetRegistry.NodeSpatialFrameComposition.AddN
 // lands. Registered AFTER AddNodeAssetRegistry (the registry) + MultiTeamBootstrapHostedService (the tenant).
 builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.PackProjection.PackSeedProjectionHostedService>();
 
+// Ticket 176 slice 2: the platform catalogue is the first released pack. Access is a sibling pack
+// and therefore follows it; hosted-service registration is backed by the explicit prerequisite check.
+builder.Services.AddHostedService<
+    Harborline.Api.LocalNodeHost.Data.PackProjection.PlatformPackPreloadHostedService>();
+
 // Ticket 208 slice 1 (L673, L685) — Access administration ships as ORDINARY content with every
 // installation. On first run this exports, installs and activates the committed
 // `harborline.access-administration` export document through the same IPackExporter/IPackInstaller path

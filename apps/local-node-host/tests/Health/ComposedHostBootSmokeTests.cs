@@ -216,7 +216,7 @@ public sealed partial class ComposedHostBootSmokeTests
         var pack = document.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
         var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
-        Assert.Equal(new[] { "access", "ticket-229-workspace" },
+        Assert.Equal(new[] { "access", "workshop", "ticket-229-workspace" },
             workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
         var access = workspaces[0];
         Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
@@ -224,6 +224,11 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.Equal("access-inspection", group.GetProperty("id").GetString());
         Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
         Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
+        var workshop = workspaces[1];
+        Assert.Equal("workshop.workspace", workshop.GetProperty("labelKey").GetString());
+        var workshopGroup = Assert.Single(workshop.GetProperty("groups").EnumerateArray());
+        Assert.Equal("definitions", workshopGroup.GetProperty("id").GetString());
+        Assert.Contains(workshopGroup.GetProperty("itemIds").EnumerateArray(), item => item.GetString() == "forms");
         var panel = Assert.Single(pack.GetProperty("panelSet").EnumerateArray());
         Assert.Equal("access-details", panel.GetProperty("id").GetString());
         Assert.Equal("access.details", panel.GetProperty("labelKey").GetString());
