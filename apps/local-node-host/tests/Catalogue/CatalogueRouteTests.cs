@@ -19,6 +19,7 @@ using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -40,6 +41,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private TenantId _tenantA;
+    private TenantId _requestTenant;
 
     public async Task InitializeAsync()
     {
@@ -56,14 +58,20 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _app = builder.Build();
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
         _tenantA = NodeTenant.Resolve(_activeTeam);
+        _requestTenant = _tenantA;
 
         var definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
         _app.Use(async (http, next) =>
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            http.Features.Set(new SelectedSessionRequestPrincipal(
+                "catalogue-account", _requestTenant, new PrincipalUserId("catalogue-principal"),
+                new CanonicalPartyReference("catalogue-party"), "catalogue-membership", 1,
+                [new PinnedGrantOwnerVersion("catalogue-grant", 1)], 1,
+                "catalogue-session", "catalogue-coordination"));
             await next(http);
         });
-        CatalogueRoutes.Map(_app, new ProjectedCatalogue(definitions), _activeTeam);
+        CatalogueRoutes.Map(_app.MapSelectedSessionProductGroup(), new ProjectedCatalogue(definitions));
         FormDefinitionRoutes.Map(
             _app,
             definitions,
@@ -89,11 +97,13 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await SaveTenantAFormAsync();
 
         _activeTeam.Active = TeamContextFor(TeamB, "Team B");
+        _requestTenant = NodeTenant.Resolve(_activeTeam);
         var tenantB = await _client.GetFromJsonAsync<JsonElement>($"{CatalogueBase}?kind=FormDefinition");
         Assert.Empty(tenantB.GetProperty("entries").EnumerateArray());
         Assert.DoesNotContain(FormId, tenantB.GetRawText(), StringComparison.Ordinal);
 
         _activeTeam.Active = TeamContextFor(TeamA, "Team A");
+        _requestTenant = _tenantA;
         var tenantA = await _client.GetFromJsonAsync<JsonElement>($"{CatalogueBase}?kind=FormDefinition");
         Assert.Contains(FormId, tenantA.GetRawText(), StringComparison.Ordinal);
     }
