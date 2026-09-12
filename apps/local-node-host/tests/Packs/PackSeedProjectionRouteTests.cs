@@ -342,6 +342,32 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
     }
 
+    [Fact(DisplayName = "394: a malformed third content item returns its stable code and a resolvable export pointer")]
+    public async Task Refused_item_carries_code_and_resolvable_export_pointer()
+    {
+        const string formId = "general.third-broken-form";
+        var body = JsonSerializer.SerializeToNode(FormPackBody(formId, "1.0.0", invalidRule: true))!.AsObject();
+        var invalid = body["contents"]![0]!.DeepClone();
+        body["contents"] = new JsonArray(
+            JsonSerializer.SerializeToNode(AssetTypeContent("general.first", "First", ["Maintainable"], 1, 5)),
+            JsonSerializer.SerializeToNode(AssetTypeContent("general.second", "Second", ["Maintainable"], 1, 5)),
+            invalid);
+
+        var packBytes = await ExportAsync(body);
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+        var activate = await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
+        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+
+        using var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync());
+        var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
+        var pointer = refusal.GetProperty("pointer").GetString();
+        Assert.Equal(FormDefinitionCodes.RulesUncompilable, refusal.GetProperty("code").GetString());
+        Assert.Equal("/contents/2/contentBase64", pointer);
+        using var export = JsonDocument.Parse(packBytes);
+        Assert.Equal(JsonValueKind.String, ResolvePointer(export.RootElement, pointer!).ValueKind);
+    }
+
     [Fact(DisplayName = "pack projection does NOT inherit the authoring placeholder gate — signed content labelled \"New field\" still publishes")]
     public async Task Placeholder_labelled_pack_form_still_projects_and_publishes()
     {
@@ -1082,6 +1108,23 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var resp = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, body);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         return await resp.Content.ReadAsByteArrayAsync();
+    }
+
+    private static JsonElement ResolvePointer(JsonElement document, string pointer)
+    {
+        var current = document;
+        foreach (var segment in pointer.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = segment.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+            current = current.ValueKind switch
+            {
+                JsonValueKind.Object => current.GetProperty(token),
+                JsonValueKind.Array => current[int.Parse(token, System.Globalization.CultureInfo.InvariantCulture)],
+                _ => throw new Xunit.Sdk.XunitException($"Pointer '{pointer}' walks through {current.ValueKind}."),
+            };
+        }
+
+        return current;
     }
 
     private Task<HttpResponseMessage> PostBytesAsync(string route, byte[] bytes)

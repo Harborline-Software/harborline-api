@@ -102,6 +102,9 @@ public sealed class AllowListVacuityArchTests
         new("CompositionExtensionIsolationArchTests", "KnownCrossExtensionCollaborators",
             CompositionExtensionIsolationArchTests.KnownCrossExtensionCollaboratorRows,
             CompositionExtensionIsolationArchTests.DiscoveredKnownCrossExtensionCollaborators),
+        new("PackRefusalCodeAndPointerFenceTests", "KnownCodeProducers",
+            PackRefusalCodeAndPointerFenceTests.KnownCodeProducerRows,
+            PackRefusalCodeAndPointerFenceTests.DiscoveredKnownCodeProducerRows),
     ];
 
     /// <summary>

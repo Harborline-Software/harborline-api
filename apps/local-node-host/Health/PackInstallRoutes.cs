@@ -165,6 +165,7 @@ internal static class PackInstallRoutes
                 Version: outcome.Version,
                 BrokeGlass: outcome.BrokeGlass,
                 RefusalCodes: outcome.RefusalCodes,
+                Refusals: outcome.Preview.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer)).ToList(),
                 Preview: ToPreviewDto(outcome.Preview));
 
             return outcome.Installed ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
@@ -219,7 +220,7 @@ internal static class PackInstallRoutes
             if (outcome.ProjectionResult is PackSeedProjectionSummary projection)
             {
                 projectionRefusals = projection.Refusals
-                    .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code))
+                    .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer))
                     .ToList();
                 platformRefusals = ToPlatformRefusalDtos(projection);
                 logger.LogInformation(
@@ -294,7 +295,7 @@ internal static class PackInstallRoutes
             if (outcome.ProjectionResult is PackSeedProjectionSummary projection)
             {
                 projectionRefusals = projection.Refusals
-                    .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code))
+                    .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer))
                     .ToList();
                 platformRefusals = ToPlatformRefusalDtos(projection);
                 logger.LogInformation(
@@ -365,6 +366,7 @@ internal static class PackInstallRoutes
                 r.Version,
                 r.PlatformVersion,
                 Data.PackProjection.PackPlatformProjectionRefusal.Code,
+                r.Pointer,
                 r.Unmet
                     .Select(u => new UnmetPlatformRequirementDto(
                         u.Capability, u.MinimumPlatformVersion, u.DeclaredBy, u.Failure.ToString()))
@@ -391,6 +393,7 @@ internal static class PackInstallRoutes
         AdmissionRefusals: p.AdmissionRefusals.Select(a => new AdmissionRefusalDto(a.ContentKey, a.Code, a.Message)).ToList(),
         RevocationStale: p.RevocationStale,
         RefusalCodes: p.RefusalCodes,
+        Refusals: p.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer)).ToList(),
         CrossPackCollisions: p.CrossPackCollisions.Select(c => new CrossPackCollisionDto(
             c.ContentKey, c.ContentKind.ToString(), c.ClaimingPackKeys, c.Resolution.ToString(), c.OwnerPackKey)).ToList(),
         UnmetContentReferences: p.UnmetContentReferences.Select(u => new UnmetContentReferenceDto(
@@ -433,7 +436,7 @@ public sealed record DeactivatePackResponseDto(
     IReadOnlyList<PlatformProjectionRefusalDto>? PlatformRefusals = null);
 
 /// <summary>One content item the post-activation projector refused.</summary>
-public sealed record ProjectionRefusalDto(string ContentKey, string ContentKind, string Code);
+public sealed record ProjectionRefusalDto(string ContentKey, string ContentKind, string Code, string Pointer);
 
 /// <summary>One ACTIVE pack a projection pass refused whole on platform compatibility (ticket 160).</summary>
 public sealed record PlatformProjectionRefusalDto(
@@ -441,6 +444,7 @@ public sealed record PlatformProjectionRefusalDto(
     string Version,
     string PlatformVersion,
     string Code,
+    string Pointer,
     IReadOnlyList<UnmetPlatformRequirementDto> Unmet);
 
 /// <summary>One declared platform requirement the running build cannot satisfy.</summary>
@@ -466,6 +470,7 @@ public sealed record PreviewResponseDto(
     IReadOnlyList<AdmissionRefusalDto> AdmissionRefusals,
     bool RevocationStale,
     IReadOnlyList<string> RefusalCodes,
+    IReadOnlyList<PackRefusalDto> Refusals,
     IReadOnlyList<CrossPackCollisionDto> CrossPackCollisions,
     IReadOnlyList<UnmetContentReferenceDto> UnmetContentReferences,
     IReadOnlyList<UnmetDependencyDto> UnmetDependencies);
@@ -494,7 +499,11 @@ public sealed record InstallResponseDto(
     string Version,
     bool BrokeGlass,
     IReadOnlyList<string> RefusalCodes,
+    IReadOnlyList<PackRefusalDto> Refusals,
     PreviewResponseDto Preview);
+
+/// <summary>One stable refusal code paired with the RFC 6901 location it describes.</summary>
+public sealed record PackRefusalDto(string Code, string Pointer);
 
 /// <summary>One re-attach conflict in the preview.</summary>
 public sealed record ReattachConflictDto(

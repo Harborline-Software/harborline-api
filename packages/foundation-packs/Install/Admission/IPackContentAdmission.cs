@@ -27,6 +27,12 @@ public sealed record PackComposedItem(
 /// <param name="Message">A developer-facing message; a localizing client keys off <paramref name="Code"/>.</param>
 public sealed record PackAdmissionRefusal(string ContentKey, string Code, string Message);
 
+/// <summary>Published content-admission refusal codes.</summary>
+public static class PackAdmissionCodes
+{
+    public const string NotWired = "pack.install.admission.not_wired";
+}
+
 /// <summary>The outcome of install-time admission — admissible, or the surviving refusals.</summary>
 /// <param name="Refusals">Empty ⇒ every effecting item is admissible; non-empty ⇒ install is refused.</param>
 public sealed record PackAdmissionResult(IReadOnlyList<PackAdmissionRefusal> Refusals)
@@ -69,7 +75,7 @@ public interface IPackContentAdmission
 public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
 {
     /// <summary>The refusal code emitted when an effecting item is present but no real admission is wired.</summary>
-    public const string AdmissionNotWiredCode = "pack.install.admission.not_wired";
+    public const string AdmissionNotWiredCode = PackAdmissionCodes.NotWired;
 
     private readonly PackRestrictingDefinitionAdmission _restricting;
 
@@ -87,7 +93,7 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         refusals.AddRange(composed
             .Where(c => c.Kind == PackContentKind.WorkflowDefinition)
             .Select(c => new PackAdmissionRefusal(
-                c.Key, AdmissionNotWiredCode,
+                c.Key, PackAdmissionCodes.NotWired,
                 "This pack carries an effecting workflow definition, but no ADR 0143 install-time admission "
                 + "validator is wired. Fail-closed: refusing rather than installing an un-admitted effecting "
                 + "definition (S-9).")));
