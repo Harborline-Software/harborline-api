@@ -220,9 +220,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         var decision = AuthorizeOrAudit(tenant, actingPrincipal, now, packKey, version);
 
-        foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
-            _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
-
         // The target must be installed — fetch it FIRST so the activation guards (provider-slot,
         // cross-pack collision) inspect its persisted manifest state BEFORE any pointer flip.
         var target = _store.GetVersion(tenant, packKey, version);
@@ -256,6 +253,32 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     + $"({first.Failure}).", decision);
         }
 
+        var active = _store.ListInstalled(tenant)
+            .Where(pack => pack.Lifecycle == PackLifecycleState.Active)
+            .ToList();
+        var unmetInterface = PackInterfaceRequirementCheck.FindUnmet(target, active).FirstOrDefault();
+        if (unmetInterface is not null)
+        {
+            var requirement = $"{unmetInterface.PackKey}@{unmetInterface.InterfaceVersion}";
+            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                PackInstallCodes.ActivateUnmetInterfaceRequirement,
+                $"interface requirement '{requirement}' declared by '{unmetInterface.ContentKey}' is not exposed by any active pack.",
+                decision,
+                new PackInstallRefusal(PackInstallCodes.ActivateUnmetInterfaceRequirement,
+                    ContentPointer(target.SeedItems, unmetInterface.ContentKey)));
+        }
+
+        var unexposed = PackInterfaceRequirementCheck.FindUnexposed(target, active);
+        if (unexposed is not null)
+        {
+            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                PackInstallCodes.ActivateUnexposedDefinition,
+                $"definition '{unexposed.ToContentKey}' in active pack '{unexposed.ToPackKey}' is not exposed.",
+                decision,
+                new PackInstallRefusal(PackInstallCodes.ActivateUnexposedDefinition,
+                    ContentPointer(target.SeedItems, unexposed.FromContentKey)));
+        }
+
         // (a) Provider-slot exclusivity (ADR 0129 D4 — ACTIVE-based). A category slot is "occupied" only
         //     by an ACTIVE provider of a DIFFERENT pack key. Install is additive (S-2: two providers may
         //     be installed, both Draft); exclusivity bites at ACTIVATE. Refuse (fail-closed) naming the
@@ -282,9 +305,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         //     chain, or a recorded client choice) before EITHER goes live — else the projector would
         //     silently first-wins one. An UNRESOLVED shared key fails activation closed, naming the key +
         //     the other pack(s).
+        var ownership = new Dictionary<string, string>(_store.GetKeyOwnership(tenant), StringComparer.Ordinal);
+        foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
+            ownership[resolution.Key] = resolution.Value;
         var collisions = PackCompositionConflicts.Detect(
             PackCompositionConflicts.ClaimsFromInstalled(_store.ListInstalled(tenant)),
-            _store.GetKeyOwnership(tenant));
+            ownership);
         var unresolved = collisions.FirstOrDefault(c =>
             c.Resolution == PackKeyOwnershipResolution.RequiresChoice
             && c.ClaimingPackKeys.Contains(packKey, StringComparer.Ordinal));
@@ -300,6 +326,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         try
         {
+            foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
+                _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
             var candidate = new PackProjectionAuthority(
                 decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
             ProjectionStore().ActivateAndRecordProjectionAdmission(
@@ -1008,6 +1036,16 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
     private static string ContentPointer(int index) => $"/contents/{index}/contentBase64";
 
+    private static string ContentPointer(IReadOnlyList<PackSeedItem> contents, string contentKey)
+    {
+        for (var index = 0; index < contents.Count; index++)
+        {
+            if (string.Equals(contents[index].Key, contentKey, StringComparison.Ordinal)) return ContentPointer(index);
+        }
+
+        return "/";
+    }
+
     private static string DependencyPointer(PackManifest manifest, PackUnmetDependency dependency)
     {
         for (var index = 0; index < manifest.Dependencies.Count; index++)
@@ -1060,12 +1098,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         string actingPrincipal,
         string error,
         string? detail,
-        AuthorizationDecision decision)
+        AuthorizationDecision decision,
+        PackInstallRefusal? refusal = null)
     {
         _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
             Detail: detail is null ? error : $"{error}: {detail}", ActingPrincipal: actingPrincipal), decision);
-        return new PackActivationOutcome(false, packKey, version, error, detail, Decision: decision);
+        return new PackActivationOutcome(false, packKey, version, error, detail, Decision: decision, Refusal: refusal);
     }
 
     private PackDeactivationOutcome AuditDeactivationRefusal(
@@ -1300,7 +1339,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             manifest.Dependencies,
             manifest.ProviderSlot,
             manifest.ContentReferences,
-            manifest.CapabilityRequirements);
+            manifest.CapabilityRequirements,
+            manifest.Exposes,
+            manifest.InterfaceVersion);
     }
 
     private static PackInstallWatermark AdvanceWatermark(

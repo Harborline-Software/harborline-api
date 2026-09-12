@@ -1,0 +1,18 @@
+{
+  "key": "consumer",
+  "version": "1.0.0",
+  "name": "Unexposed definition test pack",
+  "description": "Exercises T-396's frozen export surface.",
+  "scopeTier": "Horizontal",
+  "contents": [{
+    "key": "consumer.definition",
+    "kind": "AssetTypeDefinition",
+    "version": "1.0.0",
+    "content": {
+      "parentType": "access.definition",
+      "definitionEnvelope": { "requires": [{ "capability": "access@1" }] }
+    }
+  }],
+  "dependencies": [{ "key": "access", "version": "1.0.0" }],
+  "capabilityRequirements": []
+}

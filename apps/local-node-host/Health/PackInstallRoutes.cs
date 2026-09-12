@@ -206,7 +206,15 @@ internal static class PackInstallRoutes
 
             if (!outcome.Activated)
             {
-                return Results.UnprocessableEntity(new { activated = false, error = outcome.Error, detail = outcome.Detail });
+                return Results.UnprocessableEntity(new
+                {
+                    activated = false,
+                    error = outcome.Error,
+                    detail = outcome.Detail,
+                    refusals = outcome.Refusal is null
+                        ? Array.Empty<PackRefusalDto>()
+                        : new[] { new PackRefusalDto(outcome.Refusal.Code, outcome.Refusal.Pointer) },
+                });
             }
 
             // Draft→Active is when a pack's declarative content becomes live — project its seed layer into
@@ -357,7 +365,8 @@ internal static class PackInstallRoutes
                     PlatformRefused: platform is null
                         ? null
                         : p.Lifecycle == PackLifecycleState.Active
-                            && PackPlatformRequirementCheck.FindUnmet(p, platform).Count > 0))
+                            && PackPlatformRequirementCheck.FindUnmet(p, platform).Count > 0,
+                    p.Exposes ?? Array.Empty<string>(), p.InterfaceVersion))
                 .ToList();
             return Results.Ok(installed);
         });
@@ -534,4 +543,5 @@ public sealed record AdmissionRefusalDto(string ContentKey, string Code, string 
 /// host runs without platform facts (unknowable, not false).</summary>
 public sealed record InstalledPackDto(
     string PackKey, string Version, string Lifecycle, DateTimeOffset InstalledAtUtc,
-    string SignerKeyId, long Epoch, string VouchingScope, bool? PlatformRefused = null);
+    string SignerKeyId, long Epoch, string VouchingScope, bool? PlatformRefused = null,
+    IReadOnlyList<string>? Exposes = null, int? InterfaceVersion = null);

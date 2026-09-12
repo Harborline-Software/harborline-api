@@ -105,6 +105,14 @@ public static class PackInstallCodes
     public const string ActivatePlatformPackRequired =
         "pack.install.activate.platform_pack_required";
 
+    /// <summary>Activation refused because no active pack exposes the exact interface named by a definition envelope.</summary>
+    public const string ActivateUnmetInterfaceRequirement =
+        "pack.install.activate.unmet_interface_requirement";
+
+    /// <summary>Activation refused because a content reference reaches into a definition its active pack did not expose.</summary>
+    public const string ActivateUnexposedDefinition =
+        "pack.install.activate.unexposed_definition";
+
     /// <summary>Deactivation refused: the named installed version is not the pack's current Active version.</summary>
     public const string DeactivateNotActive = "pack.install.deactivate.not_active";
 
@@ -393,11 +401,15 @@ public sealed record PackInstallOutcome(
 /// <param name="Projected">Whether synchronous projection completed.</param>
 /// <param name="ProjectionResult">Opaque host-owned projection summary; never carries authority.</param>
 /// <param name="Decision">The exact decision that admitted or refused the activation request.</param>
+/// <param name="Refusal">The 394 code and RFC 6901 pointer for a refused activation, or <c>null</c>
+/// when the activation was admitted. Ticket 396 added activation-stage refusals, so a refusal is no
+/// longer reported by reason alone.</param>
 public sealed record PackActivationOutcome(
     bool Activated, string PackKey, string Version, string? Error, string? Detail = null,
     bool Projected = false,
     object? ProjectionResult = null,
-    AuthorizationDecision? Decision = null);
+    AuthorizationDecision? Decision = null,
+    PackInstallRefusal? Refusal = null);
 
 /// <summary>The outcome of a reversible Active → Inactive pointer flip.</summary>
 /// <param name="Deactivated">Whether the Active pointer was removed.</param>

@@ -110,7 +110,8 @@ public static class PackPlatformRequirementCheck
         foreach (var node in declared.OfType<JsonObject>())
         {
             var capability = node["capability"]?.GetValue<string>();
-            if (!string.IsNullOrWhiteSpace(capability))
+            if (!string.IsNullOrWhiteSpace(capability)
+                && !PackInterfaceRequirementCheck.TryParse(capability, out _, out _))
             {
                 requirements.Add(new PlatformRequirement(
                     capability,
