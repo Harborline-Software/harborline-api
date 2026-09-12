@@ -1,0 +1,48 @@
+; ADR 0013 enforcement gate — BannedApiAnalyzers (RS0030).
+; Wiring lives in Directory.Build.props (_HarborlineBannedApiTarget) + Directory.Build.targets.
+; Applies to every packable, non-test, non-analyzer project. Tests are exempt by design.
+;
+; Format: <docid>;<message>.  T:=type  M:=method  P:=property  F:=field
+;
+; ADMISSION RULE FOR THIS FILE: every entry below has ZERO current production call sites.
+; This file is a fence against the FIRST use, not a burn-down list. Anything with live call
+; sites belongs in a CA rule (see AnalysisLevel in Directory.Build.props) or an arch test,
+; where the existing uses can be counted and allow-listed, not in here where it just fails
+; the build for everyone. Verify a candidate is at zero before adding it.
+;
+; NOT here, on purpose:
+;   - DateTime.Now / UtcNow / TimeProvider.System — already fenced with a counted allow-list by
+;     apps/local-node-host/tests/ArchTests/KernelClockArchTests.cs (ticket 216). One fence only.
+;   - string.ToLower/ToUpper, CultureInfo.CurrentCulture — 130+ live sites; CA1304/CA1305/
+;     CA1307/CA1310 now surface these as warnings. Burn down there, then reconsider.
+;   - System.Random — 2 live sites (foundation-events/EventId.cs, kernel-sync GossipDaemon
+;     jitter). Both non-crypto, but EventId identity from Random.Shared is worth a look.
+;   - Environment.Exit, GetAwaiter().GetResult() — deliberate live uses in the host and in
+;     sync-bridge seams. Not defects.
+
+; --- Insecure deserialization -------------------------------------------------
+T:System.Runtime.Serialization.Formatters.Binary.BinaryFormatter;Arbitrary code execution on deserialize. Use System.Text.Json.
+T:System.Runtime.Serialization.NetDataContractSerializer;Type-carrying serializer; same RCE shape as BinaryFormatter. Use System.Text.Json.
+T:System.Web.UI.LosFormatter;Type-carrying serializer. Use System.Text.Json.
+
+; --- Broken cryptographic primitives ------------------------------------------
+T:System.Security.Cryptography.MD5;Collision-broken. Use SHA256, or the Argon2id hasher in foundation-password-hashing for passwords.
+T:System.Security.Cryptography.SHA1;Collision-broken. Use SHA256.
+T:System.Security.Cryptography.DES;56-bit key. Use AES-GCM via the kernel envelope path.
+T:System.Security.Cryptography.TripleDES;64-bit block, sweet32-vulnerable. Use AES-GCM via the kernel envelope path.
+T:System.Security.Cryptography.RC2;Broken. Use AES-GCM via the kernel envelope path.
+T:System.Security.Cryptography.RNGCryptoServiceProvider;Obsolete. Use RandomNumberGenerator.
+
+; --- Transport security ---------------------------------------------------------
+T:System.Net.ServicePointManager;Process-global TLS mutation. Configure the specific HttpClientHandler instead.
+P:System.Net.Http.HttpClientHandler.ServerCertificateCustomValidationCallback;Disabling certificate validation. If a self-signed peer is genuinely required, pin it explicitly and document why.
+
+; --- Culture and encoding traps not covered by a CA rule -------------------------
+P:System.Text.Encoding.Default;Machine-dependent codepage; changes meaning per host. State the encoding (UTF8) explicitly.
+
+; --- Code loading ---------------------------------------------------------------
+M:System.Reflection.Assembly.LoadFrom(System.String);Loads arbitrary code from disk into the host. Production has no plugin-load path; arch tests are exempt from this file.
+M:System.Reflection.Assembly.LoadFile(System.String);Loads arbitrary code from disk into the host. Production has no plugin-load path; arch tests are exempt from this file.
+
+; --- ADR 0013 (the motivating example in Directory.Build.props) -------------------
+T:System.Web.HttpUtility;System.Web is a framework-coupled surface. Use System.Net.WebUtility / Uri.EscapeDataString.
