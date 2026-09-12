@@ -357,6 +357,8 @@
        embedded (not copied) so AccessAdministrationPreloadHostedService reads the exact committed bytes
        on any deployment layout, with no runtime path guessing. -->
   <ItemGroup>
+    <EmbeddedResource Include="..\..\_shared\packs\platform\platform-pack.export.json"
+                      LogicalName="Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json" />
     <EmbeddedResource Include="..\..\_shared\packs\access-administration\access-administration-pack.export.json"
                       LogicalName="Harborline.Api.LocalNodeHost.Packs.access-administration-pack.export.json" />
   </ItemGroup>

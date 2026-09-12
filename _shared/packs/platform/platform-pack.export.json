@@ -1,0 +1,33 @@
+{
+  "_note": "Ticket 176 s2. Released platform catalogue seed: its definition-package manifest, compiled sealed system-type catalogue items, Workshop navigation, and platform roles/bindings. Views (step 5), retention (step 7), and governance defaults (step 8) are deliberately deferred. No domain type, form, workflow, or protocol belongs here.",
+  "key": "harborline.platform",
+  "version": "1.0.0",
+  "name": "Harborline platform",
+  "description": "The sealed platform catalogue and Workshop bootstrap.",
+  "scopeTier": "Horizontal",
+  "contents": [
+    { "key": "FormDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "WorkflowDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "StandardsCatalog", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "NavWorkspaceConfig", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "CascadeDefaults", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "AssetTypeDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "TerminologyOverride", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "TemplateDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "TaxonomyDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "ReportDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "ViewDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "ScheduleDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "DataExchangeDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "StandingRuleDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "RoleDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "AuthorizationCapabilityBinding", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
+    { "key": "platform.workshop", "kind": "NavWorkspaceConfig", "version": "1.0.0", "content": { "seedWorkspaces": [{ "id": "workshop", "labelKey": "workshop.workspace", "groups": [{ "id": "definitions", "labelKey": "workshop.definitions", "itemIds": ["forms", "workflows", "views", "reports", "schedules", "roles"], "items": [{ "id": "forms", "labelKey": "workshop.forms" }, { "id": "workflows", "labelKey": "workshop.workflows" }, { "id": "views", "labelKey": "workshop.views" }, { "id": "reports", "labelKey": "workshop.reports" }, { "id": "schedules", "labelKey": "workshop.schedules" }, { "id": "roles", "labelKey": "workshop.roles" }] }] }], "panelSet": [] } },
+    { "key": "platform.role.administrator", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "administrator", "displayName": "Administrator" } },
+    { "key": "platform.role.auditor", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "auditor", "displayName": "Auditor" } },
+    { "key": "platform.binding.records-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "records:read", "scope": "/", "offeredRoles": ["platform/administrator"] } },
+    { "key": "platform.binding.audit-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "audit:read", "scope": "/", "offeredRoles": ["platform/auditor"] } }
+  ],
+  "dependencies": [],
+  "capabilityRequirements": []
+}

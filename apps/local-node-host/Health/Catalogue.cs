@@ -45,6 +45,7 @@ public sealed record SystemRecordType(
 {
     /// <summary>Every pack content kind is a sealed platform record type.</summary>
     public static IReadOnlyList<SystemRecordType> All { get; } = Enum.GetValues<PackContentKind>()
+        .Where(kind => kind != PackContentKind.RecordType)
         .Select(kind => new SystemRecordType(
             kind,
             kind.ToString(),
