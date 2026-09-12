@@ -39,6 +39,10 @@ public sealed class AccessNavigationUpgradeCompositionTests
                     Tenant, services.GetRequiredService<TimeProvider>().GetUtcNow(), AuthorizationSeedProfile.Production);
                 await InstallPreviousVersionAsync(services);
                 using (var before = await NavigationAsync(services)) Assert.False(before.RootElement.GetProperty("configured").GetBoolean());
+                await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
+                    .OfType<PlatformPackPreloadHostedService>()
+                    .Single()
+                    .PreloadAsync(Tenant, CancellationToken.None);
                 await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>().OfType<AccessAdministrationPreloadHostedService>().Single().PreloadAsync(Tenant, CancellationToken.None);
                 await AssertNavigationAsync(services);
                 var store = services.GetRequiredService<IPackInstallStore>();
@@ -52,13 +56,12 @@ public sealed class AccessNavigationUpgradeCompositionTests
                     Context(restarted.Services), PackKey, "1.1.1");
                 Assert.True(outcome.Deactivated);
                 using var after = await NavigationAsync(restarted.Services);
-                Assert.False(after.RootElement.GetProperty("configured").GetBoolean());
-                Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("pack").ValueKind);
+                AssertWorkshopServed(after);
             }
             await using (var restarted = await UnattributedGrantCompositionTests.OpenAsync(directory))
             {
                 using var after = await NavigationAsync(restarted.Services);
-                Assert.False(after.RootElement.GetProperty("configured").GetBoolean());
+                AssertWorkshopServed(after);
             }
         }
         finally
@@ -103,7 +106,8 @@ public sealed class AccessNavigationUpgradeCompositionTests
         Assert.True(response.RootElement.GetProperty("configured").GetBoolean());
         var pack = response.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
-        var workspace = Assert.Single(pack.GetProperty("seedWorkspaces").EnumerateArray());
+        var workspace = Assert.Single(pack.GetProperty("seedWorkspaces").EnumerateArray(), workspace =>
+            workspace.GetProperty("id").GetString() == "access");
         Assert.Equal("access", workspace.GetProperty("id").GetString());
         Assert.Equal("access.workspace", workspace.GetProperty("labelKey").GetString());
         var group = Assert.Single(workspace.GetProperty("groups").EnumerateArray());
@@ -136,6 +140,15 @@ public sealed class AccessNavigationUpgradeCompositionTests
         await endpoint.RequestDelegate!(http);
         Assert.Equal(200, http.Response.StatusCode);
         return JsonDocument.Parse(body.ToArray());
+    }
+
+    private static void AssertWorkshopServed(JsonDocument navigation)
+    {
+        Assert.True(navigation.RootElement.GetProperty("configured").GetBoolean());
+        var workspace = Assert.Single(
+            navigation.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray());
+        Assert.Equal("workshop", workspace.GetProperty("id").GetString());
+        Assert.Equal("workshop.workspace", workspace.GetProperty("labelKey").GetString());
     }
 
     private sealed class ActiveTenant(IServiceProvider services) : IActiveTeamAccessor
