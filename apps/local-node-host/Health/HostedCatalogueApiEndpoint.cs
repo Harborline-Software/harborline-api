@@ -24,8 +24,13 @@ public sealed class HostedCatalogueApiEndpoint : IHostedService
     {
         _sharedApp.MapApiRoutes(app => CatalogueRoutes.Map(
             app.MapSelectedSessionProductGroup(), _catalogue));
-        _logger.LogInformation("Catalogue definition read API registered (GET {RouteBase}; GET {TypesRoute}).",
-            CatalogueRoutes.RouteBase, CatalogueRoutes.TypesRoute);
+        // CA1873: the arguments are evaluated before the level is consulted, so the guard is the
+        // remediation the rule asks for even on a once-per-start registration message.
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Catalogue definition read API registered (GET {RouteBase}; GET {TypesRoute}).",
+                CatalogueRoutes.RouteBase, CatalogueRoutes.TypesRoute);
+        }
         return Task.CompletedTask;
     }
 
