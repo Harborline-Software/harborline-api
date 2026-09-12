@@ -288,6 +288,26 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
         Assert.Contains("new CompiledSchemaEntityValidator(", forms, StringComparison.Ordinal);
     }
 
+    // The service registration is the shipped default, not a test-only registration.  This test
+    // deliberately reads the production composition because a null-object replacement is a
+    // composition regression: the route still calls the writer, but invalid bodies would reach
+    // persistence.  A null default therefore makes this assertion red before a host starts.
+    [Fact(DisplayName = "151 L1418: the shipped record-validator default is compiled-schema validation, never the null object — holds RW-2 RW-7")]
+    public void Composition_RecordWriteValidatorDefault_IsNeverTheNullObject()
+    {
+        var forms = Read("apps/local-node-host/Data/Forms/NodeFormsComposition.cs");
+        const string registrationStart = "services.AddKeyedSingleton<IEntityValidator>(";
+        var start = forms.IndexOf(registrationStart, StringComparison.Ordinal);
+        Assert.True(start >= 0, "The record-write validator must be an unconditional keyed registration.");
+        var end = forms.IndexOf(");", start, StringComparison.Ordinal);
+        Assert.True(end >= 0, "The record-write validator registration must end.");
+        var registration = forms[start..(end + 2)];
+
+        Assert.Contains("CompiledSchemaEntityValidator.RecordWriteKey", registration, StringComparison.Ordinal);
+        Assert.Contains("GetRequiredService<CompiledSchemaEntityValidator>()", registration, StringComparison.Ordinal);
+        Assert.DoesNotContain("NullEntityValidator", registration, StringComparison.Ordinal);
+    }
+
     // (3) — the OTHER live record write path: a hierarchy split mints records without touching the
     // route or the entity writer. It runs the same validator, after its own admission.
     [Fact(DisplayName = "151 L1418: a hierarchy split's minted record runs the validator (unactivated schema refuses) — holds RW-2 RW-3")]
