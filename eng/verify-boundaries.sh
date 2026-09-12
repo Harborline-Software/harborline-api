@@ -70,5 +70,6 @@ node --test "$repo_root/eng/tests/arch-sarif.test.mjs" || exit 1
 bash "$repo_root/eng/tests/quality-step.test.sh" || exit 1
 node --test "$repo_root/eng/tests/quality-artifacts.test.mjs" || exit 1
 bash "$repo_root/eng/tests/quality-baseline-gate.test.sh" || exit 1
+bash "$repo_root/eng/tests/quality-baseline-artifact-wait.test.sh" || exit 1
 
 echo "Harborline API consumer-neutral boundary: PASS"

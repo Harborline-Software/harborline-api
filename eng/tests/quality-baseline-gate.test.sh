@@ -15,7 +15,8 @@ writeFileSync(file, JSON.stringify({schemaVersion: 1, findings, engines: JSON.pa
 NODE
 }
 committed="$fixture/committed.json"; candidate="$fixture/candidate.json"
-printf '{"schemaVersion":1,"findings":[%s,%s]}\n' "$(row a R001 src/kept.cs)" "$(row b R002 src/resolved.cs)" > "$committed"
+generated_at=$(node -e 'console.log(new Date(Date.now() - (3 * 60 + 2) * 60 * 1000).toISOString())')
+printf '{"schemaVersion":1,"commit":"baseline-fixture-405","generatedAt":"%s","findings":[%s,%s]}\n' "$generated_at" "$(row a R001 src/kept.cs)" "$(row b R002 src/resolved.cs)" > "$committed"
 
 printf '{"schemaVersion":1,"findings":[%s,%s]}\n' "$(row b R002 src/resolved.cs)" "$(row a R001 src/kept.cs)" > "$candidate"
 out=$(quality_baseline_gate_candidate_compare "$candidate" "$committed")
@@ -78,12 +79,18 @@ printf '%s\n' "$out"
 gate_root="$fixture/gate"
 mkdir -p "$gate_root/eng/baselines" "$gate_root/artifacts/quality"
 cp "$large_committed" "$gate_root/eng/baselines/quality-baseline.json"
+node - "$gate_root/eng/baselines/quality-baseline.json" <<'NODE'
+const {readFileSync, writeFileSync} = require('node:fs')
+const file = process.argv[2]
+const baseline = JSON.parse(readFileSync(file, 'utf8'))
+writeFileSync(file, JSON.stringify({...baseline, commit: 'baseline-fixture-405', generatedAt: new Date(Date.now() - (3 * 60 + 2) * 60 * 1000).toISOString()}) + '\n')
+NODE
 cp "$large_committed" "$gate_root/artifacts/quality/findings.json"
 out=$(HARBORLINE_QUALITY_BASELINE= quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with committed fallback exited non-zero: $out"; exit 1; }
-grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json" <<<"$out" || { echo "FAIL missing committed fallback message: $out"; exit 1; }
+grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json (pinned commit=baseline-fixture-405; age=3h" <<<"$out" || { echo "FAIL missing dated committed fallback message: $out"; exit 1; }
 artifact="$fixture/merge-base.json"; cp "$large_committed" "$artifact"
 out=$(HARBORLINE_QUALITY_BASELINE="$artifact" quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with merge-base artifact exited non-zero: $out"; exit 1; }
 grep -Fq "quality-baseline: using merge-base artifact $artifact" <<<"$out" || { echo "FAIL missing merge-base artifact message: $out"; exit 1; }
-echo 'quality-baseline-gate: 9 checks passed'
+echo 'quality-baseline-gate: 10 checks passed'
 # (the seven above plus: gate uses the committed fallback; gate uses the merge-base artifact)
 echo 'quality-baseline-gate: detail (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green)'
