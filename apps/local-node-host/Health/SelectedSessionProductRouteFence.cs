@@ -33,6 +33,13 @@ internal static class SelectedSessionProductRouteFence
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
 
+        var availability = context.HttpContext.GetEndpoint()?
+            .Metadata.GetMetadata<PackInstallRoutes.PostInstallRouteAvailabilityMetadata>();
+        if (availability is not null && !availability.IsAvailable())
+        {
+            return Results.NotFound();
+        }
+
         var features = context.HttpContext.Features;
         if (features.Get<DesktopPlaneRequestFeature>() is not null ||
             features.Get<SelectedSessionRequestPrincipal>() is not null ||

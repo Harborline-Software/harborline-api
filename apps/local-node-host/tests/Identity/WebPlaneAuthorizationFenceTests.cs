@@ -424,10 +424,27 @@ public sealed class WebPlaneAuthorizationFenceTests
                     TimeProvider.System);
             });
 
+            var signedPack = await ExportSignedPackAsync(exporter, signer);
+            var seed = new InstalledPack(
+                "surface.seed",
+                "1.0.0",
+                PackScopeTier.Vertical,
+                PackLifecycleState.Draft,
+                Array.Empty<PackSeedItem>(),
+                new Dictionary<string, int>(),
+                TimeProvider.System.GetUtcNow(),
+                packKey.PrincipalId,
+                PackComposerRoutes.OwnRosterEpoch,
+                TrustScope.OwnRoster,
+                Array.Empty<PackDependencyRef>());
+            store.Commit(new PackInstallTransaction(
+                OperatorTenant,
+                seed,
+                new PackInstallWatermark(seed.PackKey, seed.Version, new Dictionary<string, int>()),
+                Array.Empty<PackTenantOverride>()));
+
             await app.StartAsync(CancellationToken.None);
             var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };
-
-            var signedPack = await ExportSignedPackAsync(exporter, signer);
             return new Fixture(
                 outerProvider,
                 app,

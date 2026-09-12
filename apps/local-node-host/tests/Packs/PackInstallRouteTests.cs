@@ -46,6 +46,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
 
     private WebApplication _app = null!;
     private HttpClient _client = null!;
+    private HttpClient _unattributedClient = null!;
     private KeyPair _key = null!;
     private InMemoryPackInstallStore _store = null!;
 
@@ -93,7 +94,10 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
         {
-            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            if (http.Request.Headers.ContainsKey("X-Test-Desktop"))
+            {
+                http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            }
             await next(http);
         });
         PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam, authz, TimeProvider.System, NullLogger.Instance);
@@ -104,11 +108,14 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
+        _client.DefaultRequestHeaders.Add("X-Test-Desktop", "1");
+        _unattributedClient = new HttpClient { BaseAddress = _client.BaseAddress };
     }
 
     public async Task DisposeAsync()
     {
         _client?.Dispose();
+        _unattributedClient?.Dispose();
         _key?.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
@@ -138,6 +145,46 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Equal("Active", entry.GetProperty("lifecycle").GetString());
     }
 
+    [Fact(DisplayName = "nothing installed exposes only install; first install restores the full pack surface")]
+    public async Task Nothing_installed_exposes_only_install_then_restores_all_routes()
+    {
+        var absent = new[]
+        {
+            await _unattributedClient.PostAsync(PackInstallRoutes.PreviewRoute, new ByteArrayContent([1])),
+            await _unattributedClient.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, new { packKey = "acme.pack", version = "1.0.0" }),
+            await _unattributedClient.PostAsJsonAsync(PackInstallRoutes.DeactivateRoute, new { packKey = "acme.pack", version = "1.0.0" }),
+            await _unattributedClient.GetAsync(PackInstallRoutes.ListInstalledRoute),
+        };
+
+        foreach (var response in absent)
+        {
+            using (response)
+            {
+                using var unmapped = await _unattributedClient.SendAsync(new HttpRequestMessage(
+                    response.RequestMessage!.Method, "/api/local-node/packs/not-a-route"));
+                Assert.True(
+                    response.StatusCode == unmapped.StatusCode,
+                    $"Expected unavailable route '{response.RequestMessage.RequestUri}' to match an unmapped path; "
+                    + $"expected {(int)unmapped.StatusCode}, actual {(int)response.StatusCode}.");
+                Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            }
+        }
+
+        var packBytes = await ExportAsync(FormPackBody());
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+
+        using var preview = await PostBytesAsync(PackInstallRoutes.PreviewRoute, packBytes);
+        using var activate = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+            new { packKey = "acme.pack", version = "1.0.0" });
+        using var deactivate = await _client.PostAsJsonAsync(PackInstallRoutes.DeactivateRoute,
+            new { packKey = "acme.pack", version = "1.0.0" });
+        using var installed = await _client.GetAsync(PackInstallRoutes.ListInstalledRoute);
+        Assert.NotEqual(HttpStatusCode.NotFound, preview.StatusCode);
+        Assert.NotEqual(HttpStatusCode.NotFound, activate.StatusCode);
+        Assert.NotEqual(HttpStatusCode.NotFound, deactivate.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, installed.StatusCode);
+    }
+
     // ══ The REAL 0143 validator refuses an inadmissible workflow pack at install (S-9 / A7) ══
     [Fact(DisplayName = "install refuses an inadmissible workflow via the real 0143 validator (422)")]
     public async Task Install_refuses_an_inadmissible_workflow()
@@ -165,14 +212,16 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     [Fact(DisplayName = "preview does not mutate + surfaces stale revocation")]
     public async Task Preview_does_not_mutate()
     {
-        var packBytes = await ExportAsync(FormPackBody());
+        var installedBytes = await ExportAsync(FormPackBody());
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, installedBytes)).StatusCode);
+        var packBytes = await ExportAsync(FormPackBody("preview.acme.pack"));
         var preview = await PostBytesAsync(PackInstallRoutes.PreviewRoute, packBytes);
         Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
 
         using var doc = JsonDocument.Parse(await preview.Content.ReadAsStringAsync());
         Assert.Equal("WouldInstall", doc.RootElement.GetProperty("verdict").GetString());
         Assert.True(doc.RootElement.GetProperty("revocationStale").GetBoolean()); // offline: no channel list
-        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+        Assert.Single(_store.ListInstalled(NodeTenantFor()));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
@@ -191,9 +240,9 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         return _client.PostAsync(route, content);
     }
 
-    private static object FormPackBody() => new
+    private static object FormPackBody(string key = "acme.pack") => new
     {
-        key = "acme.pack",
+        key,
         version = "1.0.0",
         name = "Acme Pack",
         description = "form pack",

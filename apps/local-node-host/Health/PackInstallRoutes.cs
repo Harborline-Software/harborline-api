@@ -44,6 +44,16 @@ internal static class PackInstallRoutes
     /// <summary>The revocation-list staleness horizon surfaced in previews/installs.</summary>
     public static readonly TimeSpan RevocationMaxAge = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// Marks a pack route that does not exist until the tenant has installed its first pack.  The route
+    /// fences consume this metadata before making an audience decision, so an unavailable route has the
+    /// same response as an unmapped path rather than disclosing its later lifecycle through a refusal.
+    /// </summary>
+    internal sealed class PostInstallRouteAvailabilityMetadata(Func<bool> isAvailable)
+    {
+        public bool IsAvailable() => isAvailable();
+    }
+
     /// <summary>Maps the install routes, closing over the host-resolved dependencies (bug-2849 — the routes
     /// map onto the shared inner <c>WebApplication</c>). <paramref name="platform"/> is optional (back-compat
     /// embedders): when present, <c>GET /packs/installed</c> marks an Active-but-platform-refused pack so an
@@ -83,6 +93,11 @@ internal static class PackInstallRoutes
         // while the installed-pack read is already part of the LAN data-route allowlist.
         var selectedSession = app.MapSelectedSessionProductGroup();
         var deviceReachable = app.MapDeviceReachableProductDataGroup();
+        // This is deliberately evaluated while matching every non-installer request, rather than once at
+        // startup.  The first successful install therefore restores the ordinary pack surface immediately,
+        // without remapping endpoints or restarting the node.
+        var postInstallRoutes = new PostInstallRouteAvailabilityMetadata(() =>
+            store.ListInstalled(NodeTenant.Resolve(activeTeam)).Count != 0);
 
         // POST /packs/preview — verify + plan; NEVER mutates. OPERATE-side (council A-1): `packages:operate`.
         selectedSession.MapPost(PreviewRoute, async (HttpContext http, CancellationToken ct) =>
@@ -105,7 +120,7 @@ internal static class PackInstallRoutes
                 "Pack PREVIEW (tenant {Tenant}, pack {Key} v{Version}) → {Verdict}.",
                 tenant, preview.PackKey, preview.Version, preview.Verdict);
             return Results.Ok(ToPreviewDto(preview));
-        });
+        }).WithMetadata(postInstallRoutes);
 
         // POST /packs/install — verify → atomic seed layer (Draft). Optional break-glass via query.
         // OPERATE-side (council A-1): `packages:operate`.
@@ -255,7 +270,7 @@ internal static class PackInstallRoutes
 
             return Results.Ok(new ActivatePackResponseDto(
                 true, outcome.PackKey, outcome.Version, projectionRefusals, platformRefusals));
-        });
+        }).WithMetadata(postInstallRoutes);
 
         // POST /packs/deactivate — Active → Inactive plus reversible runtime retraction. No purge, no seed
         // deletion, no authored-revision deletion, and no tenant-record deletion.
@@ -333,7 +348,7 @@ internal static class PackInstallRoutes
 
             return Results.Ok(new DeactivatePackResponseDto(
                 true, outcome.PackKey, outcome.Version, projectionRefusals, platformRefusals));
-        });
+        }).WithMetadata(postInstallRoutes);
 
         // GET /packs/installed — list installed versions for the tenant. OPERATE-side: `packages:operate`.
         deviceReachable.MapGet(ListInstalledRoute, async (HttpContext http, CancellationToken ct) =>
@@ -360,7 +375,7 @@ internal static class PackInstallRoutes
                             && PackPlatformRequirementCheck.FindUnmet(p, platform).Count > 0))
                 .ToList();
             return Results.Ok(installed);
-        });
+        }).WithMetadata(postInstallRoutes);
     }
 
     private static async Task<byte[]> ReadBodyAsync(HttpRequest request, CancellationToken ct)
