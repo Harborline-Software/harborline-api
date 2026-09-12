@@ -13,8 +13,7 @@ using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Model;
-using Harborline.Api.Kernel.Runtime.Teams;
-using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -171,15 +170,16 @@ public static class CatalogueRoutes
     public const string RouteBase = "/api/local-node/catalogue/definitions";
     public const string TypesRoute = "/api/local-node/catalogue/types";
 
-    public static void Map(IEndpointRouteBuilder app, ICatalogue catalogue, IActiveTeamAccessor activeTeam)
+    public static void Map(IEndpointRouteBuilder app, ICatalogue catalogue)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(catalogue);
-        ArgumentNullException.ThrowIfNull(activeTeam);
 
         app.MapGet(RouteBase, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (principal is null) return Results.Unauthorized();
+            var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct) is { } denied)
                 return denied;
@@ -194,7 +194,9 @@ public static class CatalogueRoutes
         app.MapGet($"{RouteBase}/{{kind}}/{{id}}", async Task<IResult> (
             string kind, string id, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (principal is null) return Results.Unauthorized();
+            var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct) is { } denied)
                 return denied;
@@ -208,7 +210,9 @@ public static class CatalogueRoutes
 
         app.MapGet(TypesRoute, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (principal is null) return Results.Unauthorized();
+            var tenant = principal.TenantId;
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct) is { } denied)
                 return denied;
