@@ -186,7 +186,71 @@ public sealed record PackSeedProjectionSummary(
 public sealed record PackSeedProjectionRefusal(
     string ContentKey,
     PackContentKind ContentKind,
-    string Code);
+    string Code,
+    string Pointer = "/");
+
+/// <summary>Stable projection-refusal codes. Existing reason strings are the published codes.</summary>
+public static class PackSeedProjectionRefusalCodes
+{
+    public const string PlatformIncompatible = PackPlatformProjectionRefusal.Code;
+    public const string UnsupportedContentKind = PackSeedProjector.UnsupportedContentKindCode;
+    public const string AccessDefinitionRefused = PackSeedProjector.AccessProjectionRefusedCode;
+    public const string AccessSeamNotWired = PackSeedProjector.AccessProjectionNotWiredCode;
+    public const string TemplateContentKeyConflict = PackSeedProjector.TemplateContentKeyConflictCode;
+    public const string FormContentKeyConflict = PackSeedProjector.FormContentKeyConflictCode;
+    public const string WorkflowContentKeyConflict = PackSeedProjector.WorkflowContentKeyConflictCode;
+    public const string TaxonomyMalformed = PackSeedProjector.TaxonomyMalformedCode;
+    public const string TaxonomyAuthoritativeRequiresVendorPack = PackSeedProjector.TaxonomyAuthoritativeRequiresVendorPackCode;
+    public const string TaxonomyTenantRegimeRequiresTenantPack = PackSeedProjector.TaxonomyTenantRegimeRequiresTenantPackCode;
+    public const string ReportDefinitionMalformed = PackSeedProjector.ReportDefinitionMalformedCode;
+    public const string ReportDefinitionAuthoritativeRequiresVendorPack = PackSeedProjector.ReportDefinitionAuthoritativeRequiresVendorPackCode;
+    public const string ReportDefinitionTenantRegimeRequiresTenantPack = PackSeedProjector.ReportDefinitionTenantRegimeRequiresTenantPackCode;
+    public const string DataExchangeDefinitionMalformed = PackSeedProjector.DataExchangeDefinitionMalformedCode;
+    public const string DataExchangeDefinitionAuthoritativeRequiresVendorPack = PackSeedProjector.DataExchangeDefinitionAuthoritativeRequiresVendorPackCode;
+    public const string DataExchangeDefinitionTenantRegimeRequiresTenantPack = PackSeedProjector.DataExchangeDefinitionTenantRegimeRequiresTenantPackCode;
+    public const string ScheduleDefinitionMalformed = PackSeedProjector.ScheduleDefinitionMalformedCode;
+    public const string ScheduleDefinitionAuthoritativeRequiresVendorPack = PackSeedProjector.ScheduleDefinitionAuthoritativeRequiresVendorPackCode;
+    public const string ScheduleDefinitionTenantRegimeRequiresTenantPack = PackSeedProjector.ScheduleDefinitionTenantRegimeRequiresTenantPackCode;
+    public const string ViewDefinitionMalformed = PackSeedProjector.ViewDefinitionMalformedCode;
+    public const string ViewDefinitionAuthoritativeRequiresVendorPack = PackSeedProjector.ViewDefinitionAuthoritativeRequiresVendorPackCode;
+    public const string ViewDefinitionTenantRegimeRequiresTenantPack = PackSeedProjector.ViewDefinitionTenantRegimeRequiresTenantPackCode;
+    public const string StandingRuleDefinitionMalformed = PackSeedProjector.StandingRuleDefinitionMalformedCode;
+    public const string DefinitionRetractionFailedCode = PackSeedProjector.DefinitionRetractionFailedCode;
+    public const string TemplateProjectionFailedCode = PackSeedProjector.TemplateProjectionFailedCode;
+    public const string FormProjectionFailedCode = PackSeedProjector.FormProjectionFailedCode;
+    public const string WorkflowProjectionFailedCode = PackSeedProjector.WorkflowProjectionFailedCode;
+    public const string TemplateMalformedCode = PackSeedProjector.TemplateMalformedCode;
+    public const string TemplateKeyMismatchCode = PackSeedProjector.TemplateKeyMismatchCode;
+    public const string TemplateVersionMismatchCode = PackSeedProjector.TemplateVersionMismatchCode;
+    public const string TemplatePinnedTupleConflictCode = PackSeedProjector.TemplatePinnedTupleConflictCode;
+    public const string FormMalformedCode = PackSeedProjector.FormMalformedCode;
+    public const string FormPinnedTupleConflictCode = PackSeedProjector.FormPinnedTupleConflictCode;
+    public const string FormRetractionFailedCode = PackSeedProjector.FormRetractionFailedCode;
+    public const string WorkflowMalformedCode = PackSeedProjector.WorkflowMalformedCode;
+    public const string WorkflowPinnedTupleConflictCode = PackSeedProjector.WorkflowPinnedTupleConflictCode;
+    public const string WorkflowRetractionFailedCode = PackSeedProjector.WorkflowRetractionFailedCode;
+    public const string AssetRetractionFailedCode = PackSeedProjector.AssetRetractionFailedCode;
+    public const string TaxonomyRegistryNotWiredCode = PackSeedProjector.TaxonomyRegistryNotWiredCode;
+    public const string TaxonomyPinnedTupleConflictCode = PackSeedProjector.TaxonomyPinnedTupleConflictCode;
+    public const string TaxonomyProjectionFailedCode = PackSeedProjector.TaxonomyProjectionFailedCode;
+    public const string ReportDefinitionRegistryNotWiredCode = PackSeedProjector.ReportDefinitionRegistryNotWiredCode;
+    public const string ReportDefinitionPinnedTupleConflictCode = PackSeedProjector.ReportDefinitionPinnedTupleConflictCode;
+    public const string ReportDefinitionProjectionFailedCode = PackSeedProjector.ReportDefinitionProjectionFailedCode;
+    public const string DataExchangeDefinitionRegistryNotWiredCode = PackSeedProjector.DataExchangeDefinitionRegistryNotWiredCode;
+    public const string DataExchangeDefinitionPinnedTupleConflictCode = PackSeedProjector.DataExchangeDefinitionPinnedTupleConflictCode;
+    public const string DataExchangeDefinitionProjectionFailedCode = PackSeedProjector.DataExchangeDefinitionProjectionFailedCode;
+    public const string ScheduleDefinitionRegistryNotWiredCode = PackSeedProjector.ScheduleDefinitionRegistryNotWiredCode;
+    public const string ScheduleDefinitionPinnedTupleConflictCode = PackSeedProjector.ScheduleDefinitionPinnedTupleConflictCode;
+    public const string ScheduleDefinitionProjectionFailedCode = PackSeedProjector.ScheduleDefinitionProjectionFailedCode;
+    public const string ViewDefinitionRegistryNotWiredCode = PackSeedProjector.ViewDefinitionRegistryNotWiredCode;
+    public const string ViewDefinitionPinnedTupleConflictCode = PackSeedProjector.ViewDefinitionPinnedTupleConflictCode;
+    public const string ViewDefinitionProjectionFailedCode = PackSeedProjector.ViewDefinitionProjectionFailedCode;
+    public const string StandingRuleDefinitionStoreNotWiredCode = PackSeedProjector.StandingRuleDefinitionStoreNotWiredCode;
+    public const string StandingRuleDefinitionPinnedTupleConflictCode = PackSeedProjector.StandingRuleDefinitionPinnedTupleConflictCode;
+    public const string GrantInstanceRefusedCode = PackAuthorizationContentAdmission.GrantInstanceRefusedCode;
+    public const string RoleDefinitionMalformedCode = PackAuthorizationContentAdmission.RoleDefinitionMalformedCode;
+    public const string CapabilityBindingMalformedCode = PackAuthorizationContentAdmission.CapabilityBindingMalformedCode;
+}
 
 /// <summary>
 /// One ACTIVE pack refused by a projection pass because the running platform is outside its declared
@@ -197,7 +261,8 @@ public sealed record PackPlatformProjectionRefusal(
     string PackKey,
     string Version,
     string PlatformVersion,
-    IReadOnlyList<PackUnmetPlatformRequirement> Unmet)
+    IReadOnlyList<PackUnmetPlatformRequirement> Unmet,
+    string Pointer = "/")
 {
     /// <summary>The stable refusal code for this pack-grain refusal (family-consistent with
     /// <c>pack.projection.unsupported_content_kind</c> — projection codes carry no <c>.refused.</c>
@@ -467,7 +532,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     first.Capability, first.DeclaredBy, first.Failure,
                     first.MinimumPlatformVersion ?? "(none declared)", _platform.PlatformVersion);
                 platformRefusals.Add(new PackPlatformProjectionRefusal(
-                    pack.PackKey, pack.Version, _platform.PlatformVersion, unmetPlatform));
+                    pack.PackKey, pack.Version, _platform.PlatformVersion, unmetPlatform, "/"));
                 platformRefused.Add(pack);
             }
         }
@@ -523,7 +588,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     else if (item.Kind == PackContentKind.WorkflowDefinition) { workflowsInvalid++; }
                     else { invalid++; }
                     refusals.Add(new PackSeedProjectionRefusal(
-                        item.Key, item.Kind, result.RefusalCode ?? DefinitionRetractionFailedCode));
+                        item.Key, item.Kind, result.RefusalCode ?? PackSeedProjectionRefusalCodes.DefinitionRetractionFailedCode,
+                        ContentPointer(pack, item)));
                     break;
             }
         }
@@ -577,7 +643,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         PackAuthorizationContentAdmission.GrantInstanceRefusedCode);
                     refusals.Add(new PackSeedProjectionRefusal(
                         item.Key, item.Kind,
-                        PackAuthorizationContentAdmission.GrantInstanceRefusedCode));
+                        PackSeedProjectionRefusalCodes.GrantInstanceRefusedCode,
+                        ContentPointer(pack, item)));
                 }
 
                 continue;
@@ -595,9 +662,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     "PackSeedProjector: REFUSED pack {Pack} v{Version} — item '{Key}' ({Kind}) claims a "
                     + "sealed system record type ({Code}). Compiled platform types are not pack content.",
                     pack.PackKey, pack.Version, item.Key, item.Kind,
-                    PackSealedSystemTypeAdmission.RefusedCode);
+                    PackSealedSystemTypeAdmissionCodes.RefusedCode);
                 refusals.Add(new PackSeedProjectionRefusal(
-                    item.Key, item.Kind, PackSealedSystemTypeAdmission.RefusedCode));
+                    item.Key, item.Kind, PackSealedSystemTypeAdmissionCodes.RefusedCode,
+                    ContentPointer(pack, item)));
             }
 
             // Role names before the bindings that offer them: admission resolves every offered role
@@ -625,7 +693,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                         refusals.Add(new PackSeedProjectionRefusal(
                                             item.Key,
                                             item.Kind,
-                                            template.RefusalCode ?? TemplateProjectionFailedCode));
+                                            template.RefusalCode ?? PackSeedProjectionRefusalCodes.TemplateProjectionFailedCode,
+                                            ContentPointer(pack, item)));
                                         break;
                                     default:
                                         // Deferred or exact replay — recognized, but no new publication.
@@ -650,7 +719,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     TemplateContentKeyConflictCode);
                                 templatesInvalid++;
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, TemplateContentKeyConflictCode));
+                                    item.Key, item.Kind, PackSeedProjectionRefusalCodes.TemplateContentKeyConflict, ContentPointer(pack, item)));
                                 break;
                         }
 
@@ -714,7 +783,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                         refusals.Add(new PackSeedProjectionRefusal(
                                             item.Key,
                                             item.Kind,
-                                            form.RefusalCode ?? FormProjectionFailedCode));
+                                            form.RefusalCode ?? PackSeedProjectionRefusalCodes.FormProjectionFailedCode,
+                                            ContentPointer(pack, item)));
                                         break;
                                 }
 
@@ -736,7 +806,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     FormContentKeyConflictCode);
                                 formsContestedUnresolved++;
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, FormContentKeyConflictCode));
+                                    item.Key, item.Kind, PackSeedProjectionRefusalCodes.FormContentKeyConflict, ContentPointer(pack, item)));
                                 break;
                         }
 
@@ -765,7 +835,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                         refusals.Add(new PackSeedProjectionRefusal(
                                             item.Key,
                                             item.Kind,
-                                            workflow.RefusalCode ?? WorkflowProjectionFailedCode));
+                                            workflow.RefusalCode ?? PackSeedProjectionRefusalCodes.WorkflowProjectionFailedCode,
+                                            ContentPointer(pack, item)));
                                         break;
                                 }
 
@@ -788,7 +859,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     WorkflowContentKeyConflictCode);
                                 workflowsContestedUnresolved++;
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, WorkflowContentKeyConflictCode));
+                                    item.Key, item.Kind, PackSeedProjectionRefusalCodes.WorkflowContentKeyConflict, ContentPointer(pack, item)));
                                 break;
                         }
 
@@ -798,7 +869,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseTaxonomy(item, out var taxonomy))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, TaxonomyMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.TaxonomyMalformed, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -808,7 +879,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             if (taxonomyRefusal is not null)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, taxonomyRefusal));
+                                    item.Key, item.Kind, taxonomyRefusal, ContentPointer(pack, item)));
                             }
                         }
 
@@ -818,7 +889,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseReportDefinition(item, out var reportDefinition))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, ReportDefinitionMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.ReportDefinitionMalformed, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -828,7 +899,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             if (reportDefinitionRefusal is not null)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, reportDefinitionRefusal));
+                                    item.Key, item.Kind, reportDefinitionRefusal, ContentPointer(pack, item)));
                             }
                         }
 
@@ -838,7 +909,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseDataExchangeDefinition(item, out var dataExchangeDefinition))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, DataExchangeDefinitionMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.DataExchangeDefinitionMalformed, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -848,7 +919,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             if (dataExchangeDefinitionRefusal is not null)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, dataExchangeDefinitionRefusal));
+                                    item.Key, item.Kind, dataExchangeDefinitionRefusal, ContentPointer(pack, item)));
                             }
                         }
 
@@ -858,7 +929,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseScheduleDefinition(item, out var scheduleDefinition))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, ScheduleDefinitionMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.ScheduleDefinitionMalformed, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -868,7 +939,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             if (scheduleDefinitionRefusal is not null)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, scheduleDefinitionRefusal));
+                                    item.Key, item.Kind, scheduleDefinitionRefusal, ContentPointer(pack, item)));
                             }
                         }
 
@@ -878,7 +949,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseViewDefinition(item, out var viewDefinition))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, ViewDefinitionMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.ViewDefinitionMalformed, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -888,7 +959,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             if (viewDefinitionRefusal is not null)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, viewDefinitionRefusal));
+                                    item.Key, item.Kind, viewDefinitionRefusal, ContentPointer(pack, item)));
                             }
                         }
 
@@ -898,12 +969,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (!TryParseStandingRuleDefinition(item, out var standingRule))
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, StandingRuleDefinitionMalformedCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.StandingRuleDefinitionMalformed, ContentPointer(pack, item)));
                         }
                         else if (_standingRules is null)
                         {
                             refusals.Add(new PackSeedProjectionRefusal(
-                                item.Key, item.Kind, StandingRuleDefinitionStoreNotWiredCode));
+                                item.Key, item.Kind, PackSeedProjectionRefusalCodes.StandingRuleDefinitionStoreNotWiredCode, ContentPointer(pack, item)));
                         }
                         else
                         {
@@ -915,7 +986,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             catch (InvalidOperationException)
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
-                                    item.Key, item.Kind, StandingRuleDefinitionPinnedTupleConflictCode));
+                                    item.Key, item.Kind, PackSeedProjectionRefusalCodes.StandingRuleDefinitionPinnedTupleConflictCode, ContentPointer(pack, item)));
                             }
                         }
 
@@ -926,7 +997,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         if (await ProjectAccessItemAsync(pack, item, authority, cancellationToken)
                                 .ConfigureAwait(false) is { } accessRefusal)
                         {
-                            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, accessRefusal));
+                            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, accessRefusal, ContentPointer(pack, item)));
                         }
 
                         break;
@@ -944,7 +1015,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         refusals.Add(new PackSeedProjectionRefusal(
                             item.Key,
                             item.Kind,
-                            UnsupportedContentKindCode));
+                            PackSeedProjectionRefusalCodes.UnsupportedContentKind,
+                            ContentPointer(pack, item)));
                         break;
                 }
             }
@@ -1290,19 +1362,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         if (_taxonomies is null)
         {
-            return TaxonomyRegistryNotWiredCode;
+            return PackSeedProjectionRefusalCodes.TaxonomyRegistryNotWiredCode;
         }
 
         if (taxonomy.Governance == TaxonomyGovernanceRegime.Authoritative)
         {
             if (pack.VouchingScope != TrustScope.HarborlineChannel)
             {
-                return TaxonomyAuthoritativeRequiresVendorPackCode;
+                return PackSeedProjectionRefusalCodes.TaxonomyAuthoritativeRequiresVendorPack;
             }
         }
         else if (pack.VouchingScope != TrustScope.OwnRoster)
         {
-            return TaxonomyTenantRegimeRequiresTenantPackCode;
+            return PackSeedProjectionRefusalCodes.TaxonomyTenantRegimeRequiresTenantPack;
         }
 
         try
@@ -1314,7 +1386,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 return TaxonomiesAreEquivalent(existing, taxonomy)
                     ? null
-                    : TaxonomyPinnedTupleConflictCode;
+                    : PackSeedProjectionRefusalCodes.TaxonomyPinnedTupleConflictCode;
             }
 
             await _taxonomies.CreateAsync(
@@ -1331,11 +1403,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         }
         catch (TaxonomyGovernanceException)
         {
-            return TaxonomyPinnedTupleConflictCode;
+            return PackSeedProjectionRefusalCodes.TaxonomyPinnedTupleConflictCode;
         }
         catch (TaxonomyConflictException)
         {
-            return TaxonomyPinnedTupleConflictCode;
+            return PackSeedProjectionRefusalCodes.TaxonomyPinnedTupleConflictCode;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1348,7 +1420,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 pack.PackKey,
                 pack.Version,
                 TaxonomyProjectionFailedCode);
-            return TaxonomyProjectionFailedCode;
+            return PackSeedProjectionRefusalCodes.TaxonomyProjectionFailedCode;
         }
     }
 
@@ -1386,19 +1458,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         if (_reportDefinitions is null)
         {
-            return ReportDefinitionRegistryNotWiredCode;
+            return PackSeedProjectionRefusalCodes.ReportDefinitionRegistryNotWiredCode;
         }
 
         if (definition.Envelope.CascadeLayer != CascadeLayer.Tenant)
         {
             if (pack.VouchingScope != TrustScope.HarborlineChannel)
             {
-                return ReportDefinitionAuthoritativeRequiresVendorPackCode;
+                return PackSeedProjectionRefusalCodes.ReportDefinitionAuthoritativeRequiresVendorPack;
             }
         }
         else if (pack.VouchingScope != TrustScope.OwnRoster)
         {
-            return ReportDefinitionTenantRegimeRequiresTenantPackCode;
+            return PackSeedProjectionRefusalCodes.ReportDefinitionTenantRegimeRequiresTenantPack;
         }
 
         // Projection preserves the pack's exact version string: parsing pinned it to item.Version, and
@@ -1414,7 +1486,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 return ReportDefinitionsAreEquivalent(existing, tenantScoped)
                     ? null
-                    : ReportDefinitionPinnedTupleConflictCode;
+                    : PackSeedProjectionRefusalCodes.ReportDefinitionPinnedTupleConflictCode;
             }
 
             await _reportDefinitions.RegisterAsync(tenantScoped, cancellationToken).ConfigureAwait(false);
@@ -1427,8 +1499,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return StringComparer.Ordinal.Equals(
                     ex.ErrorCode,
                     "report_definition.pinned_tuple_conflict")
-                ? ReportDefinitionPinnedTupleConflictCode
-                : ReportDefinitionMalformedCode;
+                ? PackSeedProjectionRefusalCodes.ReportDefinitionPinnedTupleConflictCode
+                : PackSeedProjectionRefusalCodes.ReportDefinitionMalformed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1441,7 +1513,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 pack.PackKey,
                 pack.Version,
                 ReportDefinitionProjectionFailedCode);
-            return ReportDefinitionProjectionFailedCode;
+            return PackSeedProjectionRefusalCodes.ReportDefinitionProjectionFailedCode;
         }
     }
 
@@ -1486,19 +1558,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         if (_dataExchangeDefinitions is null)
         {
-            return DataExchangeDefinitionRegistryNotWiredCode;
+            return PackSeedProjectionRefusalCodes.DataExchangeDefinitionRegistryNotWiredCode;
         }
 
         if (definition.Envelope.CascadeLayer != CascadeLayer.Tenant)
         {
             if (pack.VouchingScope != TrustScope.HarborlineChannel)
             {
-                return DataExchangeDefinitionAuthoritativeRequiresVendorPackCode;
+                return PackSeedProjectionRefusalCodes.DataExchangeDefinitionAuthoritativeRequiresVendorPack;
             }
         }
         else if (pack.VouchingScope != TrustScope.OwnRoster)
         {
-            return DataExchangeDefinitionTenantRegimeRequiresTenantPackCode;
+            return PackSeedProjectionRefusalCodes.DataExchangeDefinitionTenantRegimeRequiresTenantPack;
         }
 
         // Projection preserves the pack's exact version string: parsing pinned it to item.Version, and
@@ -1514,7 +1586,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 return DataExchangeDefinitionsAreEquivalent(existing, tenantScoped)
                     ? null
-                    : DataExchangeDefinitionPinnedTupleConflictCode;
+                    : PackSeedProjectionRefusalCodes.DataExchangeDefinitionPinnedTupleConflictCode;
             }
 
             await _dataExchangeDefinitions.RegisterAsync(tenantScoped, cancellationToken).ConfigureAwait(false);
@@ -1527,8 +1599,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return StringComparer.Ordinal.Equals(
                     ex.ErrorCode,
                     "data_exchange_definition.pinned_tuple_conflict")
-                ? DataExchangeDefinitionPinnedTupleConflictCode
-                : DataExchangeDefinitionMalformedCode;
+                ? PackSeedProjectionRefusalCodes.DataExchangeDefinitionPinnedTupleConflictCode
+                : PackSeedProjectionRefusalCodes.DataExchangeDefinitionMalformed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1541,7 +1613,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 pack.PackKey,
                 pack.Version,
                 DataExchangeDefinitionProjectionFailedCode);
-            return DataExchangeDefinitionProjectionFailedCode;
+            return PackSeedProjectionRefusalCodes.DataExchangeDefinitionProjectionFailedCode;
         }
     }
 
@@ -1586,19 +1658,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         if (_scheduleDefinitions is null)
         {
-            return ScheduleDefinitionRegistryNotWiredCode;
+            return PackSeedProjectionRefusalCodes.ScheduleDefinitionRegistryNotWiredCode;
         }
 
         if (definition.Envelope.CascadeLayer != CascadeLayer.Tenant)
         {
             if (pack.VouchingScope != TrustScope.HarborlineChannel)
             {
-                return ScheduleDefinitionAuthoritativeRequiresVendorPackCode;
+                return PackSeedProjectionRefusalCodes.ScheduleDefinitionAuthoritativeRequiresVendorPack;
             }
         }
         else if (pack.VouchingScope != TrustScope.OwnRoster)
         {
-            return ScheduleDefinitionTenantRegimeRequiresTenantPackCode;
+            return PackSeedProjectionRefusalCodes.ScheduleDefinitionTenantRegimeRequiresTenantPack;
         }
 
         // Projection preserves the pack's exact version string: parsing pinned it to item.Version, and
@@ -1614,7 +1686,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 return ScheduleDefinitionsAreEquivalent(existing, tenantScoped)
                     ? null
-                    : ScheduleDefinitionPinnedTupleConflictCode;
+                    : PackSeedProjectionRefusalCodes.ScheduleDefinitionPinnedTupleConflictCode;
             }
 
             await _scheduleDefinitions.RegisterAsync(tenantScoped, cancellationToken).ConfigureAwait(false);
@@ -1627,8 +1699,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return StringComparer.Ordinal.Equals(
                     ex.ErrorCode,
                     "schedule_definition.pinned_tuple_conflict")
-                ? ScheduleDefinitionPinnedTupleConflictCode
-                : ScheduleDefinitionMalformedCode;
+                ? PackSeedProjectionRefusalCodes.ScheduleDefinitionPinnedTupleConflictCode
+                : PackSeedProjectionRefusalCodes.ScheduleDefinitionMalformed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1641,7 +1713,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 pack.PackKey,
                 pack.Version,
                 ScheduleDefinitionProjectionFailedCode);
-            return ScheduleDefinitionProjectionFailedCode;
+            return PackSeedProjectionRefusalCodes.ScheduleDefinitionProjectionFailedCode;
         }
     }
 
@@ -1686,19 +1758,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         if (_viewDefinitions is null)
         {
-            return ViewDefinitionRegistryNotWiredCode;
+            return PackSeedProjectionRefusalCodes.ViewDefinitionRegistryNotWiredCode;
         }
 
         if (definition.Envelope.CascadeLayer != CascadeLayer.Tenant)
         {
             if (pack.VouchingScope != TrustScope.HarborlineChannel)
             {
-                return ViewDefinitionAuthoritativeRequiresVendorPackCode;
+                return PackSeedProjectionRefusalCodes.ViewDefinitionAuthoritativeRequiresVendorPack;
             }
         }
         else if (pack.VouchingScope != TrustScope.OwnRoster)
         {
-            return ViewDefinitionTenantRegimeRequiresTenantPackCode;
+            return PackSeedProjectionRefusalCodes.ViewDefinitionTenantRegimeRequiresTenantPack;
         }
 
         // Projection preserves the pack's exact version string: parsing pinned it to item.Version, and
@@ -1714,7 +1786,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 return ViewDefinitionsAreEquivalent(existing, tenantScoped)
                     ? null
-                    : ViewDefinitionPinnedTupleConflictCode;
+                    : PackSeedProjectionRefusalCodes.ViewDefinitionPinnedTupleConflictCode;
             }
 
             await _viewDefinitions.RegisterAsync(tenantScoped, cancellationToken).ConfigureAwait(false);
@@ -1727,8 +1799,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return StringComparer.Ordinal.Equals(
                     ex.ErrorCode,
                     "view_definition.pinned_tuple_conflict")
-                ? ViewDefinitionPinnedTupleConflictCode
-                : ViewDefinitionMalformedCode;
+                ? PackSeedProjectionRefusalCodes.ViewDefinitionPinnedTupleConflictCode
+                : PackSeedProjectionRefusalCodes.ViewDefinitionMalformed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1741,7 +1813,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 pack.PackKey,
                 pack.Version,
                 ViewDefinitionProjectionFailedCode);
-            return ViewDefinitionProjectionFailedCode;
+            return PackSeedProjectionRefusalCodes.ViewDefinitionProjectionFailedCode;
         }
     }
 
@@ -1826,7 +1898,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     WorkflowDefinitionWireMapper.CanonicalizeAuthoredWire(expected)))
             {
                 return new RetractionResult(
-                    RetractionOutcome.Invalid, WorkflowPinnedTupleConflictCode);
+                    RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowPinnedTupleConflictCode);
             }
 
             if (existing.Status == WorkflowDefinitionStatus.Withdrawn)
@@ -1854,7 +1926,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: workflow '{Key}' from inactive pack {Pack} v{Version} failed "
                 + "retraction with code {Code}; retained content was not deleted.",
                 item.Key, pack.PackKey, pack.Version, WorkflowRetractionFailedCode);
-            return new RetractionResult(RetractionOutcome.Invalid, WorkflowRetractionFailedCode);
+            return new RetractionResult(
+                RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowRetractionFailedCode);
         }
     }
 
@@ -1925,7 +1998,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         {
             var code = ex.Result.Violations.Count > 0
                 ? ex.Result.Violations[0].Code
-                : WorkflowProjectionFailedCode;
+                : PackSeedProjectionRefusalCodes.WorkflowProjectionFailedCode;
             _logger.LogWarning(
                 ex, "PackSeedProjector: workflow '{Key}' from pack {Pack} v{Version} failed authoring admission "
                 + "with code {Code}; activation remains unchanged.",
@@ -1946,7 +2019,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: workflow '{Key}' from pack {Pack} v{Version} is malformed; refusing "
                 + "with code {Code} without changing activation.",
                 item.Key, pack.PackKey, pack.Version, WorkflowMalformedCode);
-            return new WorkflowProjectionResult(WorkflowDefinitionOutcome.Invalid, WorkflowMalformedCode);
+            return new WorkflowProjectionResult(
+                WorkflowDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowMalformedCode);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -1954,7 +2028,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: workflow '{Key}' from pack {Pack} v{Version} failed projection; "
                 + "refusing with code {Code} without changing activation.",
                 item.Key, pack.PackKey, pack.Version, WorkflowProjectionFailedCode);
-            return new WorkflowProjectionResult(WorkflowDefinitionOutcome.Invalid, WorkflowProjectionFailedCode);
+            return new WorkflowProjectionResult(
+                WorkflowDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowProjectionFailedCode);
         }
     }
 
@@ -1975,7 +2050,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 + "(code {Code}).",
                 existing.Key, existing.Version, pack.PackKey, pack.Version, WorkflowPinnedTupleConflictCode);
             return new WorkflowProjectionResult(
-                WorkflowDefinitionOutcome.Invalid, WorkflowPinnedTupleConflictCode);
+                WorkflowDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowPinnedTupleConflictCode);
         }
 
         if (existing.Status == WorkflowDefinitionStatus.Published)
@@ -2009,7 +2084,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 existing.Key, existing.Version, pack.PackKey, pack.Version, existing.Status,
                 WorkflowPinnedTupleConflictCode);
             return new WorkflowProjectionResult(
-                WorkflowDefinitionOutcome.Invalid, WorkflowPinnedTupleConflictCode);
+                WorkflowDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.WorkflowPinnedTupleConflictCode);
         }
 
         await _authorizedWorkflows!
@@ -2103,7 +2178,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             if (!PackFormDefinitionContent.TryParse(
                     item.ParseContent(), out var request, out var envelope, out _))
             {
-                return new RetractionResult(RetractionOutcome.Invalid, FormMalformedCode);
+                return new RetractionResult(
+                    RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormMalformedCode);
             }
 
             var id = new FormDefinitionId(item.Key);
@@ -2114,7 +2190,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .ConfigureAwait(false);
             if (!EnvelopeCoordinatesMatch(envelope, id, version, tenant))
             {
-                return new RetractionResult(RetractionOutcome.Invalid, FormPinnedTupleConflictCode);
+                return new RetractionResult(
+                    RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
                 id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
@@ -2132,7 +2209,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
 
             if (!MatchesPinnedPackDefinition(existing, expected))
             {
-                return new RetractionResult(RetractionOutcome.Invalid, FormPinnedTupleConflictCode);
+                return new RetractionResult(
+                    RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             if (existing.Status == FormDefinitionStatus.Withdrawn)
             {
@@ -2158,7 +2236,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: form '{Key}' from inactive pack {Pack} v{Version} failed "
                 + "retraction with code {Code}; retained content was not deleted.",
                 item.Key, pack.PackKey, pack.Version, FormRetractionFailedCode);
-            return new RetractionResult(RetractionOutcome.Invalid, FormRetractionFailedCode);
+            return new RetractionResult(
+                RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormRetractionFailedCode);
         }
     }
 
@@ -2187,7 +2266,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     "PackSeedProjector: skipping malformed FormDefinition '{Key}' (pack {Pack} v{Version}): "
                     + "{Error} (code {Code}).",
                     item.Key, pack.PackKey, pack.Version, parseError, FormMalformedCode);
-                return new FormProjectionResult(FormDefinitionOutcome.Invalid, FormMalformedCode);
+                return new FormProjectionResult(
+                    FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormMalformedCode);
             }
 
             var id = new FormDefinitionId(item.Key);
@@ -2203,7 +2283,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     + "v{PackVersion}: its definition envelope disagrees with the verified pack tuple "
                     + "(code {Code}).",
                     item.Key, item.Version, pack.PackKey, pack.Version, FormPinnedTupleConflictCode);
-                return new FormProjectionResult(FormDefinitionOutcome.Invalid, FormPinnedTupleConflictCode);
+                return new FormProjectionResult(
+                    FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
                 id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
@@ -2252,7 +2333,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         }
         catch (FormDefinitionValidationException ex)
         {
-            var code = ex.Code ?? FormProjectionFailedCode;
+            var code = ex.Code ?? PackSeedProjectionRefusalCodes.FormProjectionFailedCode;
             _logger.LogWarning(
                 ex, "PackSeedProjector: FormDefinition '{Key}' (pack {Pack} v{Version}) failed publish "
                 + "admission with code {Code}; skipping without affecting other pack content.",
@@ -2273,7 +2354,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: FormDefinition '{Key}' (pack {Pack} v{Version}) failed pinned-content "
                 + "validation or projection with code {Code} — skipping without affecting other pack content.",
                 item.Key, pack.PackKey, pack.Version, FormProjectionFailedCode);
-            return new FormProjectionResult(FormDefinitionOutcome.Invalid, FormProjectionFailedCode);
+            return new FormProjectionResult(
+                FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormProjectionFailedCode);
         }
     }
 
@@ -2290,7 +2372,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 "PackSeedProjector: refusing FormDefinition '{Key}' v{FormVersion} from pack {Pack} v{PackVersion}: "
                 + "the pinned tuple already exists with different content or a non-system owner (code {Code}).",
                 expected.Id.Value, expected.Version, pack.PackKey, pack.Version, FormPinnedTupleConflictCode);
-            return new FormProjectionResult(FormDefinitionOutcome.Invalid, FormPinnedTupleConflictCode);
+            return new FormProjectionResult(
+                FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
         }
 
         if (existing.Status == FormDefinitionStatus.Published)
@@ -2324,7 +2407,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 + "the matching revision is {Status}, not Draft or Published (code {Code}).",
                 expected.Id.Value, expected.Version, pack.PackKey, pack.Version, existing.Status,
                 FormPinnedTupleConflictCode);
-            return new FormProjectionResult(FormDefinitionOutcome.Invalid, FormPinnedTupleConflictCode);
+            return new FormProjectionResult(
+                FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
         }
 
         FormDefinitionPublishAdmission.ValidateOrThrow(expected);
@@ -2460,7 +2544,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     "PackSeedProjector: skipping malformed TemplateDefinition '{Key}' (pack {Pack} v{Version}): "
                     + "{Error}.",
                     item.Key, pack.PackKey, pack.Version, parseError);
-                return new TemplateProjectionResult(TemplateOutcome.Invalid, TemplateMalformedCode);
+                return new TemplateProjectionResult(
+                    TemplateOutcome.Invalid, PackSeedProjectionRefusalCodes.TemplateMalformedCode);
             }
 
             if (!string.Equals(template.Key, item.Key, StringComparison.Ordinal))
@@ -2469,7 +2554,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     "PackSeedProjector: TemplateDefinition envelope key '{EnvelopeKey}' does not match body "
                     + "key '{BodyKey}' (pack {Pack} v{Version}) — refusing with code {Code}.",
                     item.Key, template.Key, pack.PackKey, pack.Version, TemplateKeyMismatchCode);
-                return new TemplateProjectionResult(TemplateOutcome.Invalid, TemplateKeyMismatchCode);
+                return new TemplateProjectionResult(
+                    TemplateOutcome.Invalid, PackSeedProjectionRefusalCodes.TemplateKeyMismatchCode);
             }
 
             if (!string.Equals(template.Version, item.Version, StringComparison.Ordinal))
@@ -2480,7 +2566,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     + "{Code}.",
                     item.Key, item.Version, template.Version, pack.PackKey, pack.Version,
                     TemplateVersionMismatchCode);
-                return new TemplateProjectionResult(TemplateOutcome.Invalid, TemplateVersionMismatchCode);
+                return new TemplateProjectionResult(
+                    TemplateOutcome.Invalid, PackSeedProjectionRefusalCodes.TemplateVersionMismatchCode);
             }
 
             var existing = _templates.Resolve(item.Key, item.Version);
@@ -2496,7 +2583,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     + "different body — refusing with code {Code}.",
                     item.Key, item.Version, TemplatePinnedTupleConflictCode);
                 return new TemplateProjectionResult(
-                    TemplateOutcome.Invalid, TemplatePinnedTupleConflictCode);
+                    TemplateOutcome.Invalid, PackSeedProjectionRefusalCodes.TemplatePinnedTupleConflictCode);
             }
 
             _templates.Publish(template);
@@ -2512,7 +2599,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: TemplateDefinition '{Key}' (pack {Pack} v{Version}) failed to project — "
                 + "skipping.",
                 item.Key, pack.PackKey, pack.Version);
-            return new TemplateProjectionResult(TemplateOutcome.Invalid, TemplateProjectionFailedCode);
+            return new TemplateProjectionResult(
+                TemplateOutcome.Invalid, PackSeedProjectionRefusalCodes.TemplateProjectionFailedCode);
         }
     }
 
@@ -2679,7 +2767,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: asset type '{Key}' from inactive pack {Pack} v{Version} could not "
                 + "be retracted; retained content was not deleted.",
                 item.Key, pack.PackKey, pack.Version);
-            return new RetractionResult(RetractionOutcome.Invalid, AssetRetractionFailedCode);
+            return new RetractionResult(
+                RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.AssetRetractionFailedCode);
         }
     }
 
@@ -2688,6 +2777,20 @@ internal sealed class PackSeedProjector : IPackSeedProjector
 
     /// <summary>The declared role or binding was refused by the platform authorization admission.</summary>
     public const string AccessProjectionRefusedCode = "pack.projection.access_definition_refused";
+
+    /// <summary>Returns the RFC 6901 location of immutable item bytes in its exported pack document.</summary>
+    private static string ContentPointer(InstalledPack pack, PackSeedItem item)
+    {
+        for (var index = 0; index < pack.SeedItems.Count; index++)
+        {
+            if (StringComparer.Ordinal.Equals(pack.SeedItems[index].Key, item.Key))
+            {
+                return $"/contents/{index}/contentBase64";
+            }
+        }
+
+        return "/";
+    }
 
     // (L675) A pack ships default ROLE NAMES and default CAPABILITY BINDINGS. The binding lands as the
     // PUBLISHER CEILING through the ordinary AuthorizationDefinitionWriter and the ordinary
@@ -2720,22 +2823,22 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         {
             if (item.Kind == PackContentKind.RoleDefinition)
             {
-                if (_roleVocabulary is null) return AccessProjectionNotWiredCode;
+                if (_roleVocabulary is null) return PackSeedProjectionRefusalCodes.AccessSeamNotWired;
                 if (!PackAuthorizationContentAdmission.TryParseRoleDefinition(
                         pack.PackKey, content, out var role))
                 {
-                    return PackAuthorizationContentAdmission.RoleDefinitionMalformedCode;
+                    return PackSeedProjectionRefusalCodes.RoleDefinitionMalformedCode;
                 }
 
                 await _roleVocabulary.InstallAsync(role!, cancellationToken).ConfigureAwait(false);
                 return null;
             }
 
-            if (_authorizationDefinitions is null) return AccessProjectionNotWiredCode;
+            if (_authorizationDefinitions is null) return PackSeedProjectionRefusalCodes.AccessSeamNotWired;
             if (!PackAuthorizationContentAdmission.TryParseCapabilityBinding(
                     pack.PackKey, content, out var definition))
             {
-                return PackAuthorizationContentAdmission.CapabilityBindingMalformedCode;
+                return PackSeedProjectionRefusalCodes.CapabilityBindingMalformedCode;
             }
 
             await _authorizationDefinitions.WritePackDefinitionAsync(
@@ -2748,7 +2851,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: {Kind} '{Key}' from pack {Pack} v{Version} was refused by the "
                 + "authorization admission with code {Code}.",
                 item.Kind, item.Key, pack.PackKey, pack.Version, AccessProjectionRefusedCode);
-            return AccessProjectionRefusedCode;
+            return PackSeedProjectionRefusalCodes.AccessDefinitionRefused;
         }
     }
 
@@ -2799,7 +2902,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: {Kind} '{Key}' from pack {Pack} v{PackVersion} could not be "
                 + "retracted with code {Code}.",
                 item.Kind, item.Key, pack.PackKey, pack.Version, DefinitionRetractionFailedCode);
-            return new RetractionResult(RetractionOutcome.Invalid, DefinitionRetractionFailedCode);
+            return new RetractionResult(
+                RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.DefinitionRetractionFailedCode);
         }
     }
 
@@ -2859,7 +2963,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: {Kind} '{Key}' from pack {Pack} v{PackVersion} could not be "
                 + "retracted with code {Code}; retained content was not deleted.",
                 item.Kind, item.Key, pack.PackKey, pack.Version, DefinitionRetractionFailedCode);
-            return new RetractionResult(RetractionOutcome.Invalid, DefinitionRetractionFailedCode);
+            return new RetractionResult(
+                RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.DefinitionRetractionFailedCode);
         }
     }
 

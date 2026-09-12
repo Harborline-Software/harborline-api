@@ -9,8 +9,6 @@ public static class PackSealedSystemTypeAdmission
 {
     /// <summary>The sole package permitted to catalogue the compiled platform type descriptors.</summary>
     public const string PlatformPackKey = "harborline.platform";
-    /// <summary>The stable, localizable reason reported for a claimed compiled type.</summary>
-    public const string RefusedCode = "pack.projection.sealed_system_type_claim";
 
     /// <summary>
     /// System record-type names are the closed pack-kind vocabulary. They belong to the platform
@@ -45,4 +43,11 @@ public static class PackSealedSystemTypeAdmission
         return string.Equals(packKey, PlatformPackKey, StringComparison.Ordinal)
                && ClaimsSealedSystemType(item);
     }
+}
+
+/// <summary>Published refusal codes for sealed system record-type admission.</summary>
+public static class PackSealedSystemTypeAdmissionCodes
+{
+    /// <summary>The stable, localizable reason reported for a claimed compiled type.</summary>
+    public const string RefusedCode = "pack.projection.sealed_system_type_claim";
 }

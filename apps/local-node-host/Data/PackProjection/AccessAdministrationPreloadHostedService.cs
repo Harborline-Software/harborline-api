@@ -211,7 +211,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             // ACTIVE over a partial projection. Reversing activation retracts whatever did project and
             // leaves the version installed-and-INACTIVE — the pending state the installed-pack listing
             // shows an operator, and the state the next boot retries from.
-            var reason = string.Join(",", refusals.Select(r => $"{r.ContentKey}={r.Code}"));
+            var reason = string.Join(",", refusals.Select(r => $"{r.ContentKey}={r.Code}@{r.Pointer}"));
             var reversed = _installer.Deactivate(context, PackKey, PackVersion);
             _logger.LogError(
                 "AccessAdministrationPreloadHostedService: {PackKey} v{Version} was NOT preloaded — {Count} "

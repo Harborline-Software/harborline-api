@@ -321,6 +321,38 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         Assert.NotEqual(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
     }
 
+    [Fact(DisplayName = "394: an install refusal names dependency index 1, and the CLI preserves that body verbatim")]
+    public async Task Refused_install_carries_dependency_pointer_and_cli_preserves_the_response_body()
+    {
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.2.0",
+            dependencies:
+            [
+                ("missing.first", "1.0.0"),
+                ("missing.second", "1.0.0"),
+            ]));
+        var bytes = await File.ReadAllBytesAsync(packFile);
+        using var response = await _client.PostAsync(PackInstallRoutes.InstallRoute, new ByteArrayContent(bytes));
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+
+        using (var document = JsonDocument.Parse(body))
+        {
+            Assert.Contains(
+                document.RootElement.GetProperty("refusals").EnumerateArray(),
+                refusal => refusal.GetProperty("code").GetString() == PackInstallCodes.RefusedUnmetDependency
+                    && refusal.GetProperty("pointer").GetString() == "/dependencies/1");
+            Assert.Contains(
+                document.RootElement.GetProperty("preview").GetProperty("refusals").EnumerateArray(),
+                refusal => refusal.GetProperty("pointer").GetString() == "/dependencies/1");
+        }
+
+        var cli = await CliAsync("pack", "install", "--file", packFile);
+        Assert.NotEqual(0, cli.ExitCode);
+        Assert.Equal(body.Trim(), cli.Stderr.Trim());
+    }
+
     // ── the headless driver ────────────────────────────────────────────────────────────────────────────
 
     private async Task<string> CliExportAsync(object body)
@@ -358,7 +390,8 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
     private static object PackBody(
         string? bindingKey,
         string typeContentVersion,
-        IReadOnlyDictionary<string, string>? inspectionBindings = null)
+        IReadOnlyDictionary<string, string>? inspectionBindings = null,
+        IReadOnlyList<(string Key, string Version)>? dependencies = null)
     {
         var typeContent = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -404,7 +437,9 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             description = "One Records type and the Form bound to it (ticket 357).",
             scopeTier = "Horizontal",
             contents,
-            dependencies = Array.Empty<object>(),
+            dependencies = dependencies is null
+                ? Array.Empty<object>()
+                : dependencies.Select(dependency => (object)new { key = dependency.Key, version = dependency.Version }).ToArray(),
             capabilityRequirements = Array.Empty<string>(),
         };
     }

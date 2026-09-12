@@ -59,7 +59,7 @@ public sealed class CatalogueTests
         var item = new PackSeedItem("FormDefinition", PackContentKind.RecordType, "1.0.0", "{}", Cid.FromBytes([]));
 
         Assert.True(PackSealedSystemTypeAdmission.ClaimsSealedSystemType(item));
-        Assert.Equal("pack.projection.sealed_system_type_claim", PackSealedSystemTypeAdmission.RefusedCode);
+        Assert.Equal("pack.projection.sealed_system_type_claim", PackSealedSystemTypeAdmissionCodes.RefusedCode);
     }
 
     [Fact]

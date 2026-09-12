@@ -9,6 +9,12 @@ using Harborline.Api.Foundation.Packs.Model;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
+/// <summary>Published workflow-admission refusal codes.</summary>
+public static class PackWorkflowAdmissionCodes
+{
+    public const string UnparseableWorkflow = "pack.install.admission.unparseable_workflow";
+}
+
 /// <summary>
 /// The host ADAPTER that binds the Pack Composer install engine's <see cref="IPackContentAdmission"/> port
 /// (foundation tier) to the REAL ADR 0143 workflow admission validator (<see cref="IWorkflowAdmissionValidator"/>,
@@ -27,7 +33,7 @@ namespace Harborline.Api.LocalNodeHost.Health;
 public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
 {
     /// <summary>The refusal code for a workflow whose composed JSON cannot be mapped to the model.</summary>
-    public const string UnparseableCode = "pack.install.admission.unparseable_workflow";
+    public const string UnparseableCode = PackWorkflowAdmissionCodes.UnparseableWorkflow;
 
     private readonly IWorkflowAdmissionValidator _admission;
     private readonly PackRestrictingDefinitionAdmission _restricting;
@@ -63,7 +69,8 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException or ArgumentException)
             {
-                refusals.Add(new PackAdmissionRefusal(item.Key, UnparseableCode, $"workflow could not be parsed: {ex.Message}"));
+                refusals.Add(new PackAdmissionRefusal(
+                    item.Key, PackWorkflowAdmissionCodes.UnparseableWorkflow, $"workflow could not be parsed: {ex.Message}"));
                 continue;
             }
 

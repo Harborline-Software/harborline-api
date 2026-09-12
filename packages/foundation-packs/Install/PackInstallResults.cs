@@ -220,6 +220,9 @@ public sealed record PackUnmetPlatformRequirement(
     string DeclaredBy,
     PackPlatformRequirementFailure Failure);
 
+/// <summary>A stable install-refusal code paired with the RFC 6901 location it describes.</summary>
+public sealed record PackInstallRefusal(string Code, string Pointer);
+
 /// <summary>
 /// The install-preview — the D8 "moment of trust" surface (design §5). It answers WHO signed, WHAT would
 /// change (new seeds, the upgrade version pair), the re-attach CONFLICT report, any S-8 watermark hits,
@@ -317,6 +320,10 @@ public sealed record PackInstallPreview(
     /// literal. Empty on a would-install/upgrade.</summary>
     public IReadOnlyList<PackUnmetDependency> UnmetDependencies { get; init; }
         = Array.Empty<PackUnmetDependency>();
+
+    /// <summary>Stable refusal codes paired with their RFC 6901 locations.</summary>
+    public IReadOnlyList<PackInstallRefusal> Refusals { get; init; }
+        = Array.Empty<PackInstallRefusal>();
 }
 
 /// <summary>
