@@ -125,7 +125,22 @@ jobs:
   # the Windows-only defect class (File.Move semantics, path separators) has shown up the other way
   # round. So this is a nightly, non-required run against main, never a PR or merge-queue check.
   verify-windows:
-    if: vars.ACTIONS_ENABLED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    # Runs on every pull request and merge group, not only on a schedule. Ticket 421: this gate was
+    # macOS-only by inheritance -- verify.yml's own header says it is "the same gate the Mac
+    # slice-gate wrapper ran by ssh", so the requirement came from which machines that wrapper
+    # happened to use. Nothing in eng/verify.sh needs macOS; it already selects a host baseline from
+    # uname -s.
+    #
+    # Windows is the STRICTER host: 3,867 tests permitting ZERO failures, against macOS's 3,699
+    # permitting six, four of which are facilities macOS lacks and two of which are ticket 360. And
+    # T-324's ruling, quoted in the macOS baseline this gate reads, already says "macOS slice gates
+    # and reviews only; landings stay on Windows".
+    #
+    # It is also the fastest and the only one nobody has to lend us: winbox runs the full host suite
+    # in 4m18s against roughly twenty minutes on a Mac. macpro is borrowed and its availability
+    # comes and goes -- on 2026-09-12 a merge-group verify sat queued for 27 minutes with no runner
+    # while it was away -- so a gate that can run without it should.
+    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: [self-hosted, Windows]
     timeout-minutes: 90
     defaults:
