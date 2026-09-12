@@ -147,10 +147,13 @@ public static class NodeFormsComposition
         //      which stays the null object so form-instance and definition-envelope writes keep their own
         //      admission and the record validator never judges their bodies.
         //      The record coordinators ask for it by KEY (see CompiledSchemaEntityValidator
-        //      .RecordWriteKey). Any composition of this graph — not only the one Program.cs hand-wires
-        //      — therefore gives every record write the real validator, while the unkeyed slot the
-        //      store hook resolves stays the null object on purpose.
-        services.TryAddKeyedSingleton<IEntityValidator>(
+        //      .RecordWriteKey). This is deliberately unconditional: a pre-registered keyed null object
+        //      must not turn the shipped record-write default into an always-accepting validator. Any
+        //      unvalidatable record body REFUSES AT WRITE (CompiledSchemaEntityValidator.SchemaUnknown),
+        //      rather than persisting now and becoming inert only when it is read. The unkeyed store hook
+        //      remains the named exception because it exclusively handles form-instance and definition
+        //      envelopes, whose own admission paths validate their envelope contracts.
+        services.AddKeyedSingleton<IEntityValidator>(
             CompiledSchemaEntityValidator.RecordWriteKey,
             (sp, _) => sp.GetRequiredService<CompiledSchemaEntityValidator>());
 
