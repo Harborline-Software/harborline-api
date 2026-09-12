@@ -24,6 +24,7 @@ public static class PermissionVocabulary
         Permission.PackagesAuthor,
         Permission.PackagesOperate,
         Permission.FormsAuthor,
+        Permission.CatalogueRead,
         Permission.SchedulingRead,
         Permission.SchedulingAuthor,
         Permission.SchedulingOperate,

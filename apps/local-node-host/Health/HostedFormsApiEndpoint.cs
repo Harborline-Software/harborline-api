@@ -94,6 +94,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly AuthorizedFormDefinitionLifecycle _definitionStore;
     private readonly ISchemaRegistry _schemaRegistry;
+    private readonly ICatalogue? _catalogue;
     private readonly ICurrentUser? _currentUser;
     private readonly TimeProvider _timeProvider;
     private readonly IFormSubmissionGate? _submissionGate;
@@ -113,7 +114,8 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         ICurrentUser? currentUser = null,
         TimeProvider? timeProvider = null,
         IRestrictingDefinitionKindValidator? restrictingKinds = null,
-        IFormSubmissionGate? submissionGate = null)
+        IFormSubmissionGate? submissionGate = null,
+        ICatalogue? catalogue = null)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(engine);
@@ -131,6 +133,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         _activeTeam = activeTeam;
         _definitionStore = definitionStore;
         _schemaRegistry = schemaRegistry;
+        _catalogue = catalogue;
         _currentUser = currentUser;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _restrictingKinds = restrictingKinds ?? RestrictingDefinitionKindValidator.Shared;
@@ -182,7 +185,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
             // in the Harborline App form builder). Real persistence over IFormDefinitionStore — production
             // slice 1 (2026-06-27).
             FormDefinitionRoutes.Map(
-                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider, _restrictingKinds);
+                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider, _restrictingKinds, _catalogue);
         });
 
         _logger.LogInformation(

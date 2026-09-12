@@ -72,6 +72,7 @@ internal sealed class LocalNodeEndpointMapping : IAsyncDisposable
         Add<HostedCommsApiEndpoint>(mappers, services, listener);
         Add<HostedDocumentTemplateApiEndpoint>(mappers, services, listener);
         Add<HostedFormsApiEndpoint>(mappers, services, listener);
+        Add<HostedCatalogueApiEndpoint>(mappers, services, listener);
         Add<HostedFormDraftsApiEndpoint>(mappers, services, listener);
         Add<HostedWorkflowDefinitionApiEndpoint>(mappers, services, listener);
         Add<HostedAssetRegistryApiEndpoint>(mappers, services, listener);
