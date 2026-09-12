@@ -5,8 +5,16 @@ This repository begins with a fresh public history as of September 2026. The ear
 
 > **Status: pre-release.** Harborline is under active development and is not ready for production use. APIs, schemas, storage formats and package names change without notice, and there are no supported installs yet. Source is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE) and the [trademark policy](TRADEMARKS.md).
 
-This destination repository is the Harborline API release envelope. It currently supplies a small,
-consumer-neutral transport interface while Capability and local-node-host capabilities are migrated:
+Harborline API provides governed programmatic access to Harborline and composes its runtime
+services. It enables human interfaces, integrations and automation to submit commands and queries,
+with authoritative results from the applicable authorization, validation and execution pipeline.
+Its intended role includes preserving the evidence and context supporting operational outcomes.
+The human App and optional operator Toolbox consume supported interfaces; enforcement must remain
+independent of either UI.
+
+This purpose is distinct from implementation progress. The release-envelope packages listed below
+provide a consumer-neutral transport interface; this repository also contains the local-node and
+capability hosts.
 
 - `Harborline.Api.Contracts` — request context, error envelope, adapter safety, and client interface.
 - `Harborline.Api.Client` — production-capable `HttpClient` transport adapter.
