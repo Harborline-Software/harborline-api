@@ -95,7 +95,9 @@ public sealed class PackExporter : IPackExporter
             DisplayName: PackCardDisplayText.NormalizeNameOrTitleAtExport(request.DisplayName),
             Tagline: PackCardDisplayText.NormalizeFreeTextOrDescriptionAtExport(request.Tagline),
             Category: PackCardDisplayText.NormalizeNameOrTitleAtExport(request.Category),
-            IconRef: request.IconRef);
+            IconRef: request.IconRef,
+            Exposes: request.Exposes,
+            InterfaceVersion: request.InterfaceVersion);
 
         // (4) Validate FIRST — fail-closed. Never sign an invalid pack. Combine the completeness/PII
         //     findings with the DCP gate findings so the caller sees the full picture in ONE result.

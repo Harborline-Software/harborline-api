@@ -40,6 +40,11 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// <param name="Category">Optional publisher-signed marketplace-card category, bounded as a
 /// name/title by <see cref="PackCardDisplayText"/> at export.</param>
 /// <param name="IconRef">Optional content address of the marketplace-card icon blob.</param>
+/// <param name="Exposes">Definition keys this pack exposes to other packs. Ticket 396: a pack
+/// reaching into a definition absent from this list is refused at activation.</param>
+/// <param name="InterfaceVersion">The exact interface version this pack exposes, as the integer in
+/// the ADR 0006 <c>pack-key@integer</c> requirement spelling. Ticket 396 matches it exactly rather
+/// than by range, because a range admits a consumer never tested against the active interface.</param>
 public sealed record PackExportRequest(
     string Key,
     string Version,
@@ -56,7 +61,9 @@ public sealed record PackExportRequest(
     string? DisplayName = null,
     string? Tagline = null,
     string? Category = null,
-    Cid? IconRef = null);
+    Cid? IconRef = null,
+    IReadOnlyList<string>? Exposes = null,
+    int? InterfaceVersion = null);
 
 /// <summary>
 /// The outcome of an export. On success, both the structured <see cref="File"/> and the encoded

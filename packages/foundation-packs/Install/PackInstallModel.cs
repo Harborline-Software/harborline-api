@@ -98,6 +98,11 @@ public sealed record PackTenantOverride(string ContentKey, JsonNode OverlayPatch
 /// pack; the graph falls back to G1 body-parse for such a pack (backward-compatible).</param>
 /// <param name="CapabilityRequirements">The signed manifest's platform capability requirements, persisted
 /// so activation can re-evaluate them against the running build. <c>null</c>/empty means none.</param>
+/// <param name="Exposes">Definition keys this pack exposes to other packs, persisted from the signed
+/// manifest so activation of a LATER pack can resolve its cross-pack references without re-reading
+/// this one. Ticket 396; frozen in that slice, and relaxing it later is additive.</param>
+/// <param name="InterfaceVersion">The exact interface version this pack exposes, persisted for the
+/// same reason. Ticket 396 matches exactly rather than by range.</param>
 public sealed record InstalledPack(
     string PackKey,
     string Version,
@@ -112,7 +117,9 @@ public sealed record InstalledPack(
     IReadOnlyList<PackDependencyRef> Dependencies,
     string? ProviderSlot = null,
     IReadOnlyList<PackContentReferenceEdge>? ContentReferences = null,
-    IReadOnlyList<string>? CapabilityRequirements = null);
+    IReadOnlyList<string>? CapabilityRequirements = null,
+    IReadOnlyList<string>? Exposes = null,
+    int? InterfaceVersion = null);
 
 /// <summary>
 /// The S-8 monotonic watermark persisted per installed pack key — the highest version ever installed and
