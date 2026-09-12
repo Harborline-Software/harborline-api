@@ -147,6 +147,7 @@ internal sealed class AccessGrantAuthorizationSeed(
             [Permission.PackagesOperate] = RoleBindingSet.From(
                 [RoleReference.Administrator, NodeOperatorRole]),
             [Permission.FormsAuthor] = Roles(nodeOperator: true),
+            [Permission.CatalogueRead] = Roles(),
             [Permission.SchedulingRead] = Roles(member: true, nodeOperator: true),
             [Permission.SchedulingAuthor] = Roles(nodeOperator: true),
             [Permission.SchedulingOperate] = Roles(nodeOperator: true),

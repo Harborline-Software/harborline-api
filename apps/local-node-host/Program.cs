@@ -2275,6 +2275,10 @@ builder.Services.AddNodeForms(
         services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
     });
 
+// Ticket 176 slice 1: the catalogue reads the already-composed definition stores; it owns no persistence.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
+    Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
+
 // Card 3750 finding 2 — structural guard against silent re-regression: if either role branch above is
 // deleted (or reordered after AddNodeForms so the volatile TryAdd default wins), the node must refuse to
 // compose rather than silently revert to in-memory blobs. Same idiom as RequireDurableErasureStores (#1378

@@ -152,6 +152,12 @@ public static class Permission
     public const string FormsAuthor = "forms:author";
 
     /// <summary>
+    /// Read projected configuration definitions through the catalogue. This is a distinct read
+    /// capability because catalogue entries expose the definition body and its pack provenance.
+    /// </summary>
+    public const string CatalogueRead = "catalogue:read";
+
+    /// <summary>
     /// Read a tenant SUBJECT-CONSENT record — who consented to what, over which scope, for which window
     /// (ticket 213, ledger L646). It reads the consent LIFECYCLE record; it is not the consent itself and
     /// confers nothing on the subject's data (the glossary's <em>Grant</em> is the row that gives a

@@ -13,6 +13,7 @@ using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Governance.Admission;
 using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Governance.Resolution;
@@ -120,7 +121,8 @@ public static class FormDefinitionRoutes
         ISchemaRegistry schemaRegistry,
         IActiveTeamAccessor activeTeam,
         TimeProvider timeProvider,
-        IRestrictingDefinitionKindValidator? restrictingKinds = null)
+        IRestrictingDefinitionKindValidator? restrictingKinds = null,
+        ICatalogue? catalogue = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -128,6 +130,9 @@ public static class FormDefinitionRoutes
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(timeProvider);
         restrictingKinds ??= RestrictingDefinitionKindValidator.Shared;
+        // The definition family stays the legacy wire while its published-list read is a projection
+        // of the common catalogue. The fallback preserves the direct route-test composition seam.
+        catalogue ??= new ProjectedCatalogue(store);
 
         // GET /api/local-node/forms/definitions — list the tenant's definitions. The DEFAULT
         // stays published-only; ?includeDrafts=1|true additionally surfaces forms whose ONLY
@@ -139,49 +144,46 @@ public static class FormDefinitionRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             var includeDrafts = IsOptIn(http.Request.Query["includeDrafts"]);
 
-            // Materialized once: rows need cross-revision knowledge (the latest draft per form).
-            var revisions = new List<FormDefinition>();
-            await foreach (var def in store.ListByTenantAsync(tenant, ct).ConfigureAwait(false))
-            {
-                revisions.Add(def);
-            }
+            var projected = await catalogue.ListAsync(tenant, PackContentKind.FormDefinition, ct)
+                .ConfigureAwait(false);
 
-            var latestDraftByForm = new Dictionary<FormDefinitionId, SemanticVersion>();
-            var publishedForms = new HashSet<FormDefinitionId>();
-            foreach (var def in revisions)
+            // Exactly one store scan: ProjectedCatalogue.ListAsync preserves the lifecycle's
+            // form-id-then-version order, and this route derives both row classes from that result.
+            var latestDraftByForm = new Dictionary<string, SemanticVersion>(StringComparer.Ordinal);
+            var publishedForms = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in projected.Entries)
             {
-                if (def.Status == FormDefinitionStatus.Draft
-                    && (!latestDraftByForm.TryGetValue(def.Id, out var seen) || def.Version.CompareTo(seen) > 0))
+                var version = SemanticVersion.Parse(entry.Version);
+                if (string.Equals(entry.Status, nameof(FormDefinitionStatus.Draft), StringComparison.Ordinal)
+                    && (!latestDraftByForm.TryGetValue(entry.Id, out var seen) || version.CompareTo(seen) > 0))
                 {
-                    latestDraftByForm[def.Id] = def.Version;
+                    latestDraftByForm[entry.Id] = version;
                 }
-                else if (def.Status == FormDefinitionStatus.Published)
+                else if (string.Equals(entry.Status, nameof(FormDefinitionStatus.Published), StringComparison.Ordinal))
                 {
-                    publishedForms.Add(def.Id);
+                    publishedForms.Add(entry.Id);
                 }
             }
 
             var summaries = new List<FormDefinitionSummaryDto>();
-            foreach (var def in revisions)
+            foreach (var entry in projected.Entries)
             {
-                if (def.Status == FormDefinitionStatus.Published)
+                if (string.Equals(entry.Status, nameof(FormDefinitionStatus.Published), StringComparison.Ordinal))
                 {
-                    // A published authoring target; if a NEWER draft exists, say so — a client
-                    // reloading this form must be able to detect the draft instead of silently
-                    // minting its next draft off the stale published head.
-                    summaries.Add(FormDefinitionSummaryDto.From(
-                        def,
-                        latestDraftByForm.TryGetValue(def.Id, out var draft) && draft.CompareTo(def.Version) > 0
+                    summaries.Add(ProjectSummary(entry) with
+                    {
+                        LatestDraftVersion = latestDraftByForm.TryGetValue(entry.Id, out var draft)
+                            && draft.CompareTo(SemanticVersion.Parse(entry.Version)) > 0
                             ? draft.ToString()
-                            : null));
+                            : null,
+                    });
                 }
                 else if (includeDrafts
-                    && def.Status == FormDefinitionStatus.Draft
-                    && !publishedForms.Contains(def.Id)
-                    && def.Version.CompareTo(latestDraftByForm[def.Id]) == 0)
+                    && string.Equals(entry.Status, nameof(FormDefinitionStatus.Draft), StringComparison.Ordinal)
+                    && !publishedForms.Contains(entry.Id)
+                    && SemanticVersion.Parse(entry.Version).CompareTo(latestDraftByForm[entry.Id]) == 0)
                 {
-                    // A draft-ONLY form: one row for its latest draft, clearly marked "Draft".
-                    summaries.Add(FormDefinitionSummaryDto.From(def));
+                    summaries.Add(ProjectSummary(entry));
                 }
             }
 
@@ -611,6 +613,20 @@ public static class FormDefinitionRoutes
     private static bool IsOptIn(Microsoft.Extensions.Primitives.StringValues value)
         => string.Equals(value, "1", StringComparison.Ordinal)
         || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+    private static FormDefinitionSummaryDto ProjectSummary(CatalogueEntry entry)
+    {
+        var form = entry.Body.Deserialize<FormDefinitionDto>(JsonOptions)
+            ?? throw new InvalidOperationException($"Catalogue entry '{entry.Id}' has no form definition body.");
+        return new FormDefinitionSummaryDto(
+            entry.Id,
+            entry.Version,
+            entry.Title ?? form.Overlay.Title,
+            entry.UpdatedAt.UtcDateTime.ToString("O"),
+            form.CascadeLayer,
+            form.Status,
+            form.LatestDraftVersion);
+    }
 
     /// <summary>The HIGHEST-versioned Draft revision of <paramref name="id"/>, or null when it
     /// has none. Same O(revisions) tenant scan as <see cref="MintNextVersionAsync"/> — the store

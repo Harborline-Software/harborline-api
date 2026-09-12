@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
@@ -60,6 +61,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private MutableAuthorizationContext _authorization = null!;
+    private AuthorizedFormDefinitionLifecycle _definitions = null!;
 
     public async Task InitializeAsync()
     {
@@ -94,9 +96,10 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         // Map BOTH surfaces (mirrors HostedFormsApiEndpoint): the authoring definition
         // routes under test + the runtime render/submit routes (so a saved definition
         // can be proven to enforce its synthesised schema on a real submit).
+        _definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
         FormDefinitionRoutes.Map(
             _app,
-            _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>(),
+            _definitions,
             _app.Services.GetRequiredService<ISchemaRegistry>(),
             _activeTeam,
             TimeProvider.System);
@@ -2089,6 +2092,78 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             Assert.Equal("Draft", row.GetProperty("status").GetString());
             Assert.Equal("1.0.0", row.GetProperty("version").GetString());
         }
+    }
+
+    [Fact(DisplayName = "ticket 176: Forms LIST stays byte-identical to the pre-catalogue scan with and without drafts")]
+    public async Task Forms_List_Is_Byte_Identical_To_The_Pre_Catalogue_Scan()
+    {
+        // Store order is form id then version. The draft-only id deliberately belongs between the
+        // two published ids: appending it after a projected published list changes the wire array.
+        await _client.PutAsJsonAsync($"{DefBase}/b-published.v1", SaveBody());
+        await _client.PutAsJsonAsync($"{DefBase}/a-draft-only.v1", PartialDraftBody());
+        await _client.PutAsJsonAsync($"{DefBase}/c-published.v1", SaveBody());
+
+        var expectedWithoutDrafts = await PreCatalogueListJsonAsync(includeDrafts: false);
+        var expectedWithDrafts = await PreCatalogueListJsonAsync(includeDrafts: true);
+
+        using var withoutDraftsResponse = await _client.GetAsync(DefBase);
+        using var withDraftsResponse = await _client.GetAsync($"{DefBase}?includeDrafts=1");
+        var actualWithoutDrafts = await withoutDraftsResponse.Content.ReadAsByteArrayAsync();
+        var actualWithDrafts = await withDraftsResponse.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(Encoding.UTF8.GetBytes(expectedWithoutDrafts), actualWithoutDrafts);
+        Assert.Equal(Encoding.UTF8.GetBytes(expectedWithDrafts), actualWithDrafts);
+    }
+
+    // Golden oracle transcribed from origin/main's former single store scan. It is intentionally
+    // independent of the catalogue projection so a wire-visible reordering fails this test.
+    private async Task<string> PreCatalogueListJsonAsync(bool includeDrafts)
+    {
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var revisions = new List<FormDefinition>();
+        await foreach (var definition in _definitions.ListByTenantAsync(tenant))
+        {
+            revisions.Add(definition);
+        }
+
+        var latestDraftByForm = new Dictionary<FormDefinitionId, SemanticVersion>();
+        var publishedForms = new HashSet<FormDefinitionId>();
+        foreach (var definition in revisions)
+        {
+            if (definition.Status == FormDefinitionStatus.Draft
+                && (!latestDraftByForm.TryGetValue(definition.Id, out var seen)
+                    || definition.Version.CompareTo(seen) > 0))
+            {
+                latestDraftByForm[definition.Id] = definition.Version;
+            }
+            else if (definition.Status == FormDefinitionStatus.Published)
+            {
+                publishedForms.Add(definition.Id);
+            }
+        }
+
+        var summaries = new List<FormDefinitionSummaryDto>();
+        foreach (var definition in revisions)
+        {
+            if (definition.Status == FormDefinitionStatus.Published)
+            {
+                summaries.Add(FormDefinitionSummaryDto.From(
+                    definition,
+                    latestDraftByForm.TryGetValue(definition.Id, out var draft)
+                        && draft.CompareTo(definition.Version) > 0
+                        ? draft.ToString()
+                        : null));
+            }
+            else if (includeDrafts
+                && definition.Status == FormDefinitionStatus.Draft
+                && !publishedForms.Contains(definition.Id)
+                && definition.Version.CompareTo(latestDraftByForm[definition.Id]) == 0)
+            {
+                summaries.Add(FormDefinitionSummaryDto.From(definition));
+            }
+        }
+
+        return JsonSerializer.Serialize(summaries, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
     [Fact(DisplayName = "ticket 156 review: a published head with a NEWER draft advertises latestDraftVersion (list + detail)")]
