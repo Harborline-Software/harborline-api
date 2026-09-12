@@ -39,6 +39,24 @@ quality_baseline_print_engine_table() {
 $(quality_baseline_engine_table "$candidate")
 EOF
 }
+quality_baseline_committed_fallback_details() {
+  local baseline=$1
+  node - "$baseline" <<'NODE'
+const {readFileSync} = require('node:fs')
+const baseline = JSON.parse(readFileSync(process.argv[2], 'utf8'))
+const commit = typeof baseline.commit === 'string' && baseline.commit ? baseline.commit : 'unknown'
+const generatedAt = Date.parse(baseline.generatedAt)
+let age = 'unknown'
+if (Number.isFinite(generatedAt)) {
+  const seconds = Math.max(0, Math.floor((Date.now() - generatedAt) / 1000))
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor(seconds % 86400 / 3600)
+  const minutes = Math.floor(seconds % 3600 / 60)
+  age = days > 0 ? `${days}d ${hours}h` : `${hours}h ${minutes}m`
+}
+console.log(`pinned commit=${commit}; age=${age}`)
+NODE
+}
 quality_baseline_gate_candidate_compare() {
   local candidate=$1 baseline=$2 diff=${3:-} counts new resolved baseline_count engine status detail engine_failed=0
   while IFS="$(printf '\t')" read -r engine status detail; do
@@ -82,7 +100,7 @@ quality_baseline_gate() {
     echo "quality-baseline: using merge-base artifact $baseline"
   else
     baseline="$committed"
-    echo "quality-baseline: using committed fallback $baseline"
+    echo "quality-baseline: using committed fallback $baseline ($(quality_baseline_committed_fallback_details "$baseline"))"
   fi
   if [ ! -f "$candidate" ] && ! ( cd "$gate_root" && node eng/quality-step.mjs ); then
     return 1
