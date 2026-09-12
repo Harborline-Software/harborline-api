@@ -1702,6 +1702,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:CheckRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "CheckRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:DeactivateRoute",
       "kind": "local-node-http",
       "method": "POST",

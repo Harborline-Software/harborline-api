@@ -32,6 +32,9 @@ internal static class PackInstallRoutes
     /// <summary>Route: preview an install (no mutation) — the D8 moment-of-trust surface.</summary>
     public const string PreviewRoute = "/api/local-node/packs/preview";
 
+    /// <summary>Route: run complete non-mutating admission diagnostics for a pack.</summary>
+    public const string CheckRoute = "/api/local-node/packs/check";
+
     /// <summary>Route: activate an installed version (Draft/Inactive → Active).</summary>
     public const string ActivateRoute = "/api/local-node/packs/activate";
 
@@ -105,6 +108,28 @@ internal static class PackInstallRoutes
                 "Pack PREVIEW (tenant {Tenant}, pack {Key} v{Version}) → {Verdict}.",
                 tenant, preview.PackKey, preview.Version, preview.Verdict);
             return Results.Ok(ToPreviewDto(preview));
+        });
+
+        // POST /packs/check — the compiler-style admission diagnostic pass. It has the same operate
+        // authorization as preview, delegates to the installer once, and cannot activate or install.
+        selectedSession.MapPost(CheckRoute, async (HttpContext http, CancellationToken ct) =>
+        {
+            var tenant = NodeTenant.Resolve(activeTeam);
+            var refusal = await PackRouteAuthorization
+                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .ConfigureAwait(false);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
+
+            var bytes = await ReadBodyAsync(http.Request, ct).ConfigureAwait(false);
+            var check = installer.Check(
+                bytes, new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge));
+            logger.LogInformation(
+                "Pack CHECK (tenant {Tenant}, pack {Key} v{Version}) → {Verdict} [{Codes}].",
+                tenant, check.PackKey, check.Version, check.Verdict, string.Join(",", check.RefusalCodes));
+            return Results.Ok(ToPreviewDto(check));
         });
 
         // POST /packs/install — verify → atomic seed layer (Draft). Optional break-glass via query.
