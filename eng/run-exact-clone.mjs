@@ -13,7 +13,7 @@
 //
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync, spawnSync} from 'node:child_process'
-import {mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
+import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget} from './exact-clone-evidence.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
@@ -386,6 +386,14 @@ try {
     mkdirSync(hostResultsDirectory, {recursive: true})
     const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
     writeFileSync(outputFile, hostTests.rawOutput)
+    // A red verdict is exactly when the TRX matters most, and "TRX missing" is itself one of the
+    // red reasons -- so copying unconditionally would throw on the very path it exists to explain.
+    const trxSource = path.join(hostResultsDirectory, 'host-tests.trx')
+    if (existsSync(trxSource)) {
+      const trxEvidence = path.join(apiRoot, '.claude', 'gate-evidence', 'host-tests.trx')
+      mkdirSync(path.dirname(trxEvidence), {recursive: true})
+      copyFileSync(trxSource, trxEvidence)
+    }
     hostComparison.problems = hostComparison.problems.map(line => `${line}; host output: ${outputFile}`)
     hostComparison.tail = hostComparison.problems.join('\n')
   }

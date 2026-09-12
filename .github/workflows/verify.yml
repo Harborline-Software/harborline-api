@@ -118,6 +118,7 @@ jobs:
             .git/harborline-api-verify-receipt.json
             .git/harborline-api-quality-decision.json
             .claude/gate-evidence/
+            .claude/gate-evidence/*.trx
             artifacts/quality/
 
   # Windows datapoint: verify.sh has no Windows-only steps, only a Windows-specific host baseline, and

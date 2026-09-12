@@ -273,14 +273,12 @@ public sealed class NPrincipalAcceptanceE2E
             {
                 var founder = await ComposedNode.CreateAsync(0, founderHash, null, null);
                 nodes.Add(founder);
-                // Ticket 254b: the founder's own boot is the first honest reading of how slow this machine is
-                // right now, and it is taken before any joiner composes - so it sizes the joiners' enrollment
-                // deadline. See ComposedNode.CreateAsync for what that deadline and the live endpoint fix.
-                var enrollBudget = TimeSpan.FromMilliseconds(
-                    Math.Max(15_000, 4 * (Environment.TickCount64 - bootStart)));
                 for (var index = 1; index < count; index++)
                     nodes.Add(await ComposedNode.CreateAsync(
-                        index, null, () => founder.ListenEndpoint, enrollBudget));
+                        index,
+                        null,
+                        () => founder.ListenEndpoint,
+                        () => EnrollmentDeadlineModel.ForExchange(bootStart, Environment.TickCount64)));
                 return new Fleet(nodes, Environment.TickCount64 - bootStart);
             }
             catch
@@ -388,7 +386,10 @@ public sealed class NPrincipalAcceptanceE2E
             _provider.GetRequiredService<WebAdmittedMemberPairingTokenMint>();
 
         internal static async Task<ComposedNode> CreateAsync(
-            int index, string? founderHash, Func<string>? admitterEndpoint, TimeSpan? enrollBudget)
+            int index,
+            string? founderHash,
+            Func<string>? admitterEndpoint,
+            Func<TimeSpan>? enrollBudget)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"ticket237-node-{index}-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -436,12 +437,14 @@ public sealed class NPrincipalAcceptanceE2E
                         //     defeating it, so hand it the LIVE endpoint instead of a snapshot.
                         // (b) Its per-exchange deadline (dial + send + receive) defaults to 15 s, sized for a real
                         //     LAN on an idle box and not reachable from configuration; five composed hosts in one
-                        //     loaded test process blow past it. Size it from the founder's observed boot.
+                        //     loaded test process blow past it. Sample the fleet's elapsed composition time when
+                        //     the exchange starts: a founder-only sample becomes stale when suite load arrives
+                        //     after founder boot but before a later admission route uses this transport.
                         // Same production transport class, same endpoint factory shape as Program.cs - only the
                         // two machine-dependent inputs are made explicit.
                         // Follow-on: production has no operator knob for the deadline; it should get one.
                         if (admitterEndpoint is not null && enrollBudget is not null)
-                            services.AddSingleton<IEnrollmentTransport>(sp => new SocketEnrollmentTransport(
+                            services.AddSingleton<IEnrollmentTransport>(sp => new DeferredSocketEnrollmentTransport(
                                 admitterEndpoint: admitterEndpoint,
                                 timeout: enrollBudget,
                                 logger: sp.GetService<ILogger<SocketEnrollmentTransport>>()));
@@ -608,6 +611,15 @@ public sealed class NPrincipalAcceptanceE2E
             await DisposeProviderAsync(_provider);
             TryDelete(_directory);
         }
+    }
+
+    private sealed class DeferredSocketEnrollmentTransport(
+        Func<string> admitterEndpoint,
+        Func<TimeSpan> timeout,
+        ILogger<SocketEnrollmentTransport>? logger) : IEnrollmentTransport
+    {
+        public Task<EnrollmentResponse?> SendAsync(EnrollmentRequest request, CancellationToken ct) =>
+            new SocketEnrollmentTransport(admitterEndpoint, timeout(), logger).SendAsync(request, ct);
     }
 
     private sealed class AdmissionListener(SharedHostedWebApp app, HttpClient client) : IAsyncDisposable

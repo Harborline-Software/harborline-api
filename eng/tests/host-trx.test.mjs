@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync} from 'node:fs'
+import {readFileSync, writeFileSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import * as host from '../host-baseline.mjs'
@@ -96,11 +96,11 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
       const hostComparison = {passed: false, problems: [reason], tail: reason}
       const printed = []
       const actual = new Function('compareHostBaseline', 'hostBaseline', 'hostCounts', 'adjustedFailed', 'newFailures',
-        'hostTrx', 'hostTests', 'hostResultsDirectory', 'path', 'mkdirSync', 'writeFileSync', 'console',
+        'hostTrx', 'hostTests', 'hostResultsDirectory', 'path', 'mkdirSync', 'writeFileSync', 'copyFileSync', 'existsSync', 'apiRoot', 'console',
         'let retainScratch = false;\n' + compareBlock + '\nreturn {hostComparison, retainScratch}')(
         () => hostComparison, baseline, null, null, [], {}, {rawOutput, fullOutput: 'stripped'},
         path.join(dir, 'TestResults', 'host'), path,
-        mkdirSync, writeFileSync, {log: line => printed.push(line)})
+        mkdirSync, writeFileSync, copyFileSync, existsSync, dir, {log: line => printed.push(line)})
       assert.equal(actual.retainScratch, true)
       const outputFile = path.join(dir, 'TestResults', 'host', 'host-tests-output.txt')
       assert.equal(readFileSync(outputFile, 'utf8'), rawOutput)
