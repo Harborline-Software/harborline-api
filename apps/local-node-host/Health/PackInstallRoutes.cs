@@ -223,18 +223,25 @@ internal static class PackInstallRoutes
                     .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer))
                     .ToList();
                 platformRefusals = ToPlatformRefusalDtos(projection);
-                logger.LogInformation(
-                    "Pack ACTIVATE projection (tenant {Tenant}, pack {Key} v{Version}) → {Seeded} asset type(s) "
-                    + "seeded, {Present} already present, {FormsPublished} form(s) published, "
-                    + "{FormsPresent} already present, {FormsInvalid} invalid, {FormsDeferred} deferred, "
-                    + "{WorkflowsPublished} workflow(s) published, {WorkflowsPresent} already present, "
-                    + "{WorkflowsInvalid} refused, {WorkflowsDeferred} deferred.",
-                    tenant, request.PackKey, request.Version,
-                    projection.AssetTypesSeeded, projection.AssetTypesAlreadyPresent,
-                    projection.FormDefinitionsPublished, projection.FormDefinitionsAlreadyPresent,
-                    projection.FormDefinitionsSkippedInvalid, projection.FormDefinitionsDeferred,
-                    projection.WorkflowDefinitionsPublished, projection.WorkflowDefinitionsAlreadyPresent,
-                    projection.WorkflowDefinitionsSkippedInvalid, projection.WorkflowDefinitionsDeferred);
+                // CA1873: the arguments are evaluated before the level is consulted, so the guard is the
+                // remediation the rule asks for. Reported new here only because T-394 rewrote the
+                // surrounding hunk and the finding identity carries its line (T-407); the call itself
+                // is unchanged, and the guard is a real improvement either way.
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation(
+                        "Pack ACTIVATE projection (tenant {Tenant}, pack {Key} v{Version}) → {Seeded} asset type(s) "
+                        + "seeded, {Present} already present, {FormsPublished} form(s) published, "
+                        + "{FormsPresent} already present, {FormsInvalid} invalid, {FormsDeferred} deferred, "
+                        + "{WorkflowsPublished} workflow(s) published, {WorkflowsPresent} already present, "
+                        + "{WorkflowsInvalid} refused, {WorkflowsDeferred} deferred.",
+                        tenant, request.PackKey, request.Version,
+                        projection.AssetTypesSeeded, projection.AssetTypesAlreadyPresent,
+                        projection.FormDefinitionsPublished, projection.FormDefinitionsAlreadyPresent,
+                        projection.FormDefinitionsSkippedInvalid, projection.FormDefinitionsDeferred,
+                        projection.WorkflowDefinitionsPublished, projection.WorkflowDefinitionsAlreadyPresent,
+                        projection.WorkflowDefinitionsSkippedInvalid, projection.WorkflowDefinitionsDeferred);
+                }
             }
             else if (!outcome.Projected)
             {
@@ -298,13 +305,20 @@ internal static class PackInstallRoutes
                     .Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer))
                     .ToList();
                 platformRefusals = ToPlatformRefusalDtos(projection);
-                logger.LogInformation(
-                    "Pack DEACTIVATE retraction (tenant {Tenant}, pack {Key} v{Version}) → "
-                    + "{Assets} asset type(s), {Forms} form(s), and {Workflows} workflow(s) retracted.",
-                    tenant, request.PackKey, request.Version,
-                    projection.AssetTypesRetracted,
-                    projection.FormDefinitionsRetracted,
-                    projection.WorkflowDefinitionsRetracted);
+                // CA1873: the arguments are evaluated before the level is consulted, so the guard is the
+                // remediation the rule asks for. Reported new here only because T-394 rewrote the
+                // surrounding hunk and the finding identity carries its line (T-407); the call itself
+                // is unchanged, and the guard is a real improvement either way.
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation(
+                        "Pack DEACTIVATE retraction (tenant {Tenant}, pack {Key} v{Version}) → "
+                        + "{Assets} asset type(s), {Forms} form(s), and {Workflows} workflow(s) retracted.",
+                        tenant, request.PackKey, request.Version,
+                        projection.AssetTypesRetracted,
+                        projection.FormDefinitionsRetracted,
+                        projection.WorkflowDefinitionsRetracted);
+                }
             }
             else if (!outcome.Projected)
             {

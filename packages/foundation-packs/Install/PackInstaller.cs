@@ -947,7 +947,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             : new ClaimedPackCoordinates(coordinates.Value.PackKey, coordinates.Value.Version);
     }
 
-    private InstallPlan HardRefusal(
+    private static InstallPlan HardRefusal(
         string packKey, string version, string code, bool revocationStale,
         string? signerB64 = null,
         long? epoch = null,
@@ -983,7 +983,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         return -1;
     }
 
-    private static IReadOnlyList<PackInstallRefusal> PlatformRequirementRefusals(
+    private static List<PackInstallRefusal> PlatformRequirementRefusals(
         string code,
         PackManifest manifest,
         IReadOnlyList<PackContentItem> contents,
