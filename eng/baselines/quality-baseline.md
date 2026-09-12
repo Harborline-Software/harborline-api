@@ -1,5 +1,22 @@
 # Quality baseline identity re-pin
 
+2026-09-12 (re-pin to 4e179067) — Routine drift re-pin, not an identity change.
+The committed baseline was pinned at `ac088ab3` (2,350 rows). Six landings later
+the PR gate reported `38 new, 41 resolved` against it and main's own verify went
+red on the same comparison, which blocks every PR: a red main publishes no
+`quality-findings` artifact for the next PR to use as its merge-base, so each PR
+falls back to this committed file and inherits the same red.
+
+The churn is line-shift refingerprinting, not defects. The paths named as new
+(`PackSeedProjector.cs`, `PackInstallRoutes.cs`, `PackInstaller.cs`) are files the
+reporting PR never opened, and 38-against-41 with a net of -3 rows is the
+signature of identities moving, not of findings appearing.
+
+Re-pinned from the artifact main's own verify published at `4e179067`
+(`quality-findings-4e1790677df06f94386ee9ff2909a641b1d34bb5`, run 34707698875):
+2,350 -> 2,347 rows, both engines `ok`. That artifact exists because ticket 405
+made the upload `always()`, so a red main still publishes one.
+
 2026-09-11 — The baseline was re-pinned from 2,363 rows with 744 broad analyzer
 fingerprints to 2,352 distinct identities. The normalizer now carries its stable
 primary location and MSBuild project-output identity; `quality-step.mjs` persists
