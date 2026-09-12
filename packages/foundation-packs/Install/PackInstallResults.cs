@@ -100,6 +100,11 @@ public static class PackInstallCodes
     public const string ActivateUnmetPlatformRequirement =
         "pack.install.activate.unmet_platform_requirement";
 
+    /// <summary>Activation refused because Access administration requires the released platform pack
+    /// to be active first. This is an activation admission rule, not a hosting registration convention.</summary>
+    public const string ActivatePlatformPackRequired =
+        "pack.install.activate.platform_pack_required";
+
     /// <summary>Deactivation refused: the named installed version is not the pack's current Active version.</summary>
     public const string DeactivateNotActive = "pack.install.deactivate.not_active";
 

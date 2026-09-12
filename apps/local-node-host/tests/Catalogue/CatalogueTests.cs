@@ -23,7 +23,13 @@ public sealed class CatalogueTests
 
         Assert.Equal("harborline.platform", document.RootElement.GetProperty("key").GetString());
         Assert.Equal(16, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
-        Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is "FormDefinition" or "WorkflowDefinition");
+        var allowedKinds = new[]
+        {
+            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding",
+        };
+        Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
+        Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
+            "FormDefinition" or "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding"));
     }

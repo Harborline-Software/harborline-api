@@ -232,6 +232,18 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.ActivateNotInstalled, null, decision);
         }
 
+        // Ticket 176: Access is a sibling released pack, but it may only become live after the
+        // platform catalogue it relies on is live. Keep this at the admission point so direct
+        // installer callers and the HTTP route receive the same named refusal as hosted preload.
+        if (string.Equals(packKey, "harborline.access-administration", StringComparison.Ordinal)
+            && _store.GetActive(tenant, "harborline.platform") is null)
+        {
+            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                PackInstallCodes.ActivatePlatformPackRequired,
+                "the released platform pack 'harborline.platform' must be active before "
+                    + "'harborline.access-administration' can activate.", decision);
+        }
+
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(target, _platform);
         if (unmetRequirements.Count > 0)
         {
