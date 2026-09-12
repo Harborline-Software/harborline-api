@@ -239,6 +239,8 @@ try {
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)
   run('arch-canary', 'bash', ['eng/verify-arch-canary.sh'], clone)
+  // 323: the globalization positive control builds one project, so it needs the restored clone, not the bare checkout.
+  run('globalization-canary', 'bash', ['eng/verify-globalization-canary.sh'], clone)
   if (qualityEnabled) {
     const archSarif = path.join(archDirectory, 'api-tier-dependency.sarif')
     run('arch-sarif', process.execPath,
