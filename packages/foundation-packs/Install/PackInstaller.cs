@@ -232,6 +232,20 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.ActivateNotInstalled, null, decision);
         }
 
+        // Ticket 176: bootstrap order is authored by a manifest dependency, not implied by a pack
+        // key. Keep the activation check here so direct installer callers and the HTTP route receive
+        // the same named refusal as hosted preload, while independently-authored fixtures remain free
+        // to activate unless they explicitly declare the platform dependency.
+        if (target.Dependencies.Any(dependency =>
+                string.Equals(dependency.Key, "harborline.platform", StringComparison.Ordinal))
+            && _store.GetActive(tenant, "harborline.platform") is null)
+        {
+            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                PackInstallCodes.ActivatePlatformPackRequired,
+                "the declared platform dependency 'harborline.platform' must be active before "
+                    + $"'{packKey}' can activate.", decision);
+        }
+
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(target, _platform);
         if (unmetRequirements.Count > 0)
         {

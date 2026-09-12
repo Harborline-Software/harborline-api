@@ -211,13 +211,14 @@ public sealed class LocalNodeHostedComponentCatalogTests
     [Fact]
     public void Catalog_Separates_Operational_Actors_From_Endpoint_Registrars()
     {
+        // 31 since ticket 176 slice 2 added the platform-pack preload (order 153);
         // 30 since ticket 213 slice 2 added the consent expiry sweep (order 88), the scheduled caller
         // that keeps a stored consent record state honest once its effective window closes, and
         // ticket 208 slice 1 added the Access administration package preload (order 155);
         // 28 since ticket 204 slice 3 added the authorization definition seeder (ADR 0070); 27 since ADR 0066
         // step 1 added the node run lock (order 65) — the liveness evidence the offline
         // administrator-recovery command checks before it may establish authority.
-        Assert.Equal(30, LocalNodeHostedComponentCatalog.Operational.Count);
+        Assert.Equal(31, LocalNodeHostedComponentCatalog.Operational.Count);
         Assert.Equal(0, LocalNodeHostedComponentCatalog.PinnedEndpointRegistrarCount);
         Assert.Empty(LocalNodeHostedComponentCatalog.EndpointRegistrars);
         Assert.Equal(

@@ -586,7 +586,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // Compiled system record types are catalogue authority, not portable pack content.
             // Refuse only the claiming items so an otherwise valid pack remains projectable.
             var sealedTypeClaims = seedItems
-                .Where(PackSealedSystemTypeAdmission.ClaimsSealedSystemType)
+                .Where(item => PackSealedSystemTypeAdmission.ClaimsSealedSystemType(item)
+                    && !PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem(pack.PackKey, item))
                 .ToArray();
             foreach (var item in sealedTypeClaims)
             {
@@ -601,7 +602,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
 
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.
-            foreach (var item in seedItems.Except(sealedTypeClaims).OrderBy(
+            // The platform pack's descriptor catalogue points at the one compiled descriptor set. It is
+            // deliberately not sent through a definition projector: doing so would create a second schema.
+            var platformCatalogueItems = seedItems
+                .Where(item => PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem(pack.PackKey, item))
+                .ToArray();
+            foreach (var item in seedItems.Except(sealedTypeClaims).Except(platformCatalogueItems).OrderBy(
                 i => i.Kind == PackContentKind.RoleDefinition ? 0 : 1))
             {
                 switch (item.Kind)
