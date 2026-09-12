@@ -89,11 +89,14 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
             logger.LogError("Platform pack activation was refused: {Reason}.", activated.Error);
     }
 
+    // CA1869: one cached instance, as CompromisedDeviceResponseService and the audit reader already do.
+    private static readonly JsonSerializerOptions ExportJsonOptions = new(JsonSerializerDefaults.Web);
+
     private static PackExportRequest ReadExportRequest(string authoringPrincipal)
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Missing platform export document '{ResourceName}'.");
-        var document = JsonSerializer.Deserialize<ExportPackRequestDto>(stream, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        var document = JsonSerializer.Deserialize<ExportPackRequestDto>(stream, ExportJsonOptions)
             ?? throw new InvalidOperationException("The platform export document is not a JSON object.");
         return new PackExportRequest(Key: document.Key, Version: document.Version, Name: document.Name ?? document.Key,
             Description: document.Description ?? string.Empty, ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, true),
