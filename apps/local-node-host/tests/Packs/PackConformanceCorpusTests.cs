@@ -34,7 +34,7 @@ public sealed class PackConformanceCorpusTests
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000000401");
     private static readonly DateTimeOffset Now = new(2026, 9, 11, 12, 0, 0, TimeSpan.Zero);
 
-    [Fact(DisplayName = "ticket 401: enumerated pack corpus activates accepted fixtures and pins refusal reasons")]
+    [Fact(DisplayName = "ticket 401: enumerated pack corpus activates accepted fixtures and pins refusal reason, code, and pointer")]
     public async Task Enumerated_corpus_activates_or_refuses_every_pack()
     {
         var root = Environment.GetEnvironmentVariable("HARBORLINE_PACK_CONFORMANCE_ROOT")
@@ -100,7 +100,49 @@ public sealed class PackConformanceCorpusTests
             Assert.False(outcome.Installed, $"Must-refuse pack '{testCase.PackPath}' installed.");
             var actual = Assert.Single(outcome.RefusalCodes);
             Assert.Equal(testCase.ExpectedReason, actual);
+            AssertExpectedRefusal(testCase, Assert.Single(outcome.Preview.Refusals));
         }
+    }
+
+    [Fact]
+    public void Must_refuse_case_without_code_fails_naming_expected_file()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"harborline-pack-corpus-{Guid.NewGuid():N}");
+        var entry = Path.Combine(root, "missing-code");
+        var expected = Path.Combine(entry, "expected.json");
+        Directory.CreateDirectory(entry);
+        try
+        {
+            File.WriteAllText(Path.Combine(entry, "missing-code-pack.export.json"), "{}");
+            File.WriteAllText(expected, """{ "reason": "refusal", "pointer": "/" }""");
+
+            var exception = Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => EnumerateCases(root, requiresExpectedReason: true));
+
+            Assert.Contains(expected, exception.Message, StringComparison.Ordinal);
+            Assert.Contains("no code", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Must_refuse_case_with_wrong_code_fails_showing_expected_and_actual()
+    {
+        var testCase = new CorpusCase(
+            "fixture/export.json",
+            "refusal.reason",
+            "refusal.expected-code",
+            "/contents/0/contentBase64");
+
+        var exception = Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertExpectedRefusal(
+            testCase,
+            new PackInstallRefusal("refusal.actual-code", "/contents/0/contentBase64")));
+
+        Assert.Contains("fixture/export.json", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Expected 'refusal.expected-code'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("actual 'refusal.actual-code'", exception.Message, StringComparison.Ordinal);
     }
 
     private static string RepositoryRoot()
@@ -135,18 +177,38 @@ public sealed class PackConformanceCorpusTests
             Assert.True(File.Exists(expectedPack), $"Pack conformance case is missing its pack file: '{expectedPack}'.");
             if (!requiresExpectedReason)
             {
-                cases.Add(new CorpusCase(expectedPack, null));
+                cases.Add(new CorpusCase(expectedPack, null, null, null));
                 continue;
             }
 
             Assert.True(File.Exists(expectedReason), $"Must-refuse case is missing expected.json: '{expectedReason}'.");
             using var expected = JsonDocument.Parse(File.ReadAllText(expectedReason));
-            var reason = expected.RootElement.GetProperty("reason").GetString();
-            Assert.False(string.IsNullOrWhiteSpace(reason), $"Must-refuse case has no reason: '{expectedReason}'.");
-            cases.Add(new CorpusCase(expectedPack, reason));
+            var reason = RequiredExpectation(expected.RootElement, "reason", expectedReason);
+            var code = RequiredExpectation(expected.RootElement, "code", expectedReason);
+            var pointer = RequiredExpectation(expected.RootElement, "pointer", expectedReason);
+            cases.Add(new CorpusCase(expectedPack, reason, code, pointer));
         }
 
         return cases;
+    }
+
+    private static string RequiredExpectation(JsonElement expected, string property, string path)
+    {
+        var present = expected.TryGetProperty(property, out var value)
+            && value.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(value.GetString());
+        Assert.True(present, $"Must-refuse case has no {property}: '{path}'.");
+        return value.GetString()!;
+    }
+
+    private static void AssertExpectedRefusal(CorpusCase testCase, PackInstallRefusal actual)
+    {
+        Assert.True(string.Equals(testCase.ExpectedCode, actual.Code, StringComparison.Ordinal),
+            $"Must-refuse pack '{testCase.PackPath}' has unexpected code. " +
+            $"Expected '{testCase.ExpectedCode}'; actual '{actual.Code}'.");
+        Assert.True(string.Equals(testCase.ExpectedPointer, actual.Pointer, StringComparison.Ordinal),
+            $"Must-refuse pack '{testCase.PackPath}' has unexpected pointer. " +
+            $"Expected '{testCase.ExpectedPointer}'; actual '{actual.Pointer}'.");
     }
 
     private static async Task<byte[]> ExportAsync(PackExporter exporter, string path, KeyPair keyPair)
@@ -192,5 +254,9 @@ public sealed class PackConformanceCorpusTests
             Dcp: DomainComplianceProfile.General("conformance-corpus"));
     }
 
-    private sealed record CorpusCase(string PackPath, string? ExpectedReason);
+    private sealed record CorpusCase(
+        string PackPath,
+        string? ExpectedReason,
+        string? ExpectedCode,
+        string? ExpectedPointer);
 }

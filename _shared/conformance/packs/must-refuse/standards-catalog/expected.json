@@ -1,1 +1,5 @@
-{ "reason": "pack.install.refused.unsupported_content_kind.standards_catalog" }
+{
+  "reason": "pack.install.refused.unsupported_content_kind.standards_catalog",
+  "code": "pack.install.refused.unsupported_content_kind.standards_catalog",
+  "pointer": "/contents/0/contentBase64"
+}
