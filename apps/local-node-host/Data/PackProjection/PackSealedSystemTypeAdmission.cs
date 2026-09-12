@@ -19,8 +19,20 @@ public static class PackSealedSystemTypeAdmission
     public static bool ClaimsSealedSystemType(PackSeedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        return SystemRecordType.All.Select(type => type.Name)
-            .Contains(item.Key, StringComparer.OrdinalIgnoreCase);
+        return TryResolveCompiledDescriptor(item.Key, out _);
+    }
+
+    /// <summary>
+    /// Resolves a carried platform record-type key to the one compiled catalogue descriptor.
+    /// The returned instance is taken directly from <see cref="SystemRecordType.All"/>; package
+    /// content never materializes a second descriptor.
+    /// </summary>
+    public static bool TryResolveCompiledDescriptor(string key, out SystemRecordType? descriptor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        descriptor = SystemRecordType.All.SingleOrDefault(type =>
+            string.Equals(type.Name, key, StringComparison.OrdinalIgnoreCase));
+        return descriptor is not null;
     }
 
     /// <summary>

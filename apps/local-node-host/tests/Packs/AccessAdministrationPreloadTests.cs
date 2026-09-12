@@ -270,6 +270,35 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Platform_preload_carries_the_one_compiled_descriptor_for_every_record_type()
+    {
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
+        var carried = platform.SeedItems
+            .Where(item => item.Kind == PackContentKind.RecordType)
+            .ToArray();
+        var compiledByName = SystemRecordType.All.ToDictionary(type => type.Name, StringComparer.Ordinal);
+
+        Assert.Equal(SystemRecordType.All.Count, carried.Length);
+        Assert.Equal(SystemRecordType.All.Count, compiledByName.Count);
+        foreach (var item in carried)
+        {
+            Assert.True(PackSealedSystemTypeAdmission.TryResolveCompiledDescriptor(item.Key, out var descriptor),
+                $"Carried RecordType key '{item.Key}' does not resolve to a compiled catalogue descriptor.");
+            Assert.Same(compiledByName[item.Key], descriptor);
+            Assert.True(descriptor!.Sealed);
+            Assert.Equal("platform", descriptor.Provenance.Kind);
+        }
+
+        var carriedKeys = carried.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
+        var compiledKeys = SystemRecordType.All.Select(type => type.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(compiledKeys.Count, carriedKeys.Count);
+        Assert.Empty(carriedKeys.Except(compiledKeys));
+        Assert.Empty(compiledKeys.Except(carriedKeys));
+    }
+
+    [Fact]
     public async Task A_signature_the_composed_trust_store_does_not_recognise_is_refused()
     {
         // The preload built over a trust store that roots trust in SOMEONE ELSE's key: the node's own
