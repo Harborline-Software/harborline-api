@@ -96,6 +96,26 @@ public sealed class PackConformanceCorpusTests
         foreach (var testCase in refuse)
         {
             var exported = await ExportAsync(exporter, testCase.PackPath, keyPair);
+            if (testCase.ActivationSetup is { } setup)
+            {
+                var provider = await exporter.ExportAsync(new PackExportRequest(
+                    setup.PackKey, "1.0.0", setup.PackKey, "T-396 corpus provider", PackScopeTier.Horizontal,
+                    [new PackContentSource(setup.ContentKey, PackContentKind.FormDefinition, "1.0.0", new JsonObject())],
+                    Array.Empty<PackDependencyRef>(), Array.Empty<string>(), 1,
+                    Dcp: DomainComplianceProfile.General("conformance-corpus"),
+                    Exposes: setup.Exposes, InterfaceVersion: setup.InterfaceVersion), new Ed25519Signer(keyPair));
+                Assert.True(provider.Succeeded, string.Join(",", provider.Validation.Errors.Select(error => error.Code)));
+                var providerInstalled = installer.Install(provider.FileBytes!, context);
+                Assert.True(providerInstalled.Installed, string.Join(",", providerInstalled.RefusalCodes));
+                Assert.True(installer.Activate(Tenant, providerInstalled.PackKey, providerInstalled.Version, Now, "conformance-corpus").Activated);
+                var consumerInstalled = installer.Install(exported, context);
+                Assert.True(consumerInstalled.Installed, $"Must-refuse activation pack '{testCase.PackPath}' did not install.");
+                var activation = installer.Activate(Tenant, consumerInstalled.PackKey, consumerInstalled.Version, Now, "conformance-corpus");
+                Assert.False(activation.Activated, $"Must-refuse activation pack '{testCase.PackPath}' activated.");
+                Assert.Equal(testCase.ExpectedReason, activation.Error);
+                AssertExpectedRefusal(testCase, Assert.IsType<PackInstallRefusal>(activation.Refusal));
+                continue;
+            }
             var outcome = installer.Install(exported, context);
             Assert.False(outcome.Installed, $"Must-refuse pack '{testCase.PackPath}' installed.");
             var actual = Assert.Single(outcome.RefusalCodes);
@@ -186,7 +206,16 @@ public sealed class PackConformanceCorpusTests
             var reason = RequiredExpectation(expected.RootElement, "reason", expectedReason);
             var code = RequiredExpectation(expected.RootElement, "code", expectedReason);
             var pointer = RequiredExpectation(expected.RootElement, "pointer", expectedReason);
-            cases.Add(new CorpusCase(expectedPack, reason, code, pointer));
+            ActivationSetup? activationSetup = null;
+            if (expected.RootElement.TryGetProperty("activationSetup", out var setup))
+            {
+                var setupPack = RequiredExpectation(setup, "packKey", expectedReason);
+                var setupContent = RequiredExpectation(setup, "contentKey", expectedReason);
+                var setupVersion = setup.GetProperty("interfaceVersion").GetInt32();
+                var exposes = setup.GetProperty("exposes").EnumerateArray().Select(value => value.GetString()!).ToArray();
+                activationSetup = new ActivationSetup(setupPack, setupContent, setupVersion, exposes);
+            }
+            cases.Add(new CorpusCase(expectedPack, reason, code, pointer, activationSetup));
         }
 
         return cases;
@@ -241,6 +270,10 @@ public sealed class PackConformanceCorpusTests
         var capabilityRequirements = root["capabilityRequirements"] is JsonArray capabilities
             ? capabilities.Select(item => item!.GetValue<string>()).ToArray()
             : Array.Empty<string>();
+        var exposes = root["exposes"] is JsonArray exposed
+            ? exposed.Select(item => item!.GetValue<string>()).ToArray()
+            : null;
+        var interfaceVersion = root["interfaceVersion"]?.GetValue<int>();
         return new PackExportRequest(
             root["key"]!.GetValue<string>(),
             root["version"]!.GetValue<string>(),
@@ -251,12 +284,18 @@ public sealed class PackConformanceCorpusTests
             dependencies,
             capabilityRequirements,
             Epoch: 1,
-            Dcp: DomainComplianceProfile.General("conformance-corpus"));
+            Dcp: DomainComplianceProfile.General("conformance-corpus"),
+            Exposes: exposes,
+            InterfaceVersion: interfaceVersion);
     }
 
     private sealed record CorpusCase(
         string PackPath,
         string? ExpectedReason,
         string? ExpectedCode,
-        string? ExpectedPointer);
+        string? ExpectedPointer,
+        ActivationSetup? ActivationSetup = null);
+
+    private sealed record ActivationSetup(
+        string PackKey, string ContentKey, int InterfaceVersion, IReadOnlyList<string> Exposes);
 }
