@@ -12,6 +12,8 @@ max_wait_seconds=600
 max_poll_attempts=$((max_wait_seconds / poll_interval_seconds))
 curl_connect_timeout_seconds=5
 curl_max_time_seconds=10
+curl_download_max_time_seconds=120
+download_failure=
 poll_request_reserve_seconds=$((curl_max_time_seconds * 2))
 wait_deadline=$(($(date +%s) + max_wait_seconds))
 
@@ -41,17 +43,38 @@ find_artifact() {
   printf '%s' "$listing" | artifact_url
 }
 
+# 403: the artifact download is NOT an api_get. Two differences matter and both were defects.
+#   --location: archive_download_url answers 302 to blob storage, so --fail without it fails on the
+#     redirect itself. curl drops the Authorization header across hosts on its own, which is what we
+#     want here -- the blob URL carries its own signature.
+#   its own timeout: api_get's 10s ceiling is sized for a JSON listing. The findings artifact is
+#     megabytes, so the download failed on size and the caller reported "could not be downloaded",
+#     indistinguishable from main never having produced one. That is how a working artifact and a
+#     missing one became the same message, and why this read as "main just moved" for weeks.
+# The failure reason now travels in $download_failure so the next one names itself.
 download_artifact() {
-  local url=$1 destination="$RUNNER_TEMP/quality-findings-$base"
+  local url=$1 destination="$RUNNER_TEMP/quality-findings-$base" status=0
   mkdir -p "$destination"
-  if api_get "$url" -o "$destination/findings.zip" \
-    && unzip -q "$destination/findings.zip" -d "$destination" \
-    && [ -f "$destination/findings.json" ]; then
-    echo "HARBORLINE_QUALITY_BASELINE=$destination/findings.json" >> "$GITHUB_ENV"
-    return 0
+  curl --fail --location --silent --show-error --retry 2 --retry-connrefused \
+    --connect-timeout "$curl_connect_timeout_seconds" --max-time "$curl_download_max_time_seconds" \
+    -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $token" \
+    "$url" -o "$destination/findings.zip" || status=$?
+  if [ "$status" -ne 0 ]; then
+    download_failure="curl exit $status"
+    return 1
   fi
-  return 1
+  if ! unzip -q "$destination/findings.zip" -d "$destination" 2>/dev/null; then
+    download_failure="the archive is not readable as a zip ($(wc -c <"$destination/findings.zip" 2>/dev/null || echo 0) bytes)"
+    return 1
+  fi
+  if [ ! -f "$destination/findings.json" ]; then
+    download_failure="the archive contains no findings.json"
+    return 1
+  fi
+  echo "HARBORLINE_QUALITY_BASELINE=$destination/findings.json" >> "$GITHUB_ENV"
+  return 0
 }
+
 
 main_verify_status() {
   local runs
@@ -68,7 +91,7 @@ if [ -n "$url" ]; then
     echo "quality-baseline: used merge-base artifact $name"
     exit 0
   fi
-  echo "quality-baseline: merge-base artifact $name was listed but could not be downloaded; committed fallback will be used"
+  echo "quality-baseline: merge-base artifact $name was listed but could not be downloaded ($download_failure); committed fallback will be used"
   exit 0
 fi
 
@@ -109,7 +132,7 @@ for attempt in $(seq 1 "$max_poll_attempts"); do
       echo "quality-baseline: waited then used merge-base artifact $name after $((attempt * poll_interval_seconds))s"
       exit 0
     fi
-    echo "quality-baseline: waited $((attempt * poll_interval_seconds))s and fell back to the committed baseline because merge-base artifact $name could not be downloaded"
+    echo "quality-baseline: waited $((attempt * poll_interval_seconds))s and fell back to the committed baseline because merge-base artifact $name could not be downloaded ($download_failure)"
     exit 0
   fi
 done

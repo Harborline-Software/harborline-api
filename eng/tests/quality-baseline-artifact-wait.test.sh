@@ -32,6 +32,21 @@ elif [[ "$url" == *'/actions/runs?'* ]]; then
     printf '{"workflow_runs":[{"name":"verify","event":"push","status":"in_progress"}]}'
   fi
 elif [[ "$url" == 'https://artifact.invalid/findings' ]]; then
+  # 403: the real endpoint answers 302 to blob storage, and the artifact is megabytes. A download
+  # without --location fails on the redirect; one on the listing's 10s budget fails on size. This
+  # stub refuses both, so dropping either flag reds this test instead of silently falling back.
+  location=no; max_time=0
+  saved=("$@")
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -L|--location) location=yes;;
+      --max-time) max_time=$2;;
+    esac
+    shift
+  done
+  [ "$location" = yes ] || exit 47
+  [ "$max_time" -ge 60 ] || exit 28
+  set -- "${saved[@]}"
   while [ "$#" -gt 0 ]; do
     if [ "$1" = -o ]; then cp "$WAIT_STUB_FINDINGS" "$2"; exit 0; fi
     shift
