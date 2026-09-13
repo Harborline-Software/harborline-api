@@ -135,6 +135,71 @@ public sealed class InstallationFounderBootstrapCeremonyTests
         Assert.DoesNotContain("argon2", envelope.CommandFingerprint, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Ticket 360. Every other ceremony test here constructs FixedDesktopEvidence(..., true), so the
+    // whole suite asserted the INTERACTIVE path and the headless one had no coverage -- because it
+    // had no implementation. DesktopOsSessionBootstrapClaimIssuer declines when
+    // Environment.UserInteractive is false, which is every Windows service and every launchd daemon,
+    // so a headless node could not issue a founder bootstrap claim at all. That is the MVP's own
+    // deployment shape, and it was read for weeks as a flaky macOS test.
+    //
+    // This asserts the CLAIM, not RunAsync: RunAsync establishes the credential and succeeds
+    // headless either way, which is why a first version of this test passed with the fallback
+    // deleted. The claim is what FounderTenantMembershipAttachService needs, and its absence is
+    // what returns Unavailable.
+    [Fact]
+    public async Task Headless_Host_Issues_A_Filesystem_Owner_Claim()
+    {
+        await using var stores = await CeremonyStores.CreateAsync();
+        var clock = new BootstrapClaimRedemptionTests.MutableClock(
+            new DateTimeOffset(2026, 9, 13, 1, 0, 0, TimeSpan.Zero));
+        var dataDirectory = Path.Combine(Path.GetTempPath(), $"t360-headless-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataDirectory);
+        try
+        {
+            var ceremony = new InstallationFounderBootstrapCeremony(
+                new InstallationFounderBootstrapService(stores.IdentityFactory, clock),
+                Options.Create(new NodeWebClientOptions
+                {
+                    Enabled = true,
+                    FounderUsername = FounderUsername,
+                    FounderPasswordHash = MintFounderCredential(FounderPassword),
+                }),
+                RootFingerprint,
+                stores.IdentityFactory,
+                clock,
+                // No desktop session, and a process user that is NOT the founder -- exactly a service
+                // account. BOTH clauses of the desktop issuer's guard fail, so the filesystem-owner
+                // issuer carries this or nothing does.
+                new BootstrapClaimRedemptionTests.FixedDesktopEvidence("service-account", false),
+                dataDirectory);
+
+            Assert.Equal(
+                InstallationFounderBootstrapCeremonyStatus.Established,
+                (await ceremony.RunAsync()).Status);
+
+            await using var context = stores.IdentityFactory.CreateDbContext();
+            var installationId = (await context.InstallationIdentities.AsNoTracking().SingleAsync())
+                .InstallationIdentityId;
+            var tenant = TenantId.FromString("founder-ceremony-tenant");
+            var principal = FounderTenantMembershipAttachService.DerivePrincipal(
+                tenant, InstallationFounderBootstrapCeremony.CorrelationId);
+            var claim = Assert.IsType<BootstrapClaim>(await ceremony.IssueClaimForTargetAsync(
+                new BootstrapGrantTarget(
+                    tenant,
+                    principal,
+                    new CanonicalPartyReference("founder-party"),
+                    InstallationFounderBootstrapCeremony.CorrelationId,
+                    installationId),
+                CancellationToken.None));
+            Assert.Equal(BootstrapClaimIssuerKind.SelfHostedFileSystemOwner, claim.IssuerKind);
+            Assert.Equal(installationId, claim.InstallationId);
+        }
+        finally
+        {
+            Directory.Delete(dataDirectory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Environment_Ceremony_Issues_A_Desktop_Os_Session_Claim_Instead_Of_Grant_Bypass()
     {
@@ -152,7 +217,8 @@ public sealed class InstallationFounderBootstrapCeremonyTests
             RootFingerprint,
             stores.IdentityFactory,
             clock,
-            new BootstrapClaimRedemptionTests.FixedDesktopEvidence(FounderUsername, true));
+            new BootstrapClaimRedemptionTests.FixedDesktopEvidence(FounderUsername, true),
+            Path.Combine(Path.GetTempPath(), $"t360-interactive-{Guid.NewGuid():N}"));
 
         Assert.Equal(
             InstallationFounderBootstrapCeremonyStatus.Established,
@@ -429,7 +495,8 @@ public sealed class InstallationFounderBootstrapCeremonyTests
             new InstallationFounderBootstrapService(stores.IdentityFactory, TimeProvider.System),
             options,
             RootFingerprint,
-            TimeProvider.System).RunAsync();
+            TimeProvider.System,
+            Path.Combine(Path.GetTempPath(), $"t360-ceremony-{Guid.NewGuid():N}")).RunAsync();
 
         Assert.Equal(InstallationFounderBootstrapCeremonyStatus.SkippedNoAuthority, outcome.Status);
         Assert.Equal(expectedReason, outcome.Reason);
@@ -478,7 +545,8 @@ public sealed class InstallationFounderBootstrapCeremonyTests
                 FounderPasswordHash = credential,
             }),
             "not-a-fingerprint",
-            TimeProvider.System).RunAsync();
+            TimeProvider.System,
+            Path.Combine(Path.GetTempPath(), $"t360-noroot-{Guid.NewGuid():N}")).RunAsync();
 
         var longUsername = await CreateCeremony(
             stores,
@@ -533,7 +601,8 @@ public sealed class InstallationFounderBootstrapCeremonyTests
 
         services.AddInstallationFounderBootstrapCeremony(
             RootFingerprint,
-            AuthorizationSeedProfile.Production);
+            AuthorizationSeedProfile.Production,
+            Path.Combine(Path.GetTempPath(), $"t360-registration-{Guid.NewGuid():N}"));
 
         using var provider = services.BuildServiceProvider();
         Assert.NotNull(provider.GetRequiredService<InstallationFounderBootstrapCeremony>());
@@ -555,7 +624,8 @@ public sealed class InstallationFounderBootstrapCeremonyTests
                 FounderPasswordHash = credentialHash,
             }),
             RootFingerprint,
-            TimeProvider.System);
+            TimeProvider.System,
+            Path.Combine(Path.GetTempPath(), $"t360-helper-{Guid.NewGuid():N}"));
 
     /// <summary>
     /// Adds a SECOND installation account, in the shape <c>WebJoinerAccountMinter</c> writes when an

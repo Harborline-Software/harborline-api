@@ -127,6 +127,7 @@ public sealed class InstallationFounderBootstrapCeremony
     private readonly IDbContextFactory<NodeLocalInstallationIdentityDbContext>? _identityFactory;
     private readonly TimeProvider _timeProvider;
     private readonly IDesktopOsSessionEvidence _sessionEvidence;
+    private readonly string _dataDirectory;
     private string? _authenticatedInstallationId;
 
     /// <summary>Constructs the ceremony over the dormant authority and the local bootstrap evidence.</summary>
@@ -140,14 +141,16 @@ public sealed class InstallationFounderBootstrapCeremony
         InstallationFounderBootstrapService authority,
         IOptions<NodeWebClientOptions> webClientOptions,
         string rootPublicKeyFingerprint,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        string dataDirectory)
         : this(
             authority,
             webClientOptions,
             rootPublicKeyFingerprint,
             identityFactory: null,
             timeProvider,
-            new ProcessDesktopOsSessionEvidence())
+            new ProcessDesktopOsSessionEvidence(),
+            dataDirectory)
     {
     }
 
@@ -157,7 +160,8 @@ public sealed class InstallationFounderBootstrapCeremony
         string rootPublicKeyFingerprint,
         IDbContextFactory<NodeLocalInstallationIdentityDbContext>? identityFactory,
         TimeProvider timeProvider,
-        IDesktopOsSessionEvidence sessionEvidence)
+        IDesktopOsSessionEvidence sessionEvidence,
+        string dataDirectory)
     {
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _webClientOptions = webClientOptions ?? throw new ArgumentNullException(nameof(webClientOptions));
@@ -166,6 +170,7 @@ public sealed class InstallationFounderBootstrapCeremony
         _identityFactory = identityFactory;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _sessionEvidence = sessionEvidence ?? throw new ArgumentNullException(nameof(sessionEvidence));
+        _dataDirectory = dataDirectory ?? throw new ArgumentNullException(nameof(dataDirectory));
     }
 
     /// <summary>
@@ -275,12 +280,47 @@ public sealed class InstallationFounderBootstrapCeremony
         if (string.IsNullOrWhiteSpace(founderIdentity))
             return Task.FromResult<BootstrapClaim?>(null);
 
-        IBootstrapClaimIssuer issuer = new DesktopOsSessionBootstrapClaimIssuer(
-            _timeProvider,
-            _identityFactory,
-            founderIdentity,
-            _sessionEvidence);
-        return issuer.IssueAsync(target, TimeSpan.FromMinutes(10), cancellationToken);
+        // Two issuers, tried in order, because a node may legitimately have no desktop.
+        //
+        // DesktopOsSession is the strongest local evidence and stays first: an interactive session
+        // whose OS user IS the configured founder. It declines -- returns null, never throws -- when
+        // Environment.UserInteractive is false, which is every Windows service and every launchd
+        // daemon. Ticket 360: that decline is why the founder ceremony could not complete on ANY
+        // headless host, which is the MVP's own deployment shape and both CI runners. It was read
+        // for weeks as a macOS test defect; it is neither macOS nor a test defect.
+        //
+        // SelfHostedFileSystemOwner is the headless path and is NOT weaker by accident: it requires
+        // the installation's own data directory to be owned by the process user, which is the same
+        // claim a service account makes about the install it runs. BootstrapClaimRedemption.IsAccepted
+        // already admits this issuer kind; only issuance was missing, so this wires a designed path
+        // rather than widening the accepted set.
+        var issuers = new IBootstrapClaimIssuer[]
+        {
+            new DesktopOsSessionBootstrapClaimIssuer(
+                _timeProvider,
+                _identityFactory,
+                founderIdentity,
+                _sessionEvidence),
+            new SelfHostedFileSystemOwnerBootstrapClaimIssuer(
+                _timeProvider,
+                _identityFactory,
+                _dataDirectory),
+        };
+        return IssueFirstAsync(issuers, target, cancellationToken);
+    }
+
+    private static async Task<BootstrapClaim?> IssueFirstAsync(
+        IReadOnlyList<IBootstrapClaimIssuer> issuers,
+        BootstrapGrantTarget target,
+        CancellationToken cancellationToken)
+    {
+        foreach (var issuer in issuers)
+        {
+            var claim = await issuer.IssueAsync(target, TimeSpan.FromMinutes(10), cancellationToken)
+                .ConfigureAwait(false);
+            if (claim is not null) return claim;
+        }
+        return null;
     }
 
     /// <summary>
@@ -414,11 +454,13 @@ public static class InstallationFounderBootstrapCeremonyRegistration
     public static IServiceCollection AddInstallationFounderBootstrapCeremony(
         this IServiceCollection services,
         string rootPublicKeyFingerprint,
-        AuthorizationSeedProfile seedProfile)
+        AuthorizationSeedProfile seedProfile,
+        string dataDirectory)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPublicKeyFingerprint);
         ArgumentNullException.ThrowIfNull(seedProfile);
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
 
         services.AddSingleton(provider => new InstallationFounderBootstrapService(
             provider.GetRequiredService<
@@ -438,7 +480,8 @@ public static class InstallationFounderBootstrapCeremonyRegistration
             provider.GetRequiredService<
                 Microsoft.EntityFrameworkCore.IDbContextFactory<NodeLocalInstallationIdentityDbContext>>(),
             provider.GetRequiredService<TimeProvider>(),
-            new ProcessDesktopOsSessionEvidence()));
+            new ProcessDesktopOsSessionEvidence(),
+            dataDirectory));
         services.AddHostedService<InstallationFounderBootstrapCeremonyHostedService>();
         return services;
     }

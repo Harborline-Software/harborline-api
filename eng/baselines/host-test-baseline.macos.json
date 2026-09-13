@@ -7,15 +7,16 @@
   "comparison": "named",
   "totals": {
     "total": 3699,
-    "passed": 3673,
-    "failed": 6,
+    "passed": 3675,
+    "failed": 4,
     "notExecuted": 20
   },
   "policy": [
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
-    "Ticket 302 slice 1 (2026-09-09): the composed-host boot defect was fixed at the root — WindowsEventLogAvailabilityHealthCheck took IWindowsEventLogSink as a REQUIRED dependency while ResilientWindowsEventLogRegistration.Add registers that sink on Windows only, so every /health request on macOS threw inside the health middleware and answered 500. Eleven of the seventeen rows burned down with that one fix and were removed here.",
-    "The four environmental rows are OS gaps, not defects: each names the platform facility macOS lacks. The two NPrincipal rows are a DEFECT and need a follow-up ticket; they are not an OS gap."
+    "Ticket 302 slice 1 (2026-09-09): the composed-host boot defect was fixed at the root \u2014 WindowsEventLogAvailabilityHealthCheck took IWindowsEventLogSink as a REQUIRED dependency while ResilientWindowsEventLogRegistration.Add registers that sink on Windows only, so every /health request on macOS threw inside the health middleware and answered 500. Eleven of the seventeen rows burned down with that one fix and were removed here.",
+    "The four environmental rows are OS gaps, not defects: each names the platform facility macOS lacks. The two NPrincipal rows are a DEFECT and need a follow-up ticket; they are not an OS gap.",
+    "Ticket 360 (2026-09-13): the two behavioural NPrincipalAcceptance rows are REMOVED, not re-dated. They were never an OS gap: InstallationFounderBootstrapCeremony built only the DesktopOsSession claim issuer, which declines when Environment.UserInteractive is false -- every Windows service and every launchd daemon -- so a headless node could not issue a founder bootstrap claim at all and the attach returned Unavailable. The ceremony now falls back to the SelfHostedFileSystemOwner issuer that BootstrapClaimRedemption.IsAccepted already admitted. A permitted behavioural failure is a defect nobody has to fix; that is why this one survived weeks and also kept winbox out of the gate. Environmental rows name a facility the platform lacks; behavioural rows do not belong in this list."
   ],
   "permittedFailures": [
     {
@@ -45,20 +46,6 @@
       "owner": "302",
       "dated": "2026-09-09",
       "reason": "Same EphemeralKeySet refusal as W4-C3/C5: the LAN listener cannot load its node leaf on macOS, so the bind assertion never runs."
-    },
-    {
-      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 3)",
-      "class": "behavioural",
-      "owner": "302",
-      "dated": "2026-09-09",
-      "reason": "DEFECT, follow-up ticket — not an OS gap. The joiner dials the founder's sync listener, the TCP dial SUCCEEDS, and the admitter then closes the connection before the first frame: 'Socket enrollment: transport/decode failure reaching tcp://127.0.0.1:<port> — System.IO.EndOfStreamException: Peer closed after 0 of 4 expected bytes', so the join answers no_response. It fails in 5-8 s, well inside the 15 s enrollment budget, so this is NOT the ticket 254b load/timeout shape; it is the admitter's pre-trust accept path dropping the ENROLL_REQUEST."
-    },
-    {
-      "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
-      "class": "behavioural",
-      "owner": "302",
-      "dated": "2026-09-09",
-      "reason": "DEFECT, follow-up ticket — the same pre-trust accept failure as (n: 3), one more joiner."
     }
   ],
   "knownFlaky": [

@@ -177,7 +177,8 @@ public sealed class FounderTenantMembershipAttachTests
                 rootFingerprint,
                 identityFactory,
                 time,
-                new BootstrapClaimRedemptionTests.FixedDesktopEvidence("founder", true));
+                new BootstrapClaimRedemptionTests.FixedDesktopEvidence("founder", true),
+                homePath);
             Assert.Equal(
                 InstallationFounderBootstrapCeremonyStatus.Established,
                 (await founderCeremony.RunAsync()).Status);
