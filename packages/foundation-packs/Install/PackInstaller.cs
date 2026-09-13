@@ -721,12 +721,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             // Preserve install's established priority (standards, then cascade, then terminology),
             // independent of the authoring order in the export. CHECK collects the whole list below.
-            var refusal = earlyRefusals.OrderBy(refusal => refusal.Code switch
+            var refusal = earlyRefusals.MinBy(refusal => refusal.Code switch
             {
                 PackInstallCodes.RefusedUnsupportedStandardsCatalog => 0,
                 PackInstallCodes.RefusedUnsupportedCascadeDefaults => 1,
                 _ => 2,
-            }).First();
+            })!;
             return HardRefusal(
                 manifest.Key,
                 manifest.Version,

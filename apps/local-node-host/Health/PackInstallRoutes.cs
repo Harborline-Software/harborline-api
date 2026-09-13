@@ -147,9 +147,12 @@ internal static class PackInstallRoutes
             var bytes = await ReadBodyAsync(http.Request, ct).ConfigureAwait(false);
             var check = installer.Check(
                 bytes, new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge));
-            logger.LogInformation(
-                "Pack CHECK (tenant {Tenant}, pack {Key} v{Version}) → {Verdict} [{Codes}].",
-                tenant, check.PackKey, check.Version, check.Verdict, string.Join(",", check.RefusalCodes));
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation(
+                    "Pack CHECK (tenant {Tenant}, pack {Key} v{Version}) → {Verdict} [{Codes}].",
+                    tenant, check.PackKey, check.Version, check.Verdict, string.Join(",", check.RefusalCodes));
+            }
             return Results.Ok(ToPreviewDto(check));
         });
 
