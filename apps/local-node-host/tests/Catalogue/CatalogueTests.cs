@@ -25,13 +25,14 @@ public sealed class CatalogueTests
         Assert.Equal(16, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
         var allowedKinds = new[]
         {
-            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding",
+            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition",
         };
         Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
         Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
             "FormDefinition" or "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding"));
+        Assert.Equal(13, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
     }
 
     [Fact]
