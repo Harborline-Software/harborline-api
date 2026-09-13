@@ -46,12 +46,22 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      - name: Fetch the merge-base quality findings
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+      - name: Fetch the baseline quality findings
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push'
         # gh is deliberately absent from the hlrunner account. The helper uses the job token and the
         # Actions REST endpoints, so no cross-run action credential or runner-local state is needed.
+        #
+        # 403: a push to main has no merge base, so main's own verify could only ever compare against
+        # the committed file -- which moves only when someone re-pins by hand. Landings accumulated
+        # line shifts against a frozen reference until main went red, and a red main denies every
+        # subsequent PR its merge-base artifact, collapsing the PR path back onto the same stale file.
+        # On main the baseline is the PARENT COMMIT's artifact: the same mechanism, one commit back.
         run: |
-          base=$(git merge-base origin/main HEAD)
+          if [ "${{ github.event_name }}" = push ]; then
+            base=$(git rev-parse HEAD^)
+          else
+            base=$(git merge-base origin/main HEAD)
+          fi
           name="quality-findings-$base"
           bash eng/quality-baseline-artifact-wait.sh "$base" "$name" "${{ github.repository }}" "${{ github.token }}"
 
