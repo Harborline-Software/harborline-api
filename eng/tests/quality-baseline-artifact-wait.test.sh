@@ -69,7 +69,14 @@ cat > "$fixture/bin/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$WAIT_STUB_SLEEPS"
 SH
-chmod +x "$fixture/bin/curl" "$fixture/bin/unzip" "$fixture/bin/sleep"
+cat > "$fixture/bin/tar" <<'SH'
+#!/usr/bin/env bash
+# 403: proves the tar fallback really extracts when unzip is absent (the Windows runner has no
+# unzip). Mirrors the unzip stub's effect for `tar -xf findings.zip` in the destination directory.
+set -euo pipefail
+cp "$WAIT_STUB_FINDINGS" ./findings.json
+SH
+chmod +x "$fixture/bin/curl" "$fixture/bin/unzip" "$fixture/bin/sleep" "$fixture/bin/tar"
 printf '{"schemaVersion":1,"findings":[]}' > "$fixture/findings.json"
 
 run_case() {
@@ -99,6 +106,14 @@ grep -Fq 'quality-baseline: could not query merge-base artifact quality-findings
 [ "$(wc -l < "$fixture/sleeps" | tr -d ' ')" = 0 ] || { echo 'FAIL api-error waited after the failed request'; exit 1; }
 echo 'PASS api-error'
 
+# 403: the Windows runner has curl but no unzip, and this job fetches a baseline now. Re-run the
+# success case with unzip removed from PATH: it must still extract, through tar.
+rm -f "$fixture/bin/unzip"
+out=$(run_case waited-use)
+grep -Fq 'quality-baseline: waited then used merge-base artifact quality-findings-base405 after 30s' <<<"$out" || { echo "FAIL no-unzip host did not fall back to tar: $out"; exit 1; }
+grep -Fq 'HARBORLINE_QUALITY_BASELINE=' "$fixture/github-env" || { echo 'FAIL no-unzip host did not export the artifact'; exit 1; }
+echo 'PASS no-unzip host extracts through tar'
+
 upload_if=$(awk '/- name: Publish main quality findings/{found=1; next} found && /^[[:space:]]*if:/{sub(/^[[:space:]]*if: /, ""); print; exit}' "$root/.github/workflows/verify.yml")
 [ "$upload_if" = "always() && github.event_name == 'push'" ] || { echo "FAIL main findings upload must be push-only and run after a failed gate: $upload_if"; exit 1; }
-echo 'quality-baseline-artifact-wait: 5 checks passed (waited-use; waited-fallback after 600s; mid-wait-completion; api-error; push-only findings upload)'
+echo 'quality-baseline-artifact-wait: 6 checks passed (waited-use; waited-fallback after 600s; mid-wait-completion; api-error; no-unzip host extracts through tar; push-only findings upload)'

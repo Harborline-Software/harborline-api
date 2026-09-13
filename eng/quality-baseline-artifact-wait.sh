@@ -63,8 +63,11 @@ download_artifact() {
     download_failure="curl exit $status"
     return 1
   fi
-  if ! unzip -q "$destination/findings.zip" -d "$destination" 2>/dev/null; then
-    download_failure="the archive is not readable as a zip ($(wc -c <"$destination/findings.zip" 2>/dev/null || echo 0) bytes)"
+  # unzip is not on the Windows runner: Git for Windows ships curl in usr/bin but not unzip. tar
+  # reads zip on both hosts (bsdtar on macOS, Windows' own tar since 10), so it is the fallback
+  # rather than a second dependency to install. Try unzip first where it exists, for its -q.
+  if ! unzip -q "$destination/findings.zip" -d "$destination" 2>/dev/null     && ! (cd "$destination" && tar -xf findings.zip) 2>/dev/null; then
+    download_failure="neither unzip nor tar could read the archive ($(wc -c <"$destination/findings.zip" 2>/dev/null || echo 0) bytes)"
     return 1
   fi
   if [ ! -f "$destination/findings.json" ]; then
