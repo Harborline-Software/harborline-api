@@ -249,6 +249,14 @@ internal sealed class ProcessFileSystemOwnerEvidence : IFileSystemOwnerEvidence
             if (OperatingSystem.IsLinux() &&
                 statx(-100, dataDirectory, 0, 0x00000001, out var status) == 0)
                 return status.UserId == geteuid();
+
+            // macOS has no statx. Without this branch the method fell through to `return false`, so
+            // the filesystem-owner issuer could never issue on a Mac -- which is why ticket 360's fix
+            // was green on Windows CI and red on both Mac runners, with the headless ceremony test
+            // itself failing there. Same question, same answer shape: does the install directory
+            // belong to the effective user of this process.
+            if (OperatingSystem.IsMacOS() && MacStatOwner(dataDirectory, out var macOwner))
+                return macOwner == geteuid();
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
@@ -273,6 +281,42 @@ internal sealed class ProcessFileSystemOwnerEvidence : IFileSystemOwnerEvidence
         internal ushort Mode;
         internal ushort Padding;
     }
+
+    // The macOS `struct stat` prefix, only as far as st_uid. Declared separately from LinuxStatx
+    // because the layouts genuinely differ: macOS puts st_mode and st_nlink before st_ino, and its
+    // st_ino is 64-bit. Reserving the full 144-byte native size stops the kernel writing past the
+    // managed buffer, the same reason LinuxStatx reserves 256.
+    [StructLayout(LayoutKind.Sequential, Size = 144)]
+    private struct MacStat
+    {
+        internal int DeviceId;
+        internal ushort Mode;
+        internal ushort LinkCount;
+        internal ulong Inode;
+        internal uint UserId;
+        internal uint GroupId;
+    }
+
+    // The entry point is chosen by ARCHITECTURE, and this is not incidental. On x86_64 macOS, plain
+    // "stat" is the legacy 32-bit-inode variant whose st_uid sits at offset 12; "stat$INODE64" is the
+    // modern one matching MacStat above, with st_uid at 16. On arm64 the legacy variant does not
+    // exist and "stat" IS the modern one. Binding plain "stat" everywhere reads st_gid as the owner
+    // on Intel Macs -- measured on mac16: the legacy symbol returned 20 (the `staff` group) where the
+    // effective user is 501. One layout cannot serve both symbols.
+    private static bool MacStatOwner(string path, out uint owner)
+    {
+        var status = RuntimeInformation.ProcessArchitecture == Architecture.X64
+            ? macStatInode64(path, out var modern) == 0 ? modern : default
+            : macStatArm(path, out var arm) == 0 ? arm : default;
+        owner = status.UserId;
+        return status.Mode != 0;
+    }
+
+    [DllImport("libc", EntryPoint = "stat$INODE64", SetLastError = true)]
+    private static extern int macStatInode64(string path, out MacStat status);
+
+    [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
+    private static extern int macStatArm(string path, out MacStat status);
 
     [DllImport("libc", SetLastError = true)]
     private static extern int statx(int directoryFileDescriptor, string path, int flags, uint mask, out LinuxStatx status);
