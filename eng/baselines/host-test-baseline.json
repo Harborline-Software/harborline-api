@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "86d014ce",
-  "recordedAt": "2026-09-13T14:20:00Z",
+  "sourcePin": "1262165c650e1c83c39ae159773e0928ddc3b78d",
+  "recordedAt": "2026-09-13T17:04:29Z",
   "totals": {
-    "total": 3879,
-    "passed": 3858,
+    "total": 3894,
+    "passed": 3873,
     "failed": 0,
     "notExecuted": 21
   },
@@ -74,15 +74,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3876,
-      "passed": 3855,
+      "total": 3879,
+      "passed": 3858,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3876 -> 3879; passed 3855 -> 3858; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Ticket 396 adds three passing interface-contract tests: exact-interface activation refusal, cross-pack exposed-definition refusal, and persistence of the frozen exposed interface. The native Windows exact-clone run at 9bab7a8 observed 3879 total, 3858 passed, 0 failed, and 21 skipped; newFailures was empty.",
-    "detectedBy": "node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json on the native Windows development host at API 9bab7a8; full host suite 3858 passed, 0 failed, 21 skipped in 5m17s",
-    "arithmeticCrossCheck": "3876 + 3 = 3879; passed = total - notExecuted = 3879 - 21 = 3858."
+    "change": "total 3879 -> 3894; passed 3858 -> 3873; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Measured integrated M4 host suite at 1262165c650e1c83c39ae159773e0928ddc3b78d: bound record validation, production selected context, active platform seed catalogue provenance, and selected grant-principal/Party attribution regressions. This is an observed full-run count, not a computed test estimate. No permitted failure or skip policy changed.",
+    "detectedBy": "dotnet test apps/local-node-host/tests/tests.csproj -c Release -maxcpucount:6 --logger trx;LogFileName=m4-selected-seed-integrated.trx --results-directory artifacts/m4-tests -v quiet; log gate-evidence/api-m4-selected-seed-integrated.log; TRX artifacts/m4-tests/m4-selected-seed-integrated.trx: 3894 total, 3873 passed, 21 skipped, 0 failed, 8m04s.",
+    "arithmeticCrossCheck": "3879 + 15 = 3894; passed = total - notExecuted = 3894 - 21 = 3873."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
