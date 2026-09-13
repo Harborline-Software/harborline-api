@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.Assets.Registry.Services;
+using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Api.Kernel.Runtime.Teams;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -23,6 +24,7 @@ public sealed class HostedAssetRegistryApiEndpoint : IHostedService
     private readonly IFormSubmissionRecordStore _submissions;
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly TimeProvider _clock;
+    private readonly PackBoundRegistryRecordWriter _boundRecords;
     private readonly ILogger<HostedAssetRegistryApiEndpoint> _logger;
 
     /// <summary>Constructs the hosted asset-registry API endpoint.</summary>
@@ -35,6 +37,7 @@ public sealed class HostedAssetRegistryApiEndpoint : IHostedService
         IFormSubmissionRecordStore submissions,
         IActiveTeamAccessor activeTeam,
         TimeProvider clock,
+        PackBoundRegistryRecordWriter boundRecords,
         ILogger<HostedAssetRegistryApiEndpoint> logger)
     {
         _sharedApp = sharedApp ?? throw new ArgumentNullException(nameof(sharedApp));
@@ -45,6 +48,7 @@ public sealed class HostedAssetRegistryApiEndpoint : IHostedService
         _submissions = submissions ?? throw new ArgumentNullException(nameof(submissions));
         _activeTeam = activeTeam ?? throw new ArgumentNullException(nameof(activeTeam));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _boundRecords = boundRecords ?? throw new ArgumentNullException(nameof(boundRecords));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -60,7 +64,8 @@ public sealed class HostedAssetRegistryApiEndpoint : IHostedService
                 _conditions,
                 _submissions,
                 _activeTeam,
-                _clock));
+                _clock,
+                _boundRecords));
 
         _logger.LogInformation(
             "Node-local asset-registry API registered (GET {Base}/types, GET/POST {Base}/entities, " +

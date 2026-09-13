@@ -18,6 +18,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Entities;
 /// </summary>
 public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
 
+/// <summary>A generic persisted record and the accepted decision audit that authorized it.</summary>
+public sealed record EntityWritten(EntityId Entity, Guid? AuditId);
+
 public sealed record CreateLegalEntityCommand(
     LegalEntityId Id,
     string? LegalName,
@@ -171,6 +174,19 @@ public sealed class NodeEntityWriter(
         CreateOptions options,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
+        => (await CreateWithReceiptAsync(schema, body, options, authority, ct).ConfigureAwait(false)).Entity;
+
+    /// <summary>
+    /// Creates a generic record through the canonical gate-then-validator pipeline and returns the audit
+    /// id emitted from that same authorization decision. Callers that only need the entity id continue to
+    /// use <see cref="CreateAsync(SchemaId, JsonDocument, CreateOptions, AuthorizationWriteContext, CancellationToken)"/>.
+    /// </summary>
+    public async ValueTask<EntityWritten> CreateWithReceiptAsync(
+        SchemaId schema,
+        JsonDocument body,
+        CreateOptions options,
+        AuthorizationWriteContext authority,
+        CancellationToken ct = default)
     {
         if (options.Tenant != authority.Tenant)
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
@@ -184,8 +200,9 @@ public sealed class NodeEntityWriter(
         var admitted = await AdmitAsync(decision, schema, body, authority, ct).ConfigureAwait(false);
         var created = await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
-        await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false);
-        return created;
+        return new EntityWritten(
+            created,
+            await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false));
     }
 
     public async ValueTask<VersionId> UpdateAsync(
