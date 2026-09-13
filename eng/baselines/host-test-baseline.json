@@ -5,10 +5,10 @@
   "sourcePin": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
   "recordedAt": "2026-09-12T22:55:00Z",
   "totals": {
-    "total": 3867,
-    "passed": 3845,
+    "total": 3868,
+    "passed": 3847,
     "failed": 0,
-    "notExecuted": 22
+    "notExecuted": 21
   },
   "policy": [
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
