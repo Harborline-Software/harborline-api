@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1262165c650e1c83c39ae159773e0928ddc3b78d",
-  "recordedAt": "2026-09-13T17:04:29Z",
+  "sourcePin": "d651d96ef105d64388eba99c5d88bd4120487fac",
+  "recordedAt": "2026-09-13T19:11:00Z",
   "totals": {
-    "total": 3894,
-    "passed": 3873,
+    "total": 3898,
+    "passed": 3877,
     "failed": 0,
     "notExecuted": 21
   },
@@ -74,15 +74,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3879,
-      "passed": 3858,
+      "total": 3894,
+      "passed": 3873,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3879 -> 3894; passed 3858 -> 3873; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Measured integrated M4 host suite at 1262165c650e1c83c39ae159773e0928ddc3b78d: bound record validation, production selected context, active platform seed catalogue provenance, and selected grant-principal/Party attribution regressions. This is an observed full-run count, not a computed test estimate. No permitted failure or skip policy changed.",
-    "detectedBy": "dotnet test apps/local-node-host/tests/tests.csproj -c Release -maxcpucount:6 --logger trx;LogFileName=m4-selected-seed-integrated.trx --results-directory artifacts/m4-tests -v quiet; log gate-evidence/api-m4-selected-seed-integrated.log; TRX artifacts/m4-tests/m4-selected-seed-integrated.trx: 3894 total, 3873 passed, 21 skipped, 0 failed, 8m04s.",
-    "arithmeticCrossCheck": "3879 + 15 = 3894; passed = total - notExecuted = 3894 - 21 = 3873."
+    "change": "total 3894 -> 3898; passed 3873 -> 3877; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Observed full host suite at d651d96ef105d64388eba99c5d88bd4120487fac after moving bound-form resolution behind the canonical record write authorization gate and updating the exact reviewed mutation caller inventory. Four regression cases cover denied and authorized missing/draft forms. No permitted failure or skip policy changed.",
+    "detectedBy": "dotnet test apps/local-node-host/tests/tests.csproj -c Release -maxcpucount:6 --logger trx;LogFileName=m4-gate-first-integrated-run2.trx --results-directory artifacts/m4-tests -v quiet; gate-evidence/api-m4-gate-first-integrated-run2.log and artifacts/m4-tests/m4-gate-first-integrated-run2.trx: 3898 total, 3877 passed, 21 skipped, 0 failed, 4m28s.",
+    "arithmeticCrossCheck": "3894 + 4 = 3898; passed = total - notExecuted = 3898 - 21 = 3877."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
