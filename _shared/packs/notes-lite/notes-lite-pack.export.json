@@ -17,7 +17,8 @@
           "Movable"
         ],
         "expectedUsefulLifeYears": 1,
-        "conditionScaleMax": 5
+        "conditionScaleMax": 5,
+        "propertyFormBinding": "notes.capture"
       }
     },
     {
