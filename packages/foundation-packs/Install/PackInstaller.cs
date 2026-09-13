@@ -256,7 +256,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         var active = _store.ListInstalled(tenant)
             .Where(pack => pack.Lifecycle == PackLifecycleState.Active)
             .ToList();
-        var unmetInterface = PackInterfaceRequirementCheck.FindUnmet(target, active).FirstOrDefault();
+        var unmetInterfaces = PackInterfaceRequirementCheck.FindUnmet(target, active);
+        var unmetInterface = unmetInterfaces.Count > 0 ? unmetInterfaces[0] : null;
         if (unmetInterface is not null)
         {
             var requirement = $"{unmetInterface.PackKey}@{unmetInterface.InterfaceVersion}";
