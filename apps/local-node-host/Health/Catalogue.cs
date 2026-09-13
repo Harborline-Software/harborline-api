@@ -16,6 +16,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 
+using AmbientTenantContext = Harborline.Api.Foundation.MultiTenancy.ITenantContext;
+
 namespace Harborline.Api.LocalNodeHost.Health;
 
 /// <summary>The common read envelope for a projected definition.</summary>
@@ -221,16 +223,15 @@ public static class CatalogueRoutes
     public const string RouteBase = "/api/local-node/catalogue/definitions";
     public const string TypesRoute = "/api/local-node/catalogue/types";
 
-    public static void Map(IEndpointRouteBuilder app, ICatalogue catalogue)
+    public static void Map(IEndpointRouteBuilder app, ICatalogue catalogue, AmbientTenantContext tenantContext)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(catalogue);
+        ArgumentNullException.ThrowIfNull(tenantContext);
 
         app.MapGet(RouteBase, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
-            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
-            if (principal is null) return Results.Unauthorized();
-            var tenant = principal.TenantId;
+            var tenant = RequestTenant(http, tenantContext);
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct).ConfigureAwait(false) is { } denied)
                 return denied;
@@ -245,9 +246,7 @@ public static class CatalogueRoutes
         app.MapGet($"{RouteBase}/{{kind}}/{{id}}", async Task<IResult> (
             string kind, string id, HttpContext http, CancellationToken ct) =>
         {
-            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
-            if (principal is null) return Results.Unauthorized();
-            var tenant = principal.TenantId;
+            var tenant = RequestTenant(http, tenantContext);
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct).ConfigureAwait(false) is { } denied)
                 return denied;
@@ -261,15 +260,18 @@ public static class CatalogueRoutes
 
         app.MapGet(TypesRoute, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
-            var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
-            if (principal is null) return Results.Unauthorized();
-            var tenant = principal.TenantId;
+            var tenant = RequestTenant(http, tenantContext);
             if (await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct).ConfigureAwait(false) is { } denied)
                 return denied;
             return Results.Ok(SystemRecordType.All);
         });
     }
+
+    private static TenantId RequestTenant(HttpContext http, AmbientTenantContext tenantContext) =>
+        http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+        ?? tenantContext.Tenant?.Id
+        ?? throw new InvalidOperationException("No tenant is resolved for the catalogue request.");
 
     private static bool TryKind(string? raw, out PackContentKind? kind)
     {

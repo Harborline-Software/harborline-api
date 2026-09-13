@@ -42,6 +42,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     private MutableActiveTeamAccessor _activeTeam = null!;
     private TenantId _tenantA;
     private TenantId _requestTenant;
+    private bool _withSelectedSession = true;
 
     public async Task InitializeAsync()
     {
@@ -64,14 +65,20 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _app.Use(async (http, next) =>
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
-            http.Features.Set(new SelectedSessionRequestPrincipal(
-                "catalogue-account", _requestTenant, new PrincipalUserId("catalogue-principal"),
-                new CanonicalPartyReference("catalogue-party"), "catalogue-membership", 1,
-                [new PinnedGrantOwnerVersion("catalogue-grant", 1)], 1,
-                "catalogue-session", "catalogue-coordination"));
+            if (_withSelectedSession)
+            {
+                http.Features.Set(new SelectedSessionRequestPrincipal(
+                    "catalogue-account", _requestTenant, new PrincipalUserId("catalogue-principal"),
+                    new CanonicalPartyReference("catalogue-party"), "catalogue-membership", 1,
+                    [new PinnedGrantOwnerVersion("catalogue-grant", 1)], 1,
+                    "catalogue-session", "catalogue-coordination"));
+            }
             await next(http);
         });
-        CatalogueRoutes.Map(_app.MapSelectedSessionProductGroup(), new ProjectedCatalogue(definitions));
+        CatalogueRoutes.Map(
+            _app.MapSelectedSessionProductGroup(),
+            new ProjectedCatalogue(definitions),
+            new ActiveTeamTenantContext(_activeTeam));
         FormDefinitionRoutes.Map(
             _app,
             definitions,
@@ -82,6 +89,17 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
+    }
+
+    [Fact(DisplayName = "M4: the authenticated desktop app reads the active tenant catalogue without a web session")]
+    public async Task Desktop_App_Reads_Active_Tenant_Catalogue()
+    {
+        await SaveTenantAFormAsync();
+        _withSelectedSession = false;
+
+        var body = await _client.GetFromJsonAsync<JsonElement>($"{CatalogueBase}?kind=FormDefinition");
+
+        Assert.Contains(FormId, body.GetRawText(), StringComparison.Ordinal);
     }
 
     public async Task DisposeAsync()
