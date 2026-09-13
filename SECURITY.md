@@ -6,9 +6,9 @@ Harborline is pre-release. There are no supported installs and no security fixes
 
 ## Reporting
 
-Report a suspected vulnerability privately: use GitHub's private vulnerability reporting on this repository if it is enabled. Otherwise, open an issue titled "security contact request" with no details; a maintainer will reply with a private channel.
+Submit suspected vulnerabilities through this repository's [private vulnerability reporting form](https://github.com/Harborline-Software/harborline-api/security/advisories/new). Use [GitHub Issues](https://github.com/Harborline-Software/harborline-api/issues) for non-sensitive questions only. If you cannot access the private form, open an issue titled "security contact request" without report details so a maintainer can arrange a private channel.
 
-Do not include credentials, private data, or exploit details in a public issue.
+Do not include credentials, private data, user file paths or exploit details in a public issue.
 
 ## Response
 

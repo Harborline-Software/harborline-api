@@ -4,6 +4,8 @@
 
 Harborline API provides governed programmatic access and composes Harborline runtime services. Human interfaces, integrations and automation submit commands and queries through interfaces that return authoritative authorization, validation and execution results. Operational outcomes should retain their supporting evidence and context. Enforcement remains independent of the human App and optional operator Toolbox.
 
+For the shared product model and repository roles, read the [Harborline solution overview](https://github.com/Harborline-Software/harborline-app/blob/docs/solution-purpose/docs/solution-overview.md).
+
 ## Find the right boundary
 
 | Location | Start here for |
@@ -35,3 +37,7 @@ A focused test run covers only its selected projects. Consult [.github/workflows
 ## Packages
 
 [Repository metadata](repository.yaml), project files and publishing workflows record package identities and release conditions. Check those sources before publishing or selecting a dependency. Consumers should depend on supported contracts and published artifacts according to the boundary checks, keeping repository layout out of runtime interfaces.
+
+For usage questions and bug reports, see [SUPPORT.md](SUPPORT.md). Report sensitive vulnerabilities through [SECURITY.md](SECURITY.md).
+
+For installation, diagnostics and recovery preparation, use the [operator guide](docs/operations/first-release-operator-guide.md).
