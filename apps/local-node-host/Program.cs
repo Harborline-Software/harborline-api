@@ -2278,8 +2278,7 @@ builder.Services.AddNodeForms(
 
 // Ticket 176 slice 1: the catalogue reads the already-composed definition stores; it owns no persistence.
 // Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
-builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.IRenderPlanCatalogue,
-    Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 

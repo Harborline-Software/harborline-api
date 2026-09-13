@@ -310,7 +310,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
     private readonly IScheduleDefinitionRegistry? _scheduleDefinitions;
     private readonly IViewDefinitionRegistry? _viewDefinitions;
-    private readonly IRenderPlanCatalogue? _renderPlans;
+    // CA1859: one implementation, nothing substitutes it. An interface with a single implementor
+    // and no test double is ceremony -- the concrete type is the honest declaration, and the
+    // interface returns when a second implementation exists.
+    private readonly InMemoryRenderPlanCatalogue? _renderPlans;
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
@@ -350,7 +353,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         ITaxonomyRegistry? taxonomies = null,
         IReportDefinitionRegistry? reportDefinitions = null,
         IViewDefinitionRegistry? viewDefinitions = null,
-        IRenderPlanCatalogue? renderPlans = null,
+        InMemoryRenderPlanCatalogue? renderPlans = null,
         IScheduleDefinitionRegistry? scheduleDefinitions = null,
         IDataExchangeDefinitionRegistry? dataExchangeDefinitions = null,
         IPackPlatformCompatibility? platform = null,

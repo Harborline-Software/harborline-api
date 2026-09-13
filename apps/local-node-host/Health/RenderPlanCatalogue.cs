@@ -42,15 +42,7 @@ public sealed record RenderPlan(
     JsonElement ErrorState);
 
 /// <summary>Stores emitted plans by definition hash and indexes them by definition coordinates.</summary>
-public interface IRenderPlanCatalogue
-{
-    void Store(TenantId tenant, PackContentKind kind, RenderPlan plan);
-
-    RenderPlan? Get(TenantId tenant, PackContentKind kind, string definitionId, string definitionVersion);
-}
-
-/// <summary>In-memory reference catalogue for activation-produced render plans.</summary>
-public sealed class InMemoryRenderPlanCatalogue : IRenderPlanCatalogue
+public sealed class InMemoryRenderPlanCatalogue
 {
     private readonly ConcurrentDictionary<(string Tenant, string Hash), RenderPlan> plans = new();
     private readonly ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string> hashes = new();

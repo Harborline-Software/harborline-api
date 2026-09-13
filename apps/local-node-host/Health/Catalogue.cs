@@ -85,7 +85,7 @@ public sealed class ProjectedCatalogue : ICatalogue
 {
     private readonly AuthorizedFormDefinitionLifecycle authorizedForms;
     private readonly IViewDefinitionRegistry? viewDefinitions;
-    private readonly IRenderPlanCatalogue? renderPlans;
+    private readonly InMemoryRenderPlanCatalogue? renderPlans;
 
     /// <summary>
     /// Reads forms through the same authorized lifecycle that owns the Form definition route family.
@@ -95,7 +95,7 @@ public sealed class ProjectedCatalogue : ICatalogue
     public ProjectedCatalogue(
         AuthorizedFormDefinitionLifecycle forms,
         IViewDefinitionRegistry? viewDefinitions = null,
-        IRenderPlanCatalogue? renderPlans = null)
+        InMemoryRenderPlanCatalogue? renderPlans = null)
     {
         authorizedForms = forms ?? throw new ArgumentNullException(nameof(forms));
         this.viewDefinitions = viewDefinitions;

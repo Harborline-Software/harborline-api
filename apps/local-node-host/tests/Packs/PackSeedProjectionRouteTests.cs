@@ -76,7 +76,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     private PackInstaller _installer = null!;
     private PackSeedProjector _projector = null!;
     private AuthorizedFormDefinitionLifecycle _authorizedForms = null!;
-    private IRenderPlanCatalogue _renderPlans = null!;
+    private InMemoryRenderPlanCatalogue _renderPlans = null!;
     private ICatalogue _catalogue = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private PackFileCodec _codec = null!;
