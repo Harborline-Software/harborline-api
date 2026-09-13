@@ -311,6 +311,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("harborline.platform", formsView!.Provenance.PackKey);
         Assert.NotNull(formsView.RenderPlan);
         Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
+        Assert.Equal("views.entity-list/grid", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
         var workshop = Assert.Single(platform.SeedItems, item => item.Key == "platform.workshop");
         using var workshopDocument = JsonDocument.Parse(workshop.CanonicalJson);
         var group = workshopDocument.RootElement.GetProperty("seedWorkspaces")[0].GetProperty("groups")[0];

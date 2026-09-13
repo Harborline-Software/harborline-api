@@ -191,7 +191,7 @@ public static class RenderPlanCompiler
             return null;
         }
 
-        return JsonSerializer.SerializeToElement(new { entityType = entityType.GetString(), parameters });
+        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters });
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"
