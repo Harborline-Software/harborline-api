@@ -84,6 +84,60 @@ public sealed class PackBoundSelectedPrincipalTests
         await host.AssertTraceAsync(refusal.GetProperty("auditId").GetGuid(), "verdict:denied");
     }
 
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("draft")]
+    public async Task Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form(string formState)
+    {
+        await using var host = await Host.OpenAsync(Party, formState: formState);
+        using var response = await host.CreateAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("authorization.permission_required", refusal.GetProperty("code").GetString());
+        Assert.Equal("records:write", refusal.GetProperty("permission").GetString());
+        Assert.Equal(0, host.Services.GetRequiredService<CountingForms>().Lookups);
+        Assert.Empty(await host.RecordsAsync(Tenant));
+        Assert.Empty(await host.Services.GetRequiredService<IRegistryEntityRepository>()
+            .ListByTypeAsync(Tenant, new EntityTypeId(Type)));
+        await host.AssertTraceAsync(refusal.GetProperty("auditId").GetGuid(), "verdict:denied");
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("draft")]
+    public async Task Allowed_write_still_refuses_an_unavailable_bound_form(string formState)
+    {
+        await using var host = await Host.OpenAsync(Principal, formState: formState);
+        using var response = await host.CreateAsync();
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("property_form_unavailable", refusal.GetProperty("error").GetString());
+        Assert.Equal(1, host.Services.GetRequiredService<CountingForms>().Lookups);
+        Assert.Empty(await host.RecordsAsync(Tenant));
+        Assert.Empty(await host.Services.GetRequiredService<IRegistryEntityRepository>()
+            .ListByTypeAsync(Tenant, new EntityTypeId(Type)));
+    }
+
+    private sealed class CountingForms(IFormDefinitionStore inner) : IFormDefinitionStore
+    {
+        internal int Lookups { get; private set; }
+
+        public ValueTask<FormDefinition> GetAsync(DefinitionCoordinates coordinates, CancellationToken cancellationToken = default)
+        {
+            Lookups++;
+            return inner.GetAsync(coordinates, cancellationToken);
+        }
+
+        public ValueTask<FormDefinition?> GetCurrentPublishedAsync(DefinitionAddress address, CancellationToken cancellationToken = default)
+            => inner.GetCurrentPublishedAsync(address, cancellationToken);
+
+        public IAsyncEnumerable<FormDefinition> ListByTenantAsync(TenantId tenant, CancellationToken cancellationToken = default)
+            => inner.ListByTenantAsync(tenant, cancellationToken);
+
+        public IAsyncEnumerable<FormDefinition> ListPublishedAsync(CancellationToken cancellationToken = default)
+            => inner.ListPublishedAsync(cancellationToken);
+    }
+
     private sealed class Host(WebApplication app, HttpClient client, IDisposable configuration) : IAsyncDisposable
     {
         internal IServiceProvider Services => app.Services;
@@ -116,7 +170,7 @@ public sealed class PackBoundSelectedPrincipalTests
             Assert.DoesNotContain("principal:" + Party, facts);
         }
 
-        internal static async Task<Host> OpenAsync(string grantedSubject, bool differentActiveTenant = false)
+        internal static async Task<Host> OpenAsync(string grantedSubject, bool differentActiveTenant = false, string formState = "published")
         {
             var now = DateTimeOffset.UtcNow;
             var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
@@ -155,7 +209,10 @@ public sealed class PackBoundSelectedPrincipalTests
             builder.Services.AddAuthorizedActAudit();
             builder.Services.AddAuthorizationRefusalAudit();
             builder.Services.AddNodeAssetRegistry();
-            builder.Services.AddSingleton<PackBoundRegistryRecordWriter>();
+            builder.Services.AddSingleton<CountingForms>();
+            builder.Services.AddSingleton(sp => new PackBoundRegistryRecordWriter(
+                sp.GetRequiredService<CountingForms>(), sp.GetRequiredService<NodeEntityWriter>(),
+                sp.GetRequiredService<IEntityStore>(), sp.GetRequiredService<IRegistryEntityRepository>()));
             var app = builder.Build();
             var schema = await app.Services.GetRequiredService<ISchemaRegistry>().RegisterAsync(
                 """{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}""");
@@ -164,8 +221,9 @@ public sealed class PackBoundSelectedPrincipalTests
                 new HarborlineOverlay(new Dictionary<string, FieldOverlay>(), [], [],
                     InternationalizedText.FromInvariant("Selected note")), null, now, now);
             var forms = app.Services.GetRequiredService<IFormDefinitionStore>();
-            await forms.RegisterAsync(form);
-            await forms.PublishAsync(new DefinitionCoordinates(Tenant, form.Id.Value, form.Version.ToString()));
+            if (formState != "missing") await forms.RegisterAsync(form);
+            if (formState == "published")
+                await forms.PublishAsync(new DefinitionCoordinates(Tenant, form.Id.Value, form.Version.ToString()));
             app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(new EntityTypeId(Type),
                 new EntityTypeDescriptor("Selected note", EntityTrait.Movable,
                     PropertyFormBinding: new FormBindingRef(form.Id, form.Version)), CascadeLayer.Pack));

@@ -64,37 +64,40 @@ public sealed class PackBoundRegistryRecordWriter(
         ArgumentNullException.ThrowIfNull(propertyForm);
         ArgumentNullException.ThrowIfNull(values);
 
-        var definition = await forms.GetAsync(
-            new DefinitionCoordinates(
-                authority.Tenant,
-                propertyForm.Definition.Value,
-                propertyForm.PinnedVersion.ToString()),
-            ct).ConfigureAwait(false);
-        if (definition.Status != FormDefinitionStatus.Published)
-            throw new BoundPropertyFormUnavailableException("The bound property form is not published.");
-
         var id = RegistryEntityId.NewId();
         var submittedAt = authority.At;
-        var header = SubmissionBindingHeader.Create(definition, ["en"], submittedAt);
-        var binding = new EntityBinding(
-            definition.SchemaRef,
-            header.DefinitionId,
-            header.DefinitionVersion,
-            header.EngineVersion,
-            header.LocaleChain,
-            header.SubmittedAt);
-        var options = new CreateOptions(
-            RecordScheme,
-            RecordAuthority,
-            id.Value,
-            actor,
-            authority.Tenant,
-            ValidFrom: submittedAt,
-            ExplicitLocalPart: id.Value,
-            Binding: binding);
-
         var written = await records.CreateWithReceiptAsync(
-            definition.SchemaRef, values, options, authority, ct).ConfigureAwait(false);
+            values, id.Value, authority, async preparationToken =>
+            {
+                var definition = await forms.GetAsync(
+                    new DefinitionCoordinates(
+                        authority.Tenant,
+                        propertyForm.Definition.Value,
+                        propertyForm.PinnedVersion.ToString()),
+                    preparationToken).ConfigureAwait(false);
+                if (definition.Status != FormDefinitionStatus.Published)
+                    throw new BoundPropertyFormUnavailableException("The bound property form is not published.");
+
+                var header = SubmissionBindingHeader.Create(definition, ["en"], submittedAt);
+                var binding = new EntityBinding(
+                    definition.SchemaRef,
+                    header.DefinitionId,
+                    header.DefinitionVersion,
+                    header.EngineVersion,
+                    header.LocaleChain,
+                    header.SubmittedAt);
+                var options = new CreateOptions(
+                    RecordScheme,
+                    RecordAuthority,
+                    id.Value,
+                    actor,
+                    authority.Tenant,
+                    ValidFrom: submittedAt,
+                    ExplicitLocalPart: id.Value,
+                    Binding: binding);
+
+                return (definition.SchemaRef, options);
+            }, ct).ConfigureAwait(false);
 
         var entity = new RegistryEntity
         {
