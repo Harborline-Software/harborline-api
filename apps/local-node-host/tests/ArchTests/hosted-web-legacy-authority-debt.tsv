@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	436
+# reviewed-aggregate-debt-ceiling	433
+# 2026-09-13 (395 s1) ratchet	one request-time tenant resolver replaces six repeated PackInstallRoutes lookups
 # 2026-09-09 (294 s2b) ratchet	canonical roster-principal routing removed three legacy static-authority tokens
 Feed/ChannelFeedRoutes.cs	2	0
 Feed/HostedChannelFeedApiEndpoint.cs	2	0
@@ -77,7 +78,7 @@ Health/OrgBrandingRoutes.cs	7	0
 Health/PackComposeRoutes.cs	5	0
 Health/PackComposerRoutes.cs	3	0
 Health/PackGraphRoutes.cs	2	0
-Health/PackInstallRoutes.cs	6	0
+Health/PackInstallRoutes.cs	3	0
 Health/PackNavigationRoutes.cs	2	0
 Health/PaymentRoutes.cs	4	0
 Health/PaymentWriteRoutes.cs	10	0
