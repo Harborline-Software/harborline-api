@@ -53,10 +53,6 @@ public static class NodeAssetRegistryComposition
             .AddConditionCaptureProjection()     // the condition-rating field-kind projector + binding store
             .AddFormSubmissionRecordProjection(); // #144 — the generic submission → record-link projector
 
-        // M4: an explicitly typed property-form record uses the node's canonical records:write
-        // coordinator; this adapter only adds the asset-registry metadata index after canonical success.
-        services.AddSingleton<PackBoundRegistryRecordWriter>();
-
         // Fire the registered projections on every successful submit (idempotent — no double-wrap). This
         // also registers the durable outbox + IFormSubmitProjectionReconciler (via AddFormSubmitProjections).
         services.AddFormSubmitProjectionDecoration();

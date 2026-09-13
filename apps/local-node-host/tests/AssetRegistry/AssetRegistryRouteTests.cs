@@ -114,6 +114,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         builder.Services.AddAuthorizedActAudit();
         builder.Services.AddAuthorizationRefusalAudit();
         builder.Services.AddNodeAssetRegistry();
+        builder.Services.AddSingleton<PackBoundRegistryRecordWriter>();
 
         _app = builder.Build();
 
