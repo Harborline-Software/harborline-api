@@ -8,6 +8,11 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// </summary>
 public interface IPackExporter
 {
+    /// <summary>Runs the export validation without signing or producing a transport artifact.</summary>
+    ValueTask<Harborline.Api.Foundation.Packs.Validation.PackValidationResult> ValidateAsync(
+        PackExportRequest request,
+        CancellationToken ct = default);
+
     /// <summary>
     /// Exports <paramref name="request"/> as a signed pack file, signing with
     /// <paramref name="signer"/> (the authoring org's roster key — its

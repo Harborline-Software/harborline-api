@@ -39,6 +39,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private KeyPair _key = null!;
+    private CountingSigner _signer = null!;
 
     public async Task InitializeAsync()
     {
@@ -48,7 +49,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         _app = builder.Build();
 
         _key = KeyPair.Generate();
-        var signer = new Ed25519Signer(_key);
+        _signer = new CountingSigner(new Ed25519Signer(_key));
         var codec = new PackFileCodec();
         var exporter = new PackExporter(
             new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
@@ -61,7 +62,7 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         });
         var activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
 
-        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, signer, activeTeam,
+        PackComposerRoutes.Map(_app, exporter, verifier, trustStore, _signer, activeTeam,
             TestPackGate.AllowAll(), TimeProvider.System, NullLogger.Instance);
 
         await _app.StartAsync();
@@ -101,10 +102,20 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
     [Fact(DisplayName = "export → verify round-trips to Verified")]
     public async Task Export_then_verify_is_verified()
     {
+        var validationResp = await _client.PostAsJsonAsync(
+            PackComposerRoutes.ExportRoute + "?validateOnly=true", ValidExportBody());
+        Assert.Equal(HttpStatusCode.OK, validationResp.StatusCode);
+        Assert.Equal("application/json", validationResp.Content.Headers.ContentType?.MediaType);
+        using var validationDoc = JsonDocument.Parse(await validationResp.Content.ReadAsStringAsync());
+        Assert.True(validationDoc.RootElement.GetProperty("valid").GetBoolean());
+        Assert.Empty(validationDoc.RootElement.GetProperty("codes").EnumerateArray());
+        Assert.Equal(0, _signer.Calls);
+
         var exportResp = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, ValidExportBody());
         Assert.Equal(HttpStatusCode.OK, exportResp.StatusCode);
         var packBytes = await exportResp.Content.ReadAsByteArrayAsync();
         Assert.NotEmpty(packBytes);
+        Assert.Equal(1, _signer.Calls);
 
         using var content = new ByteArrayContent(packBytes);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
@@ -175,6 +186,11 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
         var text = await resp.Content.ReadAsStringAsync();
         Assert.Contains("pii.instance_data", text);
+        var validationResp = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute + "?validateOnly=true", body);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, validationResp.StatusCode);
+        using var validationDoc = JsonDocument.Parse(await validationResp.Content.ReadAsStringAsync());
+        Assert.False(validationDoc.RootElement.GetProperty("valid").GetBoolean());
+        Assert.Contains("pii.instance_data", validationDoc.RootElement.GetProperty("codes").GetRawText());
     }
 
     [Fact(DisplayName = "verify of garbage is VerificationFailed")]
@@ -187,6 +203,18 @@ public sealed class PackComposerRouteTests : IAsyncLifetime
 
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
         Assert.Equal("VerificationFailed", doc.RootElement.GetProperty("verdict").GetString());
+    }
+
+    private sealed class CountingSigner(IOperationSigner inner) : IOperationSigner
+    {
+        public PrincipalId IssuerId => inner.IssuerId;
+        public int Calls { get; private set; }
+
+        public ValueTask<SignedOperation<T>> SignAsync<T>(T payload, DateTimeOffset issuedAt, Guid nonce, CancellationToken ct = default)
+        {
+            Calls++;
+            return inner.SignAsync(payload, issuedAt, nonce, ct);
+        }
     }
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)
