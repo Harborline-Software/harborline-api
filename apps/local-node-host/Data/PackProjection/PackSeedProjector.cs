@@ -304,6 +304,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly ISchemaRegistry? _schemas;
     private readonly IWorkflowDefinitionStore? _workflows;
     private readonly AuthorizedWorkflowDefinitionLifecycle? _authorizedWorkflows;
+    private readonly WorkflowCatalogueLintReports? _workflowLintReports;
     private readonly ITaxonomyRegistry? _taxonomies;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
@@ -355,7 +356,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         AuthorizedFormDefinitionLifecycle? authorizedForms = null,
         AuthorizedWorkflowDefinitionLifecycle? authorizedWorkflows = null,
         IRoleVocabularyStore? roleVocabulary = null,
-        AuthorizationDefinitionWriter? authorizationDefinitions = null)
+        AuthorizationDefinitionWriter? authorizationDefinitions = null,
+        WorkflowCatalogueLintReports? workflowLintReports = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _types = types ?? throw new ArgumentNullException(nameof(types));
@@ -367,6 +369,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _schemas = schemas;
         _workflows = workflows;
         _authorizedWorkflows = authorizedWorkflows;
+        _workflowLintReports = workflowLintReports;
         _taxonomies = taxonomies;
         _reportDefinitions = reportDefinitions;
         _dataExchangeDefinitions = dataExchangeDefinitions;
@@ -1192,6 +1195,15 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 ex, "PackSeedProjector: rebuilding the feature-graph content-edge-index for tenant {Tenant} "
                 + "failed — the graph read-model will rebuild it lazily on next read.",
                 tenant);
+        }
+
+        // T-397: activation remains successful even when this lint finds an unreachable state. The
+        // diagnostic reads the compiled, published workflow catalogue only after this pass is complete.
+        if (_authorizedWorkflows is not null && _workflowLintReports is not null)
+        {
+            await _workflowLintReports.RefreshAsync(
+                    _authorizedWorkflows, tenant, installed, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return new PackSeedProjectionSummary(

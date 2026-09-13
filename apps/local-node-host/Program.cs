@@ -1216,10 +1216,12 @@ builder.Services.AddLocalNodePatternAModules();
 Harborline.Api.Foundation.EngineRoom.EngineRoomServiceCollectionExtensions.AddHarborlineEngineRoom(
     builder.Services);
 builder.Services.AddTransient<LocalNodeHealthCheck>();
+builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
     builder.Services.AddHealthChecks()
         .AddCheck<LocalNodeHealthCheck>("local-node")
         .AddCheck<AuthorizationHealthCheck>("authorization")
+        .AddCheck<WorkflowCatalogueLintHealthCheck>("workflow-catalogue-lint")
         .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
         .AddCheck<LocalNodeReadinessCheck>("local-node-readiness", tags: ["ready"]));
 
