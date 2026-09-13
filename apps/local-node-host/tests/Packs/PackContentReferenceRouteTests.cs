@@ -180,7 +180,9 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
     {
         var activate = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
             new { packKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.True(
+            activate.StatusCode == HttpStatusCode.OK,
+            $"Activation failed with {(int)activate.StatusCode}: {await activate.Content.ReadAsStringAsync()}");
     }
 
     private async Task<byte[]> ExportAsync(object body)
@@ -200,6 +202,8 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         contents = new object[] { AssetType("core-records.property", "Property", parentType: null) },
         dependencies = Array.Empty<object>(),
         capabilityRequirements = Array.Empty<string>(),
+        exposes = new[] { "core-records.property" },
+        interfaceVersion = 1,
     };
 
     private static object FleetOpsBody(bool declareDependency) => new
