@@ -1187,7 +1187,8 @@ if (webClientOptions.Enabled)
 {
     builder.Services.AddInstallationFounderBootstrapCeremony(
         installationRootPublicKeyFingerprint,
-        authorizationSeedProfile);
+        authorizationSeedProfile,
+        localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"));
 }
 
 // ADR 0114/0115 Pattern-A entity modules. Runtime, EF design-time scaffolding, and migration-path
