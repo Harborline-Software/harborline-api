@@ -230,7 +230,7 @@ internal interface IFileSystemOwnerEvidence
     bool IsOwnedByCurrentProcessUser(string dataDirectory);
 }
 
-internal sealed class ProcessFileSystemOwnerEvidence : IFileSystemOwnerEvidence
+internal sealed partial class ProcessFileSystemOwnerEvidence : IFileSystemOwnerEvidence
 {
     public bool IsOwnedByCurrentProcessUser(string dataDirectory)
     {
@@ -312,17 +312,23 @@ internal sealed class ProcessFileSystemOwnerEvidence : IFileSystemOwnerEvidence
         return status.Mode != 0;
     }
 
-    [DllImport("libc", EntryPoint = "stat$INODE64", SetLastError = true)]
-    private static extern int macStatInode64(string path, out MacStat status);
+    // These are LibraryImport, not DllImport, and the reason is the path argument rather than style.
+    // DllImport's default string marshalling is ANSI, and both Linux and macOS filesystem paths are
+    // UTF-8: a data directory containing any non-ASCII character would have been marshalled to the
+    // wrong bytes and stat'd the wrong path -- silently, since a failed stat reads here as "not the
+    // owner". That is a wrong answer in an OWNERSHIP check, which is the one place a wrong answer
+    // must not be quiet. StringMarshalling.Utf8 states what the syscall actually takes.
+    [LibraryImport("libc", EntryPoint = "stat$INODE64", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int macStatInode64(string path, out MacStat status);
 
-    [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
-    private static extern int macStatArm(string path, out MacStat status);
+    [LibraryImport("libc", EntryPoint = "stat", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int macStatArm(string path, out MacStat status);
 
-    [DllImport("libc", SetLastError = true)]
-    private static extern int statx(int directoryFileDescriptor, string path, int flags, uint mask, out LinuxStatx status);
+    [LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int statx(int directoryFileDescriptor, string path, int flags, uint mask, out LinuxStatx status);
 
-    [DllImport("libc")]
-    private static extern uint geteuid();
+    [LibraryImport("libc")]
+    private static partial uint geteuid();
 }
 
 internal sealed class SelfHostedFileSystemOwnerBootstrapClaimIssuer : IBootstrapClaimIssuer
