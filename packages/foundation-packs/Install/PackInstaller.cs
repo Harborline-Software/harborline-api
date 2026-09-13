@@ -120,7 +120,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     public PackInstallPreview Check(ReadOnlySpan<byte> packBytes, PackInstallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return CompleteCheck(BuildPlan(packBytes, context, collectRefusals: true), context, allowWrite: false);
+        return BuildPlan(packBytes, context, collectRefusals: true).Preview;
     }
 
     /// <inheritdoc />
@@ -1033,24 +1033,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
 
         return refusals;
-    }
-
-    private PackInstallPreview CompleteCheck(InstallPlan plan, PackInstallContext context, bool allowWrite)
-    {
-        // This is the single write guard for CHECK. It intentionally returns before the installer mutation
-        // face is reached; the regression test mutates this guard and proves the catalogue hash detects it.
-        if (!allowWrite)
-        {
-            return plan.Preview;
-        }
-
-        if (plan.Preview.Verdict is PackInstallVerdict.WouldInstall or PackInstallVerdict.WouldUpgrade)
-        {
-            _mutations.Commit(new PackInstallTransaction(
-                context.Tenant, plan.NewInstalledPack!, plan.NewWatermark!, plan.Reattach!.Reattached));
-        }
-
-        return plan.Preview;
     }
 
     private static List<PackInstallRefusal> PlatformRequirementRefusals(
