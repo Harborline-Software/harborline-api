@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "cf296d3944de373ba9c28e96c46d79548e1ca118",
+  "commit": "e84da0adde145d5f828d46b187f72aa55fbb82f4",
   "recordedAt": "2026-09-13 (M4 Workshop projection parity)",
   "why": [
     "The API builds the complete platform library feed before restore.",
