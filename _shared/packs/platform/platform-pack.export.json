@@ -38,6 +38,7 @@
     { "key": "platform.list.views", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.views", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Views", "parameters": { "entityType": "ViewDefinition", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },
     { "key": "platform.role.administrator", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "administrator", "displayName": "Administrator" } },
     { "key": "platform.role.auditor", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "auditor", "displayName": "Auditor" } },
+    { "key": "platform.binding.catalogue-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "catalogue:read", "scope": "/", "offeredRoles": ["platform/administrator"] } },
     { "key": "platform.binding.records-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "records:read", "scope": "/", "offeredRoles": ["platform/administrator"] } },
     { "key": "platform.binding.audit-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "audit:read", "scope": "/", "offeredRoles": ["platform/auditor"] } }
   ],
