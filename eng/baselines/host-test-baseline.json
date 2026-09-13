@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "9aa421d1",
+  "sourcePin": "86d014ce",
   "recordedAt": "2026-09-12T22:55:00Z",
   "totals": {
-    "total": 3869,
-    "passed": 3848,
+    "total": 3876,
+    "passed": 3855,
     "failed": 0,
     "notExecuted": 21
   },
@@ -17,7 +17,8 @@
     "failures for one new flake and a count-only view would have read 5 -> 4 as pure improvement.",
     "Verdict-(a)/(c) failures stay RED by design. A red test with a recorded verdict is signal;",
     "converting it to a skip is silence.",
-    "Ticket 360 (2026-09-13): re-pinned 3868 -> 3869 from the verify-windows run on 9aa421d1. One test more, one pass more, failed 0 and NEW none -- a count move, not a defect. Windows permits no failures and that stays true; this file's totals are the only thing that moved."
+    "Ticket 360 (2026-09-13): re-pinned 3868 -> 3869 from the verify-windows run on 9aa421d1. One test more, one pass more, failed 0 and NEW none -- a count move, not a defect. Windows permits no failures and that stays true; this file's totals are the only thing that moved.",
+    "Ticket 397 and 402 (2026-09-13): re-pinned 3869 -> 3876 across two measured runs. The first (6dfe801b) observed 3874 after 397's five lint tests; this branch was pinned there and its own verify-windows then observed 3876 at 86d014ce, which is 402 s1's two further tests. Both runs reported failed 0 and newFailures empty. The intermediate 3874 was deliberately pinned rather than jumping straight to a computed 3876: a number no run has produced is a guess, and this repository has been bitten by derived counts before -- a build log's 438 CA1031 lines standing for 192 findings. The gate supplied the second measurement, which is what it is for."
   ],
   "permittedFailures": [],
   "knownFlaky": [
