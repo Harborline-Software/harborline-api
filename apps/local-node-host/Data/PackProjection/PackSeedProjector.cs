@@ -1850,7 +1850,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         TenantId tenant,
         InstalledPack pack,
         PackSeedItem item,
-        ICollection<PackSeedProjectionRefusal> refusals)
+        List<PackSeedProjectionRefusal> refusals)
     {
         if (_renderPlans is null)
         {
