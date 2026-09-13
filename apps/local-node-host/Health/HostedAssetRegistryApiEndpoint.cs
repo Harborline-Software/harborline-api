@@ -67,12 +67,15 @@ public sealed class HostedAssetRegistryApiEndpoint : IHostedService
                 _clock,
                 _boundRecords));
 
-        _logger.LogInformation(
-            "Node-local asset-registry API registered (GET {Base}/types, GET/POST {Base}/entities, " +
-            "GET {Base}/entities/{{id}}/tree, GET {Base}/entities/{{id}}/condition, " +
-            "GET {Base}/entities/{{id}}/submissions, POST {Base}/edges).",
-            AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase,
-            AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase);
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "Node-local asset-registry API registered (GET {Base}/types, GET/POST {Base}/entities, " +
+                "GET {Base}/entities/{{id}}/tree, GET {Base}/entities/{{id}}/condition, " +
+                "GET {Base}/entities/{{id}}/submissions, POST {Base}/edges).",
+                AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase,
+                AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase, AssetRegistryRoutes.RouteBase);
+        }
 
         return Task.CompletedTask;
     }
