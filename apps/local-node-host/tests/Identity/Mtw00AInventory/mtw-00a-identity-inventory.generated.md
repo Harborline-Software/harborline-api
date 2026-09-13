@@ -218,7 +218,7 @@ owner-count: 95
 - apps/local-node-host/Health/PackComposeRoutes.cs	5	0
 - apps/local-node-host/Health/PackComposerRoutes.cs	3	0
 - apps/local-node-host/Health/PackGraphRoutes.cs	2	0
-- apps/local-node-host/Health/PackInstallRoutes.cs	6	0
+- apps/local-node-host/Health/PackInstallRoutes.cs	7	0
 - apps/local-node-host/Health/PackNavigationRoutes.cs	2	0
 - apps/local-node-host/Health/PaymentRoutes.cs	4	0
 - apps/local-node-host/Health/PaymentWriteRoutes.cs	10	0

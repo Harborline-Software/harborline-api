@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
@@ -175,6 +176,44 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Empty(_store.ListInstalled(NodeTenantFor()));
     }
 
+    [Fact(DisplayName = "check collects independent refusal codes and RFC 6901 pointers without a catalogue write")]
+    public async Task Check_collects_independent_refusals_without_mutating()
+    {
+        var packBytes = await ExportAsync(UnsupportedKindsPackBody());
+        var before = CatalogueHash();
+
+        var check = await PostBytesAsync(PackInstallRoutes.CheckRoute, packBytes);
+
+        Assert.Equal(HttpStatusCode.OK, check.StatusCode);
+        using var document = JsonDocument.Parse(await check.Content.ReadAsStringAsync());
+        var refusals = document.RootElement.GetProperty("refusals").EnumerateArray().ToList();
+        Assert.Equal(3, refusals.Count);
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedStandardsCatalog, refusals[0].GetProperty("code").GetString());
+        Assert.Equal("/contents/0/contentBase64", refusals[0].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedCascadeDefaults, refusals[1].GetProperty("code").GetString());
+        Assert.Equal("/contents/1/contentBase64", refusals[1].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedTerminologyOverride, refusals[2].GetProperty("code").GetString());
+        Assert.Equal("/contents/2/contentBase64", refusals[2].GetProperty("pointer").GetString());
+        Assert.Equal(before, CatalogueHash());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Fact(DisplayName = "check accepts a valid pack without installing or activating it")]
+    public async Task Check_accepts_valid_pack_without_mutating()
+    {
+        var packBytes = await ExportAsync(FormPackBody());
+        var before = CatalogueHash();
+
+        var check = await PostBytesAsync(PackInstallRoutes.CheckRoute, packBytes);
+
+        Assert.Equal(HttpStatusCode.OK, check.StatusCode);
+        using var document = JsonDocument.Parse(await check.Content.ReadAsStringAsync());
+        Assert.Equal("WouldInstall", document.RootElement.GetProperty("verdict").GetString());
+        Assert.Empty(document.RootElement.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(before, CatalogueHash());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)
@@ -239,6 +278,26 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         dependencies = Array.Empty<object>(),
         capabilityRequirements = new[] { "workflow.durable" },
     };
+
+    private static object UnsupportedKindsPackBody() => new
+    {
+        key = "acme.check",
+        version = "1.0.0",
+        name = "Check diagnostics pack",
+        description = "three independently unsupported content kinds",
+        scopeTier = "Vertical",
+        contents = new[]
+        {
+            new { key = "standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
+            new { key = "cascade", kind = "CascadeDefaults", version = "1.0.0", content = new { } },
+            new { key = "terms", kind = "TerminologyOverride", version = "1.0.0", content = new { } },
+        },
+        dependencies = Array.Empty<object>(),
+        capabilityRequirements = Array.Empty<string>(),
+    };
+
+    private string CatalogueHash() => Convert.ToHexString(
+        SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(_store.ListInstalled(NodeTenantFor()))));
 
     private static Harborline.Foundation.Assets.Common.TenantId NodeTenantFor()
         => Harborline.Api.LocalNodeHost.Data.Financial.NodeTenant.Resolve(

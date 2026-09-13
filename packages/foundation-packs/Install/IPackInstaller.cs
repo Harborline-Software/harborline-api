@@ -20,6 +20,12 @@ public interface IPackInstaller
     PackInstallPreview Preview(ReadOnlySpan<byte> packBytes, PackInstallContext context);
 
     /// <summary>
+    /// Runs admission as an authoring check. Unlike <see cref="Preview"/>, this reports every
+    /// non-terminal refusal that can be evaluated from one verified pack, and never commits a seed layer.
+    /// </summary>
+    PackInstallPreview Check(ReadOnlySpan<byte> packBytes, PackInstallContext context);
+
+    /// <summary>
     /// Installs a VERIFIED pack: verify-gate → revocation → scope → projector support → S-8 watermark →
     /// ADR 0143 admission → S-10 re-attach → ATOMIC seed-layer commit → durable audit. The seed layer is created in
     /// <see cref="PackLifecycleState.Draft"/>; call <see cref="Activate(PackInstallContext, string, string)"/> to make it live. A watermark

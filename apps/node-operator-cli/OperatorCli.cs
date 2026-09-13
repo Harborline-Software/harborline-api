@@ -47,7 +47,7 @@ public static class OperatorCli
                 new { format = "application/json", includeScopes = Array.Empty<string>() }),
             _ => null,
         };
-        if (parsed.Command is ["pack", "install" or "verify", "--file", var packPath])
+        if (parsed.Command is ["pack", "install" or "verify" or "check", "--file", var packPath])
         {
             if (!File.Exists(packPath))
             {
@@ -65,9 +65,12 @@ public static class OperatorCli
                 HttpMethod.Post,
                 new Uri(
                     parsed.BaseUri,
-                    parsed.Command[1] == "install"
-                        ? "/api/local-node/packs/install"
-                        : "/api/local-node/packs/verify"))
+                    parsed.Command[1] switch
+                    {
+                        "install" => "/api/local-node/packs/install",
+                        "check" => "/api/local-node/packs/check",
+                        _ => "/api/local-node/packs/verify",
+                    }))
             {
                 Content = new ByteArrayContent(
                     await File.ReadAllBytesAsync(packPath, cancellationToken).ConfigureAwait(false)),
