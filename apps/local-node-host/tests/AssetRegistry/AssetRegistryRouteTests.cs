@@ -11,20 +11,25 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
+using Harborline.Api.Contracts;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
+using Harborline.Api.LocalNodeHost.Data.Entities;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -48,6 +53,8 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
     private const string AssetBase = "/api/local-node/asset-registry";
     private const string FormsBase = "/api/local-node/forms";
     private const string ConditionForm = "condition.capture.v1";
+    private const string NoteForm = "notes.capture";
+    private const string NoteType = "notes.entry";
 
     /// <summary>
     /// A form whose JSON schema admits a grade WIDER (1..10) than its binding's <c>ScaleMax</c> (5) — the
@@ -68,6 +75,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
+    private bool _allowRecordWrites = true;
 
     public async Task InitializeAsync()
     {
@@ -85,12 +93,28 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         var auditKeys = KeyPair.Generate();
         builder.Services.AddSingleton<IOperationSigner>(new Ed25519Signer(auditKeys));
-        builder.Services.AddSingleton<IAuthorizedAuditTrail, InMemoryAuditTrail>();
+        var auditTrail = new InMemoryAuditTrail();
+        builder.Services.AddSingleton<IAuditTrail>(auditTrail);
+        builder.Services.AddSingleton<IAuthorizedAuditTrail>(auditTrail);
 
         // The production forms composition, THEN the Wave-2b asset registry live wiring (which decorates
         // the forms engine so a submit fires the condition-capture projector).
-        builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
+        builder.Services.AddTestAuthorizationGate();
+        builder.Services.AddSingleton(TestAuthorization.Gate(request =>
+            request.Act.Operation.Value != TeamRolePermissions.RecordsWrite || _allowRecordWrites));
+        builder.Services.AddTestNodeForms(
+            configureWriters: static (services, entityMutations, _) =>
+                services.AddSingleton(sp => new NodeEntityWriter(
+                    null!,
+                    entityMutations(sp),
+                    sp.GetRequiredService<CompiledSchemaEntityValidator>(),
+                    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+                    sp.GetService<AuthorizationRefusalAudit>(),
+                    sp.GetService<AuthorizedActAudit>())));
+        builder.Services.AddAuthorizedActAudit();
+        builder.Services.AddAuthorizationRefusalAudit();
         builder.Services.AddNodeAssetRegistry();
+        builder.Services.AddSingleton<PackBoundRegistryRecordWriter>();
 
         _app = builder.Build();
 
@@ -145,11 +169,39 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         await store.RegisterAsync(def);
         await store.PublishAsync(new DefinitionCoordinates(tenant, def.Id.Value, def.Version.ToString()));
 
+        var noteSchema = await registry.RegisterAsync(
+            """
+            {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": {
+                "title": { "type": "string", "minLength": 1 }
+              },
+              "required": ["title"],
+              "additionalProperties": false
+            }
+            """);
+        var noteDef = def with
+        {
+            Id = new FormDefinitionId(NoteForm),
+            SchemaRef = noteSchema.Id,
+            Overlay = def.Overlay with { Title = InternationalizedText.FromInvariant("Note Capture") },
+        };
+        await store.RegisterAsync(noteDef);
+        await store.PublishAsync(new DefinitionCoordinates(tenant, noteDef.Id.Value, noteDef.Version.ToString()));
+
         // Seed a pack type (visible to every tenant) + register the condition-rating field binding for
         // this tenant + form (config, never payload).
         _app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(
             new EntityTypeId("water-heater"),
             new EntityTypeDescriptor("Water Heater", EntityTrait.Maintainable | EntityTrait.Movable),
+            CascadeLayer.Pack));
+        _app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(
+            new EntityTypeId(NoteType),
+            new EntityTypeDescriptor(
+                "Note",
+                EntityTrait.Movable,
+                PropertyFormBinding: new FormBindingRef(noteDef.Id, noteDef.Version)),
             CascadeLayer.Pack));
         await _app.Services.GetRequiredService<IConditionRatingFieldBindingStore>().RegisterAsync(
             tenant, new ConditionRatingFieldBinding(
@@ -198,6 +250,7 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
 
         // Map the SAME production routes both hosted endpoints register (no [FromServices]).
+        AuthorizationDenialTranslation.Use(_app);
         _app.Use(async (http, next) =>
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
@@ -211,7 +264,8 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<IConditionAssessmentStore>(),
             _app.Services.GetRequiredService<IFormSubmissionRecordStore>(),
             _activeTeam,
-            TimeProvider.System);
+            TimeProvider.System,
+            _app.Services.GetRequiredService<PackBoundRegistryRecordWriter>());
         FormsRoutes.Map(
             _app,
             _app.Services.GetRequiredService<IFormEngine>(),
@@ -277,6 +331,104 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
 
         var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
         Assert.Contains(list.GetProperty("entities").EnumerateArray(), e => e.GetProperty("id").GetString() == id);
+    }
+
+    [Fact(DisplayName = "entities: a pack-bound note persists validated values and returns an addressable audit id")]
+    public async Task Entities_CreateBoundNote_PersistsValuesAndAuditReceipt()
+    {
+        using var created = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = NoteType,
+            displayName = "First note",
+            values = new { title = "First note" },
+        });
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var receipt = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var auditId = receipt.GetProperty("auditId").GetGuid();
+        Assert.NotEqual(Guid.Empty, auditId);
+
+        await using var scope = _app.Services.CreateAsyncScope();
+        var trace = await scope.ServiceProvider.GetRequiredService<AuthorizationTraceReader>().ReadAsync(
+            ActiveTeamTenantContext.ProjectTenantId(TeamA), Operator, auditId, DateTimeOffset.UtcNow);
+        Assert.Equal(AuthorizationTraceAvailability.Available, trace.Availability);
+        var facts = trace.Steps.SelectMany(step => step.Facts).ToArray();
+        Assert.Contains($"act:{TeamRolePermissions.RecordsWrite}@/records/{receipt.GetProperty("id").GetString()}", facts);
+        Assert.Contains("verdict:allowed", facts);
+
+        var detail = await _client.GetFromJsonAsync<JsonElement>(
+            $"{AssetBase}/entities/{receipt.GetProperty("id").GetString()}");
+        Assert.Equal("First note", detail.GetProperty("values").GetProperty("title").GetString());
+        Assert.Equal(NoteForm, detail.GetProperty("propertyForm").GetProperty("definition").GetString());
+    }
+
+    [Fact(DisplayName = "entities: an invalid pack-bound note is refused without a registry row")]
+    public async Task Entities_CreateBoundNote_InvalidValuesLeaveNoRow()
+    {
+        var tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
+        var before = await _app.Services.GetRequiredService<IRegistryEntityRepository>()
+            .ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        var canonicalBefore = await CountBoundRecordsAsync(_app.Services, tenant);
+
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = NoteType,
+            displayName = "Invalid note",
+            values = new { },
+        });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("entity.validation.body_invalid", body.GetProperty("code").GetString());
+        var after = await _app.Services.GetRequiredService<IRegistryEntityRepository>()
+            .ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        Assert.Equal(before.Count, after.Count);
+        Assert.Equal(canonicalBefore, await CountBoundRecordsAsync(_app.Services, tenant));
+    }
+
+    [Fact(DisplayName = "entities: malformed non-object values are refused without a registry row")]
+    public async Task Entities_CreateBoundNote_NonObjectValuesLeaveNoRow()
+    {
+        var tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
+        var registry = _app.Services.GetRequiredService<IRegistryEntityRepository>();
+        var before = await registry.ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        var canonicalBefore = await CountBoundRecordsAsync(_app.Services, tenant);
+
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = NoteType,
+            displayName = "Malformed note",
+            values = "not an object",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("values_object_required", body.GetProperty("error").GetString());
+        var after = await registry.ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        Assert.Equal(before.Count, after.Count);
+        Assert.Equal(canonicalBefore, await CountBoundRecordsAsync(_app.Services, tenant));
+    }
+
+    [Fact(DisplayName = "entities: a denied pack-bound note is refused before validation or either store")]
+    public async Task Entities_CreateBoundNote_DeniedLeavesNoRow()
+    {
+        var tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
+        var registry = _app.Services.GetRequiredService<IRegistryEntityRepository>();
+        var before = await registry.ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        var canonicalBefore = await CountBoundRecordsAsync(_app.Services, tenant);
+        _allowRecordWrites = false;
+
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = NoteType,
+            displayName = "Denied note",
+            values = new { }, // deliberately invalid: authorization must win before validation.
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        var after = await registry.ListByTypeAsync(tenant, new EntityTypeId(NoteType));
+        Assert.Equal(before.Count, after.Count);
+        Assert.Equal(canonicalBefore, await CountBoundRecordsAsync(_app.Services, tenant));
     }
 
     [Fact(DisplayName = "tree: a contains edge shows a child + breadcrumb as-of now")]
@@ -892,6 +1044,21 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)
         => new(teamId, name, new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+
+    private static async Task<int> CountBoundRecordsAsync(IServiceProvider services, TenantId tenant)
+    {
+        var count = 0;
+        await foreach (var entity in services.GetRequiredService<IEntityStore>()
+            .QueryAsync(new EntityQuery(Tenant: tenant)))
+        {
+            if (entity.Id.Scheme == PackBoundRegistryRecordWriter.RecordScheme
+                && entity.Id.Authority == PackBoundRegistryRecordWriter.RecordAuthority)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
 
     /// <summary>A mutable active-team accessor so a test can switch the active team mid-flight.</summary>
     private sealed class MutableActiveTeamAccessor : IActiveTeamAccessor

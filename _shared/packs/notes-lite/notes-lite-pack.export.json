@@ -9,7 +9,7 @@
     {
       "key": "notes.entry",
       "kind": "AssetTypeDefinition",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "content": {
         "id": "notes.entry",
         "displayName": "Note",
@@ -17,7 +17,8 @@
           "Movable"
         ],
         "expectedUsefulLifeYears": 1,
-        "conditionScaleMax": 5
+        "conditionScaleMax": 5,
+        "propertyFormBinding": "notes.capture"
       }
     },
     {

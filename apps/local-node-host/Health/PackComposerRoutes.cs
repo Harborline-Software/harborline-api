@@ -86,7 +86,7 @@ public static class PackComposerRoutes
 
         // POST /api/local-node/packs/export — compose + validate + sign. AUTHOR-side (council A-1):
         // gated on `packages:author` at the ROUTE (the UI rail is a reflection, not the enforcement).
-        app.MapPost(ExportRoute, async (HttpContext http, ExportPackRequestDto request, CancellationToken ct) =>
+        app.MapPost(ExportRoute, async (HttpContext http, ExportPackRequestDto request, bool? validateOnly, CancellationToken ct) =>
         {
             if (request is null || string.IsNullOrWhiteSpace(request.Key))
             {
@@ -150,6 +150,17 @@ public static class PackComposerRoutes
                 Dcp: dcp,
                 Exposes: request.Exposes,
                 InterfaceVersion: request.InterfaceVersion);
+
+            if (validateOnly == true)
+            {
+                var validation = await exporter.ValidateAsync(exportRequest, ct).ConfigureAwait(false);
+                var result = new
+                {
+                    valid = validation.IsValid,
+                    codes = validation.Errors.Select(e => new { e.Code, e.Target }).ToList(),
+                };
+                return validation.IsValid ? Results.Ok(result) : Results.UnprocessableEntity(result);
+            }
 
             var outcome = await exporter.ExportAsync(exportRequest, signer, ct).ConfigureAwait(false);
             if (!outcome.Succeeded || outcome.FileBytes is null)

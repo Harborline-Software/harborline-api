@@ -18,6 +18,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Entities;
 /// </summary>
 public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
 
+/// <summary>A generic persisted record and the accepted decision audit that authorized it.</summary>
+public sealed record EntityWritten(EntityId Entity, Guid? AuditId);
+
 public sealed record CreateLegalEntityCommand(
     LegalEntityId Id,
     string? LegalName,
@@ -171,21 +174,53 @@ public sealed class NodeEntityWriter(
         CreateOptions options,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
+        => (await CreateWithReceiptAsync(schema, body, options, authority, ct).ConfigureAwait(false)).Entity;
+
+    /// <summary>
+    /// Creates a generic record through the canonical gate-then-validator pipeline and returns the audit
+    /// id emitted from that same authorization decision. Callers that only need the entity id continue to
+    /// use <see cref="CreateAsync(SchemaId, JsonDocument, CreateOptions, AuthorizationWriteContext, CancellationToken)"/>.
+    /// </summary>
+    public async ValueTask<EntityWritten> CreateWithReceiptAsync(
+        SchemaId schema,
+        JsonDocument body,
+        CreateOptions options,
+        AuthorizationWriteContext authority,
+        CancellationToken ct = default)
     {
         if (options.Tenant != authority.Tenant)
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
         var recordId = options.ExplicitLocalPart ?? options.Nonce;
+        return await CreateWithReceiptAsync(body, recordId, authority,
+            _ => ValueTask.FromResult((schema, options)), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Resolves a bound schema and its create options only after the canonical write decision allows
+    /// this record. Preparation cannot supply a decision or change the admitted tenant or record id.
+    /// </summary>
+    internal async ValueTask<EntityWritten> CreateWithReceiptAsync(
+        JsonDocument body,
+        string recordId,
+        AuthorizationWriteContext authority,
+        Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare,
+        CancellationToken ct = default)
+    {
         // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
         // so an unauthorized caller learns nothing about the schema. RW-9 is held by the signature now:
         // the store's record seam takes a ValidatedRecordBody, which only AdmitAsync below can mint.
         var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
             .ConfigureAwait(false);
         decision.RequireAllowed();
+        var (schema, options) = await prepare(ct).ConfigureAwait(false);
+        if (options.Tenant != authority.Tenant || (options.ExplicitLocalPart ?? options.Nonce) != recordId)
+            throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
         var admitted = await AdmitAsync(decision, schema, body, authority, ct).ConfigureAwait(false);
         var created = await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
-        await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false);
-        return created;
+        return new EntityWritten(
+            created,
+            await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false));
     }
 
     public async ValueTask<VersionId> UpdateAsync(

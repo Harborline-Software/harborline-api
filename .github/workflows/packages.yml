@@ -161,6 +161,15 @@ jobs:
         run: npm ci
       - name: Build and test
         run: node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.ubuntu.json
+      - name: Retain failed host-test evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: host-test-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .claude/gate-evidence/host-tests.trx
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: warn
 
   # Packs the three shipped projects and restores them into tests/package-consumer the way an
   # external consumer would. Deliberately does NOT `needs: build-and-test`: proving the packed

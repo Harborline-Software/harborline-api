@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Builder;
@@ -7,13 +8,19 @@ using Microsoft.AspNetCore.Routing;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Definitions.Compatibility;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
@@ -26,9 +33,10 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Tenant scoping.</b> Every read + write resolves the active-team tenant via
-/// <c>NodeTenant.Resolve(activeTeam)</c> (not a fixed sentinel); the registry stores fail closed on the
-/// system tenant and never return another tenant's rows, so a cross-tenant id is an opaque 404.
+/// <b>Tenant scoping.</b> Reads resolve the active-team tenant via <c>NodeTenant.Resolve(activeTeam)</c>
+/// (not a fixed sentinel). Entity creation uses the selected request's tenant when present, otherwise
+/// the active team. The registry stores fail closed on the system tenant and never return another
+/// tenant's rows, so a cross-tenant id is an opaque 404.
 /// </para>
 /// <para>
 /// <b>As-of clock (A5c).</b> Tree + condition reads take an explicit <c>?asOf=</c> ISO-8601 instant;
@@ -61,7 +69,8 @@ public static class AssetRegistryRoutes
         IConditionAssessmentStore conditions,
         IFormSubmissionRecordStore submissions,
         IActiveTeamAccessor activeTeam,
-        TimeProvider clock)
+        TimeProvider clock,
+        PackBoundRegistryRecordWriter? boundRecords = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(types);
@@ -74,7 +83,7 @@ public static class AssetRegistryRoutes
 
         MapTypes(app, types, activeTeam);
         MapTypeManagement(app, types, activeTeam, clock);
-        MapEntities(app, types, entities, edges, activeTeam, clock);
+        MapEntities(app, types, entities, edges, activeTeam, clock, boundRecords);
         MapTree(app, entities, edges, activeTeam, clock);
         MapCondition(app, entities, conditions, activeTeam, clock);
         MapSubmissions(app, entities, submissions, activeTeam);
@@ -270,7 +279,8 @@ public static class AssetRegistryRoutes
     // ── GET /entities[?type=]  ·  GET /entities/{id}  ·  POST /entities ──────────────
     private static void MapEntities(
         IEndpointRouteBuilder app, IEntityTypeRegistry types, IRegistryEntityRepository entities,
-        ITypedRelationshipStore edges, IActiveTeamAccessor activeTeam, TimeProvider clock)
+        ITypedRelationshipStore edges, IActiveTeamAccessor activeTeam, TimeProvider clock,
+        PackBoundRegistryRecordWriter? boundRecords)
     {
         app.MapGet($"{RouteBase}/entities", async (string? type, HttpContext http, CancellationToken ct) =>
         {
@@ -305,12 +315,16 @@ public static class AssetRegistryRoutes
             var now = new Instant(clock.GetUtcNow());
             var container = await edges.GetContainerAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
             var path = await edges.GetContainmentPathAsAtAsync(tenant, entity.Id, now, ct).ConfigureAwait(false);
-            return Results.Ok(ToDetailWire(entity, container, path));
+            var values = boundRecords is null
+                ? null
+                : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
+            return Results.Ok(ToDetailWire(entity, container, path, values));
         });
 
         app.MapPost($"{RouteBase}/entities", async (CreateEntityBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
 
@@ -322,6 +336,65 @@ public static class AssetRegistryRoutes
 
             // Carry the type's effective pinned property-form binding onto the entity (the detail form).
             var propertyForm = await types.TryResolvePropertyFormAsync(tenant, typeId, ct).ConfigureAwait(false);
+            if (propertyForm is not null)
+            {
+                if (boundRecords is null)
+                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+                if (body.Values is { } malformed && malformed.ValueKind != JsonValueKind.Object)
+                    return Results.BadRequest(new { error = "values_object_required" });
+
+                using var values = body.Values is { } supplied
+                    ? JsonDocument.Parse(supplied.GetRawText())
+                    : JsonDocument.Parse("{}");
+                var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
+                var authority = RequestAuthorization.Authority(http, tenant, clock);
+                try
+                {
+                    var written = await boundRecords.CreateAsync(
+                        typeId,
+                        propertyForm,
+                        body.DisplayName.Trim(),
+                        string.IsNullOrWhiteSpace(body.ScanKey) ? null : body.ScanKey.Trim(),
+                        values,
+                        actor,
+                        authority,
+                        ct).ConfigureAwait(false);
+                    return Results.Created(
+                        $"{RouteBase}/entities/{written.Entity.Id.Value}",
+                        ToDetailWire(
+                            written.Entity,
+                            container: null,
+                            path: Array.Empty<RegistryEntityId>(),
+                            values.RootElement.Clone(),
+                            written.AuditId));
+                }
+                catch (EntityValidationException ex)
+                {
+                    return Results.UnprocessableEntity(
+                        new EntityValidationRefusal(ex.ReasonCode, ex.Message, ex.Pointers, ex.AuditId));
+                }
+                catch (FormDefinitionNotFoundException)
+                {
+                    return Results.Conflict(new { error = "property_form_unavailable" });
+                }
+                catch (BoundPropertyFormUnavailableException)
+                {
+                    return Results.Conflict(new { error = "property_form_unavailable" });
+                }
+                catch (RegistryRecordIndexException ex)
+                {
+                    return Results.Json(
+                        new
+                        {
+                            code = "registry_index_failed",
+                            id = ex.RecordId.LocalPart,
+                            canonicalRecordId = ex.RecordId.ToString(),
+                            auditId = ex.AuditId,
+                        },
+                        statusCode: StatusCodes.Status500InternalServerError);
+                }
+            }
+
             var entity = new RegistryEntity
             {
                 Id = RegistryEntityId.NewId(),
@@ -720,7 +793,12 @@ public static class AssetRegistryRoutes
         CreatedAt: e.CreatedAt.Value.ToString("O", CultureInfo.InvariantCulture),
         RetiredAt: e.RetiredAt?.Value.ToString("O", CultureInfo.InvariantCulture));
 
-    private static EntityDetailWire ToDetailWire(RegistryEntity e, RegistryEntityId? container, IReadOnlyList<RegistryEntityId> path) => new(
+    private static EntityDetailWire ToDetailWire(
+        RegistryEntity e,
+        RegistryEntityId? container,
+        IReadOnlyList<RegistryEntityId> path,
+        JsonElement? values = null,
+        Guid? auditId = null) => new(
         Id: e.Id.Value,
         Type: e.Type.Value,
         DisplayName: e.DisplayName,
@@ -729,7 +807,9 @@ public static class AssetRegistryRoutes
         RetiredAt: e.RetiredAt?.Value.ToString("O", CultureInfo.InvariantCulture),
         ContainerId: container?.Value,
         Path: path.Select(p => p.Value).ToArray(),
-        PropertyForm: e.PropertyForm is { } pf ? new PropertyFormWire(pf.Definition.Value, pf.PinnedVersion.ToString()) : null);
+        PropertyForm: e.PropertyForm is { } pf ? new PropertyFormWire(pf.Definition.Value, pf.PinnedVersion.ToString()) : null,
+        Values: values,
+        AuditId: auditId);
 
     private static ConditionWire ToConditionWire(ConditionAssessment a) => new(
         Id: a.Id.Value,
@@ -752,7 +832,11 @@ public static class AssetRegistryRoutes
 
     // ── Request bodies ───────────────────────────────────────────────────────────────
     /// <summary>Body for POST /entities.</summary>
-    public sealed record CreateEntityBody(string? Type, string? DisplayName, string? ScanKey);
+    public sealed record CreateEntityBody(
+        string? Type,
+        string? DisplayName,
+        string? ScanKey,
+        [property: JsonPropertyName("values")] JsonElement? Values = null);
     /// <summary>Body for POST /edges.</summary>
     public sealed record AddEdgeBody(string? Kind, string? From, string? To);
 
@@ -822,7 +906,11 @@ public static class AssetRegistryRoutes
     /// <summary>A registry entity with its container + breadcrumb + pinned property form.</summary>
     public sealed record EntityDetailWire(
         string Id, string Type, string DisplayName, string? ScanKey, string CreatedAt, string? RetiredAt,
-        string? ContainerId, string[] Path, PropertyFormWire? PropertyForm);
+        string? ContainerId,
+        string[] Path,
+        PropertyFormWire? PropertyForm,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Values = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null);
     /// <summary>The type's pinned property-form binding (the entity-detail form).</summary>
     public sealed record PropertyFormWire(string Definition, string Version);
 

@@ -1948,6 +1948,7 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     Harborline.Api.LocalNodeHost.Data.Identity.ISelectedSessionPermissionResolver,
     Harborline.Api.LocalNodeHost.Data.Identity.SelectedSessionPermissionResolver>();
+builder.Services.AddScoped<Harborline.Api.LocalNodeHost.Health.WebSession.SelectedSessionTenantContext>();
 
 // ── KG-search "360-view" Slice 0 (ADR 0135 KG-search F3-lift amendment) ───────────────────────────────
 //
@@ -2340,6 +2341,10 @@ var reconcileSweepInterval = TimeSpan.FromSeconds(
         : Harborline.Api.LocalNodeHost.AssetRegistryOptions.DefaultReconcileSweepIntervalSeconds);
 Harborline.Api.LocalNodeHost.Data.AssetRegistry.NodeAssetRegistryComposition.AddNodeAssetRegistry(
     builder.Services, reconcileSweepInterval);
+// M4: only the full node owns the canonical NodeEntityWriter used by an explicitly typed
+// property-form record. Keep its registry adapter at this boundary so partial asset-registry
+// compositions retain their read/projection routes without acquiring an unrelated writer dependency.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.AssetRegistry.PackBoundRegistryRecordWriter>();
 // ADR 0101 Rev 3.2 Wave 5 — the durable SpatialFrameDescriptor store + signed epoch mint (0168
 // OQ-1 ruling). AFTER AddNodeAssetRegistry: the durable audit swap must already be in place. The
 // extension itself hard-fails the composition unless the store resolves to the package adapter,

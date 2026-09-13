@@ -176,7 +176,8 @@ public static class RenderPlanCompiler
             }
         }
 
-        return JsonSerializer.SerializeToElement(new { fields });
+        var overlay = ReadOrEmpty(root, "overlay");
+        return JsonSerializer.SerializeToElement(new { fields, overlay });
     }
 
     private static JsonElement? ViewBindings(JsonElement root, out string refusalCode)
@@ -191,7 +192,33 @@ public static class RenderPlanCompiler
             return null;
         }
 
-        return JsonSerializer.SerializeToElement(new { entityType = entityType.GetString(), parameters });
+        var actions = new List<object>();
+        if (TryGetProperty(parameters, "actions", out var declarations))
+        {
+            if (declarations.ValueKind != JsonValueKind.Array)
+            {
+                refusalCode = PackRenderPlanCodes.BindingUnresolved;
+                return null;
+            }
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var action in declarations.EnumerateArray())
+            {
+                if (action.ValueKind != JsonValueKind.Object
+                    || !TryGetProperty(action, "id", out var id) || id.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(id.GetString()) || !ids.Add(id.GetString()!)
+                    || !TryGetProperty(action, "label", out var label) || label.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(label.GetString())
+                    || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
+                    || operation.GetString() is not ("pack.validate" or "pack.export" or "pack.verify"
+                        or "pack.install" or "pack.activate" or "record.create" or "record.read"))
+                {
+                    refusalCode = PackRenderPlanCodes.BindingUnresolved;
+                    return null;
+                }
+                actions.Add(new { id = id.GetString(), label = label.GetString() });
+            }
+        }
+        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions });
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"
