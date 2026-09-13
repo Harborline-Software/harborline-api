@@ -7,7 +7,25 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
+
 namespace Harborline.Api.LocalNodeHost.Health;
+
+/// <summary>Stable, locale-independent render-plan codes (ticket 402; a client localizes off these).
+/// Ticket 394's fence resolves every refusal code through a *Codes catalogue class -- a raw string
+/// literal at the refusal site cannot resolve, which is what reddened the Ubuntu gate before these
+/// existed. The class name ending in "Codes" is what makes it discoverable, not a convention.</summary>
+public static class PackRenderPlanCodes
+{
+    /// <summary>The definition's kind has no render-plan shape (only forms and list views do).</summary>
+    public const string KindUnsupported = "pack.render-plan.kind_unsupported";
+
+    /// <summary>A binding in the definition did not resolve against the compiled catalogue.</summary>
+    public const string BindingUnresolved = "pack.render-plan.binding_unresolved";
+
+    /// <summary>A form field declares a kind the render plan has no shape for.</summary>
+    public const string UnsupportedFieldKind = "pack.render-plan.unsupported_field_kind";
+}
 
 /// <summary>A lane-neutral render artifact emitted while a pack definition is activated.</summary>
 public sealed record RenderPlan(
@@ -73,6 +91,34 @@ public static class RenderPlanCompiler
     /// The hash input is the pack item's canonical UTF-8 JSON, not this derived plan. The pack canonicalizer
     /// owns property ordering and escaping, so the key changes exactly when the signed definition changes.
     /// </summary>
+    /// <summary>
+    /// Compiles a render plan, or produces the refusal ITSELF rather than a code the caller must
+    /// re-wrap. Ticket 394's fence resolves a refusal's code statically at the construction site, and
+    /// an out-variable carried across a call boundary cannot be resolved -- the projector's
+    /// `new PackSeedProjectionRefusal(..., code, ...)` was unresolvable for exactly that reason. The
+    /// construction belongs where the codes are constants, which is here.
+    /// </summary>
+    public static PackSeedProjectionRefusal? CompileOrRefuse(
+        PackSeedItem item,
+        string packKey,
+        string packVersion,
+        string pointer,
+        out RenderPlan? plan)
+    {
+        var refusalCode = string.Empty;
+        if (TryCompile(item, packKey, packVersion, out plan, out refusalCode)) return null;
+        return refusalCode switch
+        {
+            PackRenderPlanCodes.KindUnsupported =>
+                new PackSeedProjectionRefusal(item.Key, item.Kind, PackRenderPlanCodes.KindUnsupported, pointer),
+            PackRenderPlanCodes.BindingUnresolved =>
+                new PackSeedProjectionRefusal(item.Key, item.Kind, PackRenderPlanCodes.BindingUnresolved, pointer),
+            PackRenderPlanCodes.UnsupportedFieldKind =>
+                new PackSeedProjectionRefusal(item.Key, item.Kind, PackRenderPlanCodes.UnsupportedFieldKind, pointer),
+            _ => throw new InvalidOperationException($"render plan produced an undeclared refusal code: {refusalCode}"),
+        };
+    }
+
     public static bool TryCompile(
         PackSeedItem item,
         string packKey,
@@ -84,7 +130,7 @@ public static class RenderPlanCompiler
         refusalCode = string.Empty;
         if (item.Kind is not (PackContentKind.FormDefinition or PackContentKind.ViewDefinition))
         {
-            refusalCode = "pack.render-plan.kind_unsupported";
+            refusalCode = PackRenderPlanCodes.KindUnsupported;
             return false;
         }
 
@@ -94,7 +140,7 @@ public static class RenderPlanCompiler
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                refusalCode = "pack.render-plan.binding_unresolved";
+                refusalCode = PackRenderPlanCodes.BindingUnresolved;
                 return false;
             }
 
@@ -114,7 +160,7 @@ public static class RenderPlanCompiler
         }
         catch (JsonException)
         {
-            refusalCode = "pack.render-plan.binding_unresolved";
+            refusalCode = PackRenderPlanCodes.BindingUnresolved;
             return false;
         }
     }
@@ -124,7 +170,7 @@ public static class RenderPlanCompiler
         refusalCode = string.Empty;
         if (!TryGetProperty(root, "fieldsMeta", out var fields) || fields.ValueKind != JsonValueKind.Object)
         {
-            refusalCode = "pack.render-plan.binding_unresolved";
+            refusalCode = PackRenderPlanCodes.BindingUnresolved;
             return null;
         }
 
@@ -133,7 +179,7 @@ public static class RenderPlanCompiler
             if (!TryGetProperty(field.Value, "type", out var kind) || kind.ValueKind != JsonValueKind.String
                 || !IsSupportedFieldKind(kind.GetString()))
             {
-                refusalCode = "pack.render-plan.unsupported_field_kind";
+                refusalCode = PackRenderPlanCodes.UnsupportedFieldKind;
                 return null;
             }
         }
@@ -149,7 +195,7 @@ public static class RenderPlanCompiler
             || !TryGetProperty(parameters, "entityType", out var entityType) || entityType.ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(entityType.GetString()))
         {
-            refusalCode = "pack.render-plan.binding_unresolved";
+            refusalCode = PackRenderPlanCodes.BindingUnresolved;
             return null;
         }
 

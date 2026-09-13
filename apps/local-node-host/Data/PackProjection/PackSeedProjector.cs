@@ -1856,9 +1856,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return;
         }
 
-        if (!RenderPlanCompiler.TryCompile(item, pack.PackKey, pack.Version, out var plan, out var code))
+        var refusal = RenderPlanCompiler.CompileOrRefuse(
+            item, pack.PackKey, pack.Version, ContentPointer(pack, item), out var plan);
+        if (refusal is not null)
         {
-            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, code, ContentPointer(pack, item)));
+            refusals.Add(refusal);
             return;
         }
 
