@@ -76,6 +76,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
     private PackInstaller _installer = null!;
     private PackSeedProjector _projector = null!;
     private AuthorizedFormDefinitionLifecycle _authorizedForms = null!;
+    private InMemoryRenderPlanCatalogue _renderPlans = null!;
     private ICatalogue _catalogue = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private PackFileCodec _codec = null!;
@@ -132,7 +133,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var roleGate = _app.Services.GetRequiredService<Harborline.Api.Foundation.Authorization.IRoleGateAdmission>();
         _authorizedForms = TestAuthorization.FormLifecycle(
             _forms, Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), roleGate);
-        _catalogue = new ProjectedCatalogue(_authorizedForms);
+        _renderPlans = new InMemoryRenderPlanCatalogue();
+        _catalogue = new ProjectedCatalogue(_authorizedForms, renderPlans: _renderPlans);
         _projector = new PackSeedProjector(
             _packStore,
             _registry,
@@ -142,6 +144,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             schemas: _schemas,
             workflows: _workflows,
             time: TimeProvider.System,
+            renderPlans: _renderPlans,
             authorizedForms: _authorizedForms,
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(
                 _workflows, Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
@@ -304,6 +307,33 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(PackKey, entry.Provenance.PackKey);
         Assert.Equal("1.0.0", entry.Provenance.PackVersion);
         Assert.Equal("pack", entry.Provenance.Kind);
+    }
+
+    [Fact(DisplayName = "402.1-5: activation emits a serialisable form plan retrievable by definition coordinates and stable on replay")]
+    public async Task Activation_emits_form_render_plan_keyed_by_canonical_definition_hash()
+    {
+        const string formId = "general.render-plan";
+        var packBytes = await ExportAsync(FormPackBody(formId, "1.0.0", invalidRule: false));
+
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" })).StatusCode);
+
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var first = await _catalogue.GetAsync(tenant, PackContentKind.FormDefinition, formId, "1.0.0");
+        Assert.NotNull(first);
+        Assert.NotNull(first!.RenderPlan);
+        Assert.Equal(first.DefinitionHash, first.RenderPlan!.DefinitionHash);
+        Assert.Equal(formId, first.RenderPlan.DefinitionId);
+        Assert.Equal(PackKey, first.RenderPlan.PackKey);
+        Assert.DoesNotContain("React", JsonSerializer.Serialize(first.RenderPlan), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Blazor", JsonSerializer.Serialize(first.RenderPlan), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(first.RenderPlan.DefinitionHash, JsonSerializer.Deserialize<RenderPlan>(JsonSerializer.Serialize(first.RenderPlan))!.DefinitionHash);
+
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" })).StatusCode);
+        var replay = await _catalogue.GetAsync(tenant, PackContentKind.FormDefinition, formId, "1.0.0");
+        Assert.Equal(first.DefinitionHash, replay!.DefinitionHash);
     }
 
     [Fact(DisplayName = "ticket 176: a sealed compiled-kind claim is refused through pack admission and projects nothing")]

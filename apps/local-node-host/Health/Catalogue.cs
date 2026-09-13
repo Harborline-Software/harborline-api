@@ -13,6 +13,7 @@ using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -27,7 +28,9 @@ public sealed record CatalogueEntry(
     bool Sealed,
     string Status,
     DateTimeOffset UpdatedAt,
-    JsonElement Body);
+    JsonElement Body,
+    string? DefinitionHash = null,
+    RenderPlan? RenderPlan = null);
 
 /// <summary>The pack authority that supplied a catalogue entry.</summary>
 public sealed record CatalogueProvenance(
@@ -81,16 +84,25 @@ public interface ICatalogue
 public sealed class ProjectedCatalogue : ICatalogue
 {
     private readonly AuthorizedFormDefinitionLifecycle authorizedForms;
+    private readonly IViewDefinitionRegistry? viewDefinitions;
+    private readonly InMemoryRenderPlanCatalogue? renderPlans;
 
     /// <summary>
     /// Reads forms through the same authorized lifecycle that owns the Form definition route family.
     /// Raw store access remains private to that lifecycle, so composition has one unambiguous catalogue
     /// constructor and no route can bypass the read authority seam.
     /// </summary>
-    public ProjectedCatalogue(AuthorizedFormDefinitionLifecycle forms) =>
+    public ProjectedCatalogue(
+        AuthorizedFormDefinitionLifecycle forms,
+        IViewDefinitionRegistry? viewDefinitions = null,
+        InMemoryRenderPlanCatalogue? renderPlans = null)
+    {
         authorizedForms = forms ?? throw new ArgumentNullException(nameof(forms));
+        this.viewDefinitions = viewDefinitions;
+        this.renderPlans = renderPlans;
+    }
     private static readonly PackContentKind[] UnavailableKinds = Enum.GetValues<PackContentKind>()
-        .Where(kind => kind != PackContentKind.FormDefinition)
+        .Where(kind => kind is not (PackContentKind.FormDefinition or PackContentKind.ViewDefinition))
         .ToArray();
 
     public async ValueTask<CatalogueList> ListAsync(
@@ -98,7 +110,8 @@ public sealed class ProjectedCatalogue : ICatalogue
         PackContentKind? kind = null,
         CancellationToken cancellationToken = default)
     {
-        if (kind is { } requested && requested != PackContentKind.FormDefinition)
+        if (kind is { } requested && requested != PackContentKind.FormDefinition
+            && (requested != PackContentKind.ViewDefinition || viewDefinitions is null))
         {
             return new CatalogueList(Array.Empty<CatalogueEntry>(), [requested]);
         }
@@ -106,7 +119,13 @@ public sealed class ProjectedCatalogue : ICatalogue
         var entries = new List<CatalogueEntry>();
         await foreach (var definition in ListFormsAsync(tenant, cancellationToken).ConfigureAwait(false))
         {
-            entries.Add(From(definition));
+            entries.Add(From(tenant, definition));
+        }
+
+        if ((kind is null || kind == PackContentKind.ViewDefinition) && viewDefinitions is not null)
+        {
+            var views = await viewDefinitions.ListDefinitionsAsync(tenant.Value, cancellationToken).ConfigureAwait(false);
+            entries.AddRange(views.Select(definition => From(tenant, definition)));
         }
 
         return new CatalogueList(entries, kind is null ? UnavailableKinds : Array.Empty<PackContentKind>());
@@ -119,6 +138,18 @@ public sealed class ProjectedCatalogue : ICatalogue
         string? version = null,
         CancellationToken cancellationToken = default)
     {
+        if (kind == PackContentKind.ViewDefinition && viewDefinitions is not null)
+        {
+            if (version is null)
+            {
+                var history = await viewDefinitions.ListVersionsAsync(tenant.Value, id, cancellationToken).ConfigureAwait(false);
+                return history is null ? null : From(tenant, history.Versions[0]);
+            }
+
+            var view = await viewDefinitions.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false);
+            return view is null ? null : From(tenant, view);
+        }
+
         if (kind != PackContentKind.FormDefinition)
         {
             return null;
@@ -129,7 +160,7 @@ public sealed class ProjectedCatalogue : ICatalogue
             var definition = version is null
                 ? await GetCurrentPublishedAsync(new DefinitionAddress(tenant, id), cancellationToken).ConfigureAwait(false)
                 : await GetAsync(new DefinitionCoordinates(tenant, id, version), cancellationToken).ConfigureAwait(false);
-            return definition is null || definition.Status != FormDefinitionStatus.Published ? null : From(definition);
+            return definition is null || definition.Status != FormDefinitionStatus.Published ? null : From(tenant, definition);
         }
         catch (FormDefinitionNotFoundException)
         {
@@ -137,9 +168,10 @@ public sealed class ProjectedCatalogue : ICatalogue
         }
     }
 
-    private static CatalogueEntry From(FormDefinition definition)
+    private CatalogueEntry From(TenantId tenant, FormDefinition definition)
     {
         var source = definition.PackSource;
+        var plan = renderPlans?.Get(tenant, PackContentKind.FormDefinition, definition.Id.Value, definition.Version.ToString());
         return new CatalogueEntry(
             definition.Id.Value,
             definition.Version.ToString(),
@@ -151,7 +183,26 @@ public sealed class ProjectedCatalogue : ICatalogue
             Sealed: false,
             definition.Status.ToString(),
             definition.UpdatedAt,
-            JsonSerializer.SerializeToElement(FormDefinitionDto.From(definition)));
+            JsonSerializer.SerializeToElement(FormDefinitionDto.From(definition)),
+            plan?.DefinitionHash,
+            plan);
+    }
+
+    private CatalogueEntry From(TenantId tenant, ViewDefinition definition)
+    {
+        var plan = renderPlans?.Get(tenant, PackContentKind.ViewDefinition, definition.Key, definition.Version);
+        return new CatalogueEntry(
+            definition.Key,
+            definition.Version,
+            PackContentKind.ViewDefinition,
+            new InternationalizedTextDto("en", new Dictionary<string, string> { ["en"] = definition.Title }),
+            new CatalogueProvenance(plan?.PackKey, plan?.PackVersion, plan is null ? "tenant" : "pack"),
+            Sealed: false,
+            "Published",
+            DateTimeOffset.MinValue,
+            JsonSerializer.SerializeToElement(ViewDefinitionDto.From(definition)),
+            plan?.DefinitionHash,
+            plan);
     }
 
     private IAsyncEnumerable<FormDefinition> ListFormsAsync(TenantId tenant, CancellationToken cancellationToken)
