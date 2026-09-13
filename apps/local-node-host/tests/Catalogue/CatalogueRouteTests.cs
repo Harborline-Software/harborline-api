@@ -1,18 +1,22 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Packs.Dcp;
+using Harborline.Api.Foundation.Packs.Export;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Trust;
+using Harborline.Api.Foundation.Packs.Serialization;
+using Harborline.Api.Foundation.Packs.Trust;
+using Harborline.Api.Foundation.Packs.Validation;
+using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Foundation.Recovery.Crypto;
 using Harborline.Api.Foundation.Recovery.TenantKey;
 using Harborline.Api.Kernel.Audit;
@@ -20,9 +24,16 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
-
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
@@ -43,6 +54,10 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     private TenantId _tenantA;
     private TenantId _requestTenant;
     private bool _withSelectedSession = true;
+    private readonly InMemoryPackInstallStore _packStore = new();
+    private IPackInstaller _installer = null!;
+    private IPackTrustStore _packTrust = null!;
+    private PlatformPackPreloadHostedService _platformPreload = null!;
 
     public async Task InitializeAsync()
     {
@@ -61,6 +76,39 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _tenantA = NodeTenant.Resolve(_activeTeam);
         _requestTenant = _tenantA;
 
+        var signer = new NodePrincipalSigner(Enumerable.Repeat((byte)0x42, 32).ToArray());
+        var codec = new PackFileCodec();
+        _packTrust = new InMemoryPackTrustStore(
+        [
+            new PackTrustRoot(
+                TrustScope.OwnRoster,
+                signer.Signer.IssuerId,
+                PackComposerRoutes.OwnRosterEpoch,
+                TrustRootStatus.Current),
+        ]);
+        _installer = new PackInstaller(
+            new PackVerifier(new Ed25519Verifier(), codec),
+            _packStore,
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
+            new InMemoryPackInstallAudit(),
+            TestAuthorization.AllowGate());
+        _platformPreload = new PlatformPackPreloadHostedService(
+            new PackExporter(
+                new PackContentCanonicalizer(),
+                new PackDcpCanonicalizer(),
+                new PackValidator(new PackContentPiiScanner()),
+                new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
+                codec,
+                timeProvider: TimeProvider.System),
+            signer,
+            _installer,
+            _packStore,
+            _packTrust,
+            PackRevocationList.Empty,
+            _activeTeam,
+            TimeProvider.System,
+            NullLogger<PlatformPackPreloadHostedService>.Instance);
+
         var definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
         _app.Use(async (http, next) =>
         {
@@ -78,6 +126,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         CatalogueRoutes.Map(
             _app.MapSelectedSessionProductGroup(),
             new ProjectedCatalogue(definitions),
+            _packStore,
             new ActiveTeamTenantContext(_activeTeam));
         FormDefinitionRoutes.Map(
             _app,
@@ -100,6 +149,60 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var body = await _client.GetFromJsonAsync<JsonElement>($"{CatalogueBase}?kind=FormDefinition");
 
         Assert.Contains(FormId, body.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "M4: sealed catalogue types are absent before the platform seed is active")]
+    public async Task Sealed_Catalogue_Types_Are_Absent_Before_The_Platform_Seed_Is_Active()
+    {
+        var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
+
+        Assert.Empty(types.EnumerateArray());
+    }
+
+    [Fact(DisplayName = "M4: activating the platform seed exposes its sealed catalogue types with the active version")]
+    public async Task Active_Platform_Seed_Exposes_Its_Sealed_Catalogue_Types_With_The_Active_Version()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+
+        var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
+        var entries = types.EnumerateArray().ToArray();
+        Assert.Equal(16, entries.Length);
+        Assert.All(entries, entry =>
+        {
+            Assert.True(entry.GetProperty("sealed").GetBoolean());
+            var provenance = entry.GetProperty("provenance");
+            Assert.Equal("harborline.platform", provenance.GetProperty("packKey").GetString());
+            Assert.Equal("1.0.0", provenance.GetProperty("packVersion").GetString());
+            Assert.Equal("platform", provenance.GetProperty("kind").GetString());
+        });
+    }
+
+    [Fact(DisplayName = "M4: deactivating the platform seed removes its sealed catalogue types")]
+    public async Task Deactivated_Platform_Seed_Does_Not_Expose_Sealed_Catalogue_Types()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var deactivated = _installer.Deactivate(
+            PackContext(),
+            PlatformPackPreloadHostedService.PackKey,
+            PlatformPackPreloadHostedService.PackVersion);
+        Assert.True(deactivated.Deactivated, deactivated.Error);
+
+        var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
+
+        Assert.Empty(types.EnumerateArray());
+    }
+
+    [Fact(DisplayName = "M4: invalid active platform seed descriptors fail closed")]
+    public async Task Invalid_Active_Platform_Seed_Descriptors_Fail_Closed()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+        var active = Assert.IsType<InstalledPack>(
+            _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey));
+        var duplicate = active with { SeedItems = [.. active.SeedItems, active.SeedItems[0]] };
+
+        var types = SystemRecordType.FromActivePlatformPack(duplicate);
+
+        Assert.Empty(types);
     }
 
     public async Task DisposeAsync()
@@ -201,6 +304,14 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         return rows;
     }
+
+    private PackInstallContext PackContext() => new(
+        _tenantA,
+        _packTrust,
+        PackRevocationList.Empty,
+        TimeProvider.System.GetUtcNow(),
+        PackInstallRoutes.RevocationMaxAge,
+        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
 
     private static object Text(string en) => new
     {
