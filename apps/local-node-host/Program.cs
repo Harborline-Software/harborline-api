@@ -1948,6 +1948,7 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     Harborline.Api.LocalNodeHost.Data.Identity.ISelectedSessionPermissionResolver,
     Harborline.Api.LocalNodeHost.Data.Identity.SelectedSessionPermissionResolver>();
+builder.Services.AddScoped<Harborline.Api.LocalNodeHost.Health.WebSession.SelectedSessionTenantContext>();
 
 // ── KG-search "360-view" Slice 0 (ADR 0135 KG-search F3-lift amendment) ───────────────────────────────
 //
