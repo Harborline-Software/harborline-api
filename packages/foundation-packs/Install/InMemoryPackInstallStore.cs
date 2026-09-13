@@ -44,6 +44,14 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     }
 
     /// <inheritdoc />
+    public bool AnyInstalled()
+    {
+        lock (_gate)
+        {
+            return _byTenant.Values.Any(state => state.Versions.Count > 0);
+        }
+    }
+
     public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant)
     {
         lock (_gate)

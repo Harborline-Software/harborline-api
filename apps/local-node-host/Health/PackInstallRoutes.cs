@@ -96,8 +96,14 @@ internal static class PackInstallRoutes
         // This is deliberately evaluated while matching every non-installer request, rather than once at
         // startup.  The first successful install therefore restores the ordinary pack surface immediately,
         // without remapping endpoints or restarting the node.
-        var postInstallRoutes = new PostInstallRouteAvailabilityMetadata(() =>
-            store.ListInstalled(NodeTenant.Resolve(activeTeam)).Count != 0);
+        // NODE-scoped, not tenant-scoped, and deliberately so. L1168 says "when nothing is installed,
+        // the BINARY must present an installer with exactly one route", and section 6's first-run
+        // sequence is the node's rather than a tenant's. Asking the node-wide question also keeps this
+        // fence -- which runs BEFORE authorization, so it has no resolved tenant to reuse -- from
+        // resolving the active team itself. That would have been one more use of process-global tenant
+        // authority for a question that never needed one, and the ADR0160 R3 debt ratchet was right to
+        // refuse it: tenant/global 6 -> 7.
+        var postInstallRoutes = new PostInstallRouteAvailabilityMetadata(store.AnyInstalled);
 
         // POST /packs/preview — verify + plan; NEVER mutates. OPERATE-side (council A-1): `packages:operate`.
         selectedSession.MapPost(PreviewRoute, async (HttpContext http, CancellationToken ct) =>

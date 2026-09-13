@@ -36,6 +36,16 @@ public interface IPackInstallStore
     /// <summary>Every installed pack version for the tenant (all lifecycles), stable order.</summary>
     IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant);
 
+    /// <summary>
+    /// Whether ANY pack version is installed on this node, for any tenant. Deliberately not
+    /// tenant-scoped: ticket 176 / L1168 says "when nothing is installed, the BINARY must present an
+    /// installer with exactly one route", and the platform package's first-run sequence is the
+    /// node's, not a tenant's. Answering it without a tenant also keeps the pre-authorization route
+    /// fence from resolving the active team, which would be one more use of process-global tenant
+    /// authority for a question that never needed one (the ADR0160 R3 debt ratchet).
+    /// </summary>
+    bool AnyInstalled();
+
     /// <summary>The S-8 monotonic watermark for a pack key, or null if never installed.</summary>
     PackInstallWatermark? GetWatermark(TenantId tenant, string packKey);
 
