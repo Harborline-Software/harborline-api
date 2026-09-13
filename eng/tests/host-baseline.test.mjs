@@ -123,7 +123,9 @@ test('every macOS identity is owned, dated, reasoned, distinct, and compared exa
   assert.ok(n <= 6, `macOS baseline has ${n} rows; the 302 slice 1 measurement had 6`)
   assert.equal(new Set(rows.map(row => row.test)).size, n)
   for (const row of rows) {
-    assert.equal(row.owner, '302')
+    // 360: ownership is per row, not per file. 302 derived the original list, so every row carried
+    // its id; a row a later ticket owns must say so, or the burn-down points at the wrong ticket.
+    assert.match(row.owner ?? '', /^\d{3}$/, `row ${row.test} has no owning ticket`)
     assert.ok(['behavioural', 'environmental'].includes(row.class))
     assert.match(row.dated ?? '', /^\d{4}-\d{2}-\d{2}$/, `row ${row.test} is undated`)
     assert.ok((row.reason ?? '').length > 40, `row ${row.test} has no reason`)

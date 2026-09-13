@@ -245,6 +245,7 @@ public static class PackSeedProjectionRefusalCodes
     public const string ViewDefinitionRegistryNotWiredCode = PackSeedProjector.ViewDefinitionRegistryNotWiredCode;
     public const string ViewDefinitionPinnedTupleConflictCode = PackSeedProjector.ViewDefinitionPinnedTupleConflictCode;
     public const string ViewDefinitionProjectionFailedCode = PackSeedProjector.ViewDefinitionProjectionFailedCode;
+    public const string RenderPlanCatalogueNotWiredCode = PackSeedProjector.RenderPlanCatalogueNotWiredCode;
     public const string StandingRuleDefinitionStoreNotWiredCode = PackSeedProjector.StandingRuleDefinitionStoreNotWiredCode;
     public const string StandingRuleDefinitionPinnedTupleConflictCode = PackSeedProjector.StandingRuleDefinitionPinnedTupleConflictCode;
     public const string GrantInstanceRefusedCode = PackAuthorizationContentAdmission.GrantInstanceRefusedCode;
@@ -304,11 +305,16 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly ISchemaRegistry? _schemas;
     private readonly IWorkflowDefinitionStore? _workflows;
     private readonly AuthorizedWorkflowDefinitionLifecycle? _authorizedWorkflows;
+    private readonly WorkflowCatalogueLintReports? _workflowLintReports;
     private readonly ITaxonomyRegistry? _taxonomies;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
     private readonly IScheduleDefinitionRegistry? _scheduleDefinitions;
     private readonly IViewDefinitionRegistry? _viewDefinitions;
+    // CA1859: one implementation, nothing substitutes it. An interface with a single implementor
+    // and no test double is ceremony -- the concrete type is the honest declaration, and the
+    // interface returns when a second implementation exists.
+    private readonly InMemoryRenderPlanCatalogue? _renderPlans;
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
@@ -348,6 +354,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         ITaxonomyRegistry? taxonomies = null,
         IReportDefinitionRegistry? reportDefinitions = null,
         IViewDefinitionRegistry? viewDefinitions = null,
+        InMemoryRenderPlanCatalogue? renderPlans = null,
         IScheduleDefinitionRegistry? scheduleDefinitions = null,
         IDataExchangeDefinitionRegistry? dataExchangeDefinitions = null,
         IPackPlatformCompatibility? platform = null,
@@ -355,7 +362,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         AuthorizedFormDefinitionLifecycle? authorizedForms = null,
         AuthorizedWorkflowDefinitionLifecycle? authorizedWorkflows = null,
         IRoleVocabularyStore? roleVocabulary = null,
-        AuthorizationDefinitionWriter? authorizationDefinitions = null)
+        AuthorizationDefinitionWriter? authorizationDefinitions = null,
+        WorkflowCatalogueLintReports? workflowLintReports = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _types = types ?? throw new ArgumentNullException(nameof(types));
@@ -367,11 +375,13 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _schemas = schemas;
         _workflows = workflows;
         _authorizedWorkflows = authorizedWorkflows;
+        _workflowLintReports = workflowLintReports;
         _taxonomies = taxonomies;
         _reportDefinitions = reportDefinitions;
         _dataExchangeDefinitions = dataExchangeDefinitions;
         _scheduleDefinitions = scheduleDefinitions;
         _viewDefinitions = viewDefinitions;
+        _renderPlans = renderPlans;
         _standingRules = standingRules;
         // (L675) Absent, RoleDefinition and AuthorizationCapabilityBinding items are explicitly
         // REFUSED (fail-closed, never skipped) — the same posture every other optional registry takes.
@@ -772,10 +782,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     case FormDefinitionOutcome.Published:
                                         formsPublished++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
+                                        EmitRenderPlan(tenant, pack, item, refusals);
                                         break;
                                     case FormDefinitionOutcome.AlreadyPresent:
                                         formsPresent++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
+                                        EmitRenderPlan(tenant, pack, item, refusals);
                                         break;
                                     case FormDefinitionOutcome.Deferred: formsDeferred++; break;
                                     default:
@@ -960,6 +972,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
                                     item.Key, item.Kind, viewDefinitionRefusal, ContentPointer(pack, item)));
+                            }
+                            else
+                            {
+                                EmitRenderPlan(tenant, pack, item, refusals);
                             }
                         }
 
@@ -1194,6 +1210,15 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 tenant);
         }
 
+        // T-397: activation remains successful even when this lint finds an unreachable state. The
+        // diagnostic reads the compiled, published workflow catalogue only after this pass is complete.
+        if (_authorizedWorkflows is not null && _workflowLintReports is not null)
+        {
+            await _workflowLintReports.RefreshAsync(
+                    _authorizedWorkflows, tenant, installed, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return new PackSeedProjectionSummary(
             seeded, present, invalid, formsDeferred, templatesPublished, templatesInvalid, otherSkipped,
             ownedByOther, contestedUnresolved, formsPublished, formsPresent, formsInvalid,
@@ -1353,6 +1378,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     /// <summary>An unexpected view-definition registry failure prevented projection.</summary>
     public const string ViewDefinitionProjectionFailedCode =
         "pack.view-definition.projection_failed";
+
+    /// <summary>The activation host did not compose the render-plan artifact catalogue.</summary>
+    public const string RenderPlanCatalogueNotWiredCode = "pack.render-plan.catalogue_not_wired";
 
     private async Task<string?> ProjectTaxonomyDefinitionAsync(
         TenantId tenant,
@@ -1829,6 +1857,30 @@ internal sealed class PackSeedProjector : IPackSeedProjector
            && StringComparer.Ordinal.Equals(
                existing.Parameters.GetRawText(),
                expected.Parameters.GetRawText());
+
+    private void EmitRenderPlan(
+        TenantId tenant,
+        InstalledPack pack,
+        PackSeedItem item,
+        List<PackSeedProjectionRefusal> refusals)
+    {
+        if (_renderPlans is null)
+        {
+            // Compatibility embedders may project definitions without composing the catalogue read family.
+            // The production composition always supplies it; a malformed plan remains a reported refusal below.
+            return;
+        }
+
+        var refusal = RenderPlanCompiler.CompileOrRefuse(
+            item, pack.PackKey, pack.Version, ContentPointer(pack, item), out var plan);
+        if (refusal is not null)
+        {
+            refusals.Add(refusal);
+            return;
+        }
+
+        _renderPlans.Store(tenant, item.Kind, plan!);
+    }
 
     private static bool TryParseViewDefinition(
         PackSeedItem item,

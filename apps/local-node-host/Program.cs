@@ -1187,7 +1187,8 @@ if (webClientOptions.Enabled)
 {
     builder.Services.AddInstallationFounderBootstrapCeremony(
         installationRootPublicKeyFingerprint,
-        authorizationSeedProfile);
+        authorizationSeedProfile,
+        localNodeOptions.DataDirectory ?? Path.Combine(AppContext.BaseDirectory, "data"));
 }
 
 // ADR 0114/0115 Pattern-A entity modules. Runtime, EF design-time scaffolding, and migration-path
@@ -1215,10 +1216,12 @@ builder.Services.AddLocalNodePatternAModules();
 Harborline.Api.Foundation.EngineRoom.EngineRoomServiceCollectionExtensions.AddHarborlineEngineRoom(
     builder.Services);
 builder.Services.AddTransient<LocalNodeHealthCheck>();
+builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
     builder.Services.AddHealthChecks()
         .AddCheck<LocalNodeHealthCheck>("local-node")
         .AddCheck<AuthorizationHealthCheck>("authorization")
+        .AddCheck<WorkflowCatalogueLintHealthCheck>("workflow-catalogue-lint")
         .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
         .AddCheck<LocalNodeReadinessCheck>("local-node-readiness", tags: ["ready"]));
 
@@ -2276,6 +2279,8 @@ builder.Services.AddNodeForms(
     });
 
 // Ticket 176 slice 1: the catalogue reads the already-composed definition stores; it owns no persistence.
+// Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 

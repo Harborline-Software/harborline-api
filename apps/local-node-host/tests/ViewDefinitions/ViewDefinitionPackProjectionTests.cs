@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
@@ -302,6 +303,7 @@ public sealed class ViewDefinitionPackProjectionTests
             TrustScope.OwnRoster,
             keyPair);
         var viewDefinitionRegistry = new InMemoryViewDefinitionRegistry(new AcceptAllDescriptorRegistry());
+        var renderPlans = new InMemoryRenderPlanCatalogue();
         using var services = new ServiceCollection()
             .AddLogging()
             .AddInMemoryAssetTypeSystem()
@@ -310,7 +312,7 @@ public sealed class ViewDefinitionPackProjectionTests
             store,
             services.GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance,
-            viewDefinitions: viewDefinitionRegistry, time: TimeProvider.System);
+            viewDefinitions: viewDefinitionRegistry, renderPlans: renderPlans, time: TimeProvider.System);
 
         var firstSummary = await projector.ProjectActivePacksAsync(tenant);
         var secondSummary = await projector.ProjectActivePacksAsync(tenant);
@@ -322,6 +324,10 @@ public sealed class ViewDefinitionPackProjectionTests
         Assert.NotNull(readBack);
         Assert.Equal("Daily inventory", readBack.Title);
         Assert.Equal("4.1.2", readBack.Version);
+        var plan = renderPlans.Get(tenant, PackContentKind.ViewDefinition, definition.Key, definition.Version);
+        Assert.NotNull(plan);
+        Assert.Equal(definition.Key, plan!.DefinitionId);
+        Assert.Equal(nameof(PackContentKind.ViewDefinition), plan.DefinitionKind);
     }
 
     [Fact]

@@ -70,4 +70,39 @@ public sealed class CatalogueTests
         Assert.True(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("harborline.platform", item));
         Assert.False(PackSealedSystemTypeAdmission.IsPermittedPlatformCatalogueItem("example.other", item));
     }
+
+    [Fact(DisplayName = "402.4: a definition-only change changes only that definition's render-plan hash")]
+    public void Definition_hash_is_independent_of_the_derived_render_plan()
+    {
+        var first = FormItem("first", "First title");
+        var changed = FormItem("first", "Changed title");
+        var sibling = FormItem("sibling", "Sibling title");
+
+        Assert.True(RenderPlanCompiler.TryCompile(first, "pack", "1.0.0", out var firstPlan, out _));
+        Assert.True(RenderPlanCompiler.TryCompile(changed, "pack", "1.0.0", out var changedPlan, out _));
+        Assert.True(RenderPlanCompiler.TryCompile(sibling, "pack", "1.0.0", out var siblingPlan, out _));
+
+        Assert.NotEqual(firstPlan!.DefinitionHash, changedPlan!.DefinitionHash);
+        Assert.NotEqual(firstPlan.DefinitionHash, siblingPlan!.DefinitionHash);
+        Assert.Equal(siblingPlan.DefinitionHash, CompileAgain(sibling).DefinitionHash);
+    }
+
+    private static RenderPlan CompileAgain(PackSeedItem item)
+    {
+        Assert.True(RenderPlanCompiler.TryCompile(item, "pack", "1.0.0", out var plan, out _));
+        return plan!;
+    }
+
+    private static PackSeedItem FormItem(string id, string title)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            overlay = new { title },
+            fieldsMeta = new Dictionary<string, object>
+            {
+                ["name"] = new { type = "text", required = true },
+            },
+        });
+        return new PackSeedItem(id, PackContentKind.FormDefinition, "1.0.0", body, Cid.FromBytes([]));
+    }
 }
