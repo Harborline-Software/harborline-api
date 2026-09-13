@@ -284,7 +284,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 4),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 35),
+                    PackLifecycleState.Active, 36),
             },
             firstBoot);
         Assert.Equal(
@@ -312,6 +312,12 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(formsView.RenderPlan);
         Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
         Assert.Equal("views.entity-list/grid", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
+        Assert.Equal(7, formsView.RenderPlan.Bindings.GetProperty("actions").GetArrayLength());
+        var authorForm = await catalogue.GetAsync(
+            Tenant, PackContentKind.FormDefinition, "platform.pack.author", cancellationToken: CancellationToken.None);
+        Assert.NotNull(authorForm?.RenderPlan);
+        Assert.Equal("harborline.platform", authorForm!.Provenance.PackKey);
+        Assert.Equal("textarea", authorForm.RenderPlan!.Bindings.GetProperty("fields").GetProperty("packJson").GetProperty("type").GetString());
         var workshop = Assert.Single(platform.SeedItems, item => item.Key == "platform.workshop");
         using var workshopDocument = JsonDocument.Parse(workshop.CanonicalJson);
         var group = workshopDocument.RootElement.GetProperty("seedWorkspaces")[0].GetProperty("groups")[0];
