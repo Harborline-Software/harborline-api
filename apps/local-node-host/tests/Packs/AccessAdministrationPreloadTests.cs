@@ -284,7 +284,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 4),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 34),
+                    PackLifecycleState.Active, 35),
             },
             firstBoot);
         Assert.Equal(
@@ -300,7 +300,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(auditor);
         var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.RoleDefinition));
-        Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
+        Assert.Equal(3, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
         Assert.Equal(13, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(13, projectedViews.Count);
