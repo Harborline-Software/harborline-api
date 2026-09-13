@@ -40,7 +40,7 @@ public sealed class WorkflowCatalogueLintHealthCheckTests
         var reports = new WorkflowCatalogueLintReports();
         var activeTeam = ActiveTeam();
         reports.Replace(NodeTenant.Resolve(activeTeam), findings);
-        var result = await new WorkflowCatalogueLintHealthCheck(reports, activeTeam).CheckHealthAsync(new HealthCheckContext());
+        var result = await new WorkflowCatalogueLintHealthCheck(reports).CheckHealthAsync(new HealthCheckContext());
 
         Assert.Equal(HealthStatus.Degraded, result.Status);
         Assert.Contains("fixture.workflow v2.3.4 (pack fixture-pack)", result.Description, StringComparison.Ordinal);
@@ -70,7 +70,7 @@ public sealed class WorkflowCatalogueLintHealthCheckTests
         var activeTeam = ActiveTeam();
         reports.Replace(NodeTenant.Resolve(activeTeam), WorkflowCatalogueLint.Find([definition], [pack]));
 
-        var result = await new WorkflowCatalogueLintHealthCheck(reports, activeTeam).CheckHealthAsync(new HealthCheckContext());
+        var result = await new WorkflowCatalogueLintHealthCheck(reports).CheckHealthAsync(new HealthCheckContext());
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
         Assert.Empty(reports.Inspect(NodeTenant.Resolve(activeTeam)));

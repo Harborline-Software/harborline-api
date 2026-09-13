@@ -9,6 +9,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 
+using System.Linq;
+
 namespace Harborline.Api.LocalNodeHost.Health;
 
 /// <summary>One non-refusing diagnostic from the active, compiled workflow catalogue.</summary>
@@ -114,25 +116,28 @@ public sealed class WorkflowCatalogueLintReports
     public IReadOnlyList<WorkflowCatalogueLintFinding> Inspect(TenantId tenant) =>
         findings.TryGetValue(tenant, out var current) ? current : Array.Empty<WorkflowCatalogueLintFinding>();
 
+    /// <summary>
+    /// Every tenant's findings. Health is a NODE-level surface: reporting only the active team would
+    /// leave a node hosting three tenants silent about two of them, and a headless node -- which has
+    /// no active team at all -- would answer Healthy having inspected nothing. That is ticket 371's
+    /// shape, a check that passes without checking, and it is why this does not take a tenant.
+    /// </summary>
+    public IReadOnlyList<WorkflowCatalogueLintFinding> InspectAll() =>
+        findings.Values.SelectMany(current => current).ToArray();
+
     internal void Replace(TenantId tenant, IReadOnlyList<WorkflowCatalogueLintFinding> current) =>
         findings[tenant] = current;
 }
 
 /// <summary>Surfaces workflow catalogue lint findings through the existing aggregate Health endpoint.</summary>
 public sealed class WorkflowCatalogueLintHealthCheck(
-    WorkflowCatalogueLintReports reports,
-    IActiveTeamAccessor activeTeam) : IHealthCheck
+    WorkflowCatalogueLintReports reports) : IHealthCheck
 {
     public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        if (activeTeam.Active is null)
-        {
-            return Task.FromResult(HealthCheckResult.Healthy());
-        }
-
-        var findings = reports.Inspect(NodeTenant.Resolve(activeTeam));
+        var findings = reports.InspectAll();
         if (findings.Count == 0)
         {
             return Task.FromResult(HealthCheckResult.Healthy(
