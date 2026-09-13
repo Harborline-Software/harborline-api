@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "86d014ce",
-  "recordedAt": "2026-09-12T22:55:00Z",
+  "recordedAt": "2026-09-13T14:20:00Z",
   "totals": {
-    "total": 3876,
-    "passed": 3855,
+    "total": 3879,
+    "passed": 3858,
     "failed": 0,
     "notExecuted": 21
   },
@@ -74,15 +74,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3832,
-      "passed": 3811,
+      "total": 3876,
+      "passed": 3855,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3832 -> 3867; passed 3811 -> 3845; failed unchanged at 0; notExecuted 21 -> 22",
-    "cause": "35 tests were added since the pin at 3832 and nothing re-pinned the Windows host baseline. The exact-clone harness reported host-baseline-match:FAIL with newFailures EMPTY, failed 0, and every other step ok -- the gate was red on counts alone, which is what kept verify-windows red and winbox idle while six PRs queued behind two Macs.",
-    "detectedBy": "node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json on winbox at api main bf14a476; full host suite 3845 passed, 0 failed, 22 skipped in 4m18s",
-    "arithmeticCrossCheck": "3832 + 35 = 3867; passed = total - notExecuted = 3867 - 22 = 3845."
+    "change": "total 3876 -> 3879; passed 3855 -> 3858; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Ticket 396 adds three passing interface-contract tests: exact-interface activation refusal, cross-pack exposed-definition refusal, and persistence of the frozen exposed interface. The native Windows exact-clone run at 9bab7a8 observed 3879 total, 3858 passed, 0 failed, and 21 skipped; newFailures was empty.",
+    "detectedBy": "node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json on the native Windows development host at API 9bab7a8; full host suite 3858 passed, 0 failed, 21 skipped in 5m17s",
+    "arithmeticCrossCheck": "3876 + 3 = 3879; passed = total - notExecuted = 3879 - 21 = 3858."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
