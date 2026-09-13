@@ -173,6 +173,22 @@ jobs:
           fetch-depth: 0
           clean: true
 
+      - name: Fetch the baseline quality findings
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push'
+        # 403: this job ran HARBORLINE_GATE_QUALITY=1 without ever fetching a baseline, so its
+        # quality-baseline step could only compare against the committed file -- on every event, for
+        # its whole life. It therefore went red as soon as main moved a line, permanently and for
+        # reasons no PR could fix, which is exactly the "greenish gate" this repository refuses.
+        # The step is the macOS job's, verbatim; it was simply never added here.
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then
+            base=$(git rev-parse HEAD^)
+          else
+            base=$(git merge-base origin/main HEAD)
+          fi
+          name="quality-findings-$base"
+          bash eng/quality-baseline-artifact-wait.sh "$base" "$name" "${{ github.repository }}" "${{ github.token }}"
+
       - name: Per-user toolchain for the runner account (pnpm, rustup), once
         run: |
           command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
