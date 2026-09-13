@@ -20,6 +20,7 @@ using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
@@ -32,9 +33,10 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Tenant scoping.</b> Every read + write resolves the active-team tenant via
-/// <c>NodeTenant.Resolve(activeTeam)</c> (not a fixed sentinel); the registry stores fail closed on the
-/// system tenant and never return another tenant's rows, so a cross-tenant id is an opaque 404.
+/// <b>Tenant scoping.</b> Reads resolve the active-team tenant via <c>NodeTenant.Resolve(activeTeam)</c>
+/// (not a fixed sentinel). Entity creation uses the selected request's tenant when present, otherwise
+/// the active team. The registry stores fail closed on the system tenant and never return another
+/// tenant's rows, so a cross-tenant id is an opaque 404.
 /// </para>
 /// <para>
 /// <b>As-of clock (A5c).</b> Tree + condition reads take an explicit <c>?asOf=</c> ISO-8601 instant;
@@ -321,7 +323,8 @@ public static class AssetRegistryRoutes
 
         app.MapPost($"{RouteBase}/entities", async (CreateEntityBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
 
@@ -343,10 +346,8 @@ public static class AssetRegistryRoutes
                 using var values = body.Values is { } supplied
                     ? JsonDocument.Parse(supplied.GetRawText())
                     : JsonDocument.Parse("{}");
-                var authority = new AuthorizationWriteContext(
-                    new ActorId(NodeCallerParty.Resolve(http).Value),
-                    tenant,
-                    clock.GetUtcNow());
+                var actor = new ActorId(NodeCallerParty.Resolve(http).Value);
+                var authority = RequestAuthorization.Authority(http, tenant, clock);
                 try
                 {
                     var written = await boundRecords.CreateAsync(
@@ -355,6 +356,7 @@ public static class AssetRegistryRoutes
                         body.DisplayName.Trim(),
                         string.IsNullOrWhiteSpace(body.ScanKey) ? null : body.ScanKey.Trim(),
                         values,
+                        actor,
                         authority,
                         ct).ConfigureAwait(false);
                     return Results.Created(

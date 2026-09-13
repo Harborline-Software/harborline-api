@@ -49,13 +49,15 @@ public sealed class PackBoundRegistryRecordWriter(
     internal const string RecordScheme = "record";
     internal const string RecordAuthority = "asset-registry";
 
-    /// <summary>Creates one explicitly typed, form-bound registry record.</summary>
+    /// <summary>Creates one explicitly typed, form-bound registry record. The actor is its Party
+    /// attribution; the authority carries the distinct grant principal for the single write decision.</summary>
     public async ValueTask<PackBoundRegistryRecordWritten> CreateAsync(
         EntityTypeId type,
         FormBindingRef propertyForm,
         string displayName,
         string? scanKey,
         JsonDocument values,
+        ActorId actor,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
     {
@@ -85,7 +87,7 @@ public sealed class PackBoundRegistryRecordWriter(
             RecordScheme,
             RecordAuthority,
             id.Value,
-            authority.Principal,
+            actor,
             authority.Tenant,
             ValidFrom: submittedAt,
             ExplicitLocalPart: id.Value,
@@ -106,7 +108,7 @@ public sealed class PackBoundRegistryRecordWriter(
         };
         try
         {
-            await registry.UpsertAsync(entity, entity.CreatedAt, authority.Principal.Value, ct).ConfigureAwait(false);
+            await registry.UpsertAsync(entity, entity.CreatedAt, actor.Value, ct).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
