@@ -51,16 +51,16 @@
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 3)",
       "class": "behavioural",
-      "owner": "360",
+      "owner": "423",
       "dated": "2026-09-13",
-      "reason": "Ticket 360 (2026-09-13): the retained TRX gives this failure verbatim as {\"error\":\"no_response\"}. That is NOT the headless-bootstrap defect 360 fixed -- that one failed with 'founder attach status: Unavailable' and is now gone on BOTH platforms (winbox reports failed 0; the headless filesystem-owner claim test passes here too). 360 was two defects sharing one symptom list. This row is the second one, still open, and it is macOS-only: the same E2E case passes on Windows, so it is a behavioural defect on this platform, not an OS gap."
+      "reason": "Ticket 360 (2026-09-13): the retained TRX gives this failure verbatim as {\"error\":\"no_response\"}. That is NOT the headless-bootstrap defect 360 fixed -- that one failed with 'founder attach status: Unavailable' and is now gone on BOTH platforms (winbox reports failed 0; the headless filesystem-owner claim test passes here too). 360 was two defects sharing one symptom list. This row is the second one, still open, and it is macOS-only: the same E2E case passes on Windows, so it is a behavioural defect on this platform, not an OS gap. The follow-up ticket is T-423, which owns these two rows: it fixes the no_response or proves it an OS gap and reclassifies them, and removes them from this file in the same PR as its fix."
     },
     {
       "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
       "class": "behavioural",
-      "owner": "360",
+      "owner": "423",
       "dated": "2026-09-13",
-      "reason": "Ticket 360 (2026-09-13): the retained TRX gives this failure verbatim as {\"error\":\"no_response\"}. That is NOT the headless-bootstrap defect 360 fixed -- that one failed with 'founder attach status: Unavailable' and is now gone on BOTH platforms (winbox reports failed 0; the headless filesystem-owner claim test passes here too). 360 was two defects sharing one symptom list. This row is the second one, still open, and it is macOS-only: the same E2E case passes on Windows, so it is a behavioural defect on this platform, not an OS gap."
+      "reason": "Ticket 360 (2026-09-13): the retained TRX gives this failure verbatim as {\"error\":\"no_response\"}. That is NOT the headless-bootstrap defect 360 fixed -- that one failed with 'founder attach status: Unavailable' and is now gone on BOTH platforms (winbox reports failed 0; the headless filesystem-owner claim test passes here too). 360 was two defects sharing one symptom list. This row is the second one, still open, and it is macOS-only: the same E2E case passes on Windows, so it is a behavioural defect on this platform, not an OS gap. The follow-up ticket is T-423, which owns these two rows: it fixes the no_response or proves it an OS gap and reclassifies them, and removes them from this file in the same PR as its fix."
     }
   ],
   "knownFlaky": [
