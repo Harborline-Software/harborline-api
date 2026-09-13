@@ -245,6 +245,7 @@ public static class PackSeedProjectionRefusalCodes
     public const string ViewDefinitionRegistryNotWiredCode = PackSeedProjector.ViewDefinitionRegistryNotWiredCode;
     public const string ViewDefinitionPinnedTupleConflictCode = PackSeedProjector.ViewDefinitionPinnedTupleConflictCode;
     public const string ViewDefinitionProjectionFailedCode = PackSeedProjector.ViewDefinitionProjectionFailedCode;
+    public const string RenderPlanCatalogueNotWiredCode = PackSeedProjector.RenderPlanCatalogueNotWiredCode;
     public const string StandingRuleDefinitionStoreNotWiredCode = PackSeedProjector.StandingRuleDefinitionStoreNotWiredCode;
     public const string StandingRuleDefinitionPinnedTupleConflictCode = PackSeedProjector.StandingRuleDefinitionPinnedTupleConflictCode;
     public const string GrantInstanceRefusedCode = PackAuthorizationContentAdmission.GrantInstanceRefusedCode;
@@ -309,6 +310,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
     private readonly IScheduleDefinitionRegistry? _scheduleDefinitions;
     private readonly IViewDefinitionRegistry? _viewDefinitions;
+    private readonly IRenderPlanCatalogue? _renderPlans;
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
@@ -348,6 +350,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         ITaxonomyRegistry? taxonomies = null,
         IReportDefinitionRegistry? reportDefinitions = null,
         IViewDefinitionRegistry? viewDefinitions = null,
+        IRenderPlanCatalogue? renderPlans = null,
         IScheduleDefinitionRegistry? scheduleDefinitions = null,
         IDataExchangeDefinitionRegistry? dataExchangeDefinitions = null,
         IPackPlatformCompatibility? platform = null,
@@ -372,6 +375,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _dataExchangeDefinitions = dataExchangeDefinitions;
         _scheduleDefinitions = scheduleDefinitions;
         _viewDefinitions = viewDefinitions;
+        _renderPlans = renderPlans;
         _standingRules = standingRules;
         // (L675) Absent, RoleDefinition and AuthorizationCapabilityBinding items are explicitly
         // REFUSED (fail-closed, never skipped) — the same posture every other optional registry takes.
@@ -772,10 +776,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     case FormDefinitionOutcome.Published:
                                         formsPublished++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
+                                        EmitRenderPlan(tenant, pack, item, refusals);
                                         break;
                                     case FormDefinitionOutcome.AlreadyPresent:
                                         formsPresent++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
+                                        EmitRenderPlan(tenant, pack, item, refusals);
                                         break;
                                     case FormDefinitionOutcome.Deferred: formsDeferred++; break;
                                     default:
@@ -960,6 +966,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             {
                                 refusals.Add(new PackSeedProjectionRefusal(
                                     item.Key, item.Kind, viewDefinitionRefusal, ContentPointer(pack, item)));
+                            }
+                            else
+                            {
+                                EmitRenderPlan(tenant, pack, item, refusals);
                             }
                         }
 
@@ -1353,6 +1363,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     /// <summary>An unexpected view-definition registry failure prevented projection.</summary>
     public const string ViewDefinitionProjectionFailedCode =
         "pack.view-definition.projection_failed";
+
+    /// <summary>The activation host did not compose the render-plan artifact catalogue.</summary>
+    public const string RenderPlanCatalogueNotWiredCode = "pack.render-plan.catalogue_not_wired";
 
     private async Task<string?> ProjectTaxonomyDefinitionAsync(
         TenantId tenant,
@@ -1829,6 +1842,28 @@ internal sealed class PackSeedProjector : IPackSeedProjector
            && StringComparer.Ordinal.Equals(
                existing.Parameters.GetRawText(),
                expected.Parameters.GetRawText());
+
+    private void EmitRenderPlan(
+        TenantId tenant,
+        InstalledPack pack,
+        PackSeedItem item,
+        ICollection<PackSeedProjectionRefusal> refusals)
+    {
+        if (_renderPlans is null)
+        {
+            // Compatibility embedders may project definitions without composing the catalogue read family.
+            // The production composition always supplies it; a malformed plan remains a reported refusal below.
+            return;
+        }
+
+        if (!RenderPlanCompiler.TryCompile(item, pack.PackKey, pack.Version, out var plan, out var code))
+        {
+            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, code, ContentPointer(pack, item)));
+            return;
+        }
+
+        _renderPlans.Store(tenant, item.Kind, plan!);
+    }
 
     private static bool TryParseViewDefinition(
         PackSeedItem item,
