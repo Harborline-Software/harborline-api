@@ -147,7 +147,9 @@ public static class PackComposerRoutes
                 CapabilityRequirements: request.CapabilityRequirements ?? Array.Empty<string>(),
                 Epoch: OwnRosterEpoch,
                 ProviderSlot: string.IsNullOrWhiteSpace(request.ProviderSlot) ? null : request.ProviderSlot.Trim(),
-                Dcp: dcp);
+                Dcp: dcp,
+                Exposes: request.Exposes,
+                InterfaceVersion: request.InterfaceVersion);
 
             var outcome = await exporter.ExportAsync(exportRequest, signer, ct).ConfigureAwait(false);
             if (!outcome.Succeeded || outcome.FileBytes is null)
@@ -319,7 +321,9 @@ public sealed record ExportPackRequestDto(
     IReadOnlyList<ExportDependencyDto>? Dependencies,
     IReadOnlyList<string>? CapabilityRequirements,
     string? ProviderSlot = null,
-    ExportDcpDto? Dcp = null);
+    ExportDcpDto? Dcp = null,
+    IReadOnlyList<string>? Exposes = null,
+    int? InterfaceVersion = null);
 
 /// <summary>The declared Domain Compliance Profile (ADR 0145). Omitted ⇒ grandfathered to <c>general</c>.
 /// A lean v1 surface — the B-2a DCP edit surface extends it for the rich counsel fields.</summary>

@@ -67,6 +67,12 @@ namespace Harborline.Api.Foundation.Packs.Model;
 /// <param name="Category">Optional marketplace-card category asserted by the publisher.</param>
 /// <param name="IconRef">Optional content address of the marketplace-card icon blob. The CID is inside
 /// the signed manifest, so substituting a different icon changes the signed merkle leaf.</param>
+/// <param name="Exposes">Definition keys this pack exposes to other packs. Inside the signed
+/// manifest, so the claim cannot be widened after signing. Ticket 396.</param>
+/// <param name="InterfaceVersion">The exact interface version this pack exposes, as the integer in
+/// the ADR 0006 <c>pack-key@integer</c> requirement spelling. Signed for the same reason, and
+/// matched exactly rather than by range: a range admits a consumer never tested against the
+/// interface actually active. Ticket 396.</param>
 /// <remarks>
 /// <para>
 /// <see cref="Name"/>, <see cref="Description"/>, <see cref="DisplayName"/>, <see cref="Tagline"/>,
@@ -103,7 +109,11 @@ public sealed record PackManifest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Category = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    Cid? IconRef = null);
+    Cid? IconRef = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? Exposes = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? InterfaceVersion = null);
 
 /// <summary>
 /// One entry in a manifest's S-10 <see cref="PackManifest.RenamedFrom"/> key-stability map: the
