@@ -751,7 +751,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     ? "/"
                     : ContentPointer(contents, requirement.DeclaredBy)))
             .ToList();
-        if (!collectRefusals && unmetRequirements.FirstOrDefault()?.Failure == PackPlatformRequirementFailure.MissingCapability)
+        if (!collectRefusals && unmetRequirements.Count > 0 && unmetRequirements[0].Failure == PackPlatformRequirementFailure.MissingCapability)
         {
             return HardRefusal(
                 manifest.Key,
