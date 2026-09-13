@@ -1,5 +1,5 @@
 {
-  "_note": "Released platform catalogue seed: its definition-package manifest, compiled sealed system-type catalogue items, Workshop navigation, thirteen per-primitive list views, and platform roles/bindings. Retention and governance defaults remain follow-up work. No domain type, form, workflow, or protocol belongs here.",
+  "_note": "Platform catalogue seed: sealed system types, Workshop navigation and list views, the pack-author input form and declared operations, and platform roles/bindings. Domain definitions are authored in separate packs.",
   "key": "harborline.platform",
   "version": "1.0.0",
   "name": "Harborline platform",
@@ -24,7 +24,39 @@
     { "key": "AuthorizationCapabilityBinding", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
     { "key": "platform.workshop", "kind": "NavWorkspaceConfig", "version": "1.0.0", "content": { "seedWorkspaces": [{ "id": "workshop", "labelKey": "workshop.workspace", "groups": [{ "id": "definitions", "labelKey": "workshop.definitions", "itemIds": ["asset-types", "forms", "workflows", "standards", "defaults", "terminology", "documents", "taxonomies", "reports", "data-exchanges", "standing-rules", "schedules", "views"], "items": [{ "id": "asset-types", "labelKey": "workshop.asset-types" }, { "id": "forms", "labelKey": "workshop.forms" }, { "id": "workflows", "labelKey": "workshop.workflows" }, { "id": "standards", "labelKey": "workshop.standards" }, { "id": "defaults", "labelKey": "workshop.defaults" }, { "id": "terminology", "labelKey": "workshop.terminology" }, { "id": "documents", "labelKey": "workshop.documents" }, { "id": "taxonomies", "labelKey": "workshop.taxonomies" }, { "id": "reports", "labelKey": "workshop.reports" }, { "id": "data-exchanges", "labelKey": "workshop.data-exchanges" }, { "id": "standing-rules", "labelKey": "workshop.standing-rules" }, { "id": "schedules", "labelKey": "workshop.schedules" }, { "id": "views", "labelKey": "workshop.views" }] }] }] } },
     { "key": "platform.list.asset-types", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.asset-types", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Record types", "parameters": { "entityType": "AssetTypeDefinition", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },
-    { "key": "platform.list.forms", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.forms", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Forms", "parameters": { "entityType": "FormDefinition", "fields": [{ "id": "formId", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "cascadeLayer", "label": "Cascade layer" }] } } },
+    {
+      "key": "platform.pack.author", "kind": "FormDefinition", "version": "1.0.0",
+      "content": {
+        "overlay": {
+          "title": { "kind": "Literal", "value": "Author a domain pack" },
+          "description": { "kind": "Literal", "value": "Enter a pack export document containing a record type and its bound form, then validate it." },
+          "fields": { "packJson": { "label": { "kind": "Literal", "value": "Pack document" }, "controlHint": "textarea", "piiSensitivity": "None" } },
+          "sections": [{ "id": "document", "title": { "kind": "Literal", "value": "Pack" }, "fields": ["packJson"] }],
+          "rules": []
+        },
+        "fieldsMeta": { "packJson": { "type": "textarea", "required": true } }
+      }
+    },
+    {
+      "key": "platform.list.forms", "kind": "ViewDefinition", "version": "1.0.0",
+      "content": {
+        "key": "platform.list.forms", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1,
+        "viewKind": "views.entity-list/grid", "title": "Forms",
+        "parameters": {
+          "entityType": "FormDefinition",
+          "fields": [{ "id": "formId", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "cascadeLayer", "label": "Cascade layer" }],
+          "actions": [
+            { "id": "author", "label": "Author and validate pack", "operation": "pack.validate", "inputForm": "platform.pack.author" },
+            { "id": "export", "label": "Export signed pack", "operation": "pack.export" },
+            { "id": "verify", "label": "Verify pack", "operation": "pack.verify" },
+            { "id": "install", "label": "Install pack", "operation": "pack.install" },
+            { "id": "activate", "label": "Activate pack", "operation": "pack.activate" },
+            { "id": "create", "label": "Create record", "operation": "record.create", "input": "active-pack.property-form" },
+            { "id": "read", "label": "Read record", "operation": "record.read" }
+          ]
+        }
+      }
+    },
     { "key": "platform.list.workflows", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.workflows", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Workflows", "parameters": { "entityType": "WorkflowDefinition", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },
     { "key": "platform.list.standards", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.standards", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Standards", "parameters": { "entityType": "StandardsCatalog", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },
     { "key": "platform.list.defaults", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.list.defaults", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Defaults", "parameters": { "entityType": "CascadeDefaults", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },

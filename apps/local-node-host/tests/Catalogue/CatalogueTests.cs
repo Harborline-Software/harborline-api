@@ -25,13 +25,16 @@ public sealed class CatalogueTests
         Assert.Equal(16, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
         var allowedKinds = new[]
         {
-            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition",
+            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition", "FormDefinition",
         };
         Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
         Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
-            "FormDefinition" or "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
+            "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
+        Assert.Equal("platform.pack.author", Assert.Single(contents, item => item.GetProperty("kind").GetString() == "FormDefinition").GetProperty("key").GetString());
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
-        Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding"));
+        Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read", "platform.binding.audit-read" },
+            contents.Where(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding")
+                .Select(item => item.GetProperty("key").GetString()));
         Assert.Equal(13, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
     }
 
@@ -84,8 +87,41 @@ public sealed class CatalogueTests
         Assert.True(RenderPlanCompiler.TryCompile(sibling, "pack", "1.0.0", out var siblingPlan, out _));
 
         Assert.NotEqual(firstPlan!.DefinitionHash, changedPlan!.DefinitionHash);
+        Assert.Equal("First title", firstPlan.Bindings.GetProperty("overlay").GetProperty("title").GetString());
+        Assert.Equal("Changed title", changedPlan.Bindings.GetProperty("overlay").GetProperty("title").GetString());
+        Assert.True(firstPlan.Bindings.GetProperty("fields").GetProperty("name").GetProperty("required").GetBoolean());
         Assert.NotEqual(firstPlan.DefinitionHash, siblingPlan!.DefinitionHash);
         Assert.Equal(siblingPlan.DefinitionHash, CompileAgain(sibling).DefinitionHash);
+    }
+
+    [Fact]
+    public void View_actions_compile_only_declared_operations_and_unique_identities()
+    {
+        foreach (var operation in new[] { "pack.validate", "pack.export", "pack.verify", "pack.install", "pack.activate", "record.create", "record.read" })
+        {
+            var item = ActionView(operation, duplicate: false);
+            var plan = CompileAgain(item);
+            Assert.Equal("run", plan.Bindings.GetProperty("actions")[0].GetProperty("id").GetString());
+            Assert.Equal("Run", plan.Bindings.GetProperty("actions")[0].GetProperty("label").GetString());
+            Assert.Equal(operation, plan.Bindings.GetProperty("parameters").GetProperty("actions")[0].GetProperty("operation").GetString());
+        }
+        foreach (var item in new[] { ActionView("shell.execute", false), ActionView("pack.export", true) })
+        {
+            Assert.False(RenderPlanCompiler.TryCompile(item, "pack", "1.0.0", out var plan, out var code));
+            Assert.Null(plan);
+            Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
+        }
+    }
+
+    private static PackSeedItem ActionView(string operation, bool duplicate)
+    {
+        var action = new { id = "run", label = "Run", operation };
+        var body = JsonSerializer.Serialize(new
+        {
+            viewKind = "views.entity-list/grid",
+            parameters = new { entityType = "FormDefinition", actions = duplicate ? new[] { action, action } : new[] { action } },
+        });
+        return new PackSeedItem("actions", PackContentKind.ViewDefinition, "1.0.0", body, Cid.FromBytes([]));
     }
 
     private static RenderPlan CompileAgain(PackSeedItem item)
