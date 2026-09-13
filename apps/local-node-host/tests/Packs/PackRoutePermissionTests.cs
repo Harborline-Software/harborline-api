@@ -112,6 +112,17 @@ public sealed class PackRoutePermissionTests : IAsyncLifetime
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
+
+        // Permission tests exercise the post-install routes' authorization decisions. Seed one unrelated
+        // Draft pack through the installer route so the surface is present before each test narrows grants.
+        _grants.GrantAtInstallRoot(Permission.PackagesAuthor, Permission.PackagesOperate);
+        using var exported = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, FormPackBody("surface.seed"));
+        Assert.Equal(HttpStatusCode.OK, exported.StatusCode);
+        var bytes = await exported.Content.ReadAsByteArrayAsync();
+        using var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync(PackInstallRoutes.InstallRoute, content)).StatusCode);
+        _grants.Grant();
     }
 
     public async Task DisposeAsync()
@@ -317,9 +328,9 @@ public sealed class PackRoutePermissionTests : IAsyncLifetime
         Assert.Equal(expectedPermission, doc.RootElement.GetProperty("permission").GetString());
     }
 
-    private static object FormPackBody() => new
+    private static object FormPackBody(string key = "acme.pack") => new
     {
-        key = "acme.pack",
+        key,
         version = "1.0.0",
         name = "Acme Pack",
         description = "form pack",

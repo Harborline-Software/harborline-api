@@ -94,6 +94,15 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     }
 
     /// <inheritdoc />
+    public bool AnyInstalled()
+    {
+        lock (_gate)
+        {
+            using var ctx = _factory.CreateDbContext();
+            return ctx.InstalledVersions.AsNoTracking().Any();
+        }
+    }
+
     public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant)
     {
         var t = tenant.Value;

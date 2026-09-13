@@ -384,6 +384,7 @@ public sealed class DurablePackInstallStoreRestartTests
         public InstalledPack? GetVersion(TenantId tenant, string packKey, string version) =>
             inner.GetVersion(tenant, packKey, version);
         public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) => inner.ListInstalled(tenant);
+        public bool AnyInstalled() => inner.AnyInstalled();
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => inner.GetWatermark(tenant, packKey);
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) =>
             inner.GetOverrides(tenant, packKey);

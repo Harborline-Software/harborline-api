@@ -2200,6 +2200,7 @@ public sealed class AuthorizationWriteStageTests
         public InstalledPack? GetActive(TenantId tenant, string packKey) => Touched<InstalledPack?>();
         public InstalledPack? GetVersion(TenantId tenant, string packKey, string version) => Touched<InstalledPack?>();
         public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) => Touched<IReadOnlyList<InstalledPack>>();
+        public bool AnyInstalled() => Touched<bool>();
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => Touched<PackInstallWatermark?>();
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) => Touched<IReadOnlyList<PackTenantOverride>>();
         public void SaveOverride(TenantId tenant, string packKey, PackTenantOverride tenantOverride) => Touched();

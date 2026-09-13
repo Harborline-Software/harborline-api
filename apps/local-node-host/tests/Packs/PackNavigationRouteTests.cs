@@ -332,6 +332,7 @@ public sealed class PackNavigationRouteTests
             => _packs.FirstOrDefault(p => p.PackKey == packKey && p.Version == version);
 
         public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) => _packs;
+        public bool AnyInstalled() => _packs.Count > 0;
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => null;
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) => [];
         public IReadOnlyDictionary<string, string> GetKeyOwnership(TenantId tenant) => _ownership;
