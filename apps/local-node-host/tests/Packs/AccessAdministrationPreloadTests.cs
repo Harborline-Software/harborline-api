@@ -66,6 +66,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private InMemoryPackInstallStore _store = null!;
     private PackInstaller _installer = null!;
     private InMemoryViewDefinitionRegistry _views = null!;
+    private InMemoryRenderPlanCatalogue _renderPlans = null!;
+    private AuthorizedFormDefinitionLifecycle _authorizedForms = null!;
     private InMemoryReportDefinitionRegistry _reports = null!;
     private IFormDefinitionStore _forms = null!;
     private IWorkflowDefinitionStore _workflows = null!;
@@ -111,6 +113,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             _app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas));
         _reports = new InMemoryReportDefinitionRegistry(
             new HostReportKindDescriptorRegistry(new ReportCartridgeRegistry()));
+        _renderPlans = new InMemoryRenderPlanCatalogue();
+        _authorizedForms = TestAuthorization.FormLifecycle(_forms, TestAuthorization.AllowGate(), roleGate);
 
         _store = new InMemoryPackInstallStore();
         var codec = new PackFileCodec();
@@ -131,9 +135,10 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             time: TimeProvider.System,
             reportDefinitions: _reports,
             viewDefinitions: _views,
-            authorizedForms: TestAuthorization.FormLifecycle(_forms, TestAuthorization.AllowGate(), roleGate),
+            authorizedForms: _authorizedForms,
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
-            roleVocabulary: _roles);
+            roleVocabulary: _roles,
+            renderPlans: _renderPlans);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
 
         _preload = new AccessAdministrationPreloadHostedService(
@@ -279,7 +284,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 4),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 21),
+                    PackLifecycleState.Active, 34),
             },
             firstBoot);
         Assert.Equal(
@@ -296,6 +301,21 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.RoleDefinition));
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
+        Assert.Equal(13, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
+        var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
+        Assert.Equal(13, projectedViews.Count);
+        var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
+        var formsView = await catalogue.GetAsync(
+            Tenant, PackContentKind.ViewDefinition, "platform.list.forms", cancellationToken: CancellationToken.None);
+        Assert.NotNull(formsView);
+        Assert.Equal("harborline.platform", formsView!.Provenance.PackKey);
+        Assert.NotNull(formsView.RenderPlan);
+        Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
+        var workshop = Assert.Single(platform.SeedItems, item => item.Key == "platform.workshop");
+        using var workshopDocument = JsonDocument.Parse(workshop.CanonicalJson);
+        var group = workshopDocument.RootElement.GetProperty("seedWorkspaces")[0].GetProperty("groups")[0];
+        Assert.Equal(13, group.GetProperty("itemIds").GetArrayLength());
+        Assert.Equal(13, group.GetProperty("items").GetArrayLength());
 
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         await _preload.PreloadAsync(Tenant, CancellationToken.None);

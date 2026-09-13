@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Foundation.ViewDefinitions;
+using Harborline.Api.LocalNodeHost.Health;
 
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
@@ -71,7 +72,8 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         var target = await _types.GetTypeAsync(
                 new TenantId(definition.Tenant), id, cancellationToken)
             .ConfigureAwait(false);
-        if (target is null && _types.GetSeed(id) is null)
+        if (target is null && _types.GetSeed(id) is null
+            && !SystemRecordType.All.Any(type => StringComparer.Ordinal.Equals(type.Name, id.Value)))
         {
             throw new ViewDefinitionGovernanceException("view_definition.entity_type_unknown");
         }
