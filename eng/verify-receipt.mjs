@@ -38,6 +38,16 @@ export const requiredStepIds = [
   'packages',
 ]
 
+// The host-specific step. Ticket 421 splits CI into a `shared` lane that runs everything else once
+// on any free runner, and a `host` lane per runner that runs only this. `all` is still the whole
+// gate and is what a developer gets by running eng/verify.sh with no lane set.
+export const hostStepIds = ['exact-clone']
+export const stepIdsForLane = lane => {
+  if (lane === 'host') return hostStepIds
+  if (lane === 'shared') return requiredStepIds.filter(id => !hostStepIds.includes(id))
+  return requiredStepIds
+}
+
 // Importing must not run git or record anything, so everything below is the entry-point body.
 if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/verify-receipt.mjs')) {
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {encoding: 'utf8'}).trim()
@@ -71,13 +81,20 @@ if (process.argv.includes('--record')) {
     process.exit(1)
   }
   const passed = recordArgs.slice(recordArgs.indexOf('--record') + 1).filter(id => !id.startsWith('-'))
-  const missing = requiredStepIds.filter(id => !passed.includes(id))
+  const laneIndex = recordArgs.indexOf('--lane')
+  const lane = laneIndex >= 0 ? recordArgs[laneIndex + 1] : 'all'
+  if (!['all', 'shared', 'host'].includes(lane)) {
+    console.error(`unknown lane: ${lane}`)
+    process.exit(1)
+  }
+  const missing = stepIdsForLane(lane).filter(id => !passed.includes(id))
   if (missing.length > 0) {
-    console.error(`refusing to record a receipt missing: ${missing.join(', ')}`)
+    console.error(`refusing to record a ${lane} receipt missing: ${missing.join(', ')}`)
     process.exit(1)
   }
   writeFileSync(receiptPath, JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
+    lane,
     repository: REPOSITORY,
     hostBaseline,
     coverage: receiptCoverage(root),
