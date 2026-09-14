@@ -12,8 +12,12 @@ namespace Harborline.Api.LocalNodeHost.Tests.OperatorCli;
 [Collection("Harborline process environment")]
 public sealed class OperatorCliTests
 {
-    [Fact]
-    public async Task Health_json_uses_ready_probe_and_existing_caller_auth()
+    [Theory]
+    [InlineData("http://127.0.0.1:7312")]
+    [InlineData("http://localhost:7312")]
+    [InlineData("http://[::1]:7312")]
+    [InlineData("https://node.example:7312")]
+    public async Task Health_json_uses_ready_probe_and_existing_caller_auth(string url)
     {
         HttpRequestMessage? observed = null;
         using var client = new HttpClient(new RecordingHandler(request =>
@@ -28,7 +32,7 @@ public sealed class OperatorCliTests
         using var stderr = new StringWriter();
 
         var exitCode = await NodeOperatorCommand.RunAsync(
-            ["--url", "http://127.0.0.1:7312", "--token", "caller-secret", "--json", "health"],
+            ["--url", url, "--token", "caller-secret", "--json", "health"],
             client,
             stdout,
             stderr);
@@ -36,11 +40,47 @@ public sealed class OperatorCliTests
         Assert.Equal(0, exitCode);
         Assert.NotNull(observed);
         Assert.Equal(HttpMethod.Get, observed.Method);
-        Assert.Equal("http://127.0.0.1:7312/ready", observed.RequestUri!.AbsoluteUri);
+        Assert.Equal(new Uri(new Uri(url), "/ready"), observed.RequestUri);
         Assert.Equal("Bearer", observed.Headers.Authorization!.Scheme);
         Assert.Equal("caller-secret", observed.Headers.Authorization.Parameter);
         Assert.Equal("{\"status\":\"Healthy\"}" + Environment.NewLine, stdout.ToString());
         Assert.Empty(stderr.ToString());
+    }
+
+    [Theory]
+    [InlineData("http://node.example:7312", false)]
+    [InlineData("http://192.168.1.10:7312", false)]
+    [InlineData("http://localhost.example:7312", false)]
+    [InlineData("http://node.example:7312", true)]
+    public async Task Insecure_remote_url_is_rejected_before_sending_credentials(string url, bool fromEnvironment)
+    {
+        var previousUrl = Environment.GetEnvironmentVariable("HARBORLINE_NODE_URL");
+        var previousToken = Environment.GetEnvironmentVariable("HARBORLINE_NODE_TOKEN");
+        try
+        {
+            Environment.SetEnvironmentVariable("HARBORLINE_NODE_URL", url);
+            Environment.SetEnvironmentVariable("HARBORLINE_NODE_TOKEN", "env-secret");
+            using var client = new HttpClient(new RecordingHandler(_ =>
+                throw new InvalidOperationException("Validation failures must not reach HTTP.")));
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+
+            var exitCode = await NodeOperatorCommand.RunAsync(
+                fromEnvironment ? ["--json", "health"] : ["--url", url, "--token", "caller-secret", "--json", "health"],
+                client, stdout, stderr);
+
+            Assert.Equal(2, exitCode);
+            Assert.Empty(stdout.ToString());
+            using var error = JsonDocument.Parse(stderr.ToString());
+            Assert.Equal("invalid_arguments", error.RootElement.GetProperty("error").GetString());
+            Assert.Equal("The node URL must use HTTPS, except for loopback HTTP.", error.RootElement.GetProperty("message").GetString());
+            Assert.DoesNotContain("secret", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HARBORLINE_NODE_URL", previousUrl);
+            Environment.SetEnvironmentVariable("HARBORLINE_NODE_TOKEN", previousToken);
+        }
     }
 
     [Fact]
@@ -288,6 +328,45 @@ public sealed class OperatorCliTests
             Assert.Equal(packBytes, observedBody);
             Assert.Equal("caller-secret", observed.Headers.Authorization!.Parameter);
             Assert.Equal("{\"verdict\":\"Verified\",\"epoch\":1}" + Environment.NewLine, stdout.ToString());
+            Assert.Empty(stderr.ToString());
+        }
+        finally
+        {
+            File.Delete(packPath);
+        }
+    }
+
+    [Fact]
+    public async Task Pack_check_json_posts_pack_bytes_to_check_route()
+    {
+        var packPath = Path.Combine(Path.GetTempPath(), $"cli-check-{Guid.NewGuid():N}.pack");
+        byte[] packBytes = [0x50, 0x4B, 0x07, 0x08, 0xFF, 0x00];
+        await File.WriteAllBytesAsync(packPath, packBytes);
+        try
+        {
+            HttpRequestMessage? observed = null;
+            byte[]? observedBody = null;
+            using var client = new HttpClient(new RecordingHandler(request =>
+            {
+                observed = request;
+                observedBody = request.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"refusals\":[]}", Encoding.UTF8, "application/json"),
+                };
+            }));
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+
+            var exitCode = await NodeOperatorCommand.RunAsync(
+                ["--url", "http://127.0.0.1:7312", "--json", "pack", "check", "--file", packPath],
+                client, stdout, stderr);
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(HttpMethod.Post, observed!.Method);
+            Assert.Equal("http://127.0.0.1:7312/api/local-node/packs/check", observed.RequestUri!.AbsoluteUri);
+            Assert.Equal(packBytes, observedBody);
+            Assert.Equal("{\"refusals\":[]}" + Environment.NewLine, stdout.ToString());
             Assert.Empty(stderr.ToString());
         }
         finally
