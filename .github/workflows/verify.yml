@@ -177,7 +177,7 @@ jobs:
           clean: true
 
       - name: pnpm for the runner account, once
-        # The capability (hull) suite inside the clone gate runs under vitest. Nothing here builds Rust.
+        # The capability suite inside the clone gate runs under vitest. Nothing here builds Rust.
         run: |
           command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
           echo "$APPDATA\npm" >> "$GITHUB_PATH"
