@@ -323,6 +323,13 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         var group = workshopDocument.RootElement.GetProperty("seedWorkspaces")[0].GetProperty("groups")[0];
         Assert.Equal(13, group.GetProperty("itemIds").GetArrayLength());
         Assert.Equal(13, group.GetProperty("items").GetArrayLength());
+        var inspector = Assert.Single(workshopDocument.RootElement.GetProperty("panelSet").EnumerateArray());
+        Assert.Equal("inspector", inspector.GetProperty("id").GetString());
+        Assert.Equal("panels.inspector.toggle", inspector.GetProperty("binding").GetString());
+        Assert.Equal("mod+shift+i", inspector.GetProperty("shortcut").GetString());
+        Assert.Equal(360, inspector.GetProperty("defaultWidth").GetInt32());
+        Assert.Equal(180, inspector.GetProperty("minimumHeight").GetInt32());
+        Assert.False(inspector.GetProperty("defaultOpen").GetBoolean());
 
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         await _preload.PreloadAsync(Tenant, CancellationToken.None);

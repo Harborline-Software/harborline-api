@@ -229,7 +229,10 @@ public sealed partial class ComposedHostBootSmokeTests
         var workshopGroup = Assert.Single(workshop.GetProperty("groups").EnumerateArray());
         Assert.Equal("definitions", workshopGroup.GetProperty("id").GetString());
         Assert.Contains(workshopGroup.GetProperty("itemIds").EnumerateArray(), item => item.GetString() == "forms");
-        var panel = Assert.Single(pack.GetProperty("panelSet").EnumerateArray());
+        var panels = pack.GetProperty("panelSet").EnumerateArray().ToArray();
+        var panel = Assert.Single(
+            panels,
+            candidate => candidate.GetProperty("id").GetString() == "access-details");
         Assert.Equal("access-details", panel.GetProperty("id").GetString());
         Assert.Equal("access.details", panel.GetProperty("labelKey").GetString());
         Assert.Equal("panels.access-details.toggle", panel.GetProperty("binding").GetString());
@@ -237,6 +240,20 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.Equal(400, panel.GetProperty("defaultWidth").GetInt32());
         Assert.Equal(300, panel.GetProperty("minimumHeight").GetInt32());
         Assert.False(panel.GetProperty("defaultOpen").GetBoolean());
+        var inspector = Assert.Single(
+            panels,
+            candidate => candidate.GetProperty("id").GetString() == "inspector");
+        Assert.Equal("panels.inspector", inspector.GetProperty("labelKey").GetString());
+        Assert.Equal("panels.inspector.toggle", inspector.GetProperty("binding").GetString());
+        Assert.Equal("mod+shift+i", inspector.GetProperty("shortcut").GetString());
+        Assert.Equal(360, inspector.GetProperty("defaultWidth").GetInt32());
+        Assert.Equal(180, inspector.GetProperty("minimumHeight").GetInt32());
+        Assert.False(inspector.GetProperty("defaultOpen").GetBoolean());
+        Assert.Equal("Title", inspector.GetProperty("headerForm").GetString());
+        Assert.Equal("Fields", inspector.GetProperty("bodyTemplate").GetString());
+        Assert.Equal("Claim", inspector.GetProperty("footer").GetProperty("kind").GetString());
+        Assert.Equal("panels.inspector.footerClaim", inspector.GetProperty("footer").GetProperty("labelKey").GetString());
+        Assert.Equal("Scoped", Assert.Single(inspector.GetProperty("traits").EnumerateArray()).GetString());
     }
 
     /// <summary>
