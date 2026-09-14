@@ -175,6 +175,17 @@ public sealed class PackRefusalCodeAndPointerFenceTests
             return ResolveCode(conditional.WhenTrue, document, documents, site, dynamicHops)
                 .Combine(ResolveCode(conditional.WhenFalse, document, documents, site, dynamicHops));
 
+        // A switch expression is the same multi-arm shape as the conditional above: every arm must
+        // resolve, and a `_ => null` arm contributes nothing, exactly as a null branch of `?:` does.
+        // Ticket 395 emitted its refusal code from a switch over PackContentKind and the fence could
+        // not see through it, reporting a declared code as undeclared. The omission was here, not at
+        // the emission site -- resolving fewer expression shapes than C# offers makes the fence
+        // report the shape rather than the code.
+        if (expression is SwitchExpressionSyntax switchExpression)
+            return switchExpression.Arms
+                .Select(arm => ResolveCode(arm.Expression, document, documents, site, dynamicHops))
+                .Aggregate(CodeResolution.Empty, (current, next) => current.Combine(next));
+
         if (expression is BinaryExpressionSyntax { RawKind: (int)SyntaxKind.CoalesceExpression } coalesce)
             return ResolveCode(coalesce.Left, document, documents, site, dynamicHops)
                 .Combine(ResolveCode(coalesce.Right, document, documents, site, dynamicHops));

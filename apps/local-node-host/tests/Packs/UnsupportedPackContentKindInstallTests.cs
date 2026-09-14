@@ -161,6 +161,9 @@ public sealed class UnsupportedPackContentKindInstallTests
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
             Assert.Contains(PackInstallCodes.RefusedAdmission, outcome.RefusalCodes);
             Assert.Equal(expectedCode, Assert.Single(outcome.Preview.AdmissionRefusals).Code);
+            var refusal = Assert.Single(outcome.Preview.Refusals);
+            Assert.Equal(PackInstallCodes.RefusedAdmission, refusal.Code);
+            Assert.Equal("/contents/0/contentBase64", refusal.Pointer);
             Assert.Empty(store.ListInstalled(Tenant));
         }
     }
