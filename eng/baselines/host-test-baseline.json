@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "cd200a89d9503df975169f796daeeeaa0a066e07",
-  "recordedAt": "2026-09-14T12:51:51Z",
+  "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
+  "recordedAt": "2026-09-14T14:00:43Z",
   "totals": {
-    "total": 3901,
-    "passed": 3880,
+    "total": 3909,
+    "passed": 3888,
     "failed": 0,
     "notExecuted": 21
   },
@@ -19,7 +19,7 @@
     "converting it to a skip is silence.",
     "Ticket 360 (2026-09-13): re-pinned 3868 -> 3869 from the verify-windows run on 9aa421d1. One test more, one pass more, failed 0 and NEW none -- a count move, not a defect. Windows permits no failures and that stays true; this file's totals are the only thing that moved.",
     "Ticket 397 and 402 (2026-09-13): re-pinned 3869 -> 3876 across two measured runs. The first (6dfe801b) observed 3874 after 397's five lint tests; this branch was pinned there and its own verify-windows then observed 3876 at 86d014ce, which is 402 s1's two further tests. Both runs reported failed 0 and newFailures empty. The intermediate 3874 was deliberately pinned rather than jumping straight to a computed 3876: a number no run has produced is a guess, and this repository has been bitten by derived counts before -- a build log's 438 CA1031 lines standing for 192 findings. The gate supplied the second measurement, which is what it is for.",
-    "Ticket 395 (2026-09-14): re-pinned 3898 -> 3901 after rebasing onto main. The number was not derived from the branch's own earlier 3879: that pin was measured against a base of 3876 and the rebase moved the base to 3898. The gate on this PR supplied the measurement, as it did for 397/402."
+    "Ticket 395 (2026-09-14): re-pinned 3898 -> 3909 across two measured runs. The branch was pinned at 3901 mid-flight and that number was stale within the hour -- a re-pin is only true of the tree that was measured, so it belongs on the last commit before landing, not the first."
   ],
   "permittedFailures": [],
   "knownFlaky": [
@@ -75,15 +75,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3898,
-      "passed": 3877,
+      "total": 3901,
+      "passed": 3880,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3898 -> 3901; passed 3877 -> 3880; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Ticket 395 adds three passing pack-check tests: the operator CLI binding, multi-diagnostic non-mutating refusal collection, and valid-pack non-mutating acceptance. Rebased onto main at 3898, so the branch's earlier 3879 pin (taken against the pre-rebase base of 3876) no longer describes this tree.",
-    "detectedBy": "verify-windows on PR 121 at cd200a89d9503df975169f796daeeeaa0a066e07 (run 34842772679): host-baseline-match observed total 3901, passed 3880, failed 0, skipped 21, newFailures empty",
-    "arithmeticCrossCheck": "3898 + 3 = 3901; passed = total - notExecuted = 3901 - 21 = 3880."
+    "change": "total 3901 -> 3909; passed 3880 -> 3888; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "The 3901 pin was taken before this branch finished moving: cd06471e added the pack-check no-write fence and two OperatorCli theories for the insecure-URL refusal, and main took ticket 229's tests through the queue underneath. Eight tests, all passing.",
+    "detectedBy": "verify-windows on PR 121 (run 34849010772) at merge commit 1da2b026: host-baseline-match observed total 3909, passed 3888, failed 0, skipped 21, newFailures empty",
+    "arithmeticCrossCheck": "passed = total - notExecuted = 3909 - 21 = 3888."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
