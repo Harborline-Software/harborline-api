@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "d651d96ef105d64388eba99c5d88bd4120487fac",
-  "recordedAt": "2026-09-13T19:11:00Z",
+  "recordedAt": "2026-09-14T14:12:36Z",
   "totals": {
-    "total": 3898,
-    "passed": 3877,
+    "total": 3899,
+    "passed": 3878,
     "failed": 0,
     "notExecuted": 21
   },
@@ -74,15 +74,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3894,
-      "passed": 3873,
+      "total": 3898,
+      "passed": 3877,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3894 -> 3898; passed 3873 -> 3877; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Observed full host suite at d651d96ef105d64388eba99c5d88bd4120487fac after moving bound-form resolution behind the canonical record write authorization gate and updating the exact reviewed mutation caller inventory. Four regression cases cover denied and authorized missing/draft forms. No permitted failure or skip policy changed.",
-    "detectedBy": "dotnet test apps/local-node-host/tests/tests.csproj -c Release -maxcpucount:6 --logger trx;LogFileName=m4-gate-first-integrated-run2.trx --results-directory artifacts/m4-tests -v quiet; gate-evidence/api-m4-gate-first-integrated-run2.log and artifacts/m4-tests/m4-gate-first-integrated-run2.trx: 3898 total, 3877 passed, 21 skipped, 0 failed, 4m28s.",
-    "arithmeticCrossCheck": "3894 + 4 = 3898; passed = total - notExecuted = 3898 - 21 = 3877."
+    "change": "total 3898 -> 3899; passed 3877 -> 3878; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases while checking all released Workshop labels. The Windows exact-clone host suite at PR #140 merge commit 387a1034577411dd9dec57fcfa6751501f0ada9e measured one additional test and pass (3899 total, 3878 passed), with 0 failures, 21 skipped, no unexpected failures and no flake retries. No permitted-failure, flaky-test or skip policy changed.",
+    "detectedBy": "GitHub Actions run 34849287516, verify-windows job 103992830863, artifact verify-windows-evidence-34849287516 (id 10352452202): exact-clone-fail.json dotnet-host-tests exitCode 0 and host-baseline-match observed 3899/3878/0/21 versus expected 3898/3877/0/21. Re-pinned with eng/repin-baseline.mjs from the artifact's retained full-suite output tail.",
+    "arithmeticCrossCheck": "3898 + 1 = 3899; passed = total - notExecuted = 3899 - 21 = 3878."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
