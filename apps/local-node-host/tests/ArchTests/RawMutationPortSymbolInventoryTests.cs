@@ -364,7 +364,7 @@ public sealed class RawMutationPortSymbolInventoryTests
         return (relative, pointValue.StartLine);
     }
 
-    private static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
+    internal static IEnumerable<(MethodBase Target, int Offset)> CalledMethods(MethodBase method)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray();
         if (il is null)

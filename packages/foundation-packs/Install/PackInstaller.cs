@@ -117,6 +117,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     }
 
     /// <inheritdoc />
+    public PackInstallPreview Check(ReadOnlySpan<byte> packBytes, PackInstallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return BuildPlan(packBytes, context, collectRefusals: true).Preview;
+    }
+
+    /// <inheritdoc />
     public PackInstallOutcome Install(ReadOnlySpan<byte> packBytes, PackInstallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -656,7 +663,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         ReadOnlySpan<byte> packBytes,
         PackInstallContext context,
         AuthorizationDecision? decision = null,
-        ClaimedPackCoordinates? claimedCoordinates = null)
+        ClaimedPackCoordinates? claimedCoordinates = null,
+        bool collectRefusals = false)
     {
         var verify = _verifier.Verify(packBytes, context.TrustStore);
         var claimed = claimedCoordinates ?? ReadClaimedCoordinates(packBytes);
@@ -708,65 +716,42 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // A verified declaration is not enough: content must have a live projection path in this build.
         // NavWorkspaceConfig is intentionally absent because PackNavigationRoutes projects it directly
         // from active immutable seeds on read. These three kinds currently have no consumer at all.
-        var unsupportedStandardsCatalog = IndexOfContentKind(contents, PackContentKind.StandardsCatalog);
-        if (unsupportedStandardsCatalog >= 0)
+        var earlyRefusals = UnsupportedContentKindRefusals(contents);
+        if (!collectRefusals && earlyRefusals.Count > 0)
         {
-            return HardRefusal(
-                manifest.Key,
-                manifest.Version,
-                PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                revocationStale,
-                signerB64,
-                epoch,
-                scope,
-                refusals:
-                [
-                    new PackInstallRefusal(
-                        PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                        ContentPointer(unsupportedStandardsCatalog)),
-                ]);
-        }
-
-        var unsupportedCascadeDefaults = IndexOfContentKind(contents, PackContentKind.CascadeDefaults);
-        if (unsupportedCascadeDefaults >= 0)
-        {
-            return HardRefusal(
-                manifest.Key,
-                manifest.Version,
-                PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                revocationStale,
-                signerB64,
-                epoch,
-                scope,
-                refusals:
-                [
-                    new PackInstallRefusal(
-                        PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                        ContentPointer(unsupportedCascadeDefaults)),
-                ]);
-        }
-
-        var unsupportedTerminologyOverride = IndexOfContentKind(contents, PackContentKind.TerminologyOverride);
-        if (unsupportedTerminologyOverride >= 0)
-        {
-            return HardRefusal(
-                manifest.Key,
-                manifest.Version,
-                PackInstallCodes.RefusedUnsupportedTerminologyOverride,
-                revocationStale,
-                signerB64,
-                epoch,
-                scope,
-                refusals:
-                [
-                    new PackInstallRefusal(
-                        PackInstallCodes.RefusedUnsupportedTerminologyOverride,
-                        ContentPointer(unsupportedTerminologyOverride)),
-                ]);
+            // Preserve install's established priority (standards, then cascade, then terminology),
+            // independent of the authoring order in the export. CHECK collects the whole list below.
+            var refusal = earlyRefusals.MinBy(refusal => refusal.Code switch
+            {
+                PackInstallCodes.RefusedUnsupportedStandardsCatalog => 0,
+                PackInstallCodes.RefusedUnsupportedCascadeDefaults => 1,
+                _ => 2,
+            })!;
+            return refusal.Code switch
+            {
+                PackInstallCodes.RefusedUnsupportedStandardsCatalog => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedStandardsCatalog,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+                PackInstallCodes.RefusedUnsupportedCascadeDefaults => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedCascadeDefaults,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+                _ => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedTerminologyOverride,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+            };
         }
 
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);
-        if (unmetRequirements.FirstOrDefault()?.Failure == PackPlatformRequirementFailure.MissingCapability)
+        var platformRefusals = unmetRequirements
+            .Select(requirement => new PackInstallRefusal(
+                requirement.Failure == PackPlatformRequirementFailure.MissingCapability
+                    ? PackInstallCodes.RefusedMissingPlatformCapability
+                    : PackInstallCodes.RefusedPlatformVersionFloor,
+                string.Equals(requirement.DeclaredBy, manifest.Key, StringComparison.Ordinal)
+                    ? "/"
+                    : ContentPointer(contents, requirement.DeclaredBy)))
+            .ToList();
+        if (!collectRefusals && unmetRequirements.Count > 0 && unmetRequirements[0].Failure == PackPlatformRequirementFailure.MissingCapability)
         {
             return HardRefusal(
                 manifest.Key,
@@ -781,7 +766,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     PackInstallCodes.RefusedMissingPlatformCapability, manifest, contents, unmetRequirements));
         }
 
-        if (unmetRequirements.Count > 0)
+        if (!collectRefusals && unmetRequirements.Count > 0)
         {
             return HardRefusal(
                 manifest.Key,
@@ -863,7 +848,37 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         PackInstallVerdict verdict;
         IReadOnlyList<string> refusalCodes;
         IReadOnlyList<PackInstallRefusal> refusals;
-        if (!admission.IsAdmissible)
+        if (collectRefusals)
+        {
+            var collected = new List<PackInstallRefusal>(earlyRefusals);
+            collected.AddRange(platformRefusals);
+            collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
+                PackInstallCodes.RefusedAdmission,
+                ContentPointer(contents, refusal.ContentKey))));
+            collected.AddRange(unmetReferences.Select(reference => new PackInstallRefusal(
+                PackInstallCodes.RefusedUnmetContentReference,
+                ContentPointer(contents, reference.FromContentKey))));
+            collected.AddRange(unmetDependencies.Select(dependency => new PackInstallRefusal(
+                dependency.MalformedPin
+                    ? PackInstallCodes.RefusedMalformedDependencyPin
+                    : PackInstallCodes.RefusedUnmetDependency,
+                DependencyPointer(manifest, dependency))));
+            collected.AddRange(watermarkHits.Select(hit => new PackInstallRefusal(
+                hit.Kind == PackWatermarkHitKind.VersionDowngrade
+                    ? PackInstallCodes.RefusedDowngrade
+                    : PackInstallCodes.RefusedFloorWeakened,
+                "/")));
+
+            refusalCodes = collected.Select(refusal => refusal.Code).Distinct().ToList();
+            refusals = collected;
+            verdict = collected.Any(refusal =>
+                refusal.Code is not PackInstallCodes.RefusedDowngrade and not PackInstallCodes.RefusedFloorWeakened)
+                ? PackInstallVerdict.Refused
+                : watermarkHits.Count > 0
+                    ? PackInstallVerdict.RequiresBreakGlass
+                    : isUpgrade ? PackInstallVerdict.WouldUpgrade : PackInstallVerdict.WouldInstall;
+        }
+        else if (!admission.IsAdmissible)
         {
             verdict = PackInstallVerdict.Refused;
             refusalCodes = new[] { PackInstallCodes.RefusedAdmission };
@@ -918,8 +933,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     : PackInstallCodes.RefusedFloorWeakened)
                 .Distinct()
                 .ToList();
-            refusals = refusalCodes
-                .Select(code => new PackInstallRefusal(code, "/"))
+            refusals = watermarkHits
+                .Select(hit => new PackInstallRefusal(
+                    hit.Kind == PackWatermarkHitKind.VersionDowngrade
+                        ? PackInstallCodes.RefusedDowngrade
+                        : PackInstallCodes.RefusedFloorWeakened,
+                    "/"))
                 .ToList();
         }
         else
@@ -944,7 +963,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             RefusalCodes: refusalCodes,
             CrossPackCollisions: crossPackCollisions,
             UnmetContentReferences: unmetReferences,
-            UnmetPlatformRequirements: Array.Empty<PackUnmetPlatformRequirement>())
+            UnmetPlatformRequirements: collectRefusals ? unmetRequirements : Array.Empty<PackUnmetPlatformRequirement>())
         {
             UnmetDependencies = unmetDependencies,
             Refusals = refusals,
@@ -1002,14 +1021,25 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         return new InstallPlan(preview, null, epoch, null, null, null, PackInstallAuditAction.Refused);
     }
 
-    private static int IndexOfContentKind(IReadOnlyList<PackContentItem> contents, PackContentKind kind)
+    private static List<PackInstallRefusal> UnsupportedContentKindRefusals(IReadOnlyList<PackContentItem> contents)
     {
+        var refusals = new List<PackInstallRefusal>();
         for (var index = 0; index < contents.Count; index++)
         {
-            if (contents[index].Kind == kind) return index;
+            var code = contents[index].Kind switch
+            {
+                PackContentKind.StandardsCatalog => PackInstallCodes.RefusedUnsupportedStandardsCatalog,
+                PackContentKind.CascadeDefaults => PackInstallCodes.RefusedUnsupportedCascadeDefaults,
+                PackContentKind.TerminologyOverride => PackInstallCodes.RefusedUnsupportedTerminologyOverride,
+                _ => null,
+            };
+            if (code is not null)
+            {
+                refusals.Add(new PackInstallRefusal(code, ContentPointer(index)));
+            }
         }
 
-        return -1;
+        return refusals;
     }
 
     private static List<PackInstallRefusal> PlatformRequirementRefusals(
