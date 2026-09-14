@@ -2,31 +2,32 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "d651d96ef105d64388eba99c5d88bd4120487fac",
-  "recordedAt": "2026-09-14T14:12:36Z",
+  "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
+  "recordedAt": "2026-09-14T16:33:30Z",
   "totals": {
-    "total": 3899,
-    "passed": 3878,
+    "total": 3910,
+    "passed": 3889,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
-    "green when N different tests fail. This was not hypothetical \u00e2\u20ac\u201d the second run traded two fixed",
+    "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",
     "failures for one new flake and a count-only view would have read 5 -> 4 as pure improvement.",
     "Verdict-(a)/(c) failures stay RED by design. A red test with a recorded verdict is signal;",
     "converting it to a skip is silence.",
     "Ticket 360 (2026-09-13): re-pinned 3868 -> 3869 from the verify-windows run on 9aa421d1. One test more, one pass more, failed 0 and NEW none -- a count move, not a defect. Windows permits no failures and that stays true; this file's totals are the only thing that moved.",
-    "Ticket 397 and 402 (2026-09-13): re-pinned 3869 -> 3876 across two measured runs. The first (6dfe801b) observed 3874 after 397's five lint tests; this branch was pinned there and its own verify-windows then observed 3876 at 86d014ce, which is 402 s1's two further tests. Both runs reported failed 0 and newFailures empty. The intermediate 3874 was deliberately pinned rather than jumping straight to a computed 3876: a number no run has produced is a guess, and this repository has been bitten by derived counts before -- a build log's 438 CA1031 lines standing for 192 findings. The gate supplied the second measurement, which is what it is for."
+    "Ticket 397 and 402 (2026-09-13): re-pinned 3869 -> 3876 across two measured runs. The first (6dfe801b) observed 3874 after 397's five lint tests; this branch was pinned there and its own verify-windows then observed 3876 at 86d014ce, which is 402 s1's two further tests. Both runs reported failed 0 and newFailures empty. The intermediate 3874 was deliberately pinned rather than jumping straight to a computed 3876: a number no run has produced is a guess, and this repository has been bitten by derived counts before -- a build log's 438 CA1031 lines standing for 192 findings. The gate supplied the second measurement, which is what it is for.",
+    "Ticket 395 (2026-09-14): re-pinned 3898 -> 3909 across two measured runs. The branch was pinned at 3901 mid-flight and that number was stale within the hour -- a re-pin is only true of the tree that was measured, so it belongs on the last commit before landing, not the first."
   ],
   "permittedFailures": [],
   "knownFlaky": [
     {
-      "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts \u00e2\u20ac\u201d no DI cycle",
+      "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts â€” no DI cycle",
       "verdict": "a-pre-existing-at-sha (load-sensitive)",
       "measuredRate": "3 passed / 0 failed in 3 isolated runs; failed once in a full suite run executed CONCURRENTLY with the hull vitest suite",
-      "cause": "OperationCanceledException during real host startup \u00e2\u20ac\u201d a startup timeout under machine load, not a functional failure.",
+      "cause": "OperationCanceledException during real host startup â€” a startup timeout under machine load, not a functional failure.",
       "proof": "Passes 3/3 in isolation immediately after the failing run, on the same tree.",
       "handling": "knownFlaky, not permitted. Root cause is as much operator error as test fragility: a timing-sensitive suite must not be run concurrently with another heavy suite.",
       "registered": "cleanup register C-008",
@@ -68,21 +69,21 @@
   ],
   "skips": {
     "count": 19,
-    "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent \u00e2\u20ac\u201d it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
-    "notSilent": "Mtw00CRedFixtureMetaTests checks both the pending and production states on every run, so the skip set cannot drift unnoticed. This is the good version of a skip: gated, reasoned, and covered by a meta-test \u00e2\u20ac\u201d unlike a missing fixture that skips a test that should have run.",
-    "displayNamePrefix": "MTW-00C red: \u00e2\u20ac\u00a6 is missing"
+    "mechanism": "18 of the 19 are [SkippableFact] + Skip.IfNot(Mtw00CRedFixturePolicy.RedFixturesEnabled), gated on environment variable MTW00C_RUN_RED == '1'. They are deliberate red fixtures for unimplemented MTW-00C plan-card work, excluded from the default suite so CI stays green. The 19th is CapabilityInvokeCorrelationTraceTests (ticket 096), which shells out to apps/capability-host/node_modules/.bin/vitest and Skip.IfNots when that toolchain is absent â€” it is environment-conditional, so on a machine that has run npm ci in apps/capability-host it RUNS and the suite reports 3204 / 3186 passed / 18 skipped.",
+    "notSilent": "Mtw00CRedFixtureMetaTests checks both the pending and production states on every run, so the skip set cannot drift unnoticed. This is the good version of a skip: gated, reasoned, and covered by a meta-test â€” unlike a missing fixture that skips a test that should have run.",
+    "displayNamePrefix": "MTW-00C red: â€¦ is missing"
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3898,
-      "passed": 3877,
+      "total": 3909,
+      "passed": 3888,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3898 -> 3899; passed 3877 -> 3878; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases while checking all released Workshop labels. The Windows exact-clone host suite at PR #140 merge commit 387a1034577411dd9dec57fcfa6751501f0ada9e measured one additional test and pass (3899 total, 3878 passed), with 0 failures, 21 skipped, no unexpected failures and no flake retries. No permitted-failure, flaky-test or skip policy changed.",
-    "detectedBy": "GitHub Actions run 34849287516, verify-windows job 103992830863, artifact verify-windows-evidence-34849287516 (id 10352452202): exact-clone-fail.json dotnet-host-tests exitCode 0 and host-baseline-match observed 3899/3878/0/21 versus expected 3898/3877/0/21. Re-pinned with eng/repin-baseline.mjs from the artifact's retained full-suite output tail.",
-    "arithmeticCrossCheck": "3898 + 1 = 3899; passed = total - notExecuted = 3899 - 21 = 3878."
+    "change": "total 3909 -> 3910; passed 3888 -> 3889; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Merged released main 43eab7d3801b42b3ac46744e502d309667182e80 (PR #121) into T-431 label branch 97e9255654cecee128933e15300976be75ba6ec0 (PR #140). Preserve the released pack-check code and inventories, including the no-write fence, insecure-URL theories and ticket 229 coverage that raised its last pin from 3901 to 3909. T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases, adding exactly one test and pass to released main: 3909/3888/0/21 -> 3910/3889/0/21. The merged native Windows Release suite measured the combined tuple with zero failures and no retries. No permitted-failure, flaky-test or skip policy changed.",
+    "detectedBy": "Released PR #121 verify-windows run 34849010772 measured 3909/3888/0/21 at 1da2b026 (the retained sourcePin); PR #140 run 34849287516 measured its earlier independent 3898 -> 3899 one-case delta. This combined merge was measured locally, not in an exact clone: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --logger trx;LogFileName=m5-post121-host-toolchain.trx --results-directory artifacts/m5-post121 -v quiet; artifacts/m5-post121-host-toolchain.log and artifacts/m5-post121/m5-post121-host-toolchain.trx report 3910 total, 3889 passed, 0 failed, 21 skipped in 3m44s. The initial local run (artifacts/m5-post121-host.log and m5-post121-host.trx) reported 3910/3888/0/22 because the capability-host toolchain was absent. After npm ci only in apps/capability-host, the formerly skipped TypeScript loopback case passed 1/1, then the complete suite measured the pinned tuple. Re-pinned with eng/repin-baseline.mjs from that completed full-suite log.",
+    "arithmeticCrossCheck": "3909 + 1 = 3910; passed = total - notExecuted = 3910 - 21 = 3889."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
