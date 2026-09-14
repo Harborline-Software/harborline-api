@@ -7,6 +7,7 @@
     "POST /api/local-node/data-exports": "export",
     "POST /api/local-node/entities": "record create",
     "POST /api/local-node/packs/activate": "pack activate",
+    "POST /api/local-node/packs/check": "pack check",
     "POST /api/local-node/packs/deactivate": "pack deactivate",
     "POST /api/local-node/packs/export": "pack export",
     "POST /api/local-node/packs/install": "pack install",

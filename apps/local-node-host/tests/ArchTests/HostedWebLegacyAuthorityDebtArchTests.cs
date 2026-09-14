@@ -94,7 +94,10 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // file) and this ceiling moves with it in the same commit, with the reason on the row; never for any other cause.
         // 294 s2b routes the current principal through the canonical roster key, removing
         // three static-authority tokens (two signing-route, one KG-route) and ratcheting 439 -> 436.
-        Assert.Equal(436, ledger.ReviewedAggregateDebtCeiling);
+        // Ticket 395's reviewed 2026-09-13 ruling adds the authorized POST /packs/check handler (436 -> 437):
+        // its tenant IS the authorization subject. The seventh token is the same kind as the six already there;
+        // admission depends on that tenant's installed set, trust store and revocation state, exactly as preview.
+        Assert.Equal(437, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));
