@@ -48,7 +48,8 @@ public sealed class RouteAudienceGraphTests
         // Ticket 362 adds the selected-session narrow-member route (POST, beside revoke) in the four
         // web-enabled profiles, and slice 2 retires the permissions route from the same four.
         // Ticket 176 adds the catalogue list, item, and system-type reads in every profile.
-        int[] expectedClassifiedCounts = [222, 239, 240, 233, 250, 251];
+        // Ticket 395 adds the selected-session pack admission check in every profile.
+        int[] expectedClassifiedCounts = [223, 240, 241, 234, 251, 252];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)
