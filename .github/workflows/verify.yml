@@ -128,7 +128,10 @@ jobs:
             MINGW*|MSYS*|CYGWIN*)
               echo "$APPDATA\npm" >> "$GITHUB_PATH"
               echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
-              export PATH="$APPDATA/npm:$USERPROFILE/.cargo/bin:$PATH"
+              # GITHUB_PATH takes Windows paths and only affects LATER steps; this step needs them now,
+              # and a POSIX PATH entry must be a POSIX path -- pasting C:\Users\... in makes Git
+              # Bash resolve it under the Git install root.
+              export PATH="$(cygpath -u "$APPDATA")/npm:$(cygpath -u "$USERPROFILE")/.cargo/bin:$PATH"
               command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
               if ! command -v cargo >/dev/null 2>&1; then
                 curl -fsSLo "$RUNNER_TEMP/rustup-init.exe" https://win.rustup.rs/x86_64
