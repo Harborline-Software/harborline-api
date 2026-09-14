@@ -70,9 +70,9 @@ export const compareFindings = (head, base, diff = '') => {
   return {newFindings: head.filter(row => !matched.has(row)), resolved: base.filter((_, index) => !used.has(index)), matches}
 }
 
-export const loadBaseline = (artifact, committed) => existsSync(artifact)
-  ? {findings: document(artifact), source: 'merge-base artifact'}
-  : {findings: document(committed), source: 'committed fallback'}
+// Ticket 436: one source, a tracked file. The per-commit artifact this used to prefer is gone --
+// see eng/quality-baseline-landing.sh for the measurement that retired it.
+export const loadBaseline = committed => ({findings: document(committed), source: 'committed baseline'})
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [candidate, baseline, diff = ''] = process.argv.slice(2)
