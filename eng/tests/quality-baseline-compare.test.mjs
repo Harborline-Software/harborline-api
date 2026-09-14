@@ -25,13 +25,13 @@ test('two findings sharing a rule and file keep their individual identity when o
   assert.deepEqual(result.resolved, [])
 })
 
-test('an unavailable base artifact falls back to the committed baseline and says so', () => {
+test('the baseline is the committed file, and it says so', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'quality-baseline-fallback-'))
   try {
     const committed = path.join(directory, 'committed.json')
     writeFileSync(committed, JSON.stringify({findings: [finding('committed', 'CA1000', 'src/Existing.cs', 40)]}))
-    const result = loadBaseline(path.join(directory, 'missing-artifact.json'), committed)
-    assert.equal(result.source, 'committed fallback')
+    const result = loadBaseline(committed)
+    assert.equal(result.source, 'committed baseline')
     assert.equal(result.findings.length, 1)
   } finally {
     rmSync(directory, {recursive: true, force: true})
