@@ -26,12 +26,19 @@ gate_lock_acquire "eng/verify.sh"
 # The receipt records the lane and requires that lane's steps; only `all` records a whole-gate one.
 lane=${HARBORLINE_VERIFY_LANE:-all}
 case "$lane" in all|shared|host) ;; *) echo "HARBORLINE_VERIFY_LANE must be all, shared or host (got: $lane)" >&2; exit 1 ;; esac
+# quality and quality-baseline belong to the HOST lane, not the shared one, because they read what
+# exact-clone produces: run-exact-clone.mjs builds the clone with -p:HarborlineRoslynSarifDirectory
+# and writes both SARIF sets into artifacts/quality. Run them without it and both engines report
+# analyzer-error over an empty set, which the gate refuses as an engine failure -- correctly.
+# They run on the ONE host that carries HARBORLINE_GATE_QUALITY=1, so the comparison happens once
+# however many hosts run the suite.
 in_lane() {
   case "$1:$lane" in
     *:all) return 0 ;;
     exact-clone:host) return 0 ;;
+    quality:host|quality-baseline:host) [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ] ;;
     *:host) return 1 ;;
-    exact-clone:shared) return 1 ;;
+    exact-clone:shared|quality:shared|quality-baseline:shared) return 1 ;;
     *:shared) return 0 ;;
   esac
 }

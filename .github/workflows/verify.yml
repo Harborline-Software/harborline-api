@@ -42,11 +42,10 @@ jobs:
         shell: bash
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      # quality and quality-baseline are NOT in this lane: they read the SARIF that exact-clone
+      # writes, and exact-clone runs on the hosts. HARBORLINE_GATE_QUALITY therefore lives on
+      # verify-windows below, which is the one host that carries the comparison.
       HARBORLINE_VERIFY_LANE: shared
-      # 339 s4 / 2026-09-10: without this the roslyn SARIF is never produced and the quality step
-      # compares an empty set. Coverage stays with the merge-queue run only (2026-09-08 ruling).
-      HARBORLINE_GATE_QUALITY: '1'
-      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
       - name: Git Bash on PATH for the service account
         # Windows only: C:\Program Files\Git\cmd is on the machine PATH but bash.exe is in ...\Git\bin.
@@ -132,18 +131,6 @@ jobs:
 
       - name: eng/verify.sh
         run: bash eng/verify.sh
-
-      - name: Publish main quality findings
-        # Ticket 436: no gate step reads this any more -- the comparison is against the committed
-        # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
-        # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
-        if: always() && github.event_name == 'push'
-        uses: actions/upload-artifact@v5
-        with:
-          name: quality-findings-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 14
-          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()
@@ -240,6 +227,12 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       NUGET_PACKAGES: C:\nuget-runner
+      # 339 s4 / 2026-09-10: without this the roslyn SARIF is never produced and the quality step
+      # compares an empty set. Coverage stays with the merge-queue run only (2026-09-08 ruling).
+      # Ticket 421: exactly ONE host sets this, so the quality comparison happens once per event
+      # however many hosts run the suite. verify-macos deliberately does not.
+      HARBORLINE_GATE_QUALITY: '1'
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
       - name: Git Bash on PATH for the service account
         # Only C:\Program Files\Git\cmd is on the machine PATH; bash.exe lives in ...\Git\bin.
@@ -298,6 +291,18 @@ jobs:
         env:
           HARBORLINE_VERIFY_LANE: host
         run: bash eng/verify.sh
+
+      - name: Publish main quality findings
+        # Ticket 436: no gate step reads this any more -- the comparison is against the committed
+        # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
+        # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
+        if: always() && github.event_name == 'push'
+        uses: actions/upload-artifact@v5
+        with:
+          name: quality-findings-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()

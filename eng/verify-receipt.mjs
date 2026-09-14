@@ -38,12 +38,18 @@ export const requiredStepIds = [
   'packages',
 ]
 
-// The host-specific step. Ticket 421 splits CI into a `shared` lane that runs everything else once
-// on any free runner, and a `host` lane per runner that runs only this. `all` is still the whole
-// gate and is what a developer gets by running eng/verify.sh with no lane set.
-export const hostStepIds = ['exact-clone']
-export const stepIdsForLane = lane => {
-  if (lane === 'host') return hostStepIds
+// The host-specific steps. Ticket 421 splits CI into a `shared` lane that runs everything else once
+// on any free runner, and a `host` lane per runner. `all` is still the whole gate and is what a
+// developer gets by running eng/verify.sh with no lane set.
+//
+// quality and quality-baseline are host steps because they read what exact-clone writes into
+// artifacts/quality, and only the host carrying HARBORLINE_GATE_QUALITY=1 produces it -- so only
+// that host's receipt is expected to carry them.
+export const hostStepIds = ['exact-clone', 'quality', 'quality-baseline']
+export const stepIdsForLane = (lane, env = process.env) => {
+  if (lane === 'host') {
+    return env.HARBORLINE_GATE_QUALITY === '1' ? hostStepIds : ['exact-clone']
+  }
   if (lane === 'shared') return requiredStepIds.filter(id => !hostStepIds.includes(id))
   return requiredStepIds
 }
