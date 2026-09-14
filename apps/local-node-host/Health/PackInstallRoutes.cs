@@ -111,7 +111,7 @@ internal static class PackInstallRoutes
         // POST /packs/preview — verify + plan; NEVER mutates. OPERATE-side (council A-1): `packages:operate`.
         selectedSession.MapPost(PreviewRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             // Preview NEVER mutates and the uploaded artifact is not yet a pack record — no record target,
             // admitted only because `packages:operate` is declared install-wide.
             var refusal = await PackRouteAuthorization
@@ -135,7 +135,7 @@ internal static class PackInstallRoutes
         // authorization as preview, delegates to the installer once, and cannot activate or install.
         selectedSession.MapPost(CheckRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
@@ -161,7 +161,7 @@ internal static class PackInstallRoutes
         selectedSession.MapPost(InstallRoute, async (HttpContext http, CancellationToken ct) =>
         {
             var httpRequest = http.Request;
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             var bytes = await ReadBodyAsync(httpRequest, ct).ConfigureAwait(false);
 
             // Install MUTATES, so it must resolve against the pack it is about to write. The pack key is in
@@ -228,7 +228,7 @@ internal static class PackInstallRoutes
                 return Results.BadRequest(new { error = "packKey and version are required." });
             }
 
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             // The pointer flip is an act ON the named pack — that pack is the record target.
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
@@ -324,7 +324,7 @@ internal static class PackInstallRoutes
                 return Results.BadRequest(new { error = "packKey and version are required." });
             }
 
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             // Retraction is an act ON the named pack — that pack is the record target.
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
@@ -395,7 +395,7 @@ internal static class PackInstallRoutes
         // GET /packs/installed — list installed versions for the tenant. OPERATE-side: `packages:operate`.
         deviceReachable.MapGet(ListInstalledRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = ResolveTenant(activeTeam);
+            var tenant = NodeTenant.Resolve(activeTeam);
             // The installed-pack LIST is an install-wide read — it names no one pack.
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
@@ -420,11 +420,6 @@ internal static class PackInstallRoutes
             return Results.Ok(installed);
         }).WithMetadata(postInstallRoutes);
     }
-
-    // One textual legacy-authority seam for this route family while ADR 0160 R3-D remains open.
-    // Each handler still resolves at request time; centralizing the call prevents a new verb from
-    // multiplying the transitional process-global authority inventory.
-    private static TenantId ResolveTenant(IActiveTeamAccessor activeTeam) => NodeTenant.Resolve(activeTeam);
 
     private static async Task<byte[]> ReadBodyAsync(HttpRequest request, CancellationToken ct)
     {

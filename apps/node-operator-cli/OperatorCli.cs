@@ -284,6 +284,11 @@ public static class OperatorCli
                 return ParseError("--url <http(s)://node> or HARBORLINE_NODE_URL is required.", json);
             }
 
+            if (baseUri.Scheme == "http" && !baseUri.IsLoopback)
+            {
+                return ParseError("The node URL must use HTTPS, except for loopback HTTP.", json);
+            }
+
             return new ParsedArguments(baseUri, token, json, command, null);
         }
 
