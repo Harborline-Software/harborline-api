@@ -110,7 +110,7 @@ jobs:
 
       - name: Publish main quality findings
         if: always() && github.event_name == 'push'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: quality-findings-${{ github.sha }}
           if-no-files-found: error
@@ -119,7 +119,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: verify-evidence-${{ github.run_id }}
           if-no-files-found: ignore
@@ -232,7 +232,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: verify-windows-evidence-${{ github.run_id }}
           if-no-files-found: ignore
