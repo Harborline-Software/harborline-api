@@ -187,17 +187,24 @@ jobs:
           lanes="$USERPROFILE/Projects/Harborline/lanes"; mkdir -p "$lanes"
           [ -d "$lanes/platform-pin/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$lanes/platform-pin"
           plat="$lanes/platform-pin"; echo "HARBORLINE_PLATFORM_REPO=$plat" >> "$GITHUB_ENV"
-          # control and quality are private: they need HARBORLINE_PINS_TOKEN; without it the steps that read them are skipped by verify.sh's own refusal and this job reports it.
+          # control and quality are private: with HARBORLINE_PINS_TOKEN they are cloned and refreshed here.
+          # Dependabot pull requests never see repo secrets, so without the token the runner account's
+          # already-seeded clones stand in -- identity-r3 is not skippable and needs a control checkout.
           if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
             for r in control-gh:harborline-control quality-pin:harborline-quality; do
               d="$lanes/${r%%:*}"; [ -d "$d/.git" ] || git clone -q "https://x-access-token:${{ secrets.HARBORLINE_PINS_TOKEN }}@github.com/Harborline-Software/${r##*:}.git" "$d"
               git -C "$d" fetch -q origin
             done
-            echo "HARBORLINE_CONTROL_REPO=$lanes/control-gh" >> "$GITHUB_ENV"
-            echo "HARBORLINE_QUALITY_REPO=$lanes/quality-pin" >> "$GITHUB_ENV"
-          else
-            echo "note: HARBORLINE_PINS_TOKEN not set; control and quality pins unavailable on this runner"
           fi
+          for r in control-gh:CONTROL quality-pin:QUALITY; do
+            d="$lanes/${r%%:*}"
+            if [ -d "$d/.git" ]; then
+              echo "HARBORLINE_${r##*:}_REPO=$d" >> "$GITHUB_ENV"
+              echo "${r%%:*} $(git -C "$d" rev-parse --short HEAD)"
+            else
+              echo "note: $d absent and no HARBORLINE_PINS_TOKEN; ${r%%:*} pin unavailable on this runner"
+            fi
+          done
           pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
           # A clone left half-made by an interrupted run cannot read its trees: fetch, and re-clone on failure.
           if ! ( git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" ); then
