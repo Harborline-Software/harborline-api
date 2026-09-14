@@ -119,24 +119,28 @@ jobs:
           echo "control $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)  quality $qpin  platform $pin"
 
       - name: Per-user toolchain for the runner account (pnpm, rustup), once
-        # rustup's default toolchain is per user (~/.rustup) and the runner account starts with none;
-        # contracts-rust needs one. A Mac has rustup installed and only needs a default set; the
-        # Windows account may have no rustup at all.
+        # Per-user installs land in the account's own home and are invisible until their directory is
+        # on PATH. Both PATH lines are unconditional on Windows: pnpm was installed but unreachable
+        # when this put them inside the cargo branch, and winbox already had cargo, so boundaries
+        # failed with "pnpm: command not found" two minutes in.
         run: |
-          command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
-          if command -v cargo >/dev/null 2>&1; then
-            rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
-          else
-            case "$(uname -s)" in
-              MINGW*|MSYS*|CYGWIN*)
+          case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*)
+              echo "$APPDATA\npm" >> "$GITHUB_PATH"
+              echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
+              export PATH="$APPDATA/npm:$USERPROFILE/.cargo/bin:$PATH"
+              command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
+              if ! command -v cargo >/dev/null 2>&1; then
                 curl -fsSLo "$RUNNER_TEMP/rustup-init.exe" https://win.rustup.rs/x86_64
                 "$RUNNER_TEMP/rustup-init.exe" -y --profile minimal --default-toolchain stable
-                echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
-                echo "$APPDATA\npm" >> "$GITHUB_PATH"
-                ;;
-              *) rustup default stable ;;
-            esac
-          fi
+              fi
+              ;;
+            *)
+              command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
+              rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
+              ;;
+          esac
+          command -v pnpm && pnpm --version
           rustup show active-toolchain || true
 
       - name: Build the local platform feed
