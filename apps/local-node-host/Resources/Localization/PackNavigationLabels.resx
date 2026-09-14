@@ -16,4 +16,49 @@
   <data name="navigation.documents" xml:space="preserve">
     <value>Documents</value><comment>Property management document rail entry.</comment>
   </data>
+  <data name="workshop.workspace" xml:space="preserve">
+    <value>Workshop</value><comment>Platform definition authoring workspace.</comment>
+  </data>
+  <data name="workshop.definitions" xml:space="preserve">
+    <value>Definitions</value><comment>Workshop group containing the platform definition catalogues.</comment>
+  </data>
+  <data name="workshop.asset-types" xml:space="preserve">
+    <value>Asset types</value><comment>Workshop asset type definitions rail entry.</comment>
+  </data>
+  <data name="workshop.forms" xml:space="preserve">
+    <value>Forms</value><comment>Workshop form definitions rail entry.</comment>
+  </data>
+  <data name="workshop.workflows" xml:space="preserve">
+    <value>Workflows</value><comment>Workshop workflow definitions rail entry.</comment>
+  </data>
+  <data name="workshop.standards" xml:space="preserve">
+    <value>Standards</value><comment>Workshop standards catalogues rail entry.</comment>
+  </data>
+  <data name="workshop.defaults" xml:space="preserve">
+    <value>Defaults</value><comment>Workshop cascade defaults rail entry.</comment>
+  </data>
+  <data name="workshop.terminology" xml:space="preserve">
+    <value>Terminology</value><comment>Workshop terminology overrides rail entry.</comment>
+  </data>
+  <data name="workshop.documents" xml:space="preserve">
+    <value>Documents</value><comment>Workshop document template definitions rail entry.</comment>
+  </data>
+  <data name="workshop.taxonomies" xml:space="preserve">
+    <value>Taxonomies</value><comment>Workshop taxonomy definitions rail entry.</comment>
+  </data>
+  <data name="workshop.reports" xml:space="preserve">
+    <value>Reports</value><comment>Workshop report definitions rail entry.</comment>
+  </data>
+  <data name="workshop.data-exchanges" xml:space="preserve">
+    <value>Data exchanges</value><comment>Workshop data exchange definitions rail entry.</comment>
+  </data>
+  <data name="workshop.standing-rules" xml:space="preserve">
+    <value>Standing rules</value><comment>Workshop standing rule definitions rail entry.</comment>
+  </data>
+  <data name="workshop.schedules" xml:space="preserve">
+    <value>Schedules</value><comment>Workshop schedule definitions rail entry.</comment>
+  </data>
+  <data name="workshop.views" xml:space="preserve">
+    <value>Views</value><comment>Workshop view definitions rail entry.</comment>
+  </data>
 </root>

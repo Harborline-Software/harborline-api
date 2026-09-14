@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Harborline.Api.Blocks.AccessGrant;
@@ -26,12 +27,16 @@ public sealed class AccessNavigationUpgradeCompositionTests
     private static readonly TenantId Tenant = new("29400000-0000-4000-8000-000000000001");
     private const string PackKey = AccessAdministrationPreloadHostedService.PackKey;
 
-    [Fact]
-    public async Task Ordinary_upgrade_serves_exact_Access_declaration_across_restart_and_retraction_removes_it()
+    [Theory]
+    [InlineData("")]
+    [InlineData("fr-FR")]
+    public async Task Ordinary_upgrade_serves_exact_Access_declaration_across_restart_and_retraction_removes_it(string culture)
     {
+        var originalCulture = CultureInfo.CurrentUICulture;
         var directory = Path.Combine(Path.GetTempPath(), $"ticket329-navigation-{Guid.NewGuid():N}");
         try
         {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
             await using (var host = await UnattributedGrantCompositionTests.OpenAsync(directory))
             {
                 var services = host.Services;
@@ -66,6 +71,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
         }
         finally
         {
+            CultureInfo.CurrentUICulture = originalCulture;
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
@@ -151,6 +157,37 @@ public sealed class AccessNavigationUpgradeCompositionTests
             navigation.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray());
         Assert.Equal("workshop", workspace.GetProperty("id").GetString());
         Assert.Equal("workshop.workspace", workspace.GetProperty("labelKey").GetString());
+        Assert.Equal("Workshop", PackNavigationLabels.Resolve(workspace.GetProperty("labelKey").GetString()!));
+        var group = Assert.Single(workspace.GetProperty("groups").EnumerateArray());
+        Assert.Equal("definitions", group.GetProperty("id").GetString());
+        Assert.Equal("workshop.definitions", group.GetProperty("labelKey").GetString());
+        Assert.Equal("Definitions", PackNavigationLabels.Resolve(group.GetProperty("labelKey").GetString()!));
+
+        // T-431: assert the released platform pack's complete rail, including its first/default item.
+        (string Id, string Label)[] expected =
+        [
+            ("asset-types", "Asset types"),
+            ("forms", "Forms"),
+            ("workflows", "Workflows"),
+            ("standards", "Standards"),
+            ("defaults", "Defaults"),
+            ("terminology", "Terminology"),
+            ("documents", "Documents"),
+            ("taxonomies", "Taxonomies"),
+            ("reports", "Reports"),
+            ("data-exchanges", "Data exchanges"),
+            ("standing-rules", "Standing rules"),
+            ("schedules", "Schedules"),
+            ("views", "Views"),
+        ];
+        Assert.Equal(expected.Select(item => item.Id), group.GetProperty("itemIds").EnumerateArray().Select(item => item.GetString()));
+        var items = group.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(expected, items.Select(item => (item.GetProperty("id").GetString()!, item.GetProperty("label").GetString()!)));
+        Assert.All(items, item =>
+        {
+            Assert.Equal("workshop." + item.GetProperty("id").GetString(), item.GetProperty("labelKey").GetString());
+            Assert.NotEqual(item.GetProperty("labelKey").GetString(), item.GetProperty("label").GetString());
+        });
     }
 
     private sealed class ActiveTenant(IServiceProvider services) : IActiveTeamAccessor
