@@ -41,7 +41,7 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
@@ -168,7 +168,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
