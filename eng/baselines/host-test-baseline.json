@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e+dbeddfec92996b37ce092d359a9d47108ac8def5",
+  "sourcePin": "d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e+cca322d8c6dee7947b9e818e3e28ae14caca0ac2",
   "recordedAt": "2026-09-15T14:45:00Z",
   "totals": {
-    "total": 3934,
-    "passed": 3913,
+    "total": 3935,
+    "passed": 3914,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
-    "Ticket 398: add exactly seven ordinary platform-independent reachability and Health cases. Focused Windows execution passed all seven; the macOS and Ubuntu totals advance by the same additive inventory while their named failure and skip policies remain unchanged.",
+    "Ticket 398: add exactly eight ordinary platform-independent reachability and Health cases. Focused Windows execution passed all eight, including real activation plus production startup reprojection; the macOS and Ubuntu totals advance by the same additive inventory while their named failure and skip policies remain unchanged.",
     "Ticket 426 integration: combine the seeded Health/Browse slice's four platform-independent cases with the adapter slice's thirteen, for exactly +17 passed and total from the original 3889/3910 inventory. The adapter-only full Windows gate at 0bd6acbd measured 3902 passed, 0 failed, 21 skipped, 3923 total. Adding the seed's four yields 3906/3927; the integrated final-HEAD gate validates that derived count. No failure allowance, skip, or retry identity changes.",
     "Ticket 426 seeded Health/Browse slice: add exactly four ordinary, platform-independent host test cases, with no conditional compilation or skips. PR #149 verify-windows reported no failures, no permitted failures and no known-flaky retries; it refused only the stale count inventory. The final exact-clone rerun validates this +4 re-pin while preserving the zero-failure allowance.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
