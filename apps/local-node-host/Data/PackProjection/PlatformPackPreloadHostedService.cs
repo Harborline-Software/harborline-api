@@ -21,7 +21,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "1.0.0";
+    public const string PackVersion = "1.1.0";
     private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
 
     private readonly IPackExporter exporter;
@@ -92,7 +92,7 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     // CA1869: one cached instance, as CompromisedDeviceResponseService and the audit reader already do.
     private static readonly JsonSerializerOptions ExportJsonOptions = new(JsonSerializerDefaults.Web);
 
-    private static PackExportRequest ReadExportRequest(string authoringPrincipal)
+    internal static PackExportRequest ReadExportRequest(string authoringPrincipal)
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Missing platform export document '{ResourceName}'.");
