@@ -647,7 +647,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray());
             if (catalogueRefusals.Count > 0)
             {
-                foreach (var refusal in catalogueRefusals)
+                foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in catalogueRefusals)
                 {
                     var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
                     formsInvalid++;
