@@ -25,6 +25,9 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
     /// <summary>The saved entity-list grid kind this host serves today.</summary>
     public const string EntityListGridKind = "views.entity-list/grid";
 
+    /// <summary>The compiled Access holder entity backed by the ordinary <c>IGrantStore</c> read.</summary>
+    public const string AccessGrantEntityType = "AccessGrant";
+
     private readonly IEntityTypeRegistry _types;
     private readonly IFormDefinitionStore _forms;
     private readonly ISchemaRegistry _schemas;
@@ -73,6 +76,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
                 new TenantId(definition.Tenant), id, cancellationToken)
             .ConfigureAwait(false);
         if (target is null && _types.GetSeed(id) is null
+            && !StringComparer.Ordinal.Equals(id.Value, AccessGrantEntityType)
             && !SystemRecordType.All.Any(type => StringComparer.Ordinal.Equals(type.Name, id.Value)))
         {
             throw new ViewDefinitionGovernanceException("view_definition.entity_type_unknown");
@@ -87,6 +91,17 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         if (!TryReadEntityType(definition, out var id))
         {
             return null;
+        }
+
+        if (StringComparer.Ordinal.Equals(id.Value, AccessGrantEntityType))
+        {
+            return new ViewRecordTypeDescriptor(id.Value, new Dictionary<string, ViewRecordFieldKind>(StringComparer.Ordinal)
+            {
+                ["principalId"] = ViewRecordFieldKind.Text,
+                ["role"] = ViewRecordFieldKind.Text,
+                ["scope"] = ViewRecordFieldKind.Text,
+                ["status"] = ViewRecordFieldKind.Text,
+            });
         }
 
         var tenant = new TenantId(definition.Tenant);

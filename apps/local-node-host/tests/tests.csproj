@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../../../tooling/conformance/access-replacement/AccessReplacementFixture.cs" Link="Packs/AccessReplacementFixture.cs" />
     <None Include="../../../_shared/conformance/terminology/v1.json"
           Link="Terminology/v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Authorization/authorization-trace.json" CopyToOutputDirectory="PreserveNewest" />

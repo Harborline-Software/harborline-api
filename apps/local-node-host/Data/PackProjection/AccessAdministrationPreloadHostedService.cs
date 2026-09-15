@@ -265,6 +265,8 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
                 .ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? Array.Empty<string>(),
             Epoch: PackComposerRoutes.OwnRosterEpoch,
-            Dcp: DomainComplianceProfile.General(authoringPrincipal));
+            Dcp: DomainComplianceProfile.General(authoringPrincipal),
+            Exposes: document.Exposes,
+            InterfaceVersion: document.InterfaceVersion);
     }
 }

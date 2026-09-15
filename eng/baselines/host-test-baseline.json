@@ -88,15 +88,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3988,
-      "passed": 3967,
+      "total": 4074,
+      "passed": 4053,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3988 -> 3992; passed 3967 -> 3971; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "PR #153 adds four ordinary platform-independent Standards cases to released main after PR #156's measured eight-case reduction. Preserve the reach batch's composed-host tests, UI package deletions, and PR #158's platform keystore override.",
-    "detectedBy": "Derived from main's full host suite measurement in .claude/worktrees/ireach and the four Standards Fact additions; the merged exact-clone gate must confirm the combined inventory before landing.",
-    "arithmeticCrossCheck": "3988 + 4 = 3992; passed = total - notExecuted = 3992 - 21 = 3971."
+    "change": "total 4074 -> 4080; passed 4053 -> 4059; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-433 contributes six Access producer, descriptor, and deterministic signed-fixture cases to main 864b1347, including landed Terminology and catalogue runtime. The integrated host run measured 4080 total, 4059 passed, zero failures, and 21 skips with the capability toolchain installed. No failure, skip, or retry policy changed.",
+    "detectedBy": "Full Release host run on def185f7490ac3f681dc65ca6348e5b9b52aceb1 under the normal shared gate lock. Retained full console log: artifacts/pr157-ci-reconcile/host-measure-integrated.log; TRX: artifacts/pr157-ci-reconcile/integrated-host-results/host-tests.trx. A committed-tree all-lane quality-enabled gate follows this measured repin.",
+    "arithmeticCrossCheck": "4074 + 6 = 4080; passed = total - notExecuted = 4080 - 21 = 4059."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

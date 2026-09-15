@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackageId>Harborline.Api.Conformance.AccessReplacementFixture</PackageId>
+    <AssemblyName>Harborline.Api.Conformance.AccessReplacementFixture</AssemblyName>
+    <RootNamespace>Harborline.Api.Conformance.AccessReplacementFixture</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../packages/foundation-packs/Harborline.Foundation.Packs.csproj" />
+  </ItemGroup>
+</Project>
