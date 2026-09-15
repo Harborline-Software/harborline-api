@@ -247,8 +247,17 @@ public static class FormDefinitionRoutes
             SaveFormDefinitionRequest? request;
             try
             {
-                request = await JsonSerializer.DeserializeAsync<SaveFormDefinitionRequest>(
-                    http.Request.Body, JsonOptions, ct).ConfigureAwait(false);
+                using var document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct).ConfigureAwait(false);
+                var source = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
+                var catalogueAdmission = http.RequestServices.GetService<CatalogueFieldSourceAdmission>()
+                    ?? new CatalogueFieldSourceAdmission();
+                if (catalogueAdmission.ValidateSupport(source) is { } refusal)
+                    return Results.UnprocessableEntity(new { code = refusal });
+                request = document.RootElement.Deserialize<SaveFormDefinitionRequest>(JsonOptions);
+            }
+            catch (CatalogueFieldSourceException ex)
+            {
+                return Results.BadRequest(new { code = ex.Code });
             }
             catch (JsonException)
             {
@@ -351,7 +360,7 @@ public static class FormDefinitionRoutes
             FormDefinition definition;
             try
             {
-                definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now);
+                definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now, request.CatalogueFieldSource);
             }
             catch (GateReferenceShapeException ex)
             {
@@ -675,7 +684,8 @@ public static class FormDefinitionRoutes
         IdentityRef owner,
         SchemaId schemaRef,
         OverlayDto overlay,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CatalogueFieldSource? catalogueFieldSource = null)
     {
         var fields = overlay.Fields.ToDictionary(
             kv => kv.Key,
@@ -769,7 +779,10 @@ public static class FormDefinitionRoutes
                 Aspects: overlay.Aspects?.ToModel()),
             Lineage: null,
             CreatedAt: now,
-            UpdatedAt: now);
+            UpdatedAt: now)
+        {
+            CatalogueFieldSource = catalogueFieldSource,
+        };
     }
 }
 
@@ -1386,7 +1399,8 @@ internal static class BuilderSchemaSynthesizer
 public sealed record SaveFormDefinitionRequest(
     [property: JsonPropertyName("overlay")] OverlayDto Overlay,
     [property: JsonPropertyName("fieldsMeta")] IReadOnlyDictionary<string, FieldMetaDto>? FieldsMeta,
-    [property: JsonPropertyName("draft"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Draft = null);
+    [property: JsonPropertyName("draft"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Draft = null,
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null);
 
 /// <summary>Per-field schema-synthesis metadata the overlay intentionally omits
 /// (type / required / validations / enum values live below the overlay, on the
@@ -1454,7 +1468,8 @@ public sealed record FormDefinitionDto(
     // /versions/{v} serves a draft revision) — plus, on a published head, the version of a
     // NEWER draft when one exists (see FormDefinitionSummaryDto).
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("latestDraftVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LatestDraftVersion = null)
+    [property: JsonPropertyName("latestDraftVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LatestDraftVersion = null,
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null)
 {
     public static FormDefinitionDto From(FormDefinition def, string? latestDraftVersion = null) => new(
         def.Id.Value,
@@ -1462,7 +1477,8 @@ public sealed record FormDefinitionDto(
         OverlayDto.From(def.Overlay),
         def.Envelope.CascadeLayer.ToString(),
         def.Status.ToString(),
-        latestDraftVersion);
+        latestDraftVersion,
+        def.CatalogueFieldSource);
 }
 
 /// <summary>One revision in a form's version history (GET .../versions) — F-22, item 7.

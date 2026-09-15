@@ -301,11 +301,13 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IDocumentTemplateRegistry? _templates;
     private readonly IPackContentEdgeIndexProvider? _edgeIndex;
     private readonly IFormDefinitionStore? _forms;
+    private readonly CatalogueFieldSourceAdmission _catalogueFields;
     private readonly AuthorizedFormDefinitionLifecycle? _authorizedForms;
     private readonly ISchemaRegistry? _schemas;
     private readonly IWorkflowDefinitionStore? _workflows;
     private readonly AuthorizedWorkflowDefinitionLifecycle? _authorizedWorkflows;
     private readonly WorkflowCatalogueLintReports? _workflowLintReports;
+    private readonly ExposedViewAuthorizationReachabilityReports? _viewReachabilityReports;
     private readonly ITaxonomyRegistry? _taxonomies;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
@@ -318,6 +320,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
+    private readonly IAuthorizationDefinitionCatalogueReader? _authorizationDefinitionCatalogue;
     private readonly IPackPlatformCompatibility? _platform;
     private readonly TimeProvider _time;
     private static readonly ConcurrentDictionary<Guid, byte> ConsumedAuthorities = new();
@@ -363,7 +366,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         AuthorizedWorkflowDefinitionLifecycle? authorizedWorkflows = null,
         IRoleVocabularyStore? roleVocabulary = null,
         AuthorizationDefinitionWriter? authorizationDefinitions = null,
-        WorkflowCatalogueLintReports? workflowLintReports = null)
+        WorkflowCatalogueLintReports? workflowLintReports = null,
+        ExposedViewAuthorizationReachabilityReports? viewReachabilityReports = null,
+        IAuthorizationDefinitionCatalogueReader? authorizationDefinitionCatalogue = null,
+        CatalogueFieldSourceAdmission? catalogueFields = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _types = types ?? throw new ArgumentNullException(nameof(types));
@@ -371,11 +377,13 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _templates = templates;
         _edgeIndex = edgeIndex;
         _forms = forms;
+        _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
         _authorizedForms = authorizedForms;
         _schemas = schemas;
         _workflows = workflows;
         _authorizedWorkflows = authorizedWorkflows;
         _workflowLintReports = workflowLintReports;
+        _viewReachabilityReports = viewReachabilityReports;
         _taxonomies = taxonomies;
         _reportDefinitions = reportDefinitions;
         _dataExchangeDefinitions = dataExchangeDefinitions;
@@ -387,6 +395,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // REFUSED (fail-closed, never skipped) — the same posture every other optional registry takes.
         _roleVocabulary = roleVocabulary;
         _authorizationDefinitions = authorizationDefinitions;
+        _authorizationDefinitionCatalogue = authorizationDefinitionCatalogue;
         // Ticket 160: when the host wires platform-compatibility facts, every projection pass (boot
         // re-projection included) re-runs the SAME requirement check install/activate use. Null keeps
         // back-compat embedders (and pre-160 tests) on the unchecked path — the OPPOSITE default from
@@ -638,6 +647,20 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // The kind half of the prohibition needs no code: PackContentKind has no grant member and
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
             var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
+            var catalogueRefusals = _catalogueFields.Validate(seedItems.Select(item =>
+                new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
+                    pack.PackKey, item.Key, item.Kind, item.Version, item.CanonicalJson,
+                    pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray());
+            if (catalogueRefusals.Count > 0)
+            {
+                foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in catalogueRefusals)
+                {
+                    var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
+                    formsInvalid++;
+                    refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, refusal.Code, ContentPointer(pack, item)));
+                }
+                continue;
+            }
             var smuggled = seedItems
                 .Where(i => PackAuthorizationContentAdmission.IsGrantInstance(TryParseContent(i)))
                 .ToArray();
@@ -1216,6 +1239,20 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         {
             await _workflowLintReports.RefreshAsync(
                     _authorizedWorkflows, tenant, installed, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // T-398: this whole-catalogue pass is deliberately diagnostic. It observes only the compiled
+        // view and authorization catalogues after projection; a finding never enters Refusals and can
+        // therefore never reverse an otherwise successful lifecycle transition.
+        if (_viewDefinitions is not null
+            && _authorizationDefinitionCatalogue is not null
+            && _roleVocabulary is not null
+            && _viewReachabilityReports is not null)
+        {
+            await _viewReachabilityReports.RefreshAsync(
+                    tenant, installed, _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -1853,6 +1890,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
            && StringComparer.Ordinal.Equals(existing.Version, expected.Version)
            && StringComparer.Ordinal.Equals(existing.ViewKind, expected.ViewKind)
            && StringComparer.Ordinal.Equals(existing.Title, expected.Title)
+           && StringComparer.Ordinal.Equals(
+               existing.AuthorizationCapability,
+               expected.AuthorizationCapability)
            && Equals(existing.ShapeRoles, expected.ShapeRoles)
            && StringComparer.Ordinal.Equals(
                existing.Parameters.GetRawText(),
@@ -2246,7 +2286,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
-                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
+                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority, request.CatalogueFieldSource);
 
             FormDefinition existing;
             try
@@ -2339,7 +2379,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
-                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
+                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority, request.CatalogueFieldSource);
 
             FormDefinitionPublishAdmission.ValidateOrThrow(expected);
 
@@ -2490,7 +2530,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
 
         var existingOverlay = JsonSerializer.SerializeToNode(existing.Overlay);
         var expectedOverlay = JsonSerializer.SerializeToNode(expected.Overlay);
-        return System.Text.Json.Nodes.JsonNode.DeepEquals(existingOverlay, expectedOverlay);
+        return System.Text.Json.Nodes.JsonNode.DeepEquals(existingOverlay, expectedOverlay)
+            && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(existing.CatalogueFieldSource),
+                JsonSerializer.SerializeToNode(expected.CatalogueFieldSource));
     }
 
     private FormDefinition BuildProjectedFormDefinition(
@@ -2501,7 +2543,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         OverlayDto overlay,
         DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>? envelope,
         InstalledPack pack,
-        PackProjectionAuthority authority)
+        PackProjectionAuthority authority,
+        CatalogueFieldSource? catalogueFieldSource = null)
     {
         var definition = FormDefinitionRoutes.BuildDefinition(
             id,
@@ -2510,7 +2553,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             IdentityRef.System,
             schemaRef,
             overlay,
-            authority.ActivationInstant);
+            authority.ActivationInstant,
+            catalogueFieldSource);
         // The HTTP authoring route supplies its operator-role compatibility fallback when access is
         // omitted. Pack content has vendor authority and must not inherit those platform roles: an
         // omitted pack gate means no gate, while an explicitly authored gate remains fully admitted.
