@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "e40cfd05d4cfee74fb8f75518714fdc5112fb68d",
-  "recordedAt": "2026-09-15T19:31:58Z",
+  "sourcePin": "def185f7490ac3f681dc65ca6348e5b9b52aceb1",
+  "recordedAt": "2026-09-15T21:29:15Z",
   "totals": {
-    "total": 4074,
-    "passed": 4053,
+    "total": 4080,
+    "passed": 4059,
     "failed": 0,
     "notExecuted": 21
   },
@@ -87,15 +87,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3992,
-      "passed": 3971,
+      "total": 4074,
+      "passed": 4053,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3992 -> 3998; passed 3971 -> 3977; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-433 adds six Access producer, descriptor, and deterministic signed-fixture cases to current main including the authentic Standards catalogue. The complete reconciled Windows suite measured this inventory with zero failures, no new failure identities, and no rescued retries. Failure, skip, and retry policies are unchanged.",
-    "detectedBy": "Committed c48cc6a19cba3a3c99e4b2b246b3e28a52eb8313 exact-clone gate at 2026-09-15T19:41:23Z. Retained evidence: artifacts/pr157-ci-reconcile/measured-c48cc6a1.json and host-c48cc6a1.trx. Every other exact-clone check passed; only the old count differed. The baseline commit requires its own final gate.",
-    "arithmeticCrossCheck": "3992 + 6 = 3998; passed = total - notExecuted = 3998 - 21 = 3977."
+    "change": "total 4074 -> 4080; passed 4053 -> 4059; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-433 contributes six Access producer, descriptor, and deterministic signed-fixture cases to main 864b1347, including landed Terminology and catalogue runtime. The integrated host run measured 4080 total, 4059 passed, zero failures, and 21 skips with the capability toolchain installed. No failure, skip, or retry policy changed.",
+    "detectedBy": "Full Release host run on def185f7490ac3f681dc65ca6348e5b9b52aceb1 under the normal shared gate lock. Retained full console log: artifacts/pr157-ci-reconcile/host-measure-integrated.log; TRX: artifacts/pr157-ci-reconcile/integrated-host-results/host-tests.trx. A committed-tree all-lane quality-enabled gate follows this measured repin.",
+    "arithmeticCrossCheck": "4074 + 6 = 4080; passed = total - notExecuted = 4080 - 21 = 4059."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
