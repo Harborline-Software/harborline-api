@@ -1,5 +1,5 @@
 {
-  "_note": "Ticket 329. Ordinary replaceable Access content: grant form, privileged-review workflow and navigation for the holders read. No grant instances. The holdings view definition and access-by-person report remain deferred with their registrations.",
+  "_note": "Ticket 433. Ordinary replaceable Access content for the bounded grant, privileged-review, holder-read, narrow, revoke and pack-replacement journey. Definitions and actions only; no grant instances.",
   "key": "harborline.access-administration",
   "version": "1.1.1",
   "name": "Access administration",
@@ -207,6 +207,37 @@
       }
     },
     {
+      "key": "access.holders",
+      "kind": "ViewDefinition",
+      "version": "1.0.0",
+      "content": {
+        "key": "access.holders",
+        "version": "1.0.0",
+        "tenant": "bootstrap",
+        "schemaVersion": 1,
+        "viewKind": "views.entity-list/grid",
+        "title": "Access holders",
+        "authorizationCapability": "access.holder.read",
+        "parameters": {
+          "entityType": "AccessGrant",
+          "fields": [
+            { "id": "principalId", "label": "Person" },
+            { "id": "role", "label": "Role" },
+            { "id": "scope", "label": "Scope" },
+            { "id": "status", "label": "Status" }
+          ],
+          "actions": [
+            { "id": "grant", "label": "Grant a role", "operation": "access.grant.submit", "inputForm": "access.grant-a-role" },
+            { "id": "privileged-review", "label": "Review privileged grant", "operation": "access.grant.review", "workflow": "access.privileged-grant-review" },
+            { "id": "holder-read", "label": "Read holder access", "operation": "access.holder.read" },
+            { "id": "narrow", "label": "Narrow grant", "operation": "access.grant.narrow" },
+            { "id": "revoke", "label": "Revoke grant", "operation": "access.grant.revoke" },
+            { "id": "replace-pack", "label": "Replace Access pack", "operation": "access.pack.replace" }
+          ]
+        }
+      }
+    },
+    {
       "key": "access.navigation",
       "kind": "NavWorkspaceConfig",
       "version": "1.1.0",
@@ -250,6 +281,8 @@
       }
     }
   ],
+  "exposes": ["access.holders"],
+  "interfaceVersion": 1,
   "dependencies": [
     {
       "key": "harborline.platform",
