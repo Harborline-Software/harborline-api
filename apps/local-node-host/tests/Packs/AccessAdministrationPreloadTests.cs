@@ -284,7 +284,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 4),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 36),
+                    PackLifecycleState.Active, 62),
             },
             firstBoot);
         Assert.Equal(
@@ -301,9 +301,9 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.RoleDefinition));
         Assert.Equal(3, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
-        Assert.Equal(13, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
+        Assert.Equal(39, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
-        Assert.Equal(13, projectedViews.Count);
+        Assert.Equal(39, projectedViews.Count);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
         var formsView = await catalogue.GetAsync(
             Tenant, PackContentKind.ViewDefinition, "platform.list.forms", cancellationToken: CancellationToken.None);
