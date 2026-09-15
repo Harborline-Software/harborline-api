@@ -107,6 +107,9 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.CascadeDefaults)
             .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
                 "CascadeDefaults requires the governance projection and its admission validator.")));
+        refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.TerminologyOverride)
+            .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                "Terminology requires its runtime consumer and versioned admission.")));
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.FormDefinition))
         {
             if (DeclaresCatalogueFieldSource(item.CanonicalJson)

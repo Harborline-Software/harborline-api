@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "abeea566db420f3d87566ebfaf2e1fc5504b46a4+3e58da9f57fb0c1e9b9bd8bb5632b07b14e7c1ae",
-  "recordedAt": "2026-09-15T15:57:00Z",
+  "sourcePin": "1fb90522cbdee5462b9dd7f8c26603151ee25c59",
+  "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 3999,
-    "passed": 3973,
+    "total": 4061,
+    "passed": 4035,
     "failed": 4,
     "notExecuted": 22
   },
   "policy": [
+    "Ticket 427 runtime: advance passed and total by 66 ordinary platform-independent cases, from 3969/3995 to 4035/4061. This is a documentary additive inventory adjustment from the focused 356-case Windows execution, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances and named comparison remain unchanged.",
     "Ticket 426 Standards adapter: four ordinary platform-independent cases advance this derived inventory from 3969/3995 to 3973/3999. Failure identities, allowances, skipped counts and named comparison remain unchanged; this is not a new macOS measurement.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3969/3995 passed/total on macOS. This remains a documentary additive adjustment, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
     "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3883/3909 inventory to 3961/3987. These named-comparison totals are documentary and this is a derived additive adjustment, not a new macOS measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",

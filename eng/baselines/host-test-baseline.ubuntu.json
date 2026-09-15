@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "abeea566db420f3d87566ebfaf2e1fc5504b46a4+3e58da9f57fb0c1e9b9bd8bb5632b07b14e7c1ae",
-  "recordedAt": "2026-09-15T15:57:00Z",
+  "sourcePin": "1fb90522cbdee5462b9dd7f8c26603151ee25c59",
+  "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 3778,
-    "passed": 3754,
+    "total": 3840,
+    "passed": 3816,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 427 runtime: advance passed and total by 66 ordinary platform-independent cases, from 3750/3774 to 3816/3840. This is a documentary additive inventory adjustment from the focused 356-case Windows execution, not a fresh Ubuntu measurement. Exact failure, skip, retry identities, allowances and named comparison remain unchanged.",
     "Ticket 426 Standards adapter: four ordinary platform-independent cases advance this derived inventory from 3750/3774 to 3754/3778. Failure identities, allowances, skipped counts and named comparison remain unchanged; this is not a new Ubuntu measurement.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3750/3774 passed/total on Ubuntu. This remains a documentary additive adjustment, not a fresh Ubuntu measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
     "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3664/3688 inventory to 3742/3766. These named-comparison totals are documentary and this is a derived additive adjustment, not a new Ubuntu measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",

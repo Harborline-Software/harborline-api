@@ -1459,9 +1459,7 @@ var runningPackPlatformVersion =
         ?? typeof(PackInstaller).Assembly.GetName().Version?.ToString()
         ?? "0.0.0")
     .Split('+', 2)[0];
-builder.Services.AddSingleton<IPackPlatformCompatibility>(new PackPlatformCompatibility(
-    runningPackPlatformVersion,
-    Harborline.Api.LocalNodeHost.Data.PackProjection.PackSeedProjector.RegisteredCases));
+builder.Services.AddCatalogueFieldSourceRuntime(runningPackPlatformVersion);
 // F5 (migration-update-architecture D5.2 / D5.3) — bind the DURABLE SQLCipher-backed IPackInstallStore BEFORE
 // AddPackComposerInstall so its TryAdd default (InMemoryPackInstallStore) is skipped. This is what makes an
 // installed+activated pack + its S-8 watermark + tenant overrides SURVIVE a node restart / deploy-dogfood
@@ -2330,6 +2328,7 @@ builder.Services.AddNodeForms(
 // Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.CatalogueRegistries>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.TerminologyProjection>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 

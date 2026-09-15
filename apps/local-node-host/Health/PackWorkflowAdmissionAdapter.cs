@@ -43,6 +43,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
     private readonly CatalogueFieldSourceAdmission _catalogueFields;
     private readonly ActiveCascadeDefaultsProjection? _defaults;
     public bool ConsumesCascadeDefaults => _defaults is not null;
+    private readonly Data.PackProjection.TerminologyProjection? _terminology;
 
     /// <summary>Constructs the adapter over the node's registered admission validator (registry-derived).</summary>
     public PackWorkflowAdmissionAdapter(
@@ -50,6 +51,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
         IRestrictingDefinitionKindValidator? kinds = null,
         IRoleGateAdmission? roleGateAdmission = null,
         CatalogueFieldSourceAdmission? catalogueFields = null,
+        Data.PackProjection.TerminologyProjection? terminology = null,
         ActiveCascadeDefaultsProjection? defaults = null)
     {
         _admission = admission ?? throw new ArgumentNullException(nameof(admission));
@@ -58,6 +60,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
         _roleGateAdmission = roleGateAdmission;
         _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
         _defaults = defaults;
+        _terminology = terminology;
     }
 
     /// <inheritdoc />
@@ -87,6 +90,12 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
                     new(1, "", package.SelectMany(policy => policy.Composed.Defaults).ToArray())))
                 refusals.Add(new(package.First().Item.Key, CascadeDefaultsRestrictionCheck.Refused,
                     "Composed defaults weaken the publisher policy.") { Pointer = "/defaults" });
+        if (_terminology is null)
+            refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.TerminologyOverride)
+                .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                    "Terminology runtime consumer is not registered.")));
+        else
+            refusals.AddRange(PackTerminologyContent.Validate(composed, tenant));
 
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.WorkflowDefinition))
         {

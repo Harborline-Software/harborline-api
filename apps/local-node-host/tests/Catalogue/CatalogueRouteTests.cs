@@ -204,7 +204,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(
             _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey));
-        var duplicate = active with { SeedItems = [.. active.SeedItems, active.SeedItems[0]] };
+        var descriptor = Assert.Single(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
+        var duplicate = active with { SeedItems = [.. active.SeedItems, descriptor] };
 
         var types = SystemRecordType.FromActivePlatformPack(duplicate);
 

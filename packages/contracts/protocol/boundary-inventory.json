@@ -1366,6 +1366,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CatalogueDetailRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/CatalogueDetailRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:$\"{RouteBase}/{{id}}/archive\"",
       "kind": "local-node-http",
       "method": "POST",
