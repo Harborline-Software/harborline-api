@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
-  "recordedAt": "2026-09-14T16:33:30Z",
+  "sourcePin": "3170e2fef1f1aca81e2751af6f904cc5cebaa161",
+  "recordedAt": "2026-09-15T13:07:00Z",
   "totals": {
-    "total": 3910,
-    "passed": 3889,
+    "total": 3914,
+    "passed": 3893,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 426 seeded Health/Browse slice: add exactly four ordinary, platform-independent host test cases, with no conditional compilation or skips. PR #149 verify-windows reported no failures, no permitted failures and no known-flaky retries; it refused only the stale count inventory. The final exact-clone rerun validates this +4 re-pin while preserving the zero-failure allowance.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
     "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",

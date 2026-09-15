@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "6145f0fb",
-  "recordedAt": "2026-09-09T00:00:00Z",
+  "sourcePin": "3170e2fef1f1aca81e2751af6f904cc5cebaa161",
+  "recordedAt": "2026-09-15T13:07:00Z",
   "comparison": "named",
   "totals": {
-    "total": 3688,
-    "passed": 3664,
+    "total": 3692,
+    "passed": 3668,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
