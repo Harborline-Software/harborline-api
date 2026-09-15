@@ -502,7 +502,7 @@ public sealed class CatalogueRegistries(
 
     private static CatalogueProvenance PackProvenance(InstalledPack pack) => new(pack.PackKey, pack.Version, "pack");
 
-    private IReadOnlyList<CatalogueEntry> DefaultsEntries(TenantId tenant, string? id, string? version) =>
+    private CatalogueEntry[] DefaultsEntries(TenantId tenant, string? id, string? version) =>
         (defaults?.List(tenant) ?? []).Where(row => (id is null || row.Source.ContentKey == id)
                 && (version is null || row.Source.ContentVersion == version))
             .Select(row => new CatalogueEntry(row.Source.ContentKey, row.Source.ContentVersion, PackContentKind.CascadeDefaults,
