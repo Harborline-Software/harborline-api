@@ -15,9 +15,38 @@ cd "$root"
 source "$root/eng/gate-lock.sh"
 gate_lock_acquire "eng/verify.sh"
 
+# LANES (ticket 421). The gate is fifteen steps and only exact-clone answers differently per host:
+# it selects a baseline from uname -s below. Running the whole script on two runners therefore asked
+# the same question twice, so CI splits it:
+#
+#   HARBORLINE_VERIFY_LANE=shared   everything EXCEPT exact-clone -- runs once, on any free runner
+#   HARBORLINE_VERIFY_LANE=host     exact-clone only -- runs per host, against that host's baseline
+#   unset, or `all`                 every step, which is what a developer running this by hand wants
+#
+# The receipt records the lane and requires that lane's steps; only `all` records a whole-gate one.
+lane=${HARBORLINE_VERIFY_LANE:-all}
+case "$lane" in all|shared|host) ;; *) echo "HARBORLINE_VERIFY_LANE must be all, shared or host (got: $lane)" >&2; exit 1 ;; esac
+# quality and quality-baseline belong to the HOST lane, not the shared one, because they read what
+# exact-clone produces: run-exact-clone.mjs builds the clone with -p:HarborlineRoslynSarifDirectory
+# and writes both SARIF sets into artifacts/quality. Run them without it and both engines report
+# analyzer-error over an empty set, which the gate refuses as an engine failure -- correctly.
+# They run on the ONE host that carries HARBORLINE_GATE_QUALITY=1, so the comparison happens once
+# however many hosts run the suite.
+in_lane() {
+  case "$1:$lane" in
+    *:all) return 0 ;;
+    exact-clone:host) return 0 ;;
+    quality:host|quality-baseline:host) [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ] ;;
+    *:host) return 1 ;;
+    exact-clone:shared|quality:shared|quality-baseline:shared) return 1 ;;
+    *:shared) return 0 ;;
+  esac
+}
+
 passed=()
 step() {
   local id=$1; shift
+  if ! in_lane "$id"; then return 0; fi
   printf '\n\033[1m── %s\033[0m\n' "$id"
   if "$@"; then
     passed+=("$id")
@@ -31,7 +60,10 @@ step() {
 
 # Prerequisites the CI runner installed with setup-* actions. Checked up front rather than failing
 # three steps in, because "cargo: not found" halfway through a long run reads like a real failure.
-for tool in dotnet node cargo; do
+# The host lane builds and runs suites from a clone; it compiles no Rust, so cargo is a shared-lane
+# prerequisite only. Asking for it everywhere would put a Rust toolchain on a runner that needs none.
+case "$lane" in host) required_tools="dotnet node" ;; *) required_tools="dotnet node cargo" ;; esac
+for tool in $required_tools; do
   command -v "$tool" >/dev/null || { echo "required tool not on PATH: $tool" >&2; exit 1; }
 done
 
@@ -96,4 +128,4 @@ step quality-baseline        bash -c 'source eng/quality-baseline-landing.sh; qu
 step packages                bash eng/verify-packages.sh
 
 printf '\n\033[32mAll %d steps passed in %dm%02ds\033[0m\n' "${#passed[@]}" "$(((SECONDS-started)/60))" "$(((SECONDS-started)%60))"
-node eng/verify-receipt.mjs --record "${passed[@]}" --host-baseline "$host_baseline"
+node eng/verify-receipt.mjs --record "${passed[@]}" --host-baseline "$host_baseline" --lane "$lane"
