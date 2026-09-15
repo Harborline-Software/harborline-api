@@ -86,7 +86,14 @@ jobs:
             d="$HOME/Projects/Harborline/lanes/${l%%:*}"; r="${l##*:}"
             [ -d "$d/.git" ] && git -C "$d" remote set-url origin "https://github.com/Harborline-Software/$r.git"
           done
-          git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "note: control-gh not refreshed (private; no token on the runner account); seeded snapshot $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
+          # The dependency-ledger step reads justification notes that land in control the same day as the
+          # pin they justify, so a stale snapshot fails the gate. Refresh through the pins token when the
+          # runner has it (the same token the hosted job clones with); otherwise say so and carry on.
+          if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
+            git -C "$HARBORLINE_CONTROL_REPO" -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' '${{ secrets.HARBORLINE_PINS_TOKEN }}' | base64 | tr -d '\n')" fetch -q origin main && git -C "$HARBORLINE_CONTROL_REPO" reset -q --hard FETCH_HEAD && echo "control-gh refreshed to $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
+          else
+            git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "note: control-gh not refreshed (private; no token on the runner account); seeded snapshot $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
+          fi
           qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
           if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then
             git -C "$HARBORLINE_QUALITY_REPO" cat-file -e "$qpin^{commit}" 2>/dev/null || git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null || true

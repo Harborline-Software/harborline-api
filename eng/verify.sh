@@ -72,6 +72,7 @@ started=$SECONDS
 # Fast structural gate first: it is a git-grep and costs a second, and there is no reason to spend
 # the .NET suite before reporting a name that should not be in the tree.
 step boundaries              bash eng/verify-boundaries.sh
+step dependency-ledger       node eng/dependency-ledger.mjs
 
 # Ticket 260 slice 28: the retired-family spelling check, run from harborline-control's checker
 # against this checkout only (eng/identity-r3-scan.sh). Blocking since ticket 267 took the count to zero;
