@@ -1,4 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Feedback
-@inherits HarborlineComponentBase
-<div class="@CombineClasses("sf-toaster")" style="@CombineStyles()" aria-label="@AriaLabel" aria-live="polite" aria-atomic="true" @attributes="AdditionalAttributes">@ChildContent</div>
-@code { [Parameter] public string? AriaLabel { get; set; } [Parameter] public RenderFragment? ChildContent { get; set; } }

@@ -99,7 +99,6 @@
     <Project Path="packages/kernel-signatures/Harborline.Kernel.Signatures.csproj" />
     <Project Path="packages/kernel-sync/Harborline.Kernel.Sync.csproj" />
     <Project Path="packages/kernel/Harborline.Kernel.csproj" />
-    <Project Path="packages/ui-adapters-blazor/Harborline.UIAdapters.Blazor.csproj" />
     <Project Path="packages/ui-core/Harborline.UICore.csproj" />
   </Folder>
   <Folder Name="/tooling/">

@@ -1,6 +1,5 @@
 using Harborline.Api.Kernel.Runtime.Notifications;
 using Harborline.Api.Kernel.Runtime.Teams;
-using Harborline.Api.UIAdapters.Blazor.Components.LocalFirst;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Xunit;
