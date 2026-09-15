@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "abdb6401c6674c5d496de7a1d4cdbb7b3522e3a2+b49c0080eccb681066f6b21e0266651b2a47ca39",
-  "recordedAt": "2026-09-15T18:34:27Z",
+  "sourcePin": "c48cc6a19cba3a3c99e4b2b246b3e28a52eb8313",
+  "recordedAt": "2026-09-15T19:41:23Z",
   "totals": {
-    "total": 3992,
-    "passed": 3971,
+    "total": 3998,
+    "passed": 3977,
     "failed": 0,
     "notExecuted": 21
   },
@@ -82,15 +82,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3988,
-      "passed": 3967,
+      "total": 3992,
+      "passed": 3971,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3988 -> 3992; passed 3967 -> 3971; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "PR #153 adds four ordinary platform-independent Standards cases to released main after PR #156's measured eight-case reduction. Preserve the reach batch's composed-host tests, UI package deletions, and PR #158's platform keystore override.",
-    "detectedBy": "Derived from main's full host suite measurement in .claude/worktrees/ireach and the four Standards Fact additions; the merged exact-clone gate must confirm the combined inventory before landing.",
-    "arithmeticCrossCheck": "3988 + 4 = 3992; passed = total - notExecuted = 3992 - 21 = 3971."
+    "change": "total 3992 -> 3998; passed 3971 -> 3977; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-433 adds six Access producer, descriptor, and deterministic signed-fixture cases to current main including the authentic Standards catalogue. The complete reconciled Windows suite measured this inventory with zero failures, no new failure identities, and no rescued retries. Failure, skip, and retry policies are unchanged.",
+    "detectedBy": "Committed c48cc6a19cba3a3c99e4b2b246b3e28a52eb8313 exact-clone gate at 2026-09-15T19:41:23Z. Retained evidence: artifacts/pr157-ci-reconcile/measured-c48cc6a1.json and host-c48cc6a1.trx. Every other exact-clone check passed; only the old count differed. The baseline commit requires its own final gate.",
+    "arithmeticCrossCheck": "3992 + 6 = 3998; passed = total - notExecuted = 3998 - 21 = 3977."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
