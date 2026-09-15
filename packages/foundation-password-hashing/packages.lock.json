@@ -70,6 +70,11 @@
           "Microsoft.AspNetCore.Cryptography.Internal": "11.0.0-preview.7.26381.103"
         }
       },
+      "Microsoft.Extensions.Configuration": {
+        "type": "Transitive",
+        "resolved": "11.0.0-preview.7.26381.103",
+        "contentHash": "6YIdcM583agiVU/fJ/rANk7p55VDYnPfP46fB48VDJn9LrQ3J7Bib5kAQtCCsrW1IJv9fh7TkoiYYdcVps9F3A=="
+      },
       "Microsoft.Extensions.Configuration.Binder": {
         "type": "Transitive",
         "resolved": "11.0.0-preview.7.26381.103",
@@ -95,26 +100,19 @@
           "Microsoft.Extensions.DependencyInjection": "11.0.0-preview.7.26381.103"
         }
       },
-      "Microsoft.Extensions.Configuration": {
-        "type": "CentralTransitive",
-        "requested": "[11.0.0-preview.7.26381.103, )",
+      "Microsoft.Extensions.Options.ConfigurationExtensions": {
+        "type": "Transitive",
         "resolved": "11.0.0-preview.7.26381.103",
-        "contentHash": "6YIdcM583agiVU/fJ/rANk7p55VDYnPfP46fB48VDJn9LrQ3J7Bib5kAQtCCsrW1IJv9fh7TkoiYYdcVps9F3A=="
+        "contentHash": "nkheyD5iwoPvfUFOQMrGhNA5GAjP39OsMGRyUyiSxQ6hx4Rod8FDcGo7wgU5HAONzJOqXIr+cNZgrPRRF0ChAA==",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Binder": "11.0.0-preview.7.26381.103"
+        }
       },
       "Microsoft.Extensions.DependencyInjection": {
         "type": "CentralTransitive",
         "requested": "[11.0.0-preview.7.26381.103, )",
         "resolved": "11.0.0-preview.7.26381.103",
         "contentHash": "IgS1YfEd2i0p/zY8ytcW1zaFR3ivC0M4Ce3JnpZoKpzK9MogNkHb9BZPqYtq0mDuCe2ouirh6058glgPxhwD8g=="
-      },
-      "Microsoft.Extensions.Options.ConfigurationExtensions": {
-        "type": "CentralTransitive",
-        "requested": "[11.0.0-preview.7.26381.103, )",
-        "resolved": "11.0.0-preview.7.26381.103",
-        "contentHash": "nkheyD5iwoPvfUFOQMrGhNA5GAjP39OsMGRyUyiSxQ6hx4Rod8FDcGo7wgU5HAONzJOqXIr+cNZgrPRRF0ChAA==",
-        "dependencies": {
-          "Microsoft.Extensions.Configuration.Binder": "11.0.0-preview.7.26381.103"
-        }
       }
     }
   }
