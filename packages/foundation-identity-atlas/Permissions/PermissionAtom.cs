@@ -12,6 +12,9 @@ public readonly record struct PermissionAtom
         }
 
         ArgumentNullException.ThrowIfNull(scope);
+        if (operation.Value == Permission.CatalogueRead && scope.Value.StartsWith("/records/", StringComparison.Ordinal)
+            && !scope.Value.Contains("/catalogue-fields/", StringComparison.Ordinal))
+            CatalogueFieldTarget.ValidateRecordScope(scope.Value);
         Operation = operation;
         Scope = scope;
     }
@@ -32,9 +35,12 @@ public readonly record struct PermissionAtom
             throw new ArgumentException("A permission atom must have the form resource:verb@/path.", nameof(value));
         }
 
-        return new PermissionAtom(
-            AuthorizationOperation.Parse(value[..separator]),
-            ScopeExpression.Parse(value[(separator + 1)..]));
+        var operation = AuthorizationOperation.Parse(value[..separator]);
+        var scope = value[(separator + 1)..];
+        if (operation.Value == Permission.CatalogueRead && scope.StartsWith("/records/", StringComparison.Ordinal)
+            && !scope.Contains("/catalogue-fields/", StringComparison.Ordinal))
+            CatalogueFieldTarget.ValidateRecordScope(scope);
+        return new PermissionAtom(operation, ScopeExpression.Parse(scope));
     }
 
     /// <summary>Returns whether this atom covers the requested operation and scope.</summary>

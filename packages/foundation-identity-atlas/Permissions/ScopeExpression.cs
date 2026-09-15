@@ -24,6 +24,8 @@ public sealed record ScopeExpression
             || value.Contains("#", StringComparison.Ordinal))
             throw new ArgumentException("A scope must be an absolute tenant-relative path.", nameof(value));
 
+        if (value.Contains("/catalogue-fields/", StringComparison.Ordinal))
+            _ = CatalogueFieldTarget.Parse(value);
         var normalized = value.Length > 1 && value.EndsWith('/', StringComparison.Ordinal) ? value[..^1] : value;
         if (normalized != "/")
         {

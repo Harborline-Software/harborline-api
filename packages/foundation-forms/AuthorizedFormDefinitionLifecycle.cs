@@ -14,8 +14,10 @@ using System.Runtime.CompilerServices;
 namespace Harborline.Api.Foundation.Forms;
 
 /// <summary>The unavoidable authorize-stage façade for form-definition mutations.</summary>
-public sealed class AuthorizedFormDefinitionLifecycle
+public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
 {
+    public CatalogueFormSources CatalogueSources { get; } = new();
+    public void Dispose() => CatalogueSources.Dispose();
     private readonly IFormDefinitionStore inner;
     private readonly DefinitionWriter writer;
     private readonly AuthorizationGate gate;
@@ -317,7 +319,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         };
         await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(candidate, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(candidate, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
+            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -334,7 +337,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         };
         await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(candidate, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(candidate, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
+            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -353,7 +357,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         var candidate = StampPackSource(StampLayer(definition, provenance.Layer), authority);
         await AdmitAsync(candidate, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(candidate, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(candidate, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(candidate),
+            () => writer.RegisterAsync(candidate, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -376,7 +381,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         };
         await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(published, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(published, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
+            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -394,7 +400,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         };
         await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(published, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(published, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
+            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -419,7 +426,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         };
         await AdmitAsync(published, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(published, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await writer.RegisterAsync(published, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(Coordinates(published),
+            () => writer.RegisterAsync(published, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -435,7 +443,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(definition, DefinitionAuthorityKind.Tenant, null, ct).ConfigureAwait(false);
-        var stored = await writer.PublishAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.PublishAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -448,7 +457,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(definition, authority.AuthorityKind, null, ct).ConfigureAwait(false);
-        var stored = await writer.PublishAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.PublishAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -467,8 +477,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             persisted.Envelope.CascadeLayer, authority.PackId);
         await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
         await ValidateSupersessionAsync(persisted, DefinitionAuthorityKind.VendorPackage, authority.PackId, ct).ConfigureAwait(false);
-        var stored = await writer.PublishPackAsync(
-            coordinates, authority.ActivationInstant, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.PublishPackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -484,7 +494,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
         await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Supersession, ct).ConfigureAwait(false);
-        var stored = await writer.DeprecateAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.DeprecateAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -500,7 +511,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
         await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await writer.WithdrawAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.WithdrawAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -513,7 +525,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
         await RefuseHeldAsync(definition, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await writer.WithdrawAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.WithdrawAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -532,8 +545,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             persisted.Envelope.CascadeLayer, authority.PackId);
         await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
         await RefuseHeldAsync(persisted, DefinitionLegalHoldOperation.Withdrawal, ct).ConfigureAwait(false);
-        var stored = await writer.WithdrawPackAsync(
-            coordinates, authority.ActivationInstant, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.WithdrawPackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -548,7 +561,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         var provenance = DefinitionAuthorityClassifier.Classify(
             DefinitionAuthorityKind.Tenant, authority.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await writer.RestorePackProjectionAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.RestorePackProjectionAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -560,7 +574,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
         var provenance = DefinitionAuthorityClassifier.Classify(
             authority.AuthorityKind, coordinates.Address.Tenant, definition.Envelope.CascadeLayer);
         await AdmitAsync(definition, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await writer.RestorePackProjectionAsync(coordinates, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.RestorePackProjectionAsync(coordinates, ct)).ConfigureAwait(false);
         return stored;
     }
 
@@ -578,8 +593,8 @@ public sealed class AuthorizedFormDefinitionLifecycle
             DefinitionAuthorityKind.VendorPackage, authority.Tenant,
             persisted.Envelope.CascadeLayer, authority.PackId);
         await AdmitAsync(persisted, provenance.Owner, ct).ConfigureAwait(false);
-        var stored = await writer.RestorePackAsync(
-            coordinates, authority.ActivationInstant, ct).ConfigureAwait(false);
+        var stored = await CatalogueSources.PersistAsync(coordinates,
+            () => writer.RestorePackAsync(coordinates, authority.ActivationInstant, ct)).ConfigureAwait(false);
         return stored;
     }
 

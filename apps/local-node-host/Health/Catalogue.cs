@@ -43,7 +43,8 @@ public sealed record CatalogueEntry(
     DateTimeOffset UpdatedAt,
     JsonElement Body,
     string? DefinitionHash = null,
-    RenderPlan? RenderPlan = null);
+    RenderPlan? RenderPlan = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSourceBinding? CatalogueFieldBinding = null);
 
 /// <summary>The pack authority that supplied a catalogue entry.</summary>
 public sealed record CatalogueProvenance(
@@ -262,7 +263,9 @@ public sealed class ProjectedCatalogue : ICatalogue
             definition.UpdatedAt,
             JsonSerializer.SerializeToElement(FormDefinitionDto.From(definition)),
             plan?.DefinitionHash,
-            plan);
+            plan,
+            authorizedForms.CatalogueSources.Resolve(tenant, new CatalogueFieldCoordinate(1, "FormDefinition",
+                definition.Id.Value, definition.Version.ToString(), "formId"))?.Identity.Binding);
     }
 
     private CatalogueEntry From(TenantId tenant, ViewDefinition definition)
