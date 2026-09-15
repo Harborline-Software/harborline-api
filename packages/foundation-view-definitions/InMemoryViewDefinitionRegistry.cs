@@ -189,6 +189,12 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         {
             throw new ViewDefinitionGovernanceException("view_definition.parameters_not_object");
         }
+
+        if (definition.AuthorizationCapability is not null
+            && string.IsNullOrWhiteSpace(definition.AuthorizationCapability))
+        {
+            throw new ViewDefinitionGovernanceException("view_definition.authorization_capability_empty");
+        }
     }
 
     private static ViewDefinition Detach(ViewDefinition definition) => definition with
@@ -207,6 +213,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         JsonEqual(left.Provenance, right.Provenance) &&
         StringComparer.Ordinal.Equals(left.ViewKind, right.ViewKind) &&
         StringComparer.Ordinal.Equals(left.Title, right.Title) &&
+        StringComparer.Ordinal.Equals(left.AuthorizationCapability, right.AuthorizationCapability) &&
         Equals(left.ShapeRoles, right.ShapeRoles) &&
         JsonEqual(left.Parameters, right.Parameters);
 

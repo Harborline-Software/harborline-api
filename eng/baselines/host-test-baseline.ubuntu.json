@@ -2,17 +2,19 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88+d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e",
-  "recordedAt": "2026-09-15T14:36:41Z",
+  "sourcePin": "01b828200763a4b82389397bb85f4344cf63397c+f4b1b5b9f0422d60c4ba5337935d42646dd62927",
+  "recordedAt": "2026-09-15T15:21:17Z",
   "comparison": "named",
   "totals": {
-    "total": 3766,
-    "passed": 3742,
+    "total": 3774,
+    "passed": 3750,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3750/3774 passed/total on Ubuntu. This remains a documentary additive adjustment, not a fresh Ubuntu measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
     "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3664/3688 inventory to 3742/3766. These named-comparison totals are documentary and this is a derived additive adjustment, not a new Ubuntu measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 398: advance passed and total by eight ordinary platform-independent reachability and Health cases. This is an additive inventory adjustment from the focused Windows execution, including real activation plus production startup reprojection; named failures, allowances and skips are unchanged.",
     "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3664/3688 inventory to 3681/3705. This is a derived additive inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
     "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",

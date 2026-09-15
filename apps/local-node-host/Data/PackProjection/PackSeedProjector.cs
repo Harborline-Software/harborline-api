@@ -307,6 +307,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IWorkflowDefinitionStore? _workflows;
     private readonly AuthorizedWorkflowDefinitionLifecycle? _authorizedWorkflows;
     private readonly WorkflowCatalogueLintReports? _workflowLintReports;
+    private readonly ExposedViewAuthorizationReachabilityReports? _viewReachabilityReports;
     private readonly ITaxonomyRegistry? _taxonomies;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
@@ -319,6 +320,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
+    private readonly IAuthorizationDefinitionCatalogueReader? _authorizationDefinitionCatalogue;
     private readonly IPackPlatformCompatibility? _platform;
     private readonly TimeProvider _time;
     private static readonly ConcurrentDictionary<Guid, byte> ConsumedAuthorities = new();
@@ -365,6 +367,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         IRoleVocabularyStore? roleVocabulary = null,
         AuthorizationDefinitionWriter? authorizationDefinitions = null,
         WorkflowCatalogueLintReports? workflowLintReports = null,
+        ExposedViewAuthorizationReachabilityReports? viewReachabilityReports = null,
+        IAuthorizationDefinitionCatalogueReader? authorizationDefinitionCatalogue = null,
         CatalogueFieldSourceAdmission? catalogueFields = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -379,6 +383,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _workflows = workflows;
         _authorizedWorkflows = authorizedWorkflows;
         _workflowLintReports = workflowLintReports;
+        _viewReachabilityReports = viewReachabilityReports;
         _taxonomies = taxonomies;
         _reportDefinitions = reportDefinitions;
         _dataExchangeDefinitions = dataExchangeDefinitions;
@@ -390,6 +395,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // REFUSED (fail-closed, never skipped) — the same posture every other optional registry takes.
         _roleVocabulary = roleVocabulary;
         _authorizationDefinitions = authorizationDefinitions;
+        _authorizationDefinitionCatalogue = authorizationDefinitionCatalogue;
         // Ticket 160: when the host wires platform-compatibility facts, every projection pass (boot
         // re-projection included) re-runs the SAME requirement check install/activate use. Null keeps
         // back-compat embedders (and pre-160 tests) on the unchecked path — the OPPOSITE default from
@@ -1236,6 +1242,20 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .ConfigureAwait(false);
         }
 
+        // T-398: this whole-catalogue pass is deliberately diagnostic. It observes only the compiled
+        // view and authorization catalogues after projection; a finding never enters Refusals and can
+        // therefore never reverse an otherwise successful lifecycle transition.
+        if (_viewDefinitions is not null
+            && _authorizationDefinitionCatalogue is not null
+            && _roleVocabulary is not null
+            && _viewReachabilityReports is not null)
+        {
+            await _viewReachabilityReports.RefreshAsync(
+                    tenant, installed, _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return new PackSeedProjectionSummary(
             seeded, present, invalid, formsDeferred, templatesPublished, templatesInvalid, otherSkipped,
             ownedByOther, contestedUnresolved, formsPublished, formsPresent, formsInvalid,
@@ -1870,6 +1890,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
            && StringComparer.Ordinal.Equals(existing.Version, expected.Version)
            && StringComparer.Ordinal.Equals(existing.ViewKind, expected.ViewKind)
            && StringComparer.Ordinal.Equals(existing.Title, expected.Title)
+           && StringComparer.Ordinal.Equals(
+               existing.AuthorizationCapability,
+               expected.AuthorizationCapability)
            && Equals(existing.ShapeRoles, expected.ShapeRoles)
            && StringComparer.Ordinal.Equals(
                existing.Parameters.GetRawText(),
