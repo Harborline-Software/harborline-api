@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Forms;
+using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -47,6 +48,18 @@ public sealed class PackRefusalCodeAndPointerFenceTests
         var exception = Assert.Throws<Xunit.Sdk.XunitException>(
             () => KnownCodeProducerDeclaration(missingType, documents));
         Assert.Contains("MissingKnownCodeProducer is absent from", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("PackAdmissionRefusal", true)]
+    [InlineData("UnregisteredResult", false)]
+    public void Typed_foreach_forwarding_requires_a_scanned_refusal_type(string type, bool recognized)
+    {
+        var root = CSharpSyntaxTree.ParseText("class Probe { void Project() { foreach (" + type
+            + " refusal in source) { _ = refusal.Code; } } }").GetRoot();
+        var document = new SourceDocument("probe.cs", root);
+        var receiver = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>().Single().Expression;
+        Assert.Equal(recognized, ProducerTypes(receiver, document, [document]).Contains(type));
     }
 
     [Fact(DisplayName = "394: every refusal construction supplies its pointer or has the ticketed pack-grain exemption")]
@@ -578,6 +591,13 @@ public sealed class PackRefusalCodeAndPointerFenceTests
     {
         if (receiver is IdentifierNameSyntax identifier)
         {
+            // Explicitly typed foreach projections retain the same scanned refusal producer.
+            // Only reflected refusal record types qualify; an arbitrary object's .Code still refuses.
+            var loop = receiver.Ancestors().OfType<ForEachStatementSyntax>()
+                .FirstOrDefault(candidate => candidate.Identifier.ValueText == identifier.Identifier.ValueText);
+            if (loop is not null && IsScannedRefusalType(loop.Type.ToString().Split('.').Last()))
+                return [loop.Type.ToString().Split('.').Last()];
+
             var lambda = receiver.Ancestors().OfType<LambdaExpressionSyntax>()
                 .FirstOrDefault(candidate => LambdaParameterNames(candidate).Contains(identifier.Identifier.ValueText));
             if (lambda is not null)
@@ -692,6 +712,7 @@ public sealed class PackRefusalCodeAndPointerFenceTests
                || (type.Namespace == "Harborline.Api.LocalNodeHost.Health"
                    && type.Name.StartsWith("Pack", StringComparison.Ordinal))
                || type == typeof(FormDefinitionCodes)
+               || type == typeof(CatalogueFieldSourceCodes)
                || type == typeof(WorkflowAdmissionCodes));
 
     private static HashSet<string> DeclaredCodeValues()
