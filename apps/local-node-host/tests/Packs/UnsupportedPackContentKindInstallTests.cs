@@ -384,7 +384,7 @@ public sealed class UnsupportedPackContentKindInstallTests
 
         var refusal = Assert.Single(summary.Refusals);
         Assert.Equal(PackContentKind.TerminologyOverride, refusal.ContentKind);
-        Assert.Equal(PackTerminologyContent.Malformed, refusal.Code);
+        Assert.Equal(PackTerminologyCodes.Malformed, refusal.Code);
         Assert.Equal(0, summary.OtherKindsSkipped);
     }
 

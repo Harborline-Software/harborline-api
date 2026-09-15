@@ -30,9 +30,9 @@ public sealed class TerminologyProjection
     }
 
     /// <summary>Admits the final seed-plus-override body before making its typed row visible.</summary>
-    internal string? Admit(TenantId tenant, string packVersion, PackComposedItem item)
+    internal string? AdmitTerminology(TenantId tenant, string packVersion, PackComposedItem item)
     {
-        var code = PackTerminologyContent.TryRead(item, tenant, out var content);
+        var code = PackTerminologyContent.TryReadTerminology(item, tenant, out var content);
         if (code is not null) return code;
         lock (sync) entries[(tenant, item.Key)] = new Entry(content!, item.PackageKey, packVersion);
         return null;

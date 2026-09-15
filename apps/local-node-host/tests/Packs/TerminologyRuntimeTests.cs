@@ -43,7 +43,7 @@ public sealed class TerminologyRuntimeTests
         var request = fixture["request"]!;
         Assert.Equal(1, request["schemaVersion"]!.GetValue<int>());
         Assert.Equal(Tenant.ToString(), request["tenantId"]!.GetValue<string>());
-        Assert.Null(PackTerminologyContent.TryRead(Item(composed, seed.ToJsonString()), Tenant, out var content));
+        Assert.Null(PackTerminologyContent.TryReadTerminology(Item(composed, seed.ToJsonString()), Tenant, out var content));
         var result = PackTerminologyContent.Resolve(content!, request["userLocale"]!.GetValue<string>());
         Assert.Equal(request["stableId"]!.GetValue<string>(), result.StableId);
         Assert.True(JsonNode.DeepEquals(fixture["response"], JsonSerializer.SerializeToNode(result, Json)));
@@ -55,21 +55,21 @@ public sealed class TerminologyRuntimeTests
     }
 
     [Theory]
-    [InlineData("schemaVersion", "2", PackTerminologyContent.UnsupportedVersion)]
-    [InlineData("tenantId", "\"another-tenant\"", PackTerminologyContent.CrossTenant)]
-    [InlineData("stableId", "\"label-is-not-identity\"", PackTerminologyContent.Malformed)]
-    [InlineData("version", "\"2.0.0\"", PackTerminologyContent.Malformed)]
-    [InlineData("unknown", "true", PackTerminologyContent.Malformed)]
-    [InlineData("packageTranslations", "[]", PackTerminologyContent.Malformed)]
-    [InlineData("tenantOverrides", "{\"fr\":{\"text\":\"Bonjour\"}}", PackTerminologyContent.Malformed)]
-    [InlineData("defaultLocale", "null", PackTerminologyContent.Malformed)]
+    [InlineData("schemaVersion", "2", PackTerminologyCodes.UnsupportedVersion)]
+    [InlineData("tenantId", "\"another-tenant\"", PackTerminologyCodes.CrossTenant)]
+    [InlineData("stableId", "\"label-is-not-identity\"", PackTerminologyCodes.Malformed)]
+    [InlineData("version", "\"2.0.0\"", PackTerminologyCodes.Malformed)]
+    [InlineData("unknown", "true", PackTerminologyCodes.Malformed)]
+    [InlineData("packageTranslations", "[]", PackTerminologyCodes.Malformed)]
+    [InlineData("tenantOverrides", "{\"fr\":{\"text\":\"Bonjour\"}}", PackTerminologyCodes.Malformed)]
+    [InlineData("defaultLocale", "null", PackTerminologyCodes.Malformed)]
     public void Admission_refuses_invalid_composed_content_without_model(string field, string value, string code)
     {
         var body = Fixture()["content"]!;
         body[field] = JsonNode.Parse(value);
         var refusal = Assert.Single(PackTerminologyContent.Validate([Item(body)], Tenant));
         Assert.Equal(code, refusal.Code);
-        Assert.Equal(code, PackTerminologyContent.TryRead(Item(body), Tenant, out var content));
+        Assert.Equal(code, PackTerminologyContent.TryReadTerminology(Item(body), Tenant, out var content));
         Assert.Null(content);
     }
 
@@ -79,12 +79,12 @@ public sealed class TerminologyRuntimeTests
         var body = Fixture()["content"]!;
         var json = body.ToJsonString();
         var item = Item(body) with { CanonicalJson = json.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1", StringComparison.Ordinal) };
-        Assert.Equal(PackTerminologyContent.Malformed, PackTerminologyContent.TryRead(item, Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.Malformed, PackTerminologyContent.TryReadTerminology(item, Tenant, out _));
         body.AsObject().Remove("schemaVersion");
-        Assert.Equal(PackTerminologyContent.Malformed, PackTerminologyContent.TryRead(Item(body), Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.Malformed, PackTerminologyContent.TryReadTerminology(Item(body), Tenant, out _));
         var scoped = Fixture()["content"]!;
         scoped["tenantId"] = OtherTenant.ToString();
-        Assert.Equal(PackTerminologyContent.CrossTenant, PackTerminologyContent.TryRead(Item(Fixture()["content"]!, scoped.ToJsonString()), Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.CrossTenant, PackTerminologyContent.TryReadTerminology(Item(Fixture()["content"]!, scoped.ToJsonString()), Tenant, out _));
         Assert.False(new WorkflowRefusingPackContentAdmission().Admit([Item(Fixture()["content"]!)], Tenant).IsAdmissible);
         Assert.False(new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()).Admit([Item(Fixture()["content"]!)], Tenant).IsAdmissible);
     }
@@ -95,12 +95,12 @@ public sealed class TerminologyRuntimeTests
         var seed = Fixture()["content"]!;
         var changed = seed.DeepClone();
         changed["packageTranslations"]!["en"]!["text"] = "Forged package value";
-        Assert.Equal(PackTerminologyContent.ImmutableSourceChanged, PackTerminologyContent.TryRead(Item(changed, seed.ToJsonString()), Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.ImmutableSourceChanged, PackTerminologyContent.TryReadTerminology(Item(changed, seed.ToJsonString()), Tenant, out _));
         seed["schemaVersion"] = 99;
-        Assert.Equal(PackTerminologyContent.UnsupportedVersion, PackTerminologyContent.TryRead(Item(Fixture()["content"]!, seed.ToJsonString()), Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.UnsupportedVersion, PackTerminologyContent.TryReadTerminology(Item(Fixture()["content"]!, seed.ToJsonString()), Tenant, out _));
         var forgedTenant = Fixture()["content"]!;
         forgedTenant["tenantOverrides"] = Fixture()["overridePatch"]!["tenantOverrides"]!.DeepClone();
-        Assert.Equal(PackTerminologyContent.Malformed, PackTerminologyContent.TryRead(Item(forgedTenant, forgedTenant.ToJsonString()), Tenant, out _));
+        Assert.Equal(PackTerminologyCodes.Malformed, PackTerminologyContent.TryReadTerminology(Item(forgedTenant, forgedTenant.ToJsonString()), Tenant, out _));
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class TerminologyRuntimeTests
         Assert.Equal("terminology.test", row.Provenance.PackKey);
         Assert.Equal("1.0.0", row.Provenance.PackVersion);
         Assert.Equal("Équipement", row.Body.GetProperty("tenantOverrides").GetProperty("fr").GetProperty("text").GetString());
-        Assert.Null(PackTerminologyContent.TryRead(Item(JsonNode.Parse(row.Body.GetRawText())!), Tenant, out _));
+        Assert.Null(PackTerminologyContent.TryReadTerminology(Item(JsonNode.Parse(row.Body.GetRawText())!), Tenant, out _));
         Assert.Null(await fixture.Catalogue.GetAsync(Tenant, PackContentKind.TerminologyOverride, row.Id, "9.0.0"));
         Assert.Null(fixture.Projection.Resolve(OtherTenant, row.Id, "fr"));
         Assert.Empty((await fixture.Catalogue.ListAsync(OtherTenant, PackContentKind.TerminologyOverride)).Entries);
@@ -144,7 +144,7 @@ public sealed class TerminologyRuntimeTests
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         fixture.Packs.SaveOverride(Tenant, "terminology.test", new PackTenantOverride("operations.asset", JsonNode.Parse("{\"schemaVersion\":2}")!));
         var result = await fixture.Projector.ProjectActivePacksAsync(Tenant);
-        Assert.Contains(result.Refusals, refusal => refusal.Code == PackTerminologyContent.UnsupportedVersion);
+        Assert.Contains(result.Refusals, refusal => refusal.Code == PackTerminologyCodes.UnsupportedVersion);
         Assert.Empty(fixture.Projection.List(Tenant));
     }
 
@@ -158,7 +158,7 @@ public sealed class TerminologyRuntimeTests
         var unsupported = Fixture()["content"]!;
         unsupported["schemaVersion"] = 8;
         var result = await fixture.Install(unsupported, "2.0.0", expectInstalled: false);
-        Assert.Contains(result.Preview.AdmissionRefusals, refusal => refusal.Code == PackTerminologyContent.UnsupportedVersion);
+        Assert.Contains(result.Preview.AdmissionRefusals, refusal => refusal.Code == PackTerminologyCodes.UnsupportedVersion);
         Assert.Single(fixture.Packs.ListInstalled(Tenant));
         Assert.Equal("1.0.0", Assert.Single(fixture.Projection.List(Tenant)).Provenance.PackVersion);
         Assert.Null(fixture.Packs.GetVersion(Tenant, "terminology.test", "2.0.0"));

@@ -727,8 +727,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.RefusedUnsupportedCascadeDefaults => 1,
                 _ => 2,
             })!;
-            return HardRefusal(manifest.Key, manifest.Version, refusal.Code,
-                revocationStale, signerB64, epoch, scope, refusals: [refusal]);
+            return refusal.Code switch
+            {
+                PackInstallCodes.RefusedUnsupportedStandardsCatalog => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedStandardsCatalog,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+                _ => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedCascadeDefaults,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+            };
         }
 
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);

@@ -1062,11 +1062,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     case PackContentKind.TerminologyOverride:
                         var terminologyDecision = DecideContested(pack, item, collisions);
                         if (terminologyDecision == ContestedDecision.OwnedByOtherPack) break;
+                        var terminologyItem = composedItems.Single(candidate => candidate.Key == item.Key);
                         var terminologyRefusal = terminologyDecision == ContestedDecision.Project
                             ? _terminology is null
                                 ? Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionCodes.NotWired
-                                : _terminology.Admit(tenant, pack.Version, composedItems.Single(candidate => candidate.Key == item.Key))
-                            : "pack.terminology.ownership_unresolved";
+                                : _terminology.AdmitTerminology(tenant, pack.Version, terminologyItem)
+                            : Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyCodes.OwnershipUnresolved;
                         if (terminologyRefusal is not null)
                             refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, terminologyRefusal, ContentPointer(pack, item)));
                         break;

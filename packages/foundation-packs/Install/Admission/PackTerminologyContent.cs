@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Packs.Model;
 
+
 namespace Harborline.Api.Foundation.Packs.Install.Admission;
 
 /// <summary>A translation and the source revision against which it was written.</summary>
@@ -22,8 +23,8 @@ public sealed record TerminologyResolution(
     string StableId, string Version, string Text, string RequestedLocale, string ResolvedLocale,
     string Source, bool UsedFallback, bool IsStale);
 
-/// <summary>Strict versioned terminology parsing shared by installation and runtime projection.</summary>
-public static class PackTerminologyContent
+/// <summary>Published terminology admission and projection refusal codes.</summary>
+public static class PackTerminologyCodes
 {
     /// <summary>Malformed or unknown contract shape.</summary>
     public const string Malformed = "pack.terminology.malformed";
@@ -33,14 +34,20 @@ public static class PackTerminologyContent
     public const string CrossTenant = "pack.terminology.cross_tenant";
     /// <summary>A tenant patch changed a package-owned identity or translation.</summary>
     public const string ImmutableSourceChanged = "pack.terminology.immutable_source_changed";
+    /// <summary>Competing package claims have no resolved terminology owner.</summary>
+    public const string OwnershipUnresolved = "pack.terminology.ownership_unresolved";
+}
 
+/// <summary>Strict versioned terminology parsing shared by installation and runtime projection.</summary>
+public static class PackTerminologyContent
+{
     /// <summary>Validates both signed source and final composed content before any installation effect.</summary>
     public static IReadOnlyList<PackAdmissionRefusal> Validate(IReadOnlyList<PackComposedItem> composed, TenantId tenant)
     {
         var refusals = new List<PackAdmissionRefusal>();
         foreach (var item in composed.Where(item => item.Kind == PackContentKind.TerminologyOverride))
         {
-            var code = TryRead(item, tenant, out _);
+            var code = TryReadTerminology(item, tenant, out _);
             if (code is not null)
                 refusals.Add(new PackAdmissionRefusal(item.Key, code, "Terminology content failed versioned tenant admission."));
         }
@@ -48,53 +55,53 @@ public static class PackTerminologyContent
     }
 
     /// <summary>Parses an admitted content candidate; a refusal never returns a partial model.</summary>
-    public static string? TryRead(PackComposedItem item, TenantId tenant, out TerminologyContent? content)
+    public static string? TryReadTerminology(PackComposedItem item, TenantId tenant, out TerminologyContent? content)
     {
         content = null;
-        if (item.Kind != PackContentKind.TerminologyOverride) return Malformed;
+        if (item.Kind != PackContentKind.TerminologyOverride) return PackTerminologyCodes.Malformed;
         try
         {
             using var document = JsonDocument.Parse(item.CanonicalJson);
-            var code = Read(document.RootElement, item, tenant, out var candidate);
+            var code = ReadTerminologyBody(document.RootElement, item, tenant, out var candidate);
             if (code is not null) return code;
             if (item.SeedCanonicalJson is { } seedJson)
             {
                 using var seed = JsonDocument.Parse(seedJson);
-                code = Read(seed.RootElement, item, tenant, out var source);
+                code = ReadTerminologyBody(seed.RootElement, item, tenant, out var source);
                 if (code is not null) return code;
-                if (source!.TenantOverrides.Count != 0) return Malformed;
+                if (source!.TenantOverrides.Count != 0) return PackTerminologyCodes.Malformed;
                 var original = JsonNode.Parse(seedJson)!.AsObject();
                 var composed = JsonNode.Parse(item.CanonicalJson)!.AsObject();
                 original.Remove("tenantOverrides");
                 composed.Remove("tenantOverrides");
-                if (!JsonNode.DeepEquals(original, composed)) return ImmutableSourceChanged;
+                if (!JsonNode.DeepEquals(original, composed)) return PackTerminologyCodes.ImmutableSourceChanged;
             }
             content = candidate;
             return null;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException or ArgumentException)
         {
-            return Malformed;
+            return PackTerminologyCodes.Malformed;
         }
     }
 
-    private static string? Read(JsonElement root, PackComposedItem item, TenantId tenant, out TerminologyContent? content)
+    private static string? ReadTerminologyBody(JsonElement root, PackComposedItem item, TenantId tenant, out TerminologyContent? content)
     {
         content = null;
         Fields(root, ["schemaVersion", "stableId", "version", "tenantId", "defaultLocale", "sourceRevision", "packageTranslations", "tenantOverrides"]);
-        if (!root.GetProperty("schemaVersion").TryGetInt32(out var schema)) return Malformed;
-        if (schema != 1) return UnsupportedVersion;
+        if (!root.GetProperty("schemaVersion").TryGetInt32(out var schema)) return PackTerminologyCodes.Malformed;
+        if (schema != 1) return PackTerminologyCodes.UnsupportedVersion;
         var id = Text(root, "stableId");
         var version = Text(root, "version");
-        if (id != item.Key || version != item.Version) return Malformed;
+        if (id != item.Key || version != item.Version) return PackTerminologyCodes.Malformed;
         var tenantId = root.TryGetProperty("tenantId", out var scope) ? scope.GetString() : null;
-        if (scope.ValueKind != JsonValueKind.Undefined && (string.IsNullOrWhiteSpace(tenantId) || tenantId != tenant.ToString())) return CrossTenant;
+        if (scope.ValueKind != JsonValueKind.Undefined && (string.IsNullOrWhiteSpace(tenantId) || tenantId != tenant.ToString())) return PackTerminologyCodes.CrossTenant;
         var locale = Text(root, "defaultLocale");
-        if (!IsLocale(locale)) return Malformed;
+        if (!IsLocale(locale)) return PackTerminologyCodes.Malformed;
         var revision = Text(root, "sourceRevision");
         var package = Translations(root.GetProperty("packageTranslations"));
         var overrides = Translations(root.GetProperty("tenantOverrides"));
-        if (!package.TryGetValue(locale, out var fallback) || fallback.SourceRevision != revision) return Malformed;
+        if (!package.TryGetValue(locale, out var fallback) || fallback.SourceRevision != revision) return PackTerminologyCodes.Malformed;
         content = new TerminologyContent(schema, id, version, tenantId, locale, revision, package, overrides);
         return null;
     }
