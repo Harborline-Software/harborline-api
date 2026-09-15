@@ -6,6 +6,14 @@ own verify publishes, confirm it reports `0 new` against the current committed b
 this directory's `quality-baseline.json`, and add a dated entry below saying which run measured it.
 A re-pin that reports new findings is not a re-pin; it is a landing that needs review.
 
+2026-09-15 (re-pin to e3b7dbba, in the reach batch PR itself) — T-451 deleted `packages/ui-adapters-blazor`
+and the lit side of `packages/ui-core`, which carried 1,273 of the committed rows. Measured by the
+branch's own `eng/verify.sh` run at `e3b7dbba` on winbox (artifacts/quality/findings.json, both engines
+ok): **0 new, 1,282 resolved**, 2,341 rows to 1,059. A pure shrink. The landing gate's resolved bound
+(more than 50 and more than a tenth of the baseline) refused the shrink as a suspected engine failure,
+which is why the re-pin rides in the same PR instead of a follow-up: the next main verify would
+otherwise refuse every landing until someone re-pinned by hand.
+
 2026-09-14 (re-pin to 06fedbd6) — First re-pin after ticket 436 made the committed file the only
 baseline. Measured by main's verify at `06fedbd6` (run 34870684582, artifact
 `quality-findings-06fedbd6f00ad867b7...`). Compared against the outgoing `4e179067` pin with ticket
