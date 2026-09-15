@@ -10,18 +10,25 @@ namespace Harborline.Api.LocalNodeHost.Tests.Sync;
 [Collection("Harborline process environment")]
 public sealed class ComposedHostTransportTests
 {
+    // The root seed override keeps the composed boot off the platform keystore, which Linux and
+    // macOS runners do not provide (PlatformNotSupportedException: libsecret is Wave 2).
+    private const string RootSeedHex =
+        "3463463463463463463463463463463463463463463463463463463463463463";
+
     [Fact]
     public async Task Known_network_with_mdns_enabled_composes_the_tier_one_mdns_transport()
     {
         var dataDirectory = CreateDataDirectory();
         var previousEnableMdns = Environment.GetEnvironmentVariable("LocalNode__Sync__EnableMdns");
         var previousNetworkTrust = Environment.GetEnvironmentVariable("LocalNode__Sync__NetworkTrust");
+        var previousRootSeedHex = Environment.GetEnvironmentVariable("LocalNode__RootSeedHex");
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         try
         {
             Environment.SetEnvironmentVariable("LocalNode__Sync__EnableMdns", "true");
             Environment.SetEnvironmentVariable("LocalNode__Sync__NetworkTrust", "Known");
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", RootSeedHex);
 
             await LocalNodeHostRuntime.StartAsync(
                 "ticket-450-mdns-transport",
@@ -40,6 +47,7 @@ public sealed class ComposedHostTransportTests
             await LocalNodeHostRuntime.StopAsync(deadline.Token);
             Environment.SetEnvironmentVariable("LocalNode__Sync__EnableMdns", previousEnableMdns);
             Environment.SetEnvironmentVariable("LocalNode__Sync__NetworkTrust", previousNetworkTrust);
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", previousRootSeedHex);
             DeleteDataDirectory(dataDirectory);
         }
     }
@@ -48,10 +56,12 @@ public sealed class ComposedHostTransportTests
     public async Task Default_composition_does_not_register_a_transport_selector()
     {
         var dataDirectory = CreateDataDirectory();
+        var previousRootSeedHex = Environment.GetEnvironmentVariable("LocalNode__RootSeedHex");
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
 
         try
         {
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", RootSeedHex);
             await LocalNodeHostRuntime.StartAsync(
                 "ticket-450-default-transport",
                 dataDirectory,
@@ -62,6 +72,7 @@ public sealed class ComposedHostTransportTests
         finally
         {
             await LocalNodeHostRuntime.StopAsync(deadline.Token);
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", previousRootSeedHex);
             DeleteDataDirectory(dataDirectory);
         }
     }
