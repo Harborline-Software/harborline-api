@@ -2,16 +2,19 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e+cca322d8c6dee7947b9e818e3e28ae14caca0ac2",
-  "recordedAt": "2026-09-15T14:45:00Z",
+  "sourcePin": "c8c43ff31ddc2b0eb1df95f4f518e7e03dd0ec4f+3e58da9f57fb0c1e9b9bd8bb5632b07b14e7c1ae",
+  "recordedAt": "2026-09-15T16:12:00Z",
   "comparison": "named",
   "totals": {
-    "total": 3934,
-    "passed": 3908,
+    "total": 3996,
+    "passed": 3970,
     "failed": 4,
     "notExecuted": 22
   },
   "policy": [
+    "Ticket 429 pack.check seed: add one ordinary platform-independent producer contract case, advancing the derived macOS inventory from 3969/3995 to 3970/3996. Failure identities, allowances and skips are unchanged; this is not a new macOS measurement.",
+    "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3969/3995 passed/total on macOS. This remains a documentary additive adjustment, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
+    "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3883/3909 inventory to 3961/3987. These named-comparison totals are documentary and this is a derived additive adjustment, not a new macOS measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",
     "Ticket 398: advance passed and total by eight ordinary platform-independent reachability and Health cases. This is an additive inventory adjustment from the focused Windows execution, including real activation plus production startup reprojection; named failures, allowances and skips are unchanged.",
     "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3883/3909 inventory to 3900/3926. This is a derived additive inventory adjustment, not a new macOS measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
     "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new macOS measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",

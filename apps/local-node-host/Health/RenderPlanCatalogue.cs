@@ -209,7 +209,7 @@ public static class RenderPlanCompiler
                     || !TryGetProperty(action, "label", out var label) || label.ValueKind != JsonValueKind.String
                     || string.IsNullOrWhiteSpace(label.GetString())
                     || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
-                    || operation.GetString() is not ("pack.validate" or "pack.export" or "pack.verify"
+                    || operation.GetString() is not ("pack.validate" or "pack.export" or "pack.verify" or "pack.check"
                         or "pack.install" or "pack.activate" or "record.create" or "record.read"))
                 {
                     refusalCode = PackRenderPlanCodes.BindingUnresolved;

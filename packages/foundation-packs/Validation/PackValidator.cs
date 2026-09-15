@@ -146,6 +146,7 @@ public sealed class PackValidator
         return errors.Count == 0 ? PackValidationResult.Valid : PackValidationResult.Invalid(errors);
     }
 
-    private static bool IsPinned(string? version)
+    /// <summary>Whether a pack coordinate uses the manifest's exact pinned version grammar.</summary>
+    public static bool IsPinned(string? version)
         => !string.IsNullOrWhiteSpace(version) && PinnedVersion.IsMatch(version);
 }

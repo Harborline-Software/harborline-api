@@ -312,7 +312,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(formsView.RenderPlan);
         Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
         Assert.Equal("views.entity-list/grid", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
-        Assert.Equal(7, formsView.RenderPlan.Bindings.GetProperty("actions").GetArrayLength());
+        Assert.Equal(8, formsView.RenderPlan.Bindings.GetProperty("actions").GetArrayLength());
         var authorForm = await catalogue.GetAsync(
             Tenant, PackContentKind.FormDefinition, "platform.pack.author", cancellationToken: CancellationToken.None);
         Assert.NotNull(authorForm?.RenderPlan);
@@ -343,7 +343,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Platform_preload_replaces_active_1_0_0_and_projects_the_seeded_health_and_browse_views()
+    public async Task Platform_preload_upgrades_active_1_0_0_and_projects_the_seeded_health_and_browse_views()
     {
         var context = new PackInstallContext(
             Tenant,
@@ -372,14 +372,14 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.1.0", active.Version);
+        Assert.Equal("1.2.0", active.Version);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
         Assert.Equal(
-            new[] { "1.0.0", "1.1.0" },
+            new[] { "1.0.0", "1.2.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
