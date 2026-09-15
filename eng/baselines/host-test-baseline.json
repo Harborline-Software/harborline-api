@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
-  "recordedAt": "2026-09-14T16:33:30Z",
+  "sourcePin": "e961c07e850c2f8dde59b47c8f2b6ae29ca7e42a",
+  "recordedAt": "2026-09-15T12:38:08Z",
   "totals": {
-    "total": 3910,
-    "passed": 3889,
+    "total": 3923,
+    "passed": 3902,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 426: add exactly 13 ordinary, platform-independent catalogue test cases, with no conditional compilation or skips. The full Windows run at 787ecfe1 measured the initial nine as 3898 passed, 0 failed, 21 skipped, 3919 total; e961c07e adds four provenance-conflict cases and its focused catalogue run passed 40/40. This +13 count re-pin preserves the zero-failure allowance and awaits the final-HEAD full gate.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
     "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",

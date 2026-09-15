@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "fix/426-macos-cert-storage-flags@25a9cb7c",
-  "recordedAt": "2026-09-15T00:50:00Z",
+  "sourcePin": "e961c07e850c2f8dde59b47c8f2b6ae29ca7e42a",
+  "recordedAt": "2026-09-15T12:38:08Z",
   "comparison": "named",
   "totals": {
-    "total": 3909,
-    "passed": 3883,
+    "total": 3922,
+    "passed": 3896,
     "failed": 4,
     "notExecuted": 22
   },
   "policy": [
+    "Ticket 426: advance this platform's existing passed and total counts by exactly 13 ordinary catalogue cases added at e961c07e, with no platform conditionals or skips. This is an additive test-inventory adjustment, not a new macOS measurement. Failure identities, failure allowances, skipped counts, and named comparison remain unchanged.",
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Ticket 302 slice 1 (2026-09-09): the composed-host boot defect was fixed at the root — WindowsEventLogAvailabilityHealthCheck took IWindowsEventLogSink as a REQUIRED dependency while ResilientWindowsEventLogRegistration.Add registers that sink on Windows only, so every /health request on macOS threw inside the health middleware and answered 500. Eleven of the seventeen rows burned down with that one fix and were removed here.",
