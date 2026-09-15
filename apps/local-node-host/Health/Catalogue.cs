@@ -5,17 +5,27 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
+using Harborline.Api.Blocks.Assets.Registry.Model;
+using Harborline.Api.Blocks.Assets.Registry.Services;
+using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.DataExchangeDefinitions;
 using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.Foundation.Documents.Issuance;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.ReportDefinitions;
+using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Api.Foundation.ScheduleDefinitions;
+using Harborline.Api.Foundation.Taxonomy.Services;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 using AmbientTenantContext = Harborline.Api.Foundation.MultiTenancy.ITenantContext;
 
@@ -134,7 +144,7 @@ public interface ICatalogue
 }
 
 /// <summary>
-/// Adapter over the already-composed form definition store. Kinds without a composed adapter are
+/// Adapter over the already-composed definition stores. Kinds without a composed adapter are
 /// explicit empty/unavailable results: a catalogue read never invents persistence or throws.
 /// </summary>
 public sealed class ProjectedCatalogue : ICatalogue
@@ -142,6 +152,7 @@ public sealed class ProjectedCatalogue : ICatalogue
     private readonly AuthorizedFormDefinitionLifecycle authorizedForms;
     private readonly IViewDefinitionRegistry? viewDefinitions;
     private readonly InMemoryRenderPlanCatalogue? renderPlans;
+    private readonly CatalogueRegistries? registries;
 
     /// <summary>
     /// Reads forms through the same authorized lifecycle that owns the Form definition route family.
@@ -151,31 +162,34 @@ public sealed class ProjectedCatalogue : ICatalogue
     public ProjectedCatalogue(
         AuthorizedFormDefinitionLifecycle forms,
         IViewDefinitionRegistry? viewDefinitions = null,
-        InMemoryRenderPlanCatalogue? renderPlans = null)
+        InMemoryRenderPlanCatalogue? renderPlans = null,
+        CatalogueRegistries? registries = null)
     {
         authorizedForms = forms ?? throw new ArgumentNullException(nameof(forms));
         this.viewDefinitions = viewDefinitions;
         this.renderPlans = renderPlans;
+        this.registries = registries;
     }
-    private static readonly PackContentKind[] UnavailableKinds = Enum.GetValues<PackContentKind>()
-        .Where(kind => kind is not (PackContentKind.FormDefinition or PackContentKind.ViewDefinition))
-        .ToArray();
+
+    private bool IsAvailable(PackContentKind kind) => kind == PackContentKind.FormDefinition
+        || (kind == PackContentKind.ViewDefinition && viewDefinitions is not null)
+        || registries?.IsAvailable(kind) == true;
 
     public async ValueTask<CatalogueList> ListAsync(
         TenantId tenant,
         PackContentKind? kind = null,
         CancellationToken cancellationToken = default)
     {
-        if (kind is { } requested && requested != PackContentKind.FormDefinition
-            && (requested != PackContentKind.ViewDefinition || viewDefinitions is null))
+        if (kind is { } requested && !IsAvailable(requested))
         {
             return new CatalogueList(Array.Empty<CatalogueEntry>(), [requested]);
         }
 
         var entries = new List<CatalogueEntry>();
-        await foreach (var definition in ListFormsAsync(tenant, cancellationToken).ConfigureAwait(false))
+        if (kind is null or PackContentKind.FormDefinition)
         {
-            entries.Add(From(tenant, definition));
+            await foreach (var definition in ListFormsAsync(tenant, cancellationToken).ConfigureAwait(false))
+                entries.Add(From(tenant, definition));
         }
 
         if ((kind is null || kind == PackContentKind.ViewDefinition) && viewDefinitions is not null)
@@ -184,7 +198,12 @@ public sealed class ProjectedCatalogue : ICatalogue
             entries.AddRange(views.Select(definition => From(tenant, definition)));
         }
 
-        return new CatalogueList(entries, kind is null ? UnavailableKinds : Array.Empty<PackContentKind>());
+        if (registries is not null)
+            entries.AddRange(await registries.ReadAsync(tenant, kind, cancellationToken: cancellationToken).ConfigureAwait(false));
+
+        return new CatalogueList(entries, kind is null
+            ? Enum.GetValues<PackContentKind>().Where(candidate => !IsAvailable(candidate)).ToArray()
+            : Array.Empty<PackContentKind>());
     }
 
     public async ValueTask<CatalogueEntry?> GetAsync(
@@ -199,7 +218,7 @@ public sealed class ProjectedCatalogue : ICatalogue
             if (version is null)
             {
                 var history = await viewDefinitions.ListVersionsAsync(tenant.Value, id, cancellationToken).ConfigureAwait(false);
-                return history is null ? null : From(tenant, history.Versions[0]);
+                return history is null || history.Versions.Count == 0 ? null : From(tenant, history.Versions[0]);
             }
 
             var view = await viewDefinitions.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false);
@@ -208,7 +227,9 @@ public sealed class ProjectedCatalogue : ICatalogue
 
         if (kind != PackContentKind.FormDefinition)
         {
-            return null;
+            if (registries is null || !registries.IsAvailable(kind)) return null;
+            var entries = await registries.ReadAsync(tenant, kind, id, version, cancellationToken).ConfigureAwait(false);
+            return entries.OrderByDescending(entry => entry.Version, Comparer<string>.Create(PackVersion.Compare)).FirstOrDefault();
         }
 
         try
@@ -271,6 +292,190 @@ public sealed class ProjectedCatalogue : ICatalogue
         => authorizedForms.GetAsync(coordinates, cancellationToken);
 }
 
+/// <summary>
+/// Reads the host's domain registries. Active pack coordinates index shared or non-enumerable stores;
+/// immutable seed bodies are never returned in place of an admitted registry row.
+/// </summary>
+public sealed class CatalogueRegistries(
+    IPackInstallStore packs,
+    IEntityTypeRegistry? assetTypes = null,
+    AuthorizedWorkflowDefinitionLifecycle? workflows = null,
+    IDocumentTemplateRegistry? templates = null,
+    ITaxonomyRegistry? taxonomies = null,
+    IReportDefinitionRegistry? reports = null,
+    IDataExchangeDefinitionRegistry? exchanges = null,
+    IStandingRuleDefinitionStore? standings = null,
+    IScheduleDefinitionRegistry? schedules = null)
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Whether the host supplied the authentic registry for this content kind.</summary>
+    public bool IsAvailable(PackContentKind kind) => kind switch
+    {
+        PackContentKind.AssetTypeDefinition => assetTypes is not null,
+        PackContentKind.WorkflowDefinition => workflows is not null,
+        PackContentKind.TemplateDefinition => templates is not null,
+        PackContentKind.TaxonomyDefinition => taxonomies is not null,
+        PackContentKind.ReportDefinition => reports is not null,
+        PackContentKind.DataExchangeDefinition => exchanges is not null,
+        PackContentKind.StandingRuleDefinition => standings is not null,
+        PackContentKind.ScheduleDefinition => schedules is not null,
+        _ => false,
+    };
+
+    /// <summary>Reads admitted rows using the requested tenant and optional pinned coordinates.</summary>
+    public async ValueTask<IReadOnlyList<CatalogueEntry>> ReadAsync(
+        TenantId tenant, PackContentKind? kind, string? id = null, string? version = null,
+        CancellationToken cancellationToken = default)
+    {
+        var installed = packs.ListInstalled(tenant);
+        var collisions = PackCompositionConflicts.Detect(
+                PackCompositionConflicts.ClaimsFromInstalled(installed), packs.GetKeyOwnership(tenant))
+            .ToDictionary(collision => collision.ContentKey, StringComparer.Ordinal);
+        var active = installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active)
+            .SelectMany(pack => pack.SeedItems.Select(item => (Pack: pack, Item: item)))
+            .Where(source => !collisions.TryGetValue(source.Item.Key, out var collision)
+                || string.Equals(collision.OwnerPackKey, source.Pack.PackKey, StringComparison.Ordinal))
+            .ToArray();
+        var entries = new List<CatalogueEntry>();
+        bool Reads(PackContentKind candidate) => (kind is null || kind == candidate) && IsAvailable(candidate);
+        void Add(PackContentKind entryKind, string key, string revision, string? title, object body,
+            CatalogueProvenance? provenance = null, DateTimeOffset updatedAt = default, InternationalizedTextDto? localizedTitle = null)
+        {
+            if ((id is not null && id != key) || (version is not null && version != revision)) return;
+            if (provenance is null)
+            {
+                var source = active.FirstOrDefault(source => source.Item.Kind == entryKind
+                    && source.Item.Key == key && source.Item.Version == revision);
+                if (source.Pack is not null) provenance = PackProvenance(source.Pack);
+                else if (installed.Any(pack => pack.SeedItems.Any(item => item.Kind == entryKind
+                             && item.Key == key && item.Version == revision))) return;
+                else provenance = new CatalogueProvenance(null, null, "tenant");
+            }
+            entries.Add(new CatalogueEntry(key, revision, entryKind,
+                localizedTitle ?? (title is null ? null : new InternationalizedTextDto("en", new Dictionary<string, string> { ["en"] = title })),
+                provenance, false, "Published", updatedAt, JsonSerializer.SerializeToElement(body, Json)));
+        }
+
+        if (Reads(PackContentKind.WorkflowDefinition))
+        {
+            if (id is not null && version is not null)
+            {
+                try { AddWorkflow(await workflows!.GetAsync(new DefinitionCoordinates(tenant, id, version), cancellationToken).ConfigureAwait(false)); }
+                catch (WorkflowDefinitionNotFoundException) { }
+            }
+            else
+                await foreach (var workflow in workflows!.ListByTenantAsync(tenant, cancellationToken).ConfigureAwait(false)) AddWorkflow(workflow);
+        }
+        void AddWorkflow(WorkflowDefinitionRecord workflow)
+        {
+            if (workflow.Status != WorkflowDefinitionStatus.Published) return;
+            var source = workflow.PackSource;
+            if (source is not null && !active.Any(candidate => candidate.Pack.PackKey == source.PackId
+                    && candidate.Pack.Version == source.PackVersion && candidate.Item.Kind == PackContentKind.WorkflowDefinition
+                    && candidate.Item.Key == workflow.Key && candidate.Item.Version == workflow.Version)) return;
+            var title = workflow.Authored.TryGetProperty("title", out var authoredTitle) && authoredTitle.ValueKind == JsonValueKind.String
+                ? authoredTitle.GetString() : null;
+            Add(PackContentKind.WorkflowDefinition, workflow.Key, workflow.Version, title, workflow.Authored,
+                source is null ? new CatalogueProvenance(null, null, "tenant") : new CatalogueProvenance(source.PackId, source.PackVersion, "pack"),
+                workflow.UpdatedAt, authoredTitle.ValueKind == JsonValueKind.Object
+                    ? JsonSerializer.Deserialize<InternationalizedTextDto>(authoredTitle, Json) : null);
+        }
+
+        if (Reads(PackContentKind.AssetTypeDefinition))
+        {
+            var tenantTypes = await assetTypes!.ListTypesAsync(tenant, cancellationToken).ConfigureAwait(false);
+            foreach (var row in tenantTypes)
+                Add(PackContentKind.AssetTypeDefinition, row.Id.Value, string.Empty, row.Descriptor.DisplayName,
+                    AssetBody(row.Id, row.Descriptor), new CatalogueProvenance(null, null, "tenant"));
+            foreach (var seed in assetTypes.ListSeeds().Where(seed => !tenantTypes.Any(row => row.Id == seed.Id)))
+            {
+                if (seed.Provenance == CascadeLayer.Base)
+                    Add(PackContentKind.AssetTypeDefinition, seed.Id.Value, string.Empty, seed.Descriptor.DisplayName,
+                        AssetBody(seed.Id, seed.Descriptor), new CatalogueProvenance(null, null, "platform"));
+                else
+                    foreach (var source in active.Where(source => source.Item.Kind == PackContentKind.AssetTypeDefinition))
+                        if (PackAssetTypeContent.TryParse(source.Item.ParseContent(), source.Item.Version,
+                                key => source.Pack.SeedItems.FirstOrDefault(item => item.Key == key && item.Kind == PackContentKind.FormDefinition)?.Version,
+                                out var typeId, out var expected, out _) && typeId == seed.Id
+                            && JsonElement.DeepEquals(JsonSerializer.SerializeToElement(AssetBody(typeId, expected), Json),
+                                JsonSerializer.SerializeToElement(AssetBody(seed.Id, seed.Descriptor), Json)))
+                            Add(PackContentKind.AssetTypeDefinition, seed.Id.Value, source.Item.Version, seed.Descriptor.DisplayName,
+                                AssetBody(seed.Id, seed.Descriptor), PackProvenance(source.Pack));
+            }
+        }
+        if (Reads(PackContentKind.TaxonomyDefinition))
+            foreach (var taxonomy in await taxonomies!.ListDefinitionsAsync(tenant, null, cancellationToken).ConfigureAwait(false))
+                if (taxonomy.RetiredAt is null)
+                    Add(PackContentKind.TaxonomyDefinition, taxonomy.Id.Value, taxonomy.Version.ToString(), taxonomy.Description,
+                        taxonomy, updatedAt: taxonomy.PublishedAt);
+        if (Reads(PackContentKind.ReportDefinition))
+        {
+            IEnumerable<ReportDefinition?> definitions = id is not null && version is not null
+                ? (IEnumerable<ReportDefinition?>)new[] { await reports!.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false) }
+                : await reports!.ListDefinitionsAsync(tenant.Value, cancellationToken).ConfigureAwait(false);
+            foreach (var report in definitions)
+                if (report is not null) Add(PackContentKind.ReportDefinition, report.Key, report.Version, report.Title, ReportDefinitionDto.From(report));
+        }
+        if (Reads(PackContentKind.DataExchangeDefinition))
+        {
+            IEnumerable<DataExchangeDefinition?> definitions = id is not null && version is not null
+                ? (IEnumerable<DataExchangeDefinition?>)new[] { await exchanges!.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false) }
+                : await exchanges!.ListDefinitionsAsync(tenant.Value, cancellationToken).ConfigureAwait(false);
+            foreach (var exchange in definitions)
+                if (exchange is not null) Add(PackContentKind.DataExchangeDefinition, exchange.Key, exchange.Version, exchange.Title, DataExchangeDefinitionDto.From(exchange));
+        }
+        foreach (var source in active.Where(source => Reads(source.Item.Kind)))
+        {
+            var item = source.Item;
+            if ((id is not null && item.Key != id) || (version is not null && item.Version != version)) continue;
+            switch (item.Kind)
+            {
+                case PackContentKind.TemplateDefinition:
+                    if (templates!.Resolve(item.Key, item.Version) is { } template && template.Envelope.Tenant == tenant
+                        && PackTemplateContent.TryParse(item.ParseContent(), tenant, out var expectedTemplate, out _)
+                        && JsonElement.DeepEquals(JsonSerializer.SerializeToElement(template, Json), JsonSerializer.SerializeToElement(expectedTemplate, Json)))
+                        Add(item.Kind, template.Key, template.Version, template.DocumentType, template, PackProvenance(source.Pack));
+                    break;
+                case PackContentKind.StandingRuleDefinition:
+                    if (await standings!.GetAsync(item.Key, item.Version, cancellationToken).ConfigureAwait(false) is { } rule
+                        && MatchesStandingSource(rule, item))
+                        Add(item.Kind, rule.RuleId, rule.RuleVersion, rule.Standing.Name, rule, PackProvenance(source.Pack));
+                    break;
+                case PackContentKind.ScheduleDefinition:
+                    if (await schedules!.GetDefinitionAsync(tenant.Value, item.Key, item.Version, cancellationToken).ConfigureAwait(false) is { } schedule)
+                        Add(item.Kind, schedule.Key, schedule.Version, schedule.Title, schedule, PackProvenance(source.Pack));
+                    break;
+            }
+        }
+        return entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.Id, StringComparer.Ordinal)
+            .ThenBy(entry => entry.Version, StringComparer.Ordinal).ToArray();
+    }
+
+    private static CatalogueProvenance PackProvenance(InstalledPack pack) => new(pack.PackKey, pack.Version, "pack");
+
+    private static bool MatchesStandingSource(StandingRuleDefinition rule, PackSeedItem item)
+    {
+        try
+        {
+            var expected = JsonSerializer.Deserialize<StandingRuleDefinition>(item.CanonicalJson, Json);
+            return expected is not null && JsonElement.DeepEquals(
+                JsonSerializer.SerializeToElement(rule, Json), JsonSerializer.SerializeToElement(expected, Json));
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException
+            or Harborline.Api.Foundation.RuleEngine.Compilation.RuleCompilationException) { return false; }
+    }
+
+    // The registry has no revision/timestamp for authored asset types; the envelope leaves those unknown.
+    private static object AssetBody(EntityTypeId id, EntityTypeDescriptor descriptor) => new
+    {
+        id = id.Value, descriptor.DisplayName, descriptor.Traits, descriptor.ParentType, descriptor.PropertyFormBinding,
+        descriptor.Disciplines,
+        inspectionFormBindings = descriptor.InspectionFormBindings.ToDictionary(binding => binding.Key.Value, binding => binding.Value),
+        descriptor.ExpectedUsefulLifeYears, descriptor.TypicalReplacementCost, descriptor.ConditionScaleMax,
+    };
+}
+
 /// <summary>The gate-authorized tenant-scoped catalogue read family.</summary>
 public static class CatalogueRoutes
 {
@@ -310,7 +515,7 @@ public static class CatalogueRoutes
                     http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct).ConfigureAwait(false) is { } denied)
                 return denied;
 
-            if (!Enum.TryParse<PackContentKind>(kind, ignoreCase: true, out var parsed))
+            if (!Enum.TryParse<PackContentKind>(kind, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
                 return Results.BadRequest(new { code = "catalogue.kind_unknown" });
 
             var result = await catalogue.GetAsync(tenant, parsed, id, http.Request.Query["version"], ct).ConfigureAwait(false);
@@ -341,7 +546,7 @@ public static class CatalogueRoutes
             return true;
         }
 
-        if (Enum.TryParse<PackContentKind>(raw, ignoreCase: true, out var parsed))
+        if (Enum.TryParse<PackContentKind>(raw, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed))
         {
             kind = parsed;
             return true;
