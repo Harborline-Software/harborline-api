@@ -59,6 +59,7 @@
          encrypted store, quarantine queue, security primitives, CRDT engine. The host
          composes these but does not own any of their interfaces. -->
     <ProjectReference Include="..\..\packages\foundation\Harborline.Foundation.csproj" />
+    <ProjectReference Include="..\..\packages\foundation-transport\Harborline.Foundation.Transport.csproj" />
     <ProjectReference Include="..\..\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj" />
     <!-- Pack Composer B-1a — the domain-pack export + verify half (manifest model, canonical+merkle
          signing, validator, trust store, verifier). The host maps its export/verify routes; it owns

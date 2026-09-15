@@ -9,6 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Transport;
+using Harborline.Api.Foundation.Transport.DependencyInjection;
+using Harborline.Api.Foundation.Transport.Mdns;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.FinancialLedger.DependencyInjection;
 using Harborline.Api.Blocks.FinancialLedger.Services;
@@ -1107,7 +1110,10 @@ if (localNodeOptions.Sync.EnableMdns &&
     localNodeOptions.Sync.NetworkTrust is Harborline.Api.Kernel.Sync.Network.NetworkTrustLevel.Known)
 {
     builder.Services.AddMdnsPeerDiscovery();
+    builder.Services.AddHarborlineTransport();
+    builder.Services.AddSingleton<IPeerTransport>(_ => new MdnsPeerTransport(time: TimeProvider.System));
     Console.WriteLine("[local-node-host] mDNS peer discovery: ENABLED (same-subnet auto-discovery).");
+    Console.WriteLine("[local-node-host] mDNS peer transport: ENABLED (tier-1 link-local).");
 }
 else if (localNodeOptions.Sync.EnableMdns)
 {
