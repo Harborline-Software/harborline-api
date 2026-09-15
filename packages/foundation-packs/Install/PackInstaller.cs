@@ -816,7 +816,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         var reattach = PackReattachPlanner.Plan(priorSeeds, contents, priorOverrides, manifest.RenamedFrom);
 
         // (S-9) ADR 0143 admission over the COMPOSED post-install cascade (seed ⊕ re-attached overrides).
-        var composed = BuildComposed(manifest.Key, contents, reattach.Reattached);
+        var composed = BuildComposed(manifest.Key, contents, reattach.Reattached, manifest.CapabilityRequirements);
         var admission = _admission.Admit(composed, context.Tenant);
         if (admission.IsAdmissible)
         {
@@ -1330,7 +1330,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     private static IReadOnlyList<PackComposedItem> BuildComposed(
         string packageKey,
         IReadOnlyList<PackContentItem> contents,
-        IReadOnlyList<PackTenantOverride> reattached)
+        IReadOnlyList<PackTenantOverride> reattached,
+        IReadOnlyList<string> capabilityRequirements)
     {
         var overrideByKey = reattached.ToDictionary(o => o.ContentKey, o => o.OverlayPatch, StringComparer.Ordinal);
         var composed = new List<PackComposedItem>(contents.Count);
@@ -1341,7 +1342,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 ? TemplateMerger.ApplyMergePatch(baseNode, patch)
                 : baseNode;
             composed.Add(new PackComposedItem(
-                packageKey, item.Key, item.Kind, item.Version, effective?.ToJsonString() ?? "null"));
+                packageKey, item.Key, item.Kind, item.Version, effective?.ToJsonString() ?? "null",
+                System.Collections.Immutable.ImmutableArray.CreateRange(capabilityRequirements),
+                Encoding.UTF8.GetString(item.CanonicalBytes.Span)));
         }
 
         return composed;

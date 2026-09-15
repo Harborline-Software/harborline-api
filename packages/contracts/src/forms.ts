@@ -753,11 +753,54 @@ export interface FormDefinition {
   /** Content-addressed CID into the kernel schema registry (`SchemaId`). */
   schemaRef: string
   overlay: HarborlineOverlay
+  catalogueFieldSource?: CatalogueFieldSource
   lineage?: FormDefinitionLineage
   /** ISO-8601 UTC. */
   createdAt: string
   /** ISO-8601 UTC. */
   updatedAt: string
+}
+
+/** Frozen v1 adapter operations; these strings are vocabulary, not evaluated paths. */
+export type CatalogueFieldMapping =
+  | { fieldId: 'formId'; source: 'catalogue.entry.formId' }
+  | { fieldId: 'title'; source: 'catalogue.entry.title' }
+  | { fieldId: 'version'; source: 'catalogue.entry.version' }
+  | { fieldId: 'cascadeLayer'; source: 'catalogue.entry.cascadeLayer' }
+
+export interface CatalogueFieldSource {
+  capabilityId: 'forms.catalogue-field-source'
+  coordinateSchemaVersion: 1
+  sourceMappingSchemaVersion: 1
+  sourceKind: 'FormDefinition'
+  fields: readonly [
+    Extract<CatalogueFieldMapping, { fieldId: 'formId' }>,
+    Extract<CatalogueFieldMapping, { fieldId: 'title' }>,
+    Extract<CatalogueFieldMapping, { fieldId: 'version' }>,
+    Extract<CatalogueFieldMapping, { fieldId: 'cascadeLayer' }>,
+  ]
+}
+
+export interface CatalogueFieldCoordinate {
+  schemaVersion: 1
+  kind: 'FormDefinition'
+  id: string
+  version: string
+  field: CatalogueFieldMapping['fieldId']
+}
+
+export type CatalogueFieldProvenance =
+  | { kind: 'tenant' }
+  | { kind: 'pack' | 'platform'; packKey: string; packVersion: string }
+
+export interface CatalogueFieldSourceBinding {
+  definitionHash: string
+  provenance: CatalogueFieldProvenance
+}
+
+export interface CatalogueFieldReadRequest {
+  coordinate: CatalogueFieldCoordinate
+  sourceBinding: CatalogueFieldSourceBinding
 }
 
 // ── View (render side — mirrors foundation-forms-engine + FormsRoutes DTOs) ────

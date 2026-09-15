@@ -26,6 +26,25 @@ internal static class PackFormDefinitionContent
     };
 
     public static bool TryParse(
+        string content,
+        out SaveFormDefinitionRequest request,
+        out DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>? envelope,
+        out string error)
+    {
+        request = null!;
+        envelope = null;
+        error = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            _ = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
+            return TryParse(JsonNode.Parse(content), out request, out envelope, out error);
+        }
+        catch (CatalogueFieldSourceException ex) { error = ex.Code; return false; }
+        catch (JsonException ex) { error = ex.Message; return false; }
+    }
+
+    public static bool TryParse(
         JsonNode? content,
         out SaveFormDefinitionRequest request,
         out string error)
@@ -49,6 +68,8 @@ internal static class PackFormDefinitionContent
 
         try
         {
+            using var document = JsonDocument.Parse(content.ToJsonString());
+            _ = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
             request = content.Deserialize<SaveFormDefinitionRequest>(JsonOptions)!;
             if (content["definitionEnvelope"] is { } envelopeNode)
             {
@@ -63,6 +84,11 @@ internal static class PackFormDefinitionContent
                     return false;
                 }
             }
+        }
+        catch (CatalogueFieldSourceException ex)
+        {
+            error = ex.Code;
+            return false;
         }
         catch (JsonException ex)
         {
@@ -121,7 +147,7 @@ internal static class PackFormDefinitionContent
             entry => entry.Key,
             entry => ToFieldMeta(entry.Key, entry.Value, schemaRoot),
             StringComparer.Ordinal);
-        var request = new SaveFormDefinitionRequest(overlay, fieldsMeta);
+        var request = new SaveFormDefinitionRequest(overlay, fieldsMeta, CatalogueFieldSource: definition.CatalogueFieldSource);
         var content = JsonSerializer.SerializeToNode(request, JsonOptions) as JsonObject
             ?? throw new JsonException("form definition did not serialize to a JSON object");
         // Crossing the signed-pack boundary changes the authority of the transported definition.
