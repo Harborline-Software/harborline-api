@@ -156,6 +156,10 @@ public sealed record FormDefinition
     /// <summary>The Harborline form overlay.</summary>
     public HarborlineOverlay Overlay { get; init; }
 
+    /// <summary>Explicit catalogue-field sourcing; absence preserves legacy general-form behavior.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CatalogueFieldSource? CatalogueFieldSource { get; init; }
+
     /// <summary>Legacy lineage projection over <see cref="DefinitionEnvelope{TIdentity,TVersion,TTenant,TProvenance}.Provenance"/>.</summary>
     public FormDefinitionLineage? Lineage
     {

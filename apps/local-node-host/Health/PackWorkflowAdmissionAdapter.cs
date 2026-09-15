@@ -38,17 +38,20 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
     private readonly IWorkflowAdmissionValidator _admission;
     private readonly PackRestrictingDefinitionAdmission _restricting;
     private readonly IRoleGateAdmission? _roleGateAdmission;
+    private readonly CatalogueFieldSourceAdmission _catalogueFields;
 
     /// <summary>Constructs the adapter over the node's registered admission validator (registry-derived).</summary>
     public PackWorkflowAdmissionAdapter(
         IWorkflowAdmissionValidator admission,
         IRestrictingDefinitionKindValidator? kinds = null,
-        IRoleGateAdmission? roleGateAdmission = null)
+        IRoleGateAdmission? roleGateAdmission = null,
+        CatalogueFieldSourceAdmission? catalogueFields = null)
     {
         _admission = admission ?? throw new ArgumentNullException(nameof(admission));
         _restricting = new PackRestrictingDefinitionAdmission(
             kinds ?? RestrictingDefinitionKindValidator.Shared);
         _roleGateAdmission = roleGateAdmission;
+        _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
     }
 
     /// <inheritdoc />
@@ -57,6 +60,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant, _roleGateAdmission));
+        refusals.AddRange(_catalogueFields.Validate(composed));
 
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.WorkflowDefinition))
         {

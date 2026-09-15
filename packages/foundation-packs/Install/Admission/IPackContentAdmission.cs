@@ -14,12 +14,16 @@ namespace Harborline.Api.Foundation.Packs.Install.Admission;
 /// <param name="Kind">The declarative kind (routes to the right validator; only effecting kinds gate).</param>
 /// <param name="Version">The pinned content version (identity stamping for the validator).</param>
 /// <param name="CanonicalJson">The composed content's JSON — what would become live if installed.</param>
+/// <param name="CapabilityRequirements">Requirements from the verified signed manifest.</param>
+/// <param name="SeedCanonicalJson">Verified original bytes before tenant override composition.</param>
 public sealed record PackComposedItem(
     string PackageKey,
     string Key,
     PackContentKind Kind,
     string Version,
-    string CanonicalJson);
+    string CanonicalJson,
+    IReadOnlyList<string>? CapabilityRequirements = null,
+    string? SeedCanonicalJson = null);
 
 /// <summary>One admission refusal — the offending content key + a stable code + a locator/message.</summary>
 /// <param name="ContentKey">The content key that failed admission.</param>
@@ -90,6 +94,13 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant));
+        foreach (var item in composed.Where(c => c.Kind == PackContentKind.FormDefinition))
+        {
+            if (DeclaresCatalogueFieldSource(item.CanonicalJson)
+                || (item.SeedCanonicalJson is { } seed && DeclaresCatalogueFieldSource(seed)))
+                refusals.Add(new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                    "Catalogue field sources require registered install admission and field-reader support."));
+        }
         refusals.AddRange(composed
             .Where(c => c.Kind == PackContentKind.WorkflowDefinition)
             .Select(c => new PackAdmissionRefusal(
@@ -99,5 +110,17 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
                 + "definition (S-9).")));
 
         return refusals.Count == 0 ? PackAdmissionResult.Admissible : new PackAdmissionResult(refusals);
+    }
+
+    private static bool DeclaresCatalogueFieldSource(string json)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && document.RootElement.EnumerateObject().Any(p =>
+                    string.Equals(p.Name, "catalogueFieldSource", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (System.Text.Json.JsonException) { return true; }
     }
 }
