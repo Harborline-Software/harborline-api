@@ -25,6 +25,8 @@ public sealed record ExposedViewAuthorizationReachabilityFinding(
 public static class ExposedViewAuthorizationReachability
 {
     public const string UnreachableCode = "authorization.exposed_view_unreachable";
+    public const string MissingCapabilityCode = "authorization.exposed_view_capability_missing";
+    public const string UndeclaredCapability = "<undeclared>";
 
     private static readonly IReadOnlyList<RoleReference> PlatformRoots =
         [RoleReference.Administrator, RoleReference.Auditor];
@@ -80,12 +82,24 @@ public static class ExposedViewAuthorizationReachability
                 var definition = await views
                     .GetDefinitionAsync(tenant.Value, item.Key, item.Version, cancellationToken)
                     .ConfigureAwait(false);
-                if (definition is null || string.IsNullOrWhiteSpace(definition.AuthorizationCapability))
+                if (definition is null)
                 {
                     continue;
                 }
 
-                if (!reachableCapabilities.Contains(definition.AuthorizationCapability))
+                var capability = definition.AuthorizationCapability;
+                if (string.IsNullOrWhiteSpace(capability))
+                {
+                    findings.Add(new ExposedViewAuthorizationReachabilityFinding(
+                        MissingCapabilityCode,
+                        $"/contents/{index}/content/authorizationCapability",
+                        definition.Key,
+                        definition.Version,
+                        pack.PackKey,
+                        UndeclaredCapability,
+                        rolesChecked));
+                }
+                else if (!reachableCapabilities.Contains(capability))
                 {
                     findings.Add(new ExposedViewAuthorizationReachabilityFinding(
                         UnreachableCode,
@@ -93,7 +107,7 @@ public static class ExposedViewAuthorizationReachability
                         definition.Key,
                         definition.Version,
                         pack.PackKey,
-                        definition.AuthorizationCapability,
+                        capability,
                         rolesChecked));
                 }
             }
