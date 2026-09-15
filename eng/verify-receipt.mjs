@@ -22,6 +22,7 @@ export const SCHEMA_VERSION = 1
 // commenting a step out of verify.sh does not silently narrow the evidence it records.
 export const requiredStepIds = [
   'boundaries',
+  'dependency-ledger',
   'identity-r3',
   'codegen-check',
   'codegen-guard-suite',
