@@ -33,6 +33,7 @@ using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Documents.Issuance;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
@@ -361,6 +362,26 @@ public sealed class CascadeDefaultsTests
     }
 
     [Theory]
+    [InlineData(PackContentKind.TemplateDefinition)]
+    [InlineData(PackContentKind.FormDefinition)]
+    [InlineData(PackContentKind.StandardsCatalog)]
+    public async Task Later_content_refusal_leaves_no_runtime_or_catalogue_defaults(PackContentKind kind)
+    {
+        using var fixture = new Fixture();
+        const string invalid = "{}";
+        fixture.Install("1.0.0", Body, extra: new("invalid-later", kind, "1.0.0", invalid,
+            Cid.FromBytes(Encoding.UTF8.GetBytes(invalid))));
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+
+        var result = await fixture.Projector.ProjectActivePacksAsync(Tenant);
+
+        Assert.Contains(result.Refusals, refusal => refusal.ContentKey == "invalid-later" && refusal.ContentKind == kind);
+        Assert.Empty(fixture.Defaults.List(Tenant));
+        Assert.Empty(await new CatalogueRegistries(fixture.Packs, defaults: fixture.Defaults)
+            .ReadAsync(Tenant, PackContentKind.CascadeDefaults));
+    }
+
+    [Theory]
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]
@@ -537,7 +558,7 @@ public sealed class CascadeDefaultsTests
         public PackSeedProjector Projector { get; }
         public Fixture() => Projector = new(Packs, services.GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System, defaults: Defaults,
-            forms: Forms, schemas: Schemas,
+            forms: Forms, schemas: Schemas, templates: new InMemoryDocumentTemplateRegistry(),
             authorizedForms: TestAuthorization.FormLifecycle(Forms, TestAuthorization.AllowGate(), new RoleGateAdmission(
                 new InMemoryRoleVocabulary([RoleDefinition.CreateTenantRole(RoleDefinitionId.New(), "default-reader", "Reader", Tenant)]))));
         public void Install(string version, string body, bool includeForm = false, string package = Package, PackSeedItem? extra = null)

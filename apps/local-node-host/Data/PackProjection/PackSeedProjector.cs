@@ -463,6 +463,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         var workflowsRetracted = 0;
         var refusals = new List<PackSeedProjectionRefusal>();
         var platformRefusals = new List<PackPlatformProjectionRefusal>();
+        var pendingDefaults = new List<ProjectedCascadeDefaults>();
 
         var installed = _store.ListInstalled(tenant);
 
@@ -755,8 +756,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     ContentPointer(pack, item)));
             }
 
-            // A Defaults row becomes visible only after the whole-pack refusal checks above pass.
-            _defaults?.Replace(tenant, pack.PackKey, refusals.Count == 0 ? defaultRows : []);
+            pendingDefaults.AddRange(defaultRows);
 
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.
@@ -771,7 +771,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 switch (item.Kind)
                 {
                     case PackContentKind.CascadeDefaults:
-                        // Parsed, composed and atomically replaced above before form policy resolution.
+                        // Parsed above; publication waits for every projection and retraction refusal.
                         break;
                     case PackContentKind.TemplateDefinition:
                         switch (DecideContested(pack, item, collisions))
@@ -1328,6 +1328,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Other content kinds and replacement retractions can refuse after Defaults parsing.
+        // Publish once, only after the entire admission has succeeded; a refused pass leaves no row.
+        _defaults?.Replace(tenant, authority.PackId,
+            refusals.Count == 0 && platformRefusals.Count == 0 ? pendingDefaults : []);
 
         return new PackSeedProjectionSummary(
             seeded, present, invalid, formsDeferred, templatesPublished, templatesInvalid, otherSkipped,

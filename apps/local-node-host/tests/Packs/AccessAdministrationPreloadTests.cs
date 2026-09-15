@@ -10,6 +10,7 @@ using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Blocks.Reports;
 using Harborline.Api.Foundation.Forms;
@@ -77,7 +78,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private InMemoryPackInstallAudit _audit = null!;
     private readonly ActiveCascadeDefaultsProjection _defaults = new();
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
         builder.Services.AddLogging();
@@ -102,11 +103,14 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _forms = _app.Services.GetRequiredService<IFormDefinitionStore>();
         _workflows = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
         var schemas = _app.Services.GetRequiredService<ISchemaRegistry>();
-        _roles = new InMemoryRoleVocabulary(
-        [
-            AccessGrantAuthorizationSeed.MemberDefinition,
-        ]);
+        _roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
         var roleGate = new RoleGateAdmission(_roles, _forms, _workflows);
+        var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
+        var authorizationWriter = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(), grants);
+        await new AccessGrantAuthorizationSeed(authorizationWriter, configuration, grants)
+            .InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production);
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
@@ -139,6 +143,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             authorizedForms: _authorizedForms,
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
             roleVocabulary: _roles,
+            authorizationDefinitions: authorizationWriter,
             renderPlans: _renderPlans,
             defaults: _defaults);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
@@ -177,7 +182,6 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             TimeProvider.System,
             NullLogger<PlatformPackPreloadHostedService>.Instance);
 
-        return Task.CompletedTask;
     }
 
     public async Task DisposeAsync()
