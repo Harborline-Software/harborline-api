@@ -45,8 +45,8 @@
     <PackageReference Include="MinVer" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
   </ItemGroup>
   <ItemGroup Condition="'$(IsPackable)' == 'true' And '$(ManagePackageVersionsCentrally)' != 'true'">
-    <!-- Central versions are off here, so the version must be stated inline. -->
-    <PackageReference Include="MinVer" Version="6.1.0" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+    <!-- Central versions are off here, so the version must be stated inline; keep equal to Directory.Packages.props (T-446). -->
+    <PackageReference Include="MinVer" Version="8.0.0" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
   </ItemGroup>
 
   <!--

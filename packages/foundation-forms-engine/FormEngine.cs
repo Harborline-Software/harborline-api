@@ -328,6 +328,7 @@ public sealed class FormEngine : IFormEngine
                 ValidationErrorKind.NotFound,
                 Code: "form-not-found"));
         }
+        if (formDef.CatalogueFieldSource is not null) return CatalogueFieldReadOnly();
 
         // D4 / retro #1654 FINDING 1: expand the reuse cascade so the pre-check validates the SAME
         // resolved definition the submit gate enforces — the referenced units' fields participate in
@@ -386,7 +387,7 @@ public sealed class FormEngine : IFormEngine
         EnsureNotExpired(token, authority.At);
         RequireAction(token, FormCapabilityAction.Write);
 
-        var formDef = await ResolveFormOrThrowAsync(form, token, ct).ConfigureAwait(false);
+        var formDef = await ResolveFormOrThrowAsync(form, token, ct, forSubmission: true).ConfigureAwait(false);
 
         // FAIL-CLOSED (retro #1654 FINDING 1): the write path MUST NOT persist a definition that still
         // carries an unexpanded Reference node. If it did, the referenced unit's fields would be absent
@@ -618,7 +619,12 @@ public sealed class FormEngine : IFormEngine
             ct);
     }
 
-    private async Task<FormDefinition> ResolveFormOrThrowAsync(FormDefinitionId form, CapabilityToken token, CancellationToken ct)
+    private static ValidationResult CatalogueFieldReadOnly() => ValidationResult.Invalid(new ValidationError(
+        string.Empty, "Catalogue-field-source definitions are read-only; instance submission is refused.",
+        ValidationErrorKind.Schema, Code: CatalogueFieldSourceCodes.ReadOnly));
+
+    private async Task<FormDefinition> ResolveFormOrThrowAsync(FormDefinitionId form, CapabilityToken token, CancellationToken ct,
+        bool forSubmission = false)
     {
         var formDef = await _formDefinitions.GetCurrentPublishedAsync(
             new DefinitionAddress(token.Tenant, form.Value), ct).ConfigureAwait(false);
@@ -626,6 +632,10 @@ public sealed class FormEngine : IFormEngine
         {
             throw new FormDefinitionNotFoundException(form, null, token.Tenant);
         }
+        // The opt-in reader supplies values only through exact field gates; a legacy whole-body
+        // submission must not replace them or invoke a reuse resolver before this refusal.
+        if (forSubmission && formDef.CatalogueFieldSource is not null)
+            throw new FormValidationException(CatalogueFieldReadOnly());
 
         // D4 / retro #1654 FINDING 1: expand the reuse cascade HERE, so EVERY caller of the throw-path
         // (RenderAsync + SaveWithReceiptAsync) governs the RESOLVED effective overlay rather than the raw

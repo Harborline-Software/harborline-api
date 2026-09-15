@@ -49,7 +49,8 @@ public sealed class RouteAudienceGraphTests
         // web-enabled profiles, and slice 2 retires the permissions route from the same four.
         // Ticket 176 adds the catalogue list, item, and system-type reads in every profile.
         // Ticket 395 adds the selected-session pack admission check in every profile.
-        int[] expectedClassifiedCounts = [223, 240, 241, 234, 251, 252];
+        // Ticket 427 adds the selected-session read-only catalogue detail projection in every profile.
+        int[] expectedClassifiedCounts = [224, 241, 242, 235, 252, 253];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)
@@ -69,6 +70,9 @@ public sealed class RouteAudienceGraphTests
             var trace = Assert.Single(pairs, pair => pair.HttpMethod == "GET"
                 && pair.RoutePattern == AuthorizationAdminRoutes.RouteBase + "/traces/{auditId:guid}");
             Assert.Equal(RouteFenceKind.DesktopPlaneOnly, trace.RouteFenceKind);
+            var detail = Assert.Single(pairs, pair => pair.HttpMethod == "POST"
+                && pair.RoutePattern == CatalogueDetailRoutes.Route);
+            Assert.Equal(RouteFenceKind.SelectedSessionProduct, detail.RouteFenceKind);
             var classified = pairs.Count(pair => pair.RouteFenceKind is not null);
             var unclassified = pairs
                 .Where(pair => pair.RouteFenceKind is null)

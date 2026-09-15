@@ -46,6 +46,7 @@ public static class CatalogueFieldSourceCodes
     public const string SourceBindingMismatch = "catalogue-field-source.source-binding-mismatch";
     public const string SourceChangedAfterAuthorization = "catalogue-field-source.source-changed-after-authorization";
     public const string PayloadBindingMismatch = "catalogue-field-source.payload-binding-mismatch";
+    public const string ReadOnly = "catalogue-field-source.read-only";
 }
 
 public sealed class CatalogueFieldSourceException(string code) : JsonException(code)

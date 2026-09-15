@@ -171,6 +171,14 @@ public sealed class AuthorizationGate(
         if (!exactPackTarget
             && !string.Equals(request.Target.RecordKind, expectedRecordKind, StringComparison.Ordinal))
             throw new ArgumentException("The requested operation does not belong to the target record kind.", nameof(request));
+        if (request.Act.Operation.Value == Permission.CatalogueRead
+            && request.Target.Scope.Value.Contains("/catalogue-fields/", StringComparison.Ordinal))
+        {
+            var field = CatalogueFieldTarget.Parse(request.Target.Scope.Value);
+            if (field.Id != request.Target.RecordId || !request.Act.Scope.Equals(field.Scope))
+                throw new ArgumentException("The requested catalogue field and target disagree.", nameof(request));
+            return;
+        }
         var canonicalScope = CanonicalTargetScope(request.Tenant, request.Target.RecordKind, request.Target.RecordId);
         if (!request.Target.Scope.Equals(canonicalScope) || !request.Act.Scope.Equals(canonicalScope))
             throw new ArgumentException("The requested act and target must use the canonical target scope.", nameof(request));
@@ -194,6 +202,7 @@ public sealed class AuthorizationGate(
 
     internal static ScopeExpression CanonicalTargetScope(TenantId tenant, string recordKind, string recordId)
     {
+        if (recordKind == "catalogue") return CatalogueFieldTarget.RecordScope(recordId);
         if (string.Equals(recordKind, "tenant", StringComparison.Ordinal))
         {
             if (!string.Equals(recordId, tenant.Value, StringComparison.Ordinal))

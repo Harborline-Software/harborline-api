@@ -241,7 +241,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Equal("/contents/0/contentBase64", refusals[0].GetProperty("pointer").GetString());
         Assert.Equal(PackInstallCodes.RefusedUnsupportedCascadeDefaults, refusals[1].GetProperty("code").GetString());
         Assert.Equal("/contents/1/contentBase64", refusals[1].GetProperty("pointer").GetString());
-        Assert.Equal(PackInstallCodes.RefusedUnsupportedTerminologyOverride, refusals[2].GetProperty("code").GetString());
+        Assert.Equal(PackInstallCodes.RefusedAdmission, refusals[2].GetProperty("code").GetString());
         Assert.Equal("/contents/2/contentBase64", refusals[2].GetProperty("pointer").GetString());
         Assert.Equal(before, CatalogueHash());
         Assert.Empty(_store.ListInstalled(NodeTenantFor()));
