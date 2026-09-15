@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
+using Harborline.Api.Blocks.Assets.Registry.Catalogs;
 using Harborline.Api.Blocks.Assets.Registry.Model;
+using Harborline.Api.Blocks.Assets.Registry.Model.Scoring;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Banking.Feed;
 using Harborline.Api.Blocks.FinancialLedger.Services;
@@ -27,10 +29,12 @@ using Harborline.Api.Foundation.ScheduleDefinitions;
 using Harborline.Api.Foundation.Taxonomy.Models;
 using Harborline.Api.Foundation.Taxonomy.Services;
 using Harborline.Api.Foundation.ViewDefinitions;
+using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -95,8 +99,72 @@ public sealed class CatalogueRegistryTests
         var absent = await new ProjectedCatalogue(fixture.Forms).ListAsync(Tenant);
         Assert.Contains(PackContentKind.ViewDefinition, absent.KindsUnavailable);
         foreach (var kind in Content().Select(item => item.Kind)) Assert.Contains(kind, absent.KindsUnavailable);
-        foreach (var kind in new[] { PackContentKind.StandardsCatalog, PackContentKind.CascadeDefaults, PackContentKind.TerminologyOverride })
+        Assert.DoesNotContain(PackContentKind.StandardsCatalog, composed.KindsUnavailable);
+        foreach (var kind in new[] { PackContentKind.CascadeDefaults, PackContentKind.TerminologyOverride })
             Assert.Contains(kind, composed.KindsUnavailable);
+        Assert.Contains(PackContentKind.StandardsCatalog, absent.KindsUnavailable);
+    }
+
+    [Fact]
+    public async Task Real_development_seed_is_exposed_exactly_as_an_immutable_shared_seed()
+    {
+        using var fixture = new Fixture();
+        var seed = ResidentialLivingStandardCatalog.BuildSeed();
+        fixture.Standards.Seed(seed);
+
+        var entry = Assert.Single((await fixture.Catalogue().ListAsync(Tenant, PackContentKind.StandardsCatalog)).Entries);
+        Assert.Equal(seed.Key, entry.Id);
+        Assert.Equal(string.Empty, entry.Version);
+        Assert.Equal(string.Empty, entry.Status);
+        Assert.Equal(DateTimeOffset.MinValue, entry.UpdatedAt);
+        Assert.True(entry.Sealed);
+        Assert.Equal(new CatalogueProvenance(null, null, "pack-seed"), entry.Provenance);
+        Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(seed, Json), entry.Body));
+
+        var exact = await fixture.Catalogue().GetAsync(Tenant, PackContentKind.StandardsCatalog, seed.Key, string.Empty);
+        Assert.NotNull(exact);
+        Assert.True(JsonElement.DeepEquals(entry.Body, exact.Body));
+        Assert.Null(await fixture.Catalogue().GetAsync(Tenant, PackContentKind.StandardsCatalog, seed.Key, "1.0.0"));
+        Assert.Null(await fixture.Catalogue().GetAsync(Tenant, PackContentKind.StandardsCatalog, "unknown", string.Empty));
+    }
+
+    [Fact]
+    public async Task Tenant_override_does_not_mutate_the_catalogued_standard_seed()
+    {
+        using var fixture = new Fixture();
+        var seed = ResidentialLivingStandardCatalog.BuildSeed();
+        fixture.Standards.Seed(seed);
+        var before = Assert.Single((await fixture.Catalogue().ListAsync(Tenant, PackContentKind.StandardsCatalog)).Entries).Body;
+
+        fixture.Standards.RegisterTenantOverride(Tenant, seed.Key,
+            new FieldScoringOverlay(seed.FormDefinition, CascadeLayer.Tenant, []));
+
+        var after = Assert.Single((await fixture.Catalogue().ListAsync(Tenant, PackContentKind.StandardsCatalog)).Entries).Body;
+        Assert.True(JsonElement.DeepEquals(before, after));
+        Assert.Same(seed, fixture.Standards.Get(seed.Key));
+    }
+
+    [Fact]
+    public async Task Production_host_does_not_seed_the_composed_standards_registry()
+    {
+        using var fixture = new Fixture();
+        var environment = Substitute.For<IHostEnvironment>();
+        environment.EnvironmentName.Returns(Environments.Production);
+        var seeder = new LivingStandardCatalogDevSeeder(
+            Substitute.For<Harborline.Api.Kernel.Schema.ISchemaRegistry>(),
+            fixture.Forms,
+            Substitute.For<IConditionRatingFieldBindingStore>(),
+            fixture.Standards,
+            Substitute.For<IActiveTeamAccessor>(),
+            environment,
+            NullLogger<LivingStandardCatalogDevSeeder>.Instance);
+
+        await seeder.StartAsync(CancellationToken.None);
+
+        Assert.Empty(fixture.Standards.List());
+        var standards = await fixture.Catalogue().ListAsync(Tenant, PackContentKind.StandardsCatalog);
+        Assert.Empty(standards.Entries);
+        Assert.Empty(standards.KindsUnavailable);
     }
 
     [Fact]
@@ -225,6 +293,7 @@ public sealed class CatalogueRegistryTests
         public readonly InMemoryDocumentTemplateRegistry Templates = new();
         public readonly InMemoryStandingRuleDefinitionStore Standings = new();
         public readonly InMemoryScheduleDefinitionRegistry Schedules = new(new HostScheduleKindDescriptorRegistry());
+        public IStandardCatalogSeedStore Standards { get; }
         public InMemoryReportDefinitionRegistry Reports { get; }
         public InMemoryDataExchangeDefinitionRegistry Exchanges { get; }
         public InMemoryTaxonomyRegistry Taxonomies { get; }
@@ -245,7 +314,8 @@ public sealed class CatalogueRegistryTests
             Exchanges = new InMemoryDataExchangeDefinitionRegistry(new HostDataExchangeKindDescriptorRegistry([], Substitute.For<IBankFeedProvider>()));
             Taxonomies = new InMemoryTaxonomyRegistry(TimeProvider.System);
             var types = services.GetRequiredService<IEntityTypeRegistry>();
-            Registries = new CatalogueRegistries(Packs, types, authorizedWorkflows, Templates, Taxonomies, Reports, Exchanges, Standings, Schedules);
+            Standards = services.GetRequiredService<IStandardCatalogSeedStore>();
+            Registries = new CatalogueRegistries(Packs, types, authorizedWorkflows, Templates, Taxonomies, Reports, Exchanges, Standings, Schedules, Standards);
             Projector = new PackSeedProjector(Packs, types, NullLogger<PackSeedProjector>.Instance,
                 templates: Templates, workflows: workflows, time: TimeProvider.System, taxonomies: Taxonomies, reportDefinitions: Reports,
                 scheduleDefinitions: Schedules, dataExchangeDefinitions: Exchanges, standingRules: Standings, authorizedWorkflows: authorizedWorkflows);

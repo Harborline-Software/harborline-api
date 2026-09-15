@@ -5,12 +5,13 @@
   "sourcePin": "0bd6acbdaa640b1f4f7d063eed786fa773c224ed+05613edbc88e63b4c98ed4957642ef424ee8d673",
   "recordedAt": "2026-09-15T13:55:18Z",
   "totals": {
-    "total": 3927,
-    "passed": 3906,
+    "total": 3931,
+    "passed": 3910,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 426 Standards adapter: add exactly four ordinary platform-independent cases for composed-empty versus unavailable, immutable exact seed projection and strict unknown-version non-resolution, production no-seed behavior, real development-seeder provenance, and authorization-before-catalogue-read. Windows advances 3906/3927 to 3910/3931; failures and skips remain unchanged. The final exact-clone full gate measures this tuple before landing.",
     "Ticket 426 integration: combine the seeded Health/Browse slice's four platform-independent cases with the adapter slice's thirteen, for exactly +17 passed and total from the original 3889/3910 inventory. The adapter-only full Windows gate at 0bd6acbd measured 3902 passed, 0 failed, 21 skipped, 3923 total. Adding the seed's four yields 3906/3927; the integrated final-HEAD gate validates that derived count. No failure allowance, skip, or retry identity changes.",
     "Ticket 426 seeded Health/Browse slice: add exactly four ordinary, platform-independent host test cases, with no conditional compilation or skips. PR #149 verify-windows reported no failures, no permitted failures and no known-flaky retries; it refused only the stale count inventory. The final exact-clone rerun validates this +4 re-pin while preserving the zero-failure allowance.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
