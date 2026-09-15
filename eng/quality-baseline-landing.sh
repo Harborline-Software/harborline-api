@@ -94,14 +94,18 @@ EOF
 }
 quality_baseline_gate() {
   local gate_root=$1
-  local committed="$gate_root/eng/baselines/quality-baseline.json" baseline candidate="$gate_root/artifacts/quality/findings.json" diff="$gate_root/artifacts/quality/base-to-head.diff" outcome
-  if [ -n "${HARBORLINE_QUALITY_BASELINE:-}" ] && [ -f "$HARBORLINE_QUALITY_BASELINE" ]; then
-    baseline="$HARBORLINE_QUALITY_BASELINE"
-    echo "quality-baseline: using merge-base artifact $baseline"
-  else
-    baseline="$committed"
-    echo "quality-baseline: using committed fallback $baseline ($(quality_baseline_committed_fallback_details "$baseline"))"
-  fi
+  # Ticket 436: the committed baseline is the ONLY baseline. A per-commit artifact used to be
+  # preferred because the committed file went stale between hand re-pins -- but that staleness was a
+  # MATCHING failure, and ticket 142 fixed it by matching a finding on rule, file and project when
+  # its neighbourhood was rewritten. Measured against a baseline two days unpinned, three main
+  # commits reported 61, 60 and 60 new findings before that change and zero after.
+  #
+  # Reading a tracked file instead of an artifact also unties the gate from commit topology: a merge
+  # queue that lands three entries leaves two commits with no artifact of their own, and a red main
+  # denied every later pull request the merge base it needed. Neither can happen to a file.
+  local baseline="$gate_root/eng/baselines/quality-baseline.json"
+  local candidate="$gate_root/artifacts/quality/findings.json" diff="$gate_root/artifacts/quality/base-to-head.diff" outcome
+  echo "quality-baseline: using the committed baseline $baseline ($(quality_baseline_committed_fallback_details "$baseline"))"
   if [ ! -f "$candidate" ] && ! ( cd "$gate_root" && node eng/quality-step.mjs ); then
     return 1
   fi
