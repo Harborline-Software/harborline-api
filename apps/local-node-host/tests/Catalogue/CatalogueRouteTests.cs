@@ -62,6 +62,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     private IPackInstaller _installer = null!;
     private IPackTrustStore _packTrust = null!;
     private PlatformPackPreloadHostedService _platformPreload = null!;
+    private CountingCatalogue _catalogue = null!;
 
     public async Task InitializeAsync()
     {
@@ -127,9 +128,10 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             }
             await next(http);
         });
+        _catalogue = new CountingCatalogue(new ProjectedCatalogue(definitions));
         CatalogueRoutes.Map(
             _app.MapSelectedSessionProductGroup(),
-            new ProjectedCatalogue(definitions),
+            _catalogue,
             _packStore,
             new ActiveTeamTenantContext(_activeTeam));
         FormDefinitionRoutes.Map(
@@ -251,7 +253,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     {
         _holdsCatalogueRead = false;
 
-        var response = await _client.GetAsync($"{CatalogueBase}?kind=FormDefinition");
+        var response = await _client.GetAsync($"{CatalogueBase}?kind=StandardsCatalog");
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(AuthorizationRefusalRenderer.PermissionRequiredCode, body.GetProperty("code").GetString());
@@ -261,6 +263,24 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal(false, row.Payload.Payload.Body["preDecision"]);
         Assert.NotNull(row.AuthoritySnapshot);
         Assert.Equal(4, row.AuthoritySnapshot.Trace!.Count);
+        Assert.Equal(0, _catalogue.ListCallCount);
+    }
+
+    private sealed class CountingCatalogue(ICatalogue inner) : ICatalogue
+    {
+        public int ListCallCount { get; private set; }
+
+        public ValueTask<CatalogueList> ListAsync(
+            TenantId tenant, PackContentKind? kind = null, CancellationToken cancellationToken = default)
+        {
+            ListCallCount++;
+            return inner.ListAsync(tenant, kind, cancellationToken);
+        }
+
+        public ValueTask<CatalogueEntry?> GetAsync(
+            TenantId tenant, PackContentKind kind, string id, string? version = null,
+            CancellationToken cancellationToken = default)
+            => inner.GetAsync(tenant, kind, id, version, cancellationToken);
     }
 
     [Fact(DisplayName = "holds 176.A1: an uncomposed kind is returned in kindsUnavailable rather than thrown")]

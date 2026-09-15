@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
+using Harborline.Api.Blocks.Assets.Registry.Model.Scoring;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
@@ -305,7 +306,8 @@ public sealed class CatalogueRegistries(
     IReportDefinitionRegistry? reports = null,
     IDataExchangeDefinitionRegistry? exchanges = null,
     IStandingRuleDefinitionStore? standings = null,
-    IScheduleDefinitionRegistry? schedules = null)
+    IScheduleDefinitionRegistry? schedules = null,
+    IStandardCatalogSeedStore? standards = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -320,6 +322,7 @@ public sealed class CatalogueRegistries(
         PackContentKind.DataExchangeDefinition => exchanges is not null,
         PackContentKind.StandingRuleDefinition => standings is not null,
         PackContentKind.ScheduleDefinition => schedules is not null,
+        PackContentKind.StandardsCatalog => standards is not null,
         _ => false,
     };
 
@@ -341,7 +344,7 @@ public sealed class CatalogueRegistries(
         bool Reads(PackContentKind candidate) => (kind is null || kind == candidate) && IsAvailable(candidate);
         void Add(PackContentKind entryKind, string key, string revision, string? title, object body,
             CatalogueProvenance? provenance = null, DateTimeOffset updatedAt = default, InternationalizedTextDto? localizedTitle = null,
-            Func<PackSeedItem, bool>? matchesSource = null)
+            Func<PackSeedItem, bool>? matchesSource = null, bool sealedEntry = false, string status = "Published")
         {
             if ((id is not null && id != key) || (version is not null && version != revision)) return;
             if (provenance is null)
@@ -359,7 +362,7 @@ public sealed class CatalogueRegistries(
             }
             entries.Add(new CatalogueEntry(key, revision, entryKind,
                 localizedTitle ?? (title is null ? null : new InternationalizedTextDto("en", new Dictionary<string, string> { ["en"] = title })),
-                provenance, false, "Published", updatedAt, JsonSerializer.SerializeToElement(body, Json)));
+                provenance, sealedEntry, status, updatedAt, JsonSerializer.SerializeToElement(body, Json)));
         }
 
         if (Reads(PackContentKind.WorkflowDefinition))
@@ -436,6 +439,21 @@ public sealed class CatalogueRegistries(
                 if (exchange is not null) Add(PackContentKind.DataExchangeDefinition, exchange.Key, exchange.Version, exchange.Title, DataExchangeDefinitionDto.From(exchange),
                     matchesSource: item => MatchesRegistrySource(item, exchange, candidate => DataExchangeDefinitionDto.From(candidate with { Tenant = tenant.Value })));
         }
+        if (Reads(PackContentKind.StandardsCatalog))
+        {
+            // StandardCatalogSeed is a shared immutable registry row. Its model deliberately has no
+            // revision, lifecycle status, timestamp or owning pack coordinates, so the catalogue
+            // leaves those envelope values unknown rather than manufacturing metadata. Tenant
+            // scoring overrides remain a separate store concern and never mutate this seed body.
+            foreach (var seed in standards!.List())
+            {
+                if ((id is not null && !string.Equals(id, seed.Key, StringComparison.Ordinal))
+                    || (version is not null && version.Length != 0)) continue;
+                Add(PackContentKind.StandardsCatalog, seed.Key, string.Empty, seed.Title, seed,
+                    new CatalogueProvenance(null, null, SeedProvenance(seed.Provenance)),
+                    updatedAt: DateTimeOffset.MinValue, sealedEntry: true, status: string.Empty);
+            }
+        }
         foreach (var source in active.Where(source => Reads(source.Item.Kind)))
         {
             var item = source.Item;
@@ -465,6 +483,13 @@ public sealed class CatalogueRegistries(
     }
 
     private static CatalogueProvenance PackProvenance(InstalledPack pack) => new(pack.PackKey, pack.Version, "pack");
+
+    private static string SeedProvenance(CascadeLayer layer) => layer switch
+    {
+        CascadeLayer.Base => "base-seed",
+        CascadeLayer.Pack => "pack-seed",
+        _ => throw new InvalidOperationException($"Standard catalog seed provenance '{layer}' is not a seed layer."),
+    };
 
     private static bool MatchesRegistrySource<T>(PackSeedItem item, T actual, Func<T, object> projectedBody)
     {
