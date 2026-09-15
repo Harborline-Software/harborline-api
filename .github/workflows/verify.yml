@@ -64,7 +64,7 @@ jobs:
             MINGW*|MSYS*|CYGWIN*) echo "NUGET_PACKAGES=C:\nuget-runner" >> "$GITHUB_ENV" ;;
           esac
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
@@ -134,7 +134,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: verify-evidence-${{ github.run_id }}
           if-no-files-found: ignore
@@ -163,7 +163,7 @@ jobs:
       DEVELOPER_DIR: /Library/Developer/CommandLineTools
       HARBORLINE_VERIFY_LANE: host
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
@@ -189,7 +189,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: verify-macos-evidence-${{ github.run_id }}
           if-no-files-found: ignore
@@ -241,7 +241,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
@@ -297,7 +297,7 @@ jobs:
         # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
         # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
         if: always() && github.event_name == 'push'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: quality-findings-${{ github.sha }}
           if-no-files-found: error
@@ -306,7 +306,7 @@ jobs:
 
       - name: Evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: verify-windows-evidence-${{ github.run_id }}
           if-no-files-found: ignore
