@@ -9,8 +9,7 @@ namespace Harborline.Api.Foundation.Ship.Common;
 /// DI registration for the Harborline Shared Design System per ADR 0077.
 /// Combines Phase 1 (ship-common substrate) and Phase 3 (ui-core conformance)
 /// registrations into a single cohort call. Adapters register Phase 4
-/// primitives (ILiveAnnouncer, IFocusTrap) via their own package extension
-/// (e.g., <c>AddHarborlineA11y()</c> in Harborline.Api.UIAdapters.Blazor).
+/// primitives (ILiveAnnouncer, IFocusTrap) via their own package extension.
 /// </summary>
 public static class ShipDesignSystemServiceExtensions
 {
@@ -42,8 +41,7 @@ public static class ShipDesignSystemServiceExtensions
         // Phase 3 — ui-core conformance registry (ADR 0077 §7)
         services.TryAddSingleton<IConformanceRegistry, DefaultConformanceRegistry>();
 
-        // Phase 4 adapters are wired separately via adapter-package extensions
-        // (e.g., AddHarborlineA11y() for ILiveAnnouncer + IFocusTrap in Blazor).
+        // Phase 4 adapters are wired separately via adapter-package extensions.
 
         return services;
     }

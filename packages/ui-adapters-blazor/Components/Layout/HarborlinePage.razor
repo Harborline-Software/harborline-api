@@ -1,6 +1,0 @@
-@namespace Harborline.Api.UIAdapters.Blazor.Components.Layout
-@inherits HarborlineComponentBase
-@* NOT a <main>: the main landmark belongs to the app layout/shell alone (mirrors ui-react
-   Page.tsx, which renders div + section). A Page inside AppLayout must not nest a second main. *@
-<div class="@CombineClasses("sf-page")" style="@CombineStyles()" @attributes="AdditionalAttributes"><h1 id="@HeadingId">@Title</h1><section class="sf-page__body" aria-labelledby="@HeadingId">@ChildContent</section></div>
-@code { [Parameter] public string Title { get; set; } = string.Empty; [Parameter] public string HeadingId { get; set; } = $"page-title-{Guid.NewGuid():N}"; [Parameter] public RenderFragment? ChildContent { get; set; } }

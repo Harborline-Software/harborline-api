@@ -71,6 +71,9 @@ public sealed class DefaultTransportSelector : ITransportSelector
     private readonly Dictionary<PeerId, (IPeerTransport Transport, DateTimeOffset CachedAt)> _cache = new();
     private readonly object _cacheLock = new();
 
+    /// <summary>The configured Tier-1 transport, when the composition supplies one.</summary>
+    public IPeerTransport? Tier1Transport => _tier1;
+
     /// <summary>
     /// Builds a selector from the supplied transports. The Tier-3
     /// fallback is required (a Bridge relay must always be available

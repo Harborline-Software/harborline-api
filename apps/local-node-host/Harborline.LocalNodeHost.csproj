@@ -12,40 +12,6 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <UserSecretsId>sunfish-local-node-host</UserSecretsId>
-    <!-- ADR 0114/0115 cohort 1c: this host serves JSON APIs over Kestrel, not Blazor.
-         It transitively references ui-adapters-blazor (a Razor static-web-assets
-         producer), whose sibling TEST projects' nested bin/obj outputs collide on
-         `dotnet publish` (NETSDK1152: multiple publish outputs with the same relative
-         path — *.staticwebassets.*.json). The node has no static web assets, so
-         disable the SWA pipeline entirely: removes the collision + trims the
-         self-contained single-file. -->
-    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
-    <!-- ADR 0114/0115 cohort 1c (next increment) — the ROOT fix for the RECURRING
-         NETSDK1152 "multiple publish output files with the same relative path".
-         StaticWebAssetsEnabled=false above only stops the SWA *pipeline* from
-         re-aggregating the transitive Razor manifests (it correctly strips the
-         ROOT-level *.staticwebassets.runtime.json). It does NOT touch the generic
-         DEFAULT Content/None glob, which recursively sweeps EVERYTHING under this
-         project directory — including the sibling `tests/` subtree's `bin/`+`obj/`
-         once a developer has run `dotnet test`. That glob carries those files into
-         the publish set at the flattened relative path `tests/bin/Debug/net11.0/…`,
-         where they collide with the IDENTICAL relative paths produced from referenced
-         Razor packages' own `tests/bin` content (which self-replicates into
-         `tests/bin/…/tests/bin/…` on every test rebuild — the ~11.7k-file explosion).
-         CI never hits it (clean checkout, no test bins); a dev does, and a one-off
-         `git clean` only masks it until the next `dotnet test` — hence the durable fix.
-         Collisions are NOT limited to `*.staticwebassets.*` — the same glob also
-         duplicates `project.assets.json` / `*.nuget.dgspec.json` / `*.sourcelink.json`
-         from the nested test obj/bin, so the fix excludes the whole `tests/`+`tools/`
-         subtrees (not just the SWA manifests). DefaultItemExcludes removes them from
-         ALL default globs at once (Compile, Content, None, EmbeddedResource), which is
-         why the piecemeal `Compile/Content Remove` items below are no longer
-         load-bearing for publish (kept only as belt-and-suspenders for IDE item
-         display). This host needs no static web assets and no `tests/`/`tools/`
-         content at runtime (it serves JSON APIs), so excluding them is behavior-
-         preserving. RID-agnostic: the collision and this fix are identical on every
-         RID the sidecar publishes (osx-x64/arm64, win-x64/arm64, linux-*). Composes
-         with the NETSDK1206 musl suppression (#1388) for a clean sidecar publish. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;tools/**</DefaultItemExcludes>
     <!-- PublishReadyToRun=false: R2R (crossgen2) is a startup-latency optimisation
          only — it is NOT a correctness requirement. The aarch64-apple-darwin crossgen2
@@ -93,7 +59,7 @@
          encrypted store, quarantine queue, security primitives, CRDT engine. The host
          composes these but does not own any of their interfaces. -->
     <ProjectReference Include="..\..\packages\foundation\Harborline.Foundation.csproj" />
-    <ProjectReference Include="..\..\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
+    <ProjectReference Include="..\..\packages\foundation-transport\Harborline.Foundation.Transport.csproj" />
     <ProjectReference Include="..\..\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj" />
     <!-- Pack Composer B-1a — the domain-pack export + verify half (manifest model, canonical+merkle
          signing, validator, trust store, verifier). The host maps its export/verify routes; it owns
@@ -258,6 +224,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <!-- SQLCipher: the encrypted SQLite native lib + managed provider. With
          .Sqlite.Core above (no non-cipher bundle) this is the ONLY native SQLite lib
          deployed; the host pins it via SQLitePCL.raw.SetProvider in

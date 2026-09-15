@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "abeea566db420f3d87566ebfaf2e1fc5504b46a4+3e58da9f57fb0c1e9b9bd8bb5632b07b14e7c1ae",
-  "recordedAt": "2026-09-15T15:57:00Z",
+  "sourcePin": "abdb6401c6674c5d496de7a1d4cdbb7b3522e3a2+b49c0080eccb681066f6b21e0266651b2a47ca39",
+  "recordedAt": "2026-09-15T18:34:27Z",
   "totals": {
-    "total": 4000,
-    "passed": 3979,
+    "total": 3992,
+    "passed": 3971,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 426 Standards merge with released PR #156/#158: retain main's measured eight-case reduction from the reach batch (six composed-host additions and retired UI test deletions), then add the four Standards cases. The derived Windows inventory is 3971 passed / 3992 total; the merged commit still requires its own full exact-clone gate. Failure, skip and retry policies are unchanged.",
     "Ticket 426 Standards adapter: add exactly four ordinary platform-independent cases for composed-empty versus unavailable, immutable exact seed projection and strict unknown-version non-resolution, production no-seed behavior, real development-seeder provenance, and authorization-before-catalogue-read. Windows advances 3975/3996 to 3979/4000; failures and skips remain unchanged. The final exact-clone full gate measures this tuple before landing.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3975 passed / 3996 total. The prior full quality gate on 01b82820 passed the 3988-case inventory; the final integrated gate validates this additional eight-case delta. Exact failure, skip, retry identities and allowances remain unchanged.",
     "Ticket 427 integration: add exactly 61 ordinary, platform-independent cases (50 contract, nine install, two refusal-fence) to the integrated ticket 426 inventory, for +78 passed and total from the original 3889/3910 inventory. The admission-only exact clone at f0de7503 measured 3950 passed, zero failed, 21 skipped, 3971 total. Combining the independently audited 17 ticket 426 cases yields 3967/3988; the final merged-HEAD gate validates this count. Failure allowances, skip counts, and retry identities are unchanged.",
@@ -81,15 +82,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3909,
-      "passed": 3888,
+      "total": 3988,
+      "passed": 3967,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3909 -> 3910; passed 3888 -> 3889; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Merged released main 43eab7d3801b42b3ac46744e502d309667182e80 (PR #121) into T-431 label branch 97e9255654cecee128933e15300976be75ba6ec0 (PR #140). Preserve the released pack-check code and inventories, including the no-write fence, insecure-URL theories and ticket 229 coverage that raised its last pin from 3901 to 3909. T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases, adding exactly one test and pass to released main: 3909/3888/0/21 -> 3910/3889/0/21. The merged native Windows Release suite measured the combined tuple with zero failures and no retries. No permitted-failure, flaky-test or skip policy changed.",
-    "detectedBy": "Released PR #121 verify-windows run 34849010772 measured 3909/3888/0/21 at 1da2b026 (the retained sourcePin); PR #140 run 34849287516 measured its earlier independent 3898 -> 3899 one-case delta. This combined merge was measured locally, not in an exact clone: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --logger trx;LogFileName=m5-post121-host-toolchain.trx --results-directory artifacts/m5-post121 -v quiet; artifacts/m5-post121-host-toolchain.log and artifacts/m5-post121/m5-post121-host-toolchain.trx report 3910 total, 3889 passed, 0 failed, 21 skipped in 3m44s. The initial local run (artifacts/m5-post121-host.log and m5-post121-host.trx) reported 3910/3888/0/22 because the capability-host toolchain was absent. After npm ci only in apps/capability-host, the formerly skipped TypeScript loopback case passed 1/1, then the complete suite measured the pinned tuple. Re-pinned with eng/repin-baseline.mjs from that completed full-suite log.",
-    "arithmeticCrossCheck": "3909 + 1 = 3910; passed = total - notExecuted = 3910 - 21 = 3889."
+    "change": "total 3988 -> 3992; passed 3967 -> 3971; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "PR #153 adds four ordinary platform-independent Standards cases to released main after PR #156's measured eight-case reduction. Preserve the reach batch's composed-host tests, UI package deletions, and PR #158's platform keystore override.",
+    "detectedBy": "Derived from main's full host suite measurement in .claude/worktrees/ireach and the four Standards Fact additions; the merged exact-clone gate must confirm the combined inventory before landing.",
+    "arithmeticCrossCheck": "3988 + 4 = 3992; passed = total - notExecuted = 3992 - 21 = 3971."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
