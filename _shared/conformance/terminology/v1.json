@@ -1,0 +1,36 @@
+{
+  "content": {
+    "schemaVersion": 1,
+    "stableId": "operations.asset",
+    "version": "1.0.0",
+    "defaultLocale": "en",
+    "sourceRevision": "r2",
+    "packageTranslations": {
+      "en": { "text": "Asset", "sourceRevision": "r2" },
+      "fr": { "text": "Actif", "sourceRevision": "r2" },
+      "de": { "text": "Anlage", "sourceRevision": "r1" }
+    },
+    "tenantOverrides": {}
+  },
+  "overridePatch": {
+    "tenantOverrides": {
+      "fr": { "text": "Équipement", "sourceRevision": "r1" }
+    }
+  },
+  "request": {
+    "schemaVersion": 1,
+    "tenantId": "aaaaaaaa-0000-0000-0000-000000000233",
+    "stableId": "operations.asset",
+    "userLocale": "fr-CA"
+  },
+  "response": {
+    "stableId": "operations.asset",
+    "version": "1.0.0",
+    "text": "Équipement",
+    "requestedLocale": "fr-CA",
+    "resolvedLocale": "fr",
+    "source": "tenant",
+    "usedFallback": true,
+    "isStale": true
+  }
+}

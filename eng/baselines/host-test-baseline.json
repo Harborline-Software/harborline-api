@@ -5,12 +5,14 @@
   "sourcePin": "abdb6401c6674c5d496de7a1d4cdbb7b3522e3a2+b49c0080eccb681066f6b21e0266651b2a47ca39",
   "recordedAt": "2026-09-15T18:34:27Z",
   "totals": {
-    "total": 3992,
-    "passed": 3971,
+    "total": 4008,
+    "passed": 3987,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 233 integration with Standards PR #153: retain the four independently verified Standards cases and the sixteen terminology cases, giving 4008 total / 3987 expected passed / 21 skipped. The final merged-commit gate verifies this combined inventory without changing failure or retry allowances.",
+    "Ticket 233: the Windows exact-clone run at 236f3e12 measured 4004 total cases and 21 skips, adding the sixteen terminology runtime cases to main's 3988 inventory. That run found two architecture failures (refusal code tracing and navigation call-site line inventory); this branch fixes those emissions and inventories before the final full gate. The expected failure count remains zero, with every existing failure allowance, skip and retry identity unchanged.",
     "Ticket 426 Standards merge with released PR #156/#158: retain main's measured eight-case reduction from the reach batch (six composed-host additions and retired UI test deletions), then add the four Standards cases. The derived Windows inventory is 3971 passed / 3992 total; the merged commit still requires its own full exact-clone gate. Failure, skip and retry policies are unchanged.",
     "Ticket 426 Standards adapter: add exactly four ordinary platform-independent cases for composed-empty versus unavailable, immutable exact seed projection and strict unknown-version non-resolution, production no-seed behavior, real development-seeder provenance, and authorization-before-catalogue-read. Windows advances 3975/3996 to 3979/4000; failures and skips remain unchanged. The final exact-clone full gate measures this tuple before landing.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3975 passed / 3996 total. The prior full quality gate on 01b82820 passed the 3988-case inventory; the final integrated gate validates this additional eight-case delta. Exact failure, skip, retry identities and allowances remain unchanged.",

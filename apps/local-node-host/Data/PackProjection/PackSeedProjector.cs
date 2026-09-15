@@ -293,6 +293,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         new(PackContentKind.StandingRuleDefinition, Array.Empty<string>()),
         new(PackContentKind.RoleDefinition, Array.Empty<string>()),
         new(PackContentKind.AuthorizationCapabilityBinding, Array.Empty<string>()),
+        new(PackContentKind.TerminologyOverride, Array.Empty<string>()),
     ];
 
     private readonly IPackInstallStore _store;
@@ -302,6 +303,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IPackContentEdgeIndexProvider? _edgeIndex;
     private readonly IFormDefinitionStore? _forms;
     private readonly CatalogueFieldSourceAdmission _catalogueFields;
+    private readonly TerminologyProjection? _terminology;
     private readonly AuthorizedFormDefinitionLifecycle? _authorizedForms;
     private readonly ISchemaRegistry? _schemas;
     private readonly IWorkflowDefinitionStore? _workflows;
@@ -369,7 +371,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         WorkflowCatalogueLintReports? workflowLintReports = null,
         ExposedViewAuthorizationReachabilityReports? viewReachabilityReports = null,
         IAuthorizationDefinitionCatalogueReader? authorizationDefinitionCatalogue = null,
-        CatalogueFieldSourceAdmission? catalogueFields = null)
+        CatalogueFieldSourceAdmission? catalogueFields = null,
+        TerminologyProjection? terminology = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _types = types ?? throw new ArgumentNullException(nameof(types));
@@ -378,6 +381,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         _edgeIndex = edgeIndex;
         _forms = forms;
         _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
+        _terminology = terminology;
         _authorizedForms = authorizedForms;
         _schemas = schemas;
         _workflows = workflows;
@@ -566,6 +570,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 _store.GetKeyOwnership(tenant))
             .ToDictionary(c => c.ContentKey, StringComparer.Ordinal);
 
+        _terminology?.BeginProjection(tenant, authority.PackId, authority.PackVersion, installed
+            .Where(pack => pack.Lifecycle == PackLifecycleState.Active && !platformRefused.Contains(pack))
+            .SelectMany(pack => pack.SeedItems.Where(item => item.Kind == PackContentKind.TerminologyOverride
+                    && DecideContested(pack, item, collisions) == ContestedDecision.Project)
+                .Select(item => (pack.PackKey, pack.Version, item.Key))).ToHashSet());
+
         // Role names retract LAST — the exact reverse of the projection order below, which puts them
         // FIRST. Withdrawing a role-gated form or workflow re-runs the role-gate admission, so a role
         // name removed ahead of the definitions gated on it makes their withdrawal unresolvable and
@@ -647,16 +657,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // The kind half of the prohibition needs no code: PackContentKind has no grant member and
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
             var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
-            var catalogueRefusals = _catalogueFields.Validate(seedItems.Select(item =>
+            var composedItems = seedItems.Select(item =>
                 new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
                     pack.PackKey, item.Key, item.Kind, item.Version, item.CanonicalJson,
-                    pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray());
-            if (catalogueRefusals.Count > 0)
+                    pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray();
+            var contentRefusals = _catalogueFields.Validate(composedItems)
+                .Concat(Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyContent.Validate(composedItems, tenant)).ToArray();
+            if (contentRefusals.Length > 0)
             {
-                foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in catalogueRefusals)
+                foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in contentRefusals)
                 {
                     var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
-                    formsInvalid++;
+                    if (item.Kind == PackContentKind.FormDefinition) formsInvalid++;
+                    else invalid++;
                     refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, refusal.Code, ContentPointer(pack, item)));
                 }
                 continue;
@@ -1044,6 +1057,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     case PackContentKind.NavWorkspaceConfig:
                         // PackNavigationRoutes projects active nav seeds directly on every read; there is no
                         // mutable runtime registry for this reconciler to update.
+                        break;
+
+                    case PackContentKind.TerminologyOverride:
+                        var terminologyDecision = DecideContested(pack, item, collisions);
+                        if (terminologyDecision == ContestedDecision.OwnedByOtherPack) break;
+                        var terminologyItem = composedItems.Single(candidate => candidate.Key == item.Key);
+                        var terminologyRefusal = terminologyDecision == ContestedDecision.Project
+                            ? _terminology is null
+                                ? Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionCodes.NotWired
+                                : _terminology.AdmitTerminology(tenant, pack.Version, terminologyItem)
+                            : Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyCodes.OwnershipUnresolved;
+                        if (terminologyRefusal is not null)
+                            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, terminologyRefusal, ContentPointer(pack, item)));
                         break;
 
                     default:
