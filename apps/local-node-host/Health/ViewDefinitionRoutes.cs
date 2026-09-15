@@ -134,6 +134,7 @@ public sealed record ViewDefinitionDto(
     [property: JsonPropertyName("cascadeLayer")] string CascadeLayer,
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
     [property: JsonPropertyName("shapeRoles")] ShapeRoleMapping? ShapeRoles,
+    [property: JsonPropertyName("authorizationCapability")] string? AuthorizationCapability,
     [property: JsonPropertyName("parameters")] JsonElement Parameters,
     [property: JsonPropertyName("provenance")] JsonElement Provenance)
 {
@@ -146,6 +147,7 @@ public sealed record ViewDefinitionDto(
         definition.CascadeLayer.ToString(),
         definition.SchemaVersion,
         definition.ShapeRoles,
+        definition.AuthorizationCapability,
         definition.Parameters,
         definition.Provenance);
 }
