@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "0bd6acbdaa640b1f4f7d063eed786fa773c224ed+05613edbc88e63b4c98ed4957642ef424ee8d673",
-  "recordedAt": "2026-09-15T13:55:18Z",
+  "sourcePin": "d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e+dbeddfec92996b37ce092d359a9d47108ac8def5",
+  "recordedAt": "2026-09-15T14:45:00Z",
   "comparison": "named",
   "totals": {
-    "total": 3705,
-    "passed": 3681,
+    "total": 3712,
+    "passed": 3688,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 398: advance passed and total by seven ordinary platform-independent reachability and Health cases. This is an additive inventory adjustment from the focused Windows execution; named failures, allowances and skips are unchanged.",
     "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3664/3688 inventory to 3681/3705. This is a derived additive inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
     "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
