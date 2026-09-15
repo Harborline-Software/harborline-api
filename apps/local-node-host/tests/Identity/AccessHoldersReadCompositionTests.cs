@@ -76,6 +76,15 @@ public sealed class AccessHoldersReadCompositionTests
                 Assert.Equal("principal-other-granter", scoped.GetProperty("granter").GetString());
                 Assert.Equal(Now.AddDays(-2), scoped.GetProperty("effectiveFrom").GetDateTimeOffset());
                 Assert.Equal(Now.AddDays(3), scoped.GetProperty("effectiveTo").GetDateTimeOffset());
+
+                var viewRows = json.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+                Assert.Equal(rows.Length, viewRows.Length);
+                var canonical = Assert.Single(viewRows, row =>
+                    row.GetProperty("principalId").GetString() == "principal-target"
+                    && row.GetProperty("scope").GetString() == "/records/example");
+                Assert.Equal(AccessGrantAuthorizationSeed.MemberRole.ToString(), canonical.GetProperty("role").GetString());
+                Assert.Equal("/records/example", canonical.GetProperty("scope").GetString());
+                Assert.Equal("Active", canonical.GetProperty("status").GetString());
             }
         }
         finally

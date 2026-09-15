@@ -209,8 +209,7 @@ public static class RenderPlanCompiler
                     || !TryGetProperty(action, "label", out var label) || label.ValueKind != JsonValueKind.String
                     || string.IsNullOrWhiteSpace(label.GetString())
                     || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
-                    || operation.GetString() is not ("pack.validate" or "pack.export" or "pack.verify"
-                        or "pack.install" or "pack.activate" or "record.create" or "record.read"))
+                    || !IsSupportedOperation(operation.GetString()))
                 {
                     refusalCode = PackRenderPlanCodes.BindingUnresolved;
                     return null;
@@ -223,6 +222,12 @@ public static class RenderPlanCompiler
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"
         or "select" or "date" or "currency" or "email" or "phone" or "url" or "textarea";
+
+    private static bool IsSupportedOperation(string? operation) => operation is
+        "pack.validate" or "pack.export" or "pack.verify" or "pack.install" or "pack.activate"
+        or "record.create" or "record.read"
+        or "access.grant.submit" or "access.grant.review" or "access.holder.read"
+        or "access.grant.narrow" or "access.grant.revoke" or "access.pack.replace";
 
     private static JsonElement ReadOrEmpty(JsonElement root, string name) => TryGetProperty(root, name, out var value)
         ? value.Clone()

@@ -186,7 +186,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Preload_from_an_empty_installation_activates_the_pack_and_projects_both_definitions()
+    public async Task Preload_from_an_empty_installation_activates_the_pack_and_projects_all_definitions()
     {
         await PreloadPlatformThenAccessAsync();
 
@@ -195,13 +195,14 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(AccessAdministrationPreloadHostedService.PackVersion, active!.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
 
-        // Exactly the two definitions this host admits — the holdings view and the access-by-person
-        // report ship at S6, with the entity type and the report cartridge that admit them.
+        // T-433 adds the holder view over the host's compiled AccessGrant descriptor. It remains
+        // pack-defined; the host supplies only the shared entity identity/field description.
         Assert.Equal(
             new[]
             {
                 (PackContentKind.RoleDefinition, "access.form-submitter"),
                 (PackContentKind.FormDefinition, "access.grant-a-role"),
+                (PackContentKind.ViewDefinition, "access.holders"),
                 (PackContentKind.NavWorkspaceConfig, "access.navigation"),
                 (PackContentKind.WorkflowDefinition, "access.privileged-grant-review"),
             },
@@ -215,6 +216,10 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         var workflow = await _workflows.GetAsync(
             new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None);
         Assert.NotNull(workflow);
+        var holders = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.0");
+        Assert.NotNull(holders);
+        Assert.Equal(HostViewKindDescriptorRegistry.AccessGrantEntityType,
+            holders.Parameters.GetProperty("entityType").GetString());
     }
 
     [Fact]
@@ -282,7 +287,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             new[]
             {
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 4),
+                    PackLifecycleState.Active, 5),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 62),
             },
@@ -303,7 +308,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(3, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
         Assert.Equal(39, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
-        Assert.Equal(39, projectedViews.Count);
+        Assert.Equal(40, projectedViews.Count);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
         var formsView = await catalogue.GetAsync(
             Tenant, PackContentKind.ViewDefinition, "platform.list.forms", cancellationToken: CancellationToken.None);

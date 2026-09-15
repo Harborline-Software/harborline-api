@@ -20,6 +20,10 @@ internal static class AccessHoldersRead
         string Granter, string Scope, DateTimeOffset EffectiveFrom, DateTimeOffset? EffectiveTo,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AttributionFailure);
 
+    /// <summary>Canonical shared-view row for the pack-defined <c>AccessGrant</c> entity.</summary>
+    internal sealed record AccessGrantRow(
+        string PrincipalId, string Role, string Scope, string Status);
+
     internal static async Task<IResult> ReadAsync(
         HttpContext http, TenantId tenant, TimeProvider time, CancellationToken ct)
     {
@@ -36,6 +40,7 @@ internal static class AccessHoldersRead
         var parties = services.GetRequiredService<ICanonicalPrincipalPartyReader>();
         var rosterParties = roster.Members.Select(member => member.PartyId).ToHashSet(StringComparer.Ordinal);
         var holders = new List<Holder>();
+        var rows = new List<AccessGrantRow>();
         foreach (var grant in grants.Where(grant => grant.IsActiveAt(authority.At)).OrderBy(grant => grant.GrantId.Value))
         {
             var party = await parties.ResolveAsync(tenant, new PrincipalUserId(grant.Subject.Value), ct)
@@ -48,7 +53,12 @@ internal static class AccessHoldersRead
                 party is null
                     ? "No unique live party binding in this tenant: missing, tombstoned, detached, duplicated or wrong-tenant."
                     : null));
+            rows.Add(new AccessGrantRow(
+                grant.Subject.Value,
+                grant.Role.ToString(),
+                grant.Scope.Value,
+                "Active"));
         }
-        return Results.Ok(new { holders });
+        return Results.Ok(new { holders, rows });
     }
 }
