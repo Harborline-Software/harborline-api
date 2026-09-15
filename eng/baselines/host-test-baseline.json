@@ -2,15 +2,18 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88",
-  "recordedAt": "2026-09-15T13:10:00Z",
+  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88+d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e",
+  "recordedAt": "2026-09-15T14:36:41Z",
   "totals": {
-    "total": 3971,
-    "passed": 3950,
+    "total": 3988,
+    "passed": 3967,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 427 integration: add exactly 61 ordinary, platform-independent cases (50 contract, nine install, two refusal-fence) to the integrated ticket 426 inventory, for +78 passed and total from the original 3889/3910 inventory. The admission-only exact clone at f0de7503 measured 3950 passed, zero failed, 21 skipped, 3971 total. Combining the independently audited 17 ticket 426 cases yields 3967/3988; the final merged-HEAD gate validates this count. Failure allowances, skip counts, and retry identities are unchanged.",
+    "Ticket 426 integration: combine the seeded Health/Browse slice's four platform-independent cases with the adapter slice's thirteen, for exactly +17 passed and total from the original 3889/3910 inventory. The adapter-only full Windows gate at 0bd6acbd measured 3902 passed, 0 failed, 21 skipped, 3923 total. Adding the seed's four yields 3906/3927; the integrated final-HEAD gate validates that derived count. No failure allowance, skip, or retry identity changes.",
+    "Ticket 426 seeded Health/Browse slice: add exactly four ordinary, platform-independent host test cases, with no conditional compilation or skips. PR #149 verify-windows reported no failures, no permitted failures and no known-flaky retries; it refused only the stale count inventory. The final exact-clone rerun validates this +4 re-pin while preserving the zero-failure allowance.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
     "green when N different tests fail. This was not hypothetical â€” the second run traded two fixed",

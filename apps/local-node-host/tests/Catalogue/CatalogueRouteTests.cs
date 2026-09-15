@@ -2,11 +2,15 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
+using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Forms;
+using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
@@ -172,7 +176,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             Assert.True(entry.GetProperty("sealed").GetBoolean());
             var provenance = entry.GetProperty("provenance");
             Assert.Equal("harborline.platform", provenance.GetProperty("packKey").GetString());
-            Assert.Equal("1.0.0", provenance.GetProperty("packVersion").GetString());
+            Assert.Equal(PlatformPackPreloadHostedService.PackVersion, provenance.GetProperty("packVersion").GetString());
             Assert.Equal("platform", provenance.GetProperty("kind").GetString());
         });
     }
@@ -268,6 +272,39 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Empty(body.GetProperty("entries").EnumerateArray());
         Assert.Equal((int)Harborline.Api.Foundation.Packs.Model.PackContentKind.ViewDefinition,
             body.GetProperty("kindsUnavailable")[0].GetInt32());
+    }
+
+    [Theory]
+    [InlineData("999")]
+    [InlineData("-1")]
+    [InlineData("unknown")]
+    public async Task Unknown_kind_is_bad_request_for_both_route_shapes(string kind)
+    {
+        foreach (var path in new[] { $"{CatalogueBase}?kind={kind}", $"{CatalogueBase}/{kind}/anything" })
+        {
+            var response = await _client.GetAsync(path);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("catalogue.kind_unknown", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task View_only_read_contains_no_forms_and_composed_empty_views_remain_available()
+    {
+        await SaveTenantAFormAsync();
+        using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
+        var views = new InMemoryViewDefinitionRegistry(new HostViewKindDescriptorRegistry(
+            services.GetRequiredService<IEntityTypeRegistry>(), _app.Services.GetRequiredService<IFormDefinitionStore>(),
+            _app.Services.GetRequiredService<ISchemaRegistry>()));
+        var catalogue = new ProjectedCatalogue(_app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>(), views);
+        var empty = await catalogue.ListAsync(_tenantA, PackContentKind.ViewDefinition);
+        Assert.Empty(empty.Entries);
+        Assert.Empty(empty.KindsUnavailable);
+        await views.RegisterAsync(new ViewDefinition { Key = "receipt.view", Version = "1.0.0", Tenant = _tenantA.Value,
+            SchemaVersion = 1, Title = "View receipt", ViewKind = HostViewKindDescriptorRegistry.EntityListGridKind,
+            Parameters = JsonSerializer.SerializeToElement(new { entityType = "FormDefinition" }) });
+        Assert.Equal("receipt.view", Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.ViewDefinition)).Entries).Id);
+        Assert.Equal(FormId, Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.FormDefinition)).Entries).Id);
     }
 
     private async Task SaveTenantAFormAsync()

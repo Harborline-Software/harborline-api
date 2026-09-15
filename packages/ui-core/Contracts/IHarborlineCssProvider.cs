@@ -868,24 +868,6 @@ public interface IHarborlineCssProvider
     /// <summary>Returns the CSS class(es) for the backdrop overlay behind a modal.</summary>
     string ModalOverlayClass();
 
-    // ── SignalR Status ─────────────────────────────────────────────────
-
-    /// <summary>Returns the CSS class(es) for the SignalR aggregate-status indicator.</summary>
-    /// <param name="state">Aggregate state across all hubs.</param>
-    /// <param name="isCompact"><c>true</c> for the icon-only compact form.</param>
-    string SignalRStatusClass(AggregateConnectionState state, bool isCompact);
-
-    /// <summary>Returns the CSS class(es) for the popup that lists per-hub connection details.</summary>
-    string SignalRPopupClass();
-
-    /// <summary>Returns the CSS class(es) for a single per-hub row in the SignalR popup.</summary>
-    /// <param name="health">Health tier for that hub.</param>
-    string SignalRRowClass(ConnectionHealthState health);
-
-    /// <summary>Returns the CSS class(es) for a per-hub health badge.</summary>
-    /// <param name="health">Health tier the badge represents.</param>
-    string SignalRBadgeClass(ConnectionHealthState health);
-
     // ── ResizableContainer ────────────────────────────────────────────
 
     /// <summary>Returns the CSS class(es) for a resizable container root.</summary>

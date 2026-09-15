@@ -2,16 +2,19 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "6145f0fb",
-  "recordedAt": "2026-09-09T00:00:00Z",
+  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88+d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e",
+  "recordedAt": "2026-09-15T14:36:41Z",
   "comparison": "named",
   "totals": {
-    "total": 3688,
-    "passed": 3664,
+    "total": 3766,
+    "passed": 3742,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3664/3688 inventory to 3742/3766. These named-comparison totals are documentary and this is a derived additive adjustment, not a new Ubuntu measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3664/3688 inventory to 3681/3705. This is a derived additive inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",

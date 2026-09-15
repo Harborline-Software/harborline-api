@@ -2,16 +2,19 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "fix/426-macos-cert-storage-flags@25a9cb7c",
-  "recordedAt": "2026-09-15T00:50:00Z",
+  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88+d76af3501b4f5f4a7907423bfa2f9ba0f0e04f7e",
+  "recordedAt": "2026-09-15T14:36:41Z",
   "comparison": "named",
   "totals": {
-    "total": 3909,
-    "passed": 3883,
+    "total": 3987,
+    "passed": 3961,
     "failed": 4,
     "notExecuted": 22
   },
   "policy": [
+    "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3883/3909 inventory to 3961/3987. These named-comparison totals are documentary and this is a derived additive adjustment, not a new macOS measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3883/3909 inventory to 3900/3926. This is a derived additive inventory adjustment, not a new macOS measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new macOS measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 324: macOS slice gates and reviews only; landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Ticket 302 slice 1 (2026-09-09): the composed-host boot defect was fixed at the root — WindowsEventLogAvailabilityHealthCheck took IWindowsEventLogSink as a REQUIRED dependency while ResilientWindowsEventLogRegistration.Add registers that sink on Windows only, so every /health request on macOS threw inside the health middleware and answered 500. Eleven of the seventeen rows burned down with that one fix and were removed here.",
