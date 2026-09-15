@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1fb90522cbdee5462b9dd7f8c26603151ee25c59",
-  "recordedAt": "2026-09-15T17:02:28Z",
+  "sourcePin": "e40cfd05d4cfee74fb8f75518714fdc5112fb68d",
+  "recordedAt": "2026-09-15T19:31:58Z",
   "totals": {
-    "total": 4062,
-    "passed": 4041,
+    "total": 4058,
+    "passed": 4037,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 427 runtime integration: the full exact-clone run on e40cfd05, including current main's host composition and authentic Standards catalogue, measured 4037 passed, zero failed, 21 skipped, 4058 total. Every exact-clone check passed except the previous 4062-case count inventory. No new failures and no known-flaky retries occurred. This measured four-case reduction replaces the previous count only; failure, skip and retry identities and allowances remain unchanged.",
     "Ticket 427 runtime: add 66 ordinary platform-independent cases (27 canonical authorization-target, 35 per-request/source-index, three read-only save, one authentic signed-pack reprojection). Focused execution passed all 356 selected cases on the tree-identical pre-rebase runtime commit; the full quality-enabled gate validates this 4041/4062 passed/total inventory. Failure, skip, retry identities and allowances remain unchanged.",
     "Ticket 426 Standards merge with released PR #156/#158: retain main's measured eight-case reduction from the reach batch (six composed-host additions and retired UI test deletions), then add the four Standards cases. The derived Windows inventory is 3971 passed / 3992 total; the merged commit still requires its own full exact-clone gate. Failure, skip and retry policies are unchanged.",
     "Ticket 426 Standards adapter: add exactly four ordinary platform-independent cases for composed-empty versus unavailable, immutable exact seed projection and strict unknown-version non-resolution, production no-seed behavior, real development-seeder provenance, and authorization-before-catalogue-read. Windows advances 3975/3996 to 3979/4000; failures and skips remain unchanged. The final exact-clone full gate measures this tuple before landing.",
