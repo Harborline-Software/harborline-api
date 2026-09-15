@@ -70,7 +70,7 @@ internal static class PackCascadeDefaultsContent
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException or GovernanceConfigurationException)
         {
             if (exception is JsonException { Path: { } path })
-                pointer = path.StartsWith("$", StringComparison.Ordinal) ? path[1..].Replace(".", "/", StringComparison.Ordinal)
+                pointer = path.Length > 0 && path[0] == '$' ? path[1..].Replace(".", "/", StringComparison.Ordinal)
                     .Replace("[", "/", StringComparison.Ordinal).Replace("]", "", StringComparison.Ordinal) : path;
             return false;
         }

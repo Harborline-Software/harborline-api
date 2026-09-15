@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "e40cfd05d4cfee74fb8f75518714fdc5112fb68d",
-  "recordedAt": "2026-09-15T19:31:58Z",
+  "sourcePin": "c8f75ecca3fcd1ef6d59337cddf5ccd448d90fd3",
+  "recordedAt": "2026-09-15T21:44:05Z",
   "totals": {
-    "total": 4074,
-    "passed": 4053,
+    "total": 4116,
+    "passed": 4095,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 454: the quality-enabled exact-clone run at c8f75ecc measured 4116 total cases, 4093 passed, two failed and 21 skipped, with no flaky rescues. The two failures were the exact navigation-callsite line inventory and the check-route assertion missing the additional fail-closed Defaults admission refusal; both assertions are reconciled without reducing their scope. This pins the measured 4116-case inventory with the unchanged zero-failure/21-skip policy, expecting 4095 passes. The final full gate must confirm that tuple. No failure, skip or retry allowance is added; other host baselines remain unchanged.",
     "Ticket 427 integration with Terminology PR #159: the combined working-tree host run measured 4074 total cases, 4052 passed, zero failed and 22 skipped. Its one extra dynamic skip was TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan because this checkout lacked the capability-host node toolchain; the required exact-clone gate installs that toolchain before the host suite. Preserve the existing 21 gate skips and zero-failure policy, expecting 4053 passes. The committed merged-head full gate must confirm that tuple. No failure or retry allowance changes.",
     "Ticket 427 runtime integration: the full exact-clone run on e40cfd05, including current main's host composition and authentic Standards catalogue, measured 4037 passed, zero failed, 21 skipped, 4058 total. Every exact-clone check passed except the previous 4062-case count inventory. No new failures and no known-flaky retries occurred. This measured four-case reduction replaces the previous count only; failure, skip and retry identities and allowances remain unchanged.",
     "Ticket 427 runtime: add 66 ordinary platform-independent cases (27 canonical authorization-target, 35 per-request/source-index, three read-only save, one authentic signed-pack reprojection). Focused execution passed all 356 selected cases on the tree-identical pre-rebase runtime commit; the full quality-enabled gate validates this 4041/4062 passed/total inventory. Failure, skip, retry identities and allowances remain unchanged.",

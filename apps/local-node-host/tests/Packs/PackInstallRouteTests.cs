@@ -236,13 +236,15 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, check.StatusCode);
         using var document = JsonDocument.Parse(await check.Content.ReadAsStringAsync());
         var refusals = document.RootElement.GetProperty("refusals").EnumerateArray().ToList();
-        Assert.Equal(3, refusals.Count);
+        Assert.Equal(4, refusals.Count);
         Assert.Equal(PackInstallCodes.RefusedUnsupportedStandardsCatalog, refusals[0].GetProperty("code").GetString());
         Assert.Equal("/contents/0/contentBase64", refusals[0].GetProperty("pointer").GetString());
         Assert.Equal(PackInstallCodes.RefusedUnsupportedCascadeDefaults, refusals[1].GetProperty("code").GetString());
         Assert.Equal("/contents/1/contentBase64", refusals[1].GetProperty("pointer").GetString());
         Assert.Equal(PackInstallCodes.RefusedAdmission, refusals[2].GetProperty("code").GetString());
-        Assert.Equal("/contents/2/contentBase64", refusals[2].GetProperty("pointer").GetString());
+        Assert.Equal("/contents/1/contentBase64", refusals[2].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedAdmission, refusals[3].GetProperty("code").GetString());
+        Assert.Equal("/contents/2/contentBase64", refusals[3].GetProperty("pointer").GetString());
         Assert.Equal(before, CatalogueHash());
         Assert.Empty(_store.ListInstalled(NodeTenantFor()));
     }
