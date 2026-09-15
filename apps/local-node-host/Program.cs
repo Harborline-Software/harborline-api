@@ -8,7 +8,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Transport;
+using Harborline.Api.Foundation.Transport.DependencyInjection;
+using Harborline.Api.Foundation.Transport.Mdns;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.FinancialLedger.DependencyInjection;
 using Harborline.Api.Blocks.FinancialLedger.Services;
@@ -22,6 +29,7 @@ using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Blocks.FinancialPayments.Data;
 using Harborline.Api.Blocks.People.Foundation.Data;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.Localization;
 using Harborline.Api.Foundation.LocalFirst;
 using Harborline.Api.Foundation.LocalFirst.Installation;
 using Harborline.Api.Foundation.Packs.DependencyInjection;
@@ -400,6 +408,11 @@ var sqlCipherKeyDerivation = new SqlCipherKeyDerivation();
     Console.WriteLine(
         $"[local-node-host] Gossip anti-entropy round interval: {roundIntervalSeconds}s " +
         "(push-on-change is the primary path; this is the backstop cadence).");
+
+    // T-449: compose Foundation localization from the local-node host's root.
+    // ADR-0086: establish runtime reach for its external dependencies.
+    builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+    builder.Services.AddHarborlineLocalization();
 
     builder.Services
         .AddHarborlineKernelRuntime()              // plugin registry + INodeHost          (Wave 1.1)
@@ -1107,7 +1120,10 @@ if (localNodeOptions.Sync.EnableMdns &&
     localNodeOptions.Sync.NetworkTrust is Harborline.Api.Kernel.Sync.Network.NetworkTrustLevel.Known)
 {
     builder.Services.AddMdnsPeerDiscovery();
+    builder.Services.AddHarborlineTransport();
+    builder.Services.AddSingleton<IPeerTransport>(sp => new MdnsPeerTransport(time: sp.GetRequiredService<TimeProvider>()));
     Console.WriteLine("[local-node-host] mDNS peer discovery: ENABLED (same-subnet auto-discovery).");
+    Console.WriteLine("[local-node-host] mDNS peer transport: ENABLED (tier-1 link-local).");
 }
 else if (localNodeOptions.Sync.EnableMdns)
 {
@@ -1215,6 +1231,32 @@ builder.Services.AddLocalNodePatternAModules();
 // bootstrap window until MultiTeamBootstrapHostedService completes.
 Harborline.Api.Foundation.EngineRoom.EngineRoomServiceCollectionExtensions.AddHarborlineEngineRoom(
     builder.Services);
+if (localNodeOptions.Diagnostics.OtlpEndpoint is { } otlpEndpoint)
+{
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(metrics => metrics
+            .AddMeter(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.MeterName)
+            .AddOtlpExporter((options, readerOptions) =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/metrics");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+                readerOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 1_000;
+            }))
+        .WithTracing(tracing => tracing
+            .AddSource(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.ActivitySourceName)
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/traces");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+            }));
+    Console.WriteLine($"[local-node-host] telemetry export: ENABLED ({otlpEndpoint})");
+}
+else
+{
+    Console.WriteLine("[local-node-host] telemetry export: DISABLED (no LocalNode:Diagnostics:OtlpEndpoint)");
+}
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 builder.Services.AddSingleton<ExposedViewAuthorizationReachabilityReports>();

@@ -29,7 +29,6 @@
     <ProjectReference Include="..\kernel-signatures\Harborline.Kernel.Signatures.csproj" />
     <ProjectReference Include="..\blocks-maintenance\Harborline.Blocks.Maintenance.csproj" />
     <ProjectReference Include="..\ui-core\Harborline.UICore.csproj" />
-    <ProjectReference Include="..\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
     <!-- ADR 0120 PR-D: PM pack maps leases onto generic sub-ledger accounts.
          References ONLY the LOW identity assembly (SubLedgerAccountId + ISubLedgerReadModel interface).
          NEVER references blocks-financial-subledger-projection (HIGH tier) — the D3 arch-test enforces

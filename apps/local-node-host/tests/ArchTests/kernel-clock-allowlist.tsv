@@ -15,5 +15,3 @@ packages/blocks-calendar/Models/CalendarEvent.cs	2	(b) calendar event creation a
 packages/blocks-calendar/Models/OwnedCalendar.cs	3	(b) owned-calendar creation and calendar update semantics
 packages/foundation/Assets/Hierarchy/InMemoryHierarchyService.cs	5	(c) caller-omitted as-of instant for historic hierarchy reads
 packages/kernel-sync/Protocol/TcpSyncDaemonTransport.cs	2	(d) monotonic retry-duration deadline; not wall time
-packages/ui-adapters-blazor/Components/DataDisplay/AllocationScheduler/HarborlineAllocationScheduler.razor.cs	1	(b) allocation calendar visible-date default
-packages/ui-adapters-blazor/Components/Forms/Inputs/HarborlineDateInput.razor.cs	3	(b) calendar input min/max and year-window defaults
