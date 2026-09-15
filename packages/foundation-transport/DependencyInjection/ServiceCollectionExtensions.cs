@@ -35,7 +35,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<ITransportSelector>(sp =>
-            new DefaultTransportSelector(sp.GetServices<IPeerTransport>(), TimeProvider.System));
+            new DefaultTransportSelector(sp.GetServices<IPeerTransport>(), sp.GetRequiredService<TimeProvider>()));
         return services;
     }
 
@@ -59,7 +59,7 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IAuditTrail>(),
                 sp.GetRequiredService<IOperationSigner>(),
                 tenantId,
-                TimeProvider.System));
+                sp.GetRequiredService<TimeProvider>()));
         return services;
     }
 

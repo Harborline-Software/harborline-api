@@ -1121,7 +1121,7 @@ if (localNodeOptions.Sync.EnableMdns &&
 {
     builder.Services.AddMdnsPeerDiscovery();
     builder.Services.AddHarborlineTransport();
-    builder.Services.AddSingleton<IPeerTransport>(_ => new MdnsPeerTransport(time: TimeProvider.System));
+    builder.Services.AddSingleton<IPeerTransport>(sp => new MdnsPeerTransport(time: sp.GetRequiredService<TimeProvider>()));
     Console.WriteLine("[local-node-host] mDNS peer discovery: ENABLED (same-subnet auto-discovery).");
     Console.WriteLine("[local-node-host] mDNS peer transport: ENABLED (tier-1 link-local).");
 }
