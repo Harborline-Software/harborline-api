@@ -14,7 +14,7 @@ public sealed record CatalogueDetailProjection(string DetailId, string DetailVer
     CatalogueFieldSourceBinding DetailBinding, JsonElement Overlay,
     IReadOnlyDictionary<string, JsonElement> FieldsMeta, IReadOnlyDictionary<string, JsonElement> Values)
 {
-    public bool ReadOnly => true;
+    public bool ReadOnly { get; } = true;
     [JsonIgnore] public IReadOnlyList<AuthorizationDecision> Denials { get; init; } = [];
 }
 
@@ -31,13 +31,13 @@ public sealed class CatalogueDetailTemplates
 /// <summary>Fresh read-only projections over the admitted template and exact one-field gate decisions.</summary>
 public sealed class CatalogueDetailRuntime(ICatalogueFormSources sources, CatalogueDetailTemplates templates, AuthorizationGate gate)
 {
-    public bool Supports(CatalogueFieldSource declaration) => declaration.CapabilityId == CatalogueFieldSourceContract.CapabilityId
+    public static bool Supports(CatalogueFieldSource declaration) => declaration.CapabilityId == CatalogueFieldSourceContract.CapabilityId
         && declaration.CoordinateSchemaVersion == 1 && declaration.SourceMappingSchemaVersion == 1
         && declaration.SourceKind == CatalogueFieldSourceContract.SourceKind;
 
     public async ValueTask<CatalogueDetailProjection> ProjectAsync(string detailId, string detailVersion,
-        JsonElement request, AuthorizationWriteContext authority, CancellationToken ct = default,
-        Func<AuthorizationDecision, CancellationToken, ValueTask>? denied = null)
+        JsonElement request, AuthorizationWriteContext authority,
+        Func<AuthorizationDecision, CancellationToken, ValueTask>? denied = null, CancellationToken ct = default)
     {
         var template = templates.Get(authority.Tenant, detailId, detailVersion)
             ?? throw new CatalogueFieldSourceException(CatalogueFieldSourceCodes.SourceVersionUnavailable);

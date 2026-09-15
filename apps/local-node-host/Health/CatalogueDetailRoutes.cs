@@ -25,7 +25,11 @@ public static class CatalogueDetailRoutes
         services.TryAddSingleton(sp => new CatalogueDetailRuntime(
             sp.GetRequiredService<AuthorizedFormDefinitionLifecycle>().CatalogueSources,
             sp.GetRequiredService<CatalogueDetailTemplates>(), sp.GetRequiredService<AuthorizationGate>()));
-        services.AddSingleton(sp => new CatalogueFieldSourceAdmission(sp.GetRequiredService<CatalogueDetailRuntime>().Supports));
+        services.AddSingleton(sp =>
+        {
+            _ = sp.GetRequiredService<CatalogueDetailRuntime>();
+            return new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports);
+        });
         services.AddSingleton<IPackPlatformCompatibility>(sp =>
         {
             // Resolving the implemented reader is mandatory; declaration parsing alone adds no capability.
@@ -50,7 +54,7 @@ public static class CatalogueDetailRoutes
                 using var document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct).ConfigureAwait(false);
                 var refusals = new List<object>();
                 var projection = await runtime.ProjectAsync(detailId, detailVersion, document.RootElement,
-                    RequestAuthorization.Authority(http, principal.TenantId, clock), ct, async (decision, token) =>
+                    RequestAuthorization.Authority(http, principal.TenantId, clock), async (decision, token) =>
                 {
                     // Do not ask the gate again to render a denied field or retry its parent target.
                     var refusal = await AuthorizationRefusalRenderer.RenderAsync(decision, [], null, token).ConfigureAwait(false);
@@ -59,7 +63,7 @@ public static class CatalogueDetailRoutes
                     var auditId = audit is null ? null : await audit.RecordAsync(refusal, Permission.CatalogueRead,
                         request.Principal, request.Tenant, request.At, decision, token).ConfigureAwait(false);
                     refusals.Add(new { refusal.Code, auditId });
-                }).ConfigureAwait(false);
+                }, ct).ConfigureAwait(false);
                 return Results.Ok(new { projection, refusals });
             }
             catch (CatalogueFieldSourceException exception)

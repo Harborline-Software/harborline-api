@@ -54,7 +54,7 @@ public sealed class CatalogueFieldSourceInstallTests
         var templates = new CatalogueDetailTemplates();
         var runtime = new CatalogueDetailRuntime(forms.CatalogueSources, templates,
             TestAuthorization.Gate(request => request.Target.Scope.Value.EndsWith("/formId", StringComparison.Ordinal)));
-        var admission = new CatalogueFieldSourceAdmission(runtime.Supports);
+        var admission = new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports);
         var installer = Installer(keys, codec, packs, admission);
         var context = Context(keys);
         var source = CatalogueFieldSourceContractTests.Content(false);
