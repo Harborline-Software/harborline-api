@@ -15,10 +15,14 @@ namespace Harborline.Api.Foundation.Governance.Resolution;
 public sealed class AspectResolver : IAspectResolver
 {
     private readonly IPolicyRegistry _registry;
+    private readonly ICascadeDefaultsProjection? _defaults;
 
     /// <summary>Construct over the policy registry the composition reads tag bindings from.</summary>
-    public AspectResolver(IPolicyRegistry registry)
-        => _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+    public AspectResolver(IPolicyRegistry registry, ICascadeDefaultsProjection? defaults = null)
+    {
+        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _defaults = defaults;
+    }
 
     /// <inheritdoc />
     public ResolvedAspect Resolve(FormDefinition def, string field, IReadOnlyList<FormDefinition>? ancestors = null)
@@ -51,9 +55,18 @@ public sealed class AspectResolver : IAspectResolver
         var immutability = WalkImmutability(def, field, grains);
         var provenance = grains.Select(g => g.Lifecycle?.Provenance).LastOrDefault(p => p is not null);
         var discovery = grains.Select(g => g.Discovery).LastOrDefault(d => d is not null);
+        var defaults = def.PackSource is { } source
+            ? _defaults?.Resolve(def.Tenant, source.PackId, def.Id.Value, field) : null;
+        if (defaults?.Values.Classification is { } defaultTags)
+            tags = defaultTags.Concat(tags).DistinctBy(InMemoryPolicyRegistry.Key).ToArray();
+        if (defaults?.Values.PersonalData == true && !tags.Any(tag => InMemoryPolicyRegistry.Key(tag) == InMemoryPolicyRegistry.Key(PredefinedPolicyBindings.Pii)))
+            tags = tags.Append(PredefinedPolicyBindings.Pii).ToArray();
+        if (defaults?.Values.Retention is { } defaultRetention
+            && (retention is null || defaultRetention.MinimumRetentionDays > retention.MinimumRetentionDays))
+            retention = defaultRetention;
 
         return new ResolvedAspect(field, tags, read, write, conditions,
-            retention, residency, immutability, provenance, discovery);
+            retention, residency, immutability, provenance, discovery) { Defaults = defaults };
     }
 
     /// <inheritdoc />
@@ -70,6 +83,15 @@ public sealed class AspectResolver : IAspectResolver
         {
             var binding = _registry.Resolve(tag);
             if (binding is not null) raw.AddRange(binding.Effects);
+        }
+        if (aspect.Defaults?.Values is { } defaults)
+        {
+            if (defaults.Masking is { } masking)
+                raw.Add(new(EffectKind.Mask, [Trigger.Read, Trigger.Export], new(MaskRevealLast: masking.RevealLast)));
+            if (defaults.TrackChanges == true) raw.Add(new(EffectKind.Audit, [Trigger.Store]));
+            if (defaults.Retention is { } retention)
+                raw.Add(new(EffectKind.Retain, [Trigger.Store], new(RetainRegime: retention.Regime,
+                    RetainFloorClass: retention.FloorClass, RetainMinimumDays: retention.MinimumRetentionDays)));
         }
 
         var byTrigger = new Dictionary<Trigger, IReadOnlyList<PolicyEffect>>();

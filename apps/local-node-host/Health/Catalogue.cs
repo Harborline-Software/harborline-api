@@ -307,7 +307,8 @@ public sealed class CatalogueRegistries(
     IDataExchangeDefinitionRegistry? exchanges = null,
     IStandingRuleDefinitionStore? standings = null,
     IScheduleDefinitionRegistry? schedules = null,
-    IStandardCatalogSeedStore? standards = null)
+    IStandardCatalogSeedStore? standards = null,
+    ActiveCascadeDefaultsProjection? defaults = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -323,6 +324,7 @@ public sealed class CatalogueRegistries(
         PackContentKind.StandingRuleDefinition => standings is not null,
         PackContentKind.ScheduleDefinition => schedules is not null,
         PackContentKind.StandardsCatalog => standards is not null,
+        PackContentKind.CascadeDefaults => defaults is not null,
         _ => false,
     };
 
@@ -331,6 +333,8 @@ public sealed class CatalogueRegistries(
         TenantId tenant, PackContentKind? kind, string? id = null, string? version = null,
         CancellationToken cancellationToken = default)
     {
+        if (kind == PackContentKind.CascadeDefaults)
+            return DefaultsEntries(tenant, id, version);
         var installed = packs.ListInstalled(tenant);
         var collisions = PackCompositionConflicts.Detect(
                 PackCompositionConflicts.ClaimsFromInstalled(installed), packs.GetKeyOwnership(tenant))
@@ -364,6 +368,9 @@ public sealed class CatalogueRegistries(
                 localizedTitle ?? (title is null ? null : new InternationalizedTextDto("en", new Dictionary<string, string> { ["en"] = title })),
                 provenance, sealedEntry, status, updatedAt, JsonSerializer.SerializeToElement(body, Json)));
         }
+
+        if (Reads(PackContentKind.CascadeDefaults))
+            entries.AddRange(DefaultsEntries(tenant, id, version));
 
         if (Reads(PackContentKind.WorkflowDefinition))
         {
@@ -483,6 +490,15 @@ public sealed class CatalogueRegistries(
     }
 
     private static CatalogueProvenance PackProvenance(InstalledPack pack) => new(pack.PackKey, pack.Version, "pack");
+
+    private IReadOnlyList<CatalogueEntry> DefaultsEntries(TenantId tenant, string? id, string? version) =>
+        (defaults?.List(tenant) ?? []).Where(row => (id is null || row.Source.ContentKey == id)
+                && (version is null || row.Source.ContentVersion == version))
+            .Select(row => new CatalogueEntry(row.Source.ContentKey, row.Source.ContentVersion, PackContentKind.CascadeDefaults,
+                new InternationalizedTextDto("en", new Dictionary<string, string> { ["en"] = row.Content.Title }),
+                new CatalogueProvenance(row.Source.PackId, row.Source.PackVersion, row.Source.TenantOverride ? "tenant-override" : "pack"),
+                false, "Published", DateTimeOffset.MinValue, JsonSerializer.SerializeToElement(row, Json)))
+            .OrderBy(entry => entry.Id, StringComparer.Ordinal).ToArray();
 
     private static string SeedProvenance(CascadeLayer layer) => layer switch
     {

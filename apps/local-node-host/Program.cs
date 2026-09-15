@@ -1451,6 +1451,9 @@ builder.Services.AddAuthorizationRefusalAudit();
 builder.Services.AddAuthorizedActAudit();
 builder.Services.AddSingleton<IPackInstallAudit, KernelAuditPackInstallAudit>();
 builder.Services.AddSingleton<IPackContentAdmission, PackWorkflowAdmissionAdapter>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>();
+builder.Services.AddSingleton<Harborline.Api.Foundation.Governance.Resolution.ICascadeDefaultsProjection>(sp =>
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>());
 var runningPackPlatformVersion =
     (typeof(PackInstaller).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? typeof(PackInstaller).Assembly.GetName().Version?.ToString()

@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -30,7 +31,7 @@ public static class PackWorkflowAdmissionCodes
 /// route uses) and validated; a mapper failure is itself a fail-closed refusal (a definition we cannot even
 /// parse is inadmissible). Non-workflow content is not gated here.
 /// </remarks>
-public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
+public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackCascadeDefaultsAdmission
 {
     /// <summary>The refusal code for a workflow whose composed JSON cannot be mapped to the model.</summary>
     public const string UnparseableCode = PackWorkflowAdmissionCodes.UnparseableWorkflow;
@@ -39,19 +40,23 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
     private readonly PackRestrictingDefinitionAdmission _restricting;
     private readonly IRoleGateAdmission? _roleGateAdmission;
     private readonly CatalogueFieldSourceAdmission _catalogueFields;
+    private readonly ActiveCascadeDefaultsProjection? _defaults;
+    public bool ConsumesCascadeDefaults => _defaults is not null;
 
     /// <summary>Constructs the adapter over the node's registered admission validator (registry-derived).</summary>
     public PackWorkflowAdmissionAdapter(
         IWorkflowAdmissionValidator admission,
         IRestrictingDefinitionKindValidator? kinds = null,
         IRoleGateAdmission? roleGateAdmission = null,
-        CatalogueFieldSourceAdmission? catalogueFields = null)
+        CatalogueFieldSourceAdmission? catalogueFields = null,
+        ActiveCascadeDefaultsProjection? defaults = null)
     {
         _admission = admission ?? throw new ArgumentNullException(nameof(admission));
         _restricting = new PackRestrictingDefinitionAdmission(
             kinds ?? RestrictingDefinitionKindValidator.Shared);
         _roleGateAdmission = roleGateAdmission;
         _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
+        _defaults = defaults;
     }
 
     /// <inheritdoc />
@@ -61,6 +66,18 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant, _roleGateAdmission));
         refusals.AddRange(_catalogueFields.Validate(composed));
+        var coordinates = new HashSet<(string Package, string? Type, string? Field)>();
+        foreach (var item in composed.Where(item => item.Kind == PackContentKind.CascadeDefaults))
+        {
+            if (_defaults is null)
+                refusals.Add(new(item.Key, PackAdmissionCodes.NotWired, "CascadeDefaults requires the governance projection."));
+            else if (item.SeedCanonicalJson is { } seed && !PackCascadeDefaultsContent.TryParse(seed, out _, out var seedCode, out var seedPointer))
+                refusals.Add(new(item.Key, seedCode, "Invalid cascade defaults seed.") { Pointer = seedPointer });
+            else if (!PackCascadeDefaultsContent.TryParse(item.CanonicalJson, out var defaults, out var code, out var pointer))
+                refusals.Add(new(item.Key, code, "Invalid cascade defaults.") { Pointer = pointer });
+            else if (defaults!.Defaults.Any(declaration => !coordinates.Add((item.PackageKey, declaration.RecordType, declaration.Field))))
+                refusals.Add(new(item.Key, PackCascadeDefaultsContent.Malformed, "Duplicate default coordinates.") { Pointer = "/defaults" });
+        }
 
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.WorkflowDefinition))
         {
