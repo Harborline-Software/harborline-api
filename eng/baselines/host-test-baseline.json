@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "3170e2fef1f1aca81e2751af6f904cc5cebaa161",
-  "recordedAt": "2026-09-15T13:07:00Z",
+  "recordedAt": "2026-09-15T15:30:00Z",
   "totals": {
-    "total": 3914,
-    "passed": 3893,
+    "total": 3906,
+    "passed": 3885,
     "failed": 0,
     "notExecuted": 21
   },
@@ -76,15 +76,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3909,
-      "passed": 3888,
+      "total": 3914,
+      "passed": 3893,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3909 -> 3910; passed 3888 -> 3889; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Merged released main 43eab7d3801b42b3ac46744e502d309667182e80 (PR #121) into T-431 label branch 97e9255654cecee128933e15300976be75ba6ec0 (PR #140). Preserve the released pack-check code and inventories, including the no-write fence, insecure-URL theories and ticket 229 coverage that raised its last pin from 3901 to 3909. T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases, adding exactly one test and pass to released main: 3909/3888/0/21 -> 3910/3889/0/21. The merged native Windows Release suite measured the combined tuple with zero failures and no retries. No permitted-failure, flaky-test or skip policy changed.",
-    "detectedBy": "Released PR #121 verify-windows run 34849010772 measured 3909/3888/0/21 at 1da2b026 (the retained sourcePin); PR #140 run 34849287516 measured its earlier independent 3898 -> 3899 one-case delta. This combined merge was measured locally, not in an exact clone: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --logger trx;LogFileName=m5-post121-host-toolchain.trx --results-directory artifacts/m5-post121 -v quiet; artifacts/m5-post121-host-toolchain.log and artifacts/m5-post121/m5-post121-host-toolchain.trx report 3910 total, 3889 passed, 0 failed, 21 skipped in 3m44s. The initial local run (artifacts/m5-post121-host.log and m5-post121-host.trx) reported 3910/3888/0/22 because the capability-host toolchain was absent. After npm ci only in apps/capability-host, the formerly skipped TypeScript loopback case passed 1/1, then the complete suite measured the pinned tuple. Re-pinned with eng/repin-baseline.mjs from that completed full-suite log.",
-    "arithmeticCrossCheck": "3909 + 1 = 3910; passed = total - notExecuted = 3910 - 21 = 3889."
+    "change": "total 3914 -> 3906; passed 3893 -> 3885; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Integration batch wip/integrate-reach (T-448, T-449, T-450, T-451): four reach slices under ADR-0086 add six composed-host tests and delete the ui-adapters-blazor test islands (five files) and the fence over the deleted project; counts move accordingly, failed unchanged at 0.",
+    "detectedBy": "full host suite run natively on winbox in .claude/worktrees/ireach before the gate",
+    "arithmeticCrossCheck": "3914 + -8 = 3906; passed = total - notExecuted = 3906 - 21 = 3885."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
