@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
-  "recordedAt": "2026-09-14T16:33:30Z",
+  "sourcePin": "f0de750377bc37067022a47f42ebaba74ba34d88",
+  "recordedAt": "2026-09-15T13:10:00Z",
   "totals": {
-    "total": 3910,
-    "passed": 3889,
+    "total": 3971,
+    "passed": 3950,
     "failed": 0,
     "notExecuted": 21
   },
