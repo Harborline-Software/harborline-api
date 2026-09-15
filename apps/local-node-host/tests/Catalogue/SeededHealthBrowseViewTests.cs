@@ -24,7 +24,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 public sealed class SeededHealthBrowseViewTests
 {
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
-    private const string PackVersion = "1.1.0";
+    private const string PackVersion = "1.2.0";
     private const string DefinitionVersion = "1.0.0";
     private const string GridKind = "views.entity-list/grid";
 
@@ -46,10 +46,10 @@ public sealed class SeededHealthBrowseViewTests
     ];
 
     private static readonly string[] ExpectedFormActionIds =
-        ["author", "export", "verify", "install", "activate", "create", "read"];
+        ["author", "export", "verify", "check", "install", "activate", "create", "read"];
 
     private static readonly string[] ExpectedFormActionOperations =
-        ["pack.validate", "pack.export", "pack.verify", "pack.install", "pack.activate", "record.create", "record.read"];
+        ["pack.validate", "pack.export", "pack.verify", "pack.check", "pack.install", "pack.activate", "record.create", "record.read"];
 
     [Fact]
     public void Platform_export_carries_the_exact_frozen_health_and_browse_sets()

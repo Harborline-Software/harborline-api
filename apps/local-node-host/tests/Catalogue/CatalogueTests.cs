@@ -39,6 +39,28 @@ public sealed class CatalogueTests
     }
 
     [Fact]
+    public void Platform_workshop_declares_check_between_verify_and_install_in_each_forms_surface()
+    {
+        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
+            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
+        using var document = JsonDocument.Parse(stream);
+        var contents = document.RootElement.GetProperty("contents").EnumerateArray().ToArray();
+        var expected = new[]
+        {
+            "pack.validate", "pack.export", "pack.verify", "pack.check", "pack.install", "pack.activate",
+            "record.create", "record.read",
+        };
+
+        foreach (var key in new[] { "platform.list.forms", "platform.browse.forms" })
+        {
+            var view = Assert.Single(contents, item => item.GetProperty("key").GetString() == key);
+            var operations = view.GetProperty("content").GetProperty("parameters").GetProperty("actions")
+                .EnumerateArray().Select(action => action.GetProperty("operation").GetString()).ToArray();
+            Assert.Equal(expected, operations);
+        }
+    }
+
+    [Fact]
     public void Every_Pack_Content_Kind_Has_A_Sealed_Platform_System_Record_Type()
     {
         var expected = Enum.GetValues<PackContentKind>()
@@ -97,7 +119,7 @@ public sealed class CatalogueTests
     [Fact]
     public void View_actions_compile_only_declared_operations_and_unique_identities()
     {
-        foreach (var operation in new[] { "pack.validate", "pack.export", "pack.verify", "pack.install", "pack.activate", "record.create", "record.read" })
+        foreach (var operation in new[] { "pack.validate", "pack.export", "pack.verify", "pack.check", "pack.install", "pack.activate", "record.create", "record.read" })
         {
             var item = ActionView(operation, duplicate: false);
             var plan = CompileAgain(item);
