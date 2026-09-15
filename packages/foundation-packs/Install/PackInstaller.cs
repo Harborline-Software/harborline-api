@@ -500,9 +500,16 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         if (item.Kind == PackContentKind.CascadeDefaults)
         {
-            var composed = Harborline.Api.Foundation.Catalog.Templates.TemplateMerger.ApplyMergePatch(item.ParseContent(), overlayPatch);
-            var admitted = _admission.Admit([new(packKey, item.Key, item.Kind, item.Version,
-                composed?.ToJsonString() ?? "null", SeedCanonicalJson: item.CanonicalJson)], tenant);
+            var patches = _store.GetOverrides(tenant, packKey).ToDictionary(row => row.ContentKey, row => row.OverlayPatch, StringComparer.Ordinal);
+            patches[contentKey] = overlayPatch;
+            var composed = active.SeedItems.Where(seed => seed.Kind == PackContentKind.CascadeDefaults).Select(seed =>
+            {
+                var json = patches.TryGetValue(seed.Key, out var patch)
+                    ? Harborline.Api.Foundation.Catalog.Templates.TemplateMerger.ApplyMergePatch(seed.ParseContent(), patch)?.ToJsonString() ?? "null"
+                    : seed.CanonicalJson;
+                return new PackComposedItem(packKey, seed.Key, seed.Kind, seed.Version, json, SeedCanonicalJson: seed.CanonicalJson);
+            }).ToArray();
+            var admitted = _admission.Admit(composed, tenant);
             if (!admitted.IsAdmissible)
                 return AuditNarrowingRefusal(tenant, packKey, contentKey, now, principal,
                     admitted.Refusals[0].Code, admitted.Refusals[0].Pointer, decision);

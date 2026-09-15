@@ -1,6 +1,6 @@
 # CascadeDefaults v1
 
-T-445 / ADR 0086. The supported content body is:
+T-454 / ADR 0087. The supported content body is:
 
 ```json
 {
@@ -28,8 +28,11 @@ inherits; each declared axis independently overrides the coarser declaration.
 
 Classification uses the existing `{system, code, display?}` Tag contract. Personal data adds the
 existing PII policy. Masking uses a nonnegative reveal count. Retention uses the existing retention
-requirement and recognized audit floor class. `ask` is the only admitted conflict policy in v1; the
-existing causal conflict path already preserves concurrent edits for a decision. Change tracking
+requirement and recognized audit floor class. Supported regimes are `HIPAA`, `PCI_DSS_v4`, `SOC2`,
+`GDPR`, and `EU_AI_Act`. Store and definition-envelope verdicts take the longest of the tenant
+minimum, declared minimum days, and the existing regime preset's class-specific floor. Their maximum
+hold never precedes that minimum. `ask` is the only admitted conflict policy in v1; it is currently
+projected metadata, not a selector consumed by the synchronization conflict resolver. Change tracking
 adds the existing store-audit effect. These defaults supplement existing form governance and never
 replace the authorization gate.
 
@@ -37,20 +40,26 @@ The installer checks both the signed seed and the composed tenant override befor
 properties, duplicate JSON members, duplicate coordinates, malformed values, and unread schema
 versions fail closed with `pack.defaults.malformed` or `pack.defaults.unsupported_version`, including
 a content-relative JSON pointer. An unwired host retains the unsupported-content refusal.
+Composed tenant defaults must preserve every effective publisher restriction at package, type and
+field scopes. `pack.defaults.relax_forbidden` rejects a deletion that would weaken inheritance,
+including emptying the defaults array. This check runs before a narrowing is stored and again at
+installation and projection.
 
 The authorized seed projector supplies an in-memory tenant projection after applying the ordinary
 tenant override and ownership rules. Activation, supersession, deactivation, incompatible packs and
 unresolved ownership retract stale rows. The resolver and Defaults catalogue read this projection;
 they do not inspect installed seed bytes. Catalogue availability describes whether this projection
 is wired, so a wired empty projection is available-empty. Replaying installation state reconstructs
-the projection; it is not a second persistence authority.
+the projection; it is not a second persistence authority. Whole-pack catalogue-field and grant-shape
+refusals prevent Defaults publication.
 
 The existing tenant override API accepts structural narrowing. For example, removing the field
 declaration above makes `contact.title` inherit masking with two visible characters and change
-tracking enabled. Arbitrary scalar policy editing is outside this slice.
+tracking enabled. Arbitrary scalar policy editing belongs to the later T-455 Settings work.
 
 Focused evidence lives in `CascadeDefaultsTests`: signed v1 admission, mutation-free refusal,
 six-axis resolution, tenant provenance/isolation, authorized override, upgrade, reactivation,
-deactivation, unresolved/resolved ownership, catalogue availability, and actual read-PEP masking
-with the existing role restriction still enforced. The broader disposition paths retain their
-existing enforcement; this slice does not claim new conflict algorithms or record-erasure behavior.
+deactivation, unresolved/resolved ownership, catalogue availability, and an actual FormEngine
+save/read with unclassified masking and auditing. Retention tests exercise the real store and
+definition-envelope verdicts. The existing role restriction stays enforced. This slice does not
+claim conflict-policy consumption or new record-erasure behavior.

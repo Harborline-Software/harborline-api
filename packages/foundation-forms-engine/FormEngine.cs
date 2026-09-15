@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.Governance.Enforcement;
 using Harborline.Api.Foundation.Governance.Resolution;
+using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Recovery;
 using Harborline.Api.Foundation.Recovery.Crypto;
 using Harborline.Api.Foundation.RuleEngine;
@@ -1072,7 +1073,7 @@ public sealed class FormEngine : IFormEngine
                     isReadable = false;
                     value = null;
                 }
-                else if (isClassified)
+                else if (isClassified || policy.EffectsFor(Trigger.Read).Count > 0)
                 {
                     // The stored value as a display string ONLY when it is cleartext at rest; an
                     // encrypted envelope is passed to the PEP as null (the PEP never masks / reveals
@@ -1738,9 +1739,8 @@ public sealed class FormEngine : IFormEngine
 
                 var policy = _aspectResolver!.ResolvePolicy(formDef, name);
 
-                // Declared but unclassified (e.g. PiiSensitivity.None) ⇒ cleartext, exactly the
-                // pre-governance posture for a non-sensitive field.
-                if (policy.Tags.Count == 0)
+                // An unclassified field can still carry defaults such as audit or retention.
+                if (policy.Tags.Count == 0 && policy.EffectsFor(Trigger.Store).Count == 0)
                 {
                     property.WriteTo(writer);
                     continue;

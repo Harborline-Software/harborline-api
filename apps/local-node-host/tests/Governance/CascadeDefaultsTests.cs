@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.Assets.Registry.Services;
@@ -10,6 +11,12 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Forms.Engine;
+using Harborline.Api.Foundation.Forms.Engine.Capabilities;
+using Harborline.Api.Foundation.Governance.Definitions;
+using Harborline.Api.Foundation.Assets.Audit;
+using Harborline.Api.Foundation.SecurityPolicy.Retention;
+using Harborline.Api.Foundation.SecurityPolicy.Models;
 using Harborline.Api.Foundation.Governance.Enforcement;
 using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Governance.Resolution;
@@ -61,6 +68,7 @@ public sealed class CascadeDefaultsTests
     [InlineData("\"field\":\"title\",", "", "pack.defaults.malformed")]
     [InlineData("\"trackChanges\":false", "\"trackChanges\":false,\"trackChanges\":true", "pack.defaults.malformed")]
     [InlineData("\"floorClass\":\"Identity\"", "\"floorClass\":\"unknown\"", "pack.defaults.malformed")]
+    [InlineData("\"regime\":\"GDPR\"", "\"regime\":\"unknown\"", "pack.defaults.malformed")]
     public void Admission_rejects_unknown_or_malformed_contract(string before, string after, string code)
     {
         var adapter = new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: new());
@@ -231,25 +239,198 @@ public sealed class CascadeDefaultsTests
         Assert.Empty(fixture.Defaults.List(Tenant));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Whole_pack_refusals_publish_no_defaults(bool smugglesGrant)
+    {
+        using var fixture = new Fixture();
+        var content = smugglesGrant ? """{"entries":[{"subject":"alice","role":"tax.roles/default-reader","scope":"/"}]}"""
+            : CatalogueFieldSourceContractTests.Content().ToJsonString();
+        fixture.Install("1.0.0", Body, extra: new("bad", smugglesGrant ? PackContentKind.ViewDefinition : PackContentKind.FormDefinition,
+            "1.0.0", content, Cid.FromBytes(Encoding.UTF8.GetBytes(content))));
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        Assert.NotEmpty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        Assert.Empty(fixture.Defaults.List(Tenant));
+        Assert.Empty(await new CatalogueRegistries(fixture.Packs, defaults: fixture.Defaults).ReadAsync(Tenant, PackContentKind.CascadeDefaults));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Narrowing_cannot_remove_effective_publisher_restrictions(int removed)
+    {
+        const string restrictions = """
+            {"schemaVersion":1,"title":"Restrictions","defaults":[
+              {"masking":{"revealLast":4},"trackChanges":true},
+              {"recordType":"contact","masking":{"revealLast":2}},
+              {"recordType":"contact","field":"title","masking":{"revealLast":0}}]}
+            """;
+        using var fixture = new Fixture();
+        fixture.Install("1.0.0", restrictions);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        var declarations = JsonNode.Parse(restrictions)!["defaults"]!.DeepClone().AsArray();
+        if (removed < 0) declarations.Clear(); else declarations.RemoveAt(removed);
+        var installer = new PackInstaller(Substitute.For<IPackVerifier>(), fixture.Packs,
+            new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: fixture.Defaults),
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
+        var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
+            TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
+        var before = Assert.Single(fixture.Packs.ListInstalled(Tenant));
+        var refusal = installer.Narrow(context, Package, "defaults", new JsonObject { ["defaults"] = declarations },
+            TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate));
+        Assert.False(refusal.Recorded);
+        Assert.Equal("pack.defaults.relax_forbidden", refusal.RefusalCode);
+        Assert.Empty(fixture.Packs.GetOverrides(Tenant, Package));
+        Assert.Equal(before, Assert.Single(fixture.Packs.ListInstalled(Tenant)));
+    }
+
+    [Theory]
+    [InlineData("\"classification\":[{\"system\":\"harborline/data-classification\",\"code\":\"pii\"}]")]
+    [InlineData("\"personalData\":true")]
+    [InlineData("\"masking\":{\"revealLast\":0}")]
+    [InlineData("\"retention\":{\"regime\":\"GDPR\",\"floorClass\":\"Identity\",\"minimumRetentionDays\":30}")]
+    [InlineData("\"conflictPolicy\":\"ask\"")]
+    [InlineData("\"trackChanges\":true")]
+    public void Composed_admission_preserves_each_declared_axis(string axis)
+    {
+        var seed = "{\"schemaVersion\":1,\"title\":\"Publisher policy\",\"defaults\":[{\"recordType\":\"contact\"," + axis + "}]}";
+        var composed = """{"schemaVersion":1,"title":"Publisher policy","defaults":[]}""";
+        var adapter = new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: new());
+        var refusal = Assert.Single(adapter.Admit([new(Package, "defaults", PackContentKind.CascadeDefaults,
+            "1.0.0", composed, SeedCanonicalJson: seed)], Tenant).Refusals);
+        Assert.Equal(CascadeDefaultsRestrictionCheck.Refused, refusal.Code);
+    }
+
+    [Fact]
+    public async Task Legacy_weakening_override_is_refused_again_at_projection()
+    {
+        using var fixture = new Fixture();
+        fixture.Install("1.0.0", Body);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        await fixture.Projector.ProjectActivePacksAsync(Tenant);
+        Assert.Single(fixture.Defaults.List(Tenant));
+        fixture.Packs.SaveOverride(Tenant, Package, new("defaults", JsonNode.Parse("""{"defaults":[]}""")!));
+        var refusal = Assert.Single((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        Assert.Equal(CascadeDefaultsRestrictionCheck.Refused, refusal.Code);
+        Assert.Empty(fixture.Defaults.List(Tenant));
+    }
+
+    [Fact]
+    public async Task Narrowing_resolves_inherited_restrictions_across_defaults_items()
+    {
+        using var fixture = new Fixture();
+        const string package = """{"schemaVersion":1,"title":"Package","defaults":[{"masking":{"revealLast":0}}]}""";
+        const string field = """{"schemaVersion":1,"title":"Field","defaults":[{"recordType":"contact","field":"title","masking":{"revealLast":4}}]}""";
+        fixture.Install("1.0.0", package, extra: new("field-defaults", PackContentKind.CascadeDefaults, "1.0.0", field, Cid.FromBytes(Encoding.UTF8.GetBytes(field))));
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        var installer = new PackInstaller(Substitute.For<IPackVerifier>(), fixture.Packs,
+            new PackWorkflowAdmissionAdapter(Substitute.For<IWorkflowAdmissionValidator>(), defaults: fixture.Defaults),
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
+        var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty,
+            TestAuthorization.At, TimeSpan.FromDays(30), Principal: "test-operator");
+        Assert.True(installer.Narrow(context, Package, "field-defaults", JsonNode.Parse("""{"defaults":[]}""")!,
+            TestAuthorization.AllowedDecision(Tenant, Package, "pack", Permission.PackagesOperate)).Recorded);
+        Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        Assert.Equal(0, fixture.Defaults.Resolve(Tenant, Package, "contact", "title").Values.Masking!.RevealLast);
+    }
+
+    [Fact]
+    public async Task FormEngine_enforces_unclassified_masking_and_store_audit_defaults()
+    {
+        using var fixture = new Fixture();
+        var body = Body.Replace("\"trackChanges\":false", "\"trackChanges\":true", StringComparison.Ordinal);
+        fixture.Install("1.0.0", body, includeForm: true);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        Assert.Empty((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
+        var services = new ServiceCollection();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        services.AddTestAuthorizationGate().AddTestNodeForms();
+        services.AddSingleton<IFormDefinitionStore>(fixture.Forms);
+        services.AddSingleton<ISchemaRegistry>(fixture.Schemas);
+        services.AddSingleton<ICascadeDefaultsProjection>(fixture.Defaults);
+        var audit = Substitute.For<IAuditLog>();
+        audit.AppendAsync(Arg.Any<AuditAppend>(), Arg.Any<CancellationToken>()).Returns(new AuditId(1));
+        services.AddSingleton(audit);
+        using var provider = services.BuildServiceProvider();
+        var now = TimeProvider.System.GetUtcNow();
+        var bearer = await provider.GetRequiredService<IFormCapabilityIssuer>().IssueAsync(Tenant, new("reader"),
+            ["tax.roles/default-reader"], [FormCapabilityAction.Read, FormCapabilityAction.Write], now.AddHours(1));
+        var token = await provider.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, now);
+        var engine = provider.GetRequiredService<IFormEngine>();
+        using var candidate = JsonDocument.Parse("""{"title":"12345678"}""");
+        var receipt = await engine.SaveWithReceiptAsync(new("contact"), candidate, token,
+            TestAuthorization.FormWrite(token, new("contact"), now), CancellationToken.None);
+        var view = await engine.RenderAsync(new("contact"), receipt.InstanceId, token, CancellationToken.None);
+        var title = view.Sections.SelectMany(section => section.Fields).Single(field => field.Name == "title");
+        Assert.True(title.IsReadable);
+        Assert.Equal("****5678", title.Value!.Value.GetString());
+        await audit.Received().AppendAsync(Arg.Is<AuditAppend>(entry => entry.Justification == "spine-2 store"), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("GDPR", "Identity", 45, 45)]
+    [InlineData("GDPR", "Identity", 5, 10)]
+    [InlineData("HIPAA", "Identity", 30, 2192)]
+    [InlineData("PCI_DSS_v4", "Financial", 30, 366)]
+    public async Task Declared_retention_and_regime_raise_store_and_definition_verdicts(string regime, string floorClass, int days, int expectedDays)
+    {
+        using var fixture = new Fixture();
+        var body = Body.Replace("\"GDPR\"", JsonSerializer.Serialize(regime), StringComparison.Ordinal)
+            .Replace("\"Identity\"", JsonSerializer.Serialize(floorClass), StringComparison.Ordinal)
+            .Replace("\"minimumRetentionDays\":30", $"\"minimumRetentionDays\":{days}", StringComparison.Ordinal);
+        fixture.Install("1.0.0", body, includeForm: true);
+        fixture.Packs.Activate(Tenant, Package, "1.0.0");
+        await fixture.Projector.ProjectActivePacksAsync(Tenant);
+        var created = TestAuthorization.At;
+        var retention = Substitute.For<IRetentionPolicyResolver>();
+        retention.ResolveAsync(Tenant, Arg.Any<AuditEventClass>(), created, Arg.Any<CancellationToken>())
+            .Returns(call => new RetentionVerdict(call.Arg<AuditEventClass>(), created.AddDays(10), created.AddDays(20), false));
+        var services = new ServiceCollection();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        services.AddTestAuthorizationGate().AddTestNodeForms();
+        services.AddSingleton<ICascadeDefaultsProjection>(fixture.Defaults);
+        services.AddSingleton(retention);
+        using var provider = services.BuildServiceProvider();
+        var form = await fixture.Forms.GetAsync(new(Tenant, "contact", "1.0.0"));
+        var policy = provider.GetRequiredService<IAspectResolver>().ResolvePolicy(form, "title");
+        var stored = await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("value"),
+            Tenant, new("writer"), new("harborline", "node", "record"), created, "US"));
+        Assert.Equal(created.AddDays(expectedDays), stored.Retention!.MinimumHoldUntil);
+        Assert.True(stored.Retention.MaximumHoldUntil >= stored.Retention.MinimumHoldUntil);
+        var envelope = await provider.GetRequiredService<IFormDefinitionEnvelopeResolver>().ResolveAsync(form, created);
+        Assert.Equal(created.AddDays(expectedDays), envelope.RetentionClass.MinimumHoldUntil);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly ServiceProvider services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         public readonly InMemoryPackInstallStore Packs = new();
         public readonly ActiveCascadeDefaultsProjection Defaults = new();
         public readonly InMemoryFormDefinitionStore Forms = new(TimeProvider.System);
+        public readonly InMemorySchemaRegistry Schemas = new(TimeProvider.System);
         public PackSeedProjector Projector { get; }
         public Fixture() => Projector = new(Packs, services.GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System, defaults: Defaults,
-            forms: Forms, schemas: new InMemorySchemaRegistry(TimeProvider.System),
+            forms: Forms, schemas: Schemas,
             authorizedForms: TestAuthorization.FormLifecycle(Forms, TestAuthorization.AllowGate(), new RoleGateAdmission(
                 new InMemoryRoleVocabulary([RoleDefinition.CreateTenantRole(RoleDefinitionId.New(), "default-reader", "Reader", Tenant)]))));
-        public void Install(string version, string body, bool includeForm = false, string package = Package)
+        public void Install(string version, string body, bool includeForm = false, string package = Package, PackSeedItem? extra = null)
         {
             var items = new List<PackSeedItem> { new("defaults", PackContentKind.CascadeDefaults, version, body, Cid.FromBytes(Encoding.UTF8.GetBytes(body))) };
+            if (extra is not null) items.Add(extra);
             if (includeForm)
             {
                 var content = CatalogueFieldSourceContractTests.Content(false);
-                content["overlay"]!["sections"]![0]!["access"] = JsonNode.Parse("""{"readRoles":["tax.roles/default-reader"],"writeRoles":[]}""");
+                content["overlay"]!["sections"]![0]!["access"] = JsonNode.Parse("""{"readRoles":["tax.roles/default-reader"],"writeRoles":["tax.roles/default-reader"]}""");
                 var form = content.ToJsonString();
                 items.Add(new("contact", PackContentKind.FormDefinition, "1.0.0", form, Cid.FromBytes(Encoding.UTF8.GetBytes(form))));
             }

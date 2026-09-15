@@ -3,7 +3,7 @@ using Harborline.Api.Foundation.Forms.Models;
 
 namespace Harborline.Api.Foundation.Governance.Resolution;
 
-/// <summary>Six independently inherited governance defaults (ADR 0086).</summary>
+/// <summary>Six independently inherited governance defaults (ADR 0087).</summary>
 public sealed record CascadeValues(
     IReadOnlyList<Tag>? Classification = null,
     bool? PersonalData = null,

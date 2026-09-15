@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.Foundation.Governance.Resolution;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -67,6 +68,7 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant, _roleGateAdmission));
         refusals.AddRange(_catalogueFields.Validate(composed));
         var coordinates = new HashSet<(string Package, string? Type, string? Field)>();
+        var defaultPolicies = new List<(PackComposedItem Item, CascadeDefaults Seed, CascadeDefaults Composed)>();
         foreach (var item in composed.Where(item => item.Kind == PackContentKind.CascadeDefaults))
         {
             if (_defaults is null)
@@ -77,7 +79,14 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission, IPackC
                 refusals.Add(new(item.Key, code, "Invalid cascade defaults.") { Pointer = pointer });
             else if (defaults!.Defaults.Any(declaration => !coordinates.Add((item.PackageKey, declaration.RecordType, declaration.Field))))
                 refusals.Add(new(item.Key, PackCascadeDefaultsContent.Malformed, "Duplicate default coordinates.") { Pointer = "/defaults" });
+            else if (PackCascadeDefaultsContent.TryParse(item.SeedCanonicalJson ?? item.CanonicalJson, out var seedDefaults, out _, out _))
+                defaultPolicies.Add((item, seedDefaults!, defaults));
         }
+        foreach (var package in defaultPolicies.GroupBy(policy => policy.Item.PackageKey))
+            if (!CascadeDefaultsRestrictionCheck.Preserves(new(1, "", package.SelectMany(policy => policy.Seed.Defaults).ToArray()),
+                    new(1, "", package.SelectMany(policy => policy.Composed.Defaults).ToArray())))
+                refusals.Add(new(package.First().Item.Key, CascadeDefaultsRestrictionCheck.Refused,
+                    "Composed defaults weaken the publisher policy.") { Pointer = "/defaults" });
 
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.WorkflowDefinition))
         {

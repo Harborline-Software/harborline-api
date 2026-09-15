@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
@@ -657,6 +658,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
             var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
             var defaultRows = new List<ProjectedCascadeDefaults>();
+            var defaultSeeds = new List<CascadeDeclaration>();
             var defaultCoordinates = new HashSet<(string? Type, string? Field)>();
             foreach (var item in seedItems.Where(item => item.Kind == PackContentKind.CascadeDefaults))
             {
@@ -665,19 +667,29 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     refusals.Add(new(item.Key, item.Kind, "pack.defaults.registry_not_wired", ContentPointer(pack, item)));
                 else if (!PackCascadeDefaultsContent.TryParse(item.CanonicalJson, out var content, out var code, out var pointer))
                     refusals.Add(new(item.Key, item.Kind, code, ContentPointer(pack, item) + pointer));
+                else if (!PackCascadeDefaultsContent.TryParse(pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson,
+                             out var seedDefaults, out var seedCode, out var seedPointer))
+                    refusals.Add(new(item.Key, item.Kind, seedCode, ContentPointer(pack, item) + seedPointer));
                 else if (content!.Defaults.Any(declaration => !defaultCoordinates.Add((declaration.RecordType, declaration.Field))))
                     refusals.Add(new(item.Key, item.Kind, PackCascadeDefaultsContent.Malformed, ContentPointer(pack, item) + "/defaults"));
                 else
+                {
+                    defaultSeeds.AddRange(seedDefaults!.Defaults);
                     defaultRows.Add(new(new(tenant, pack.PackKey, pack.Version, item.Key, item.Version,
                         item.CanonicalJson != pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson), content));
+                }
             }
-            _defaults?.Replace(tenant, pack.PackKey, refusals.Count == 0 ? defaultRows : []);
+            if (defaultRows.Count > 0 && !CascadeDefaultsRestrictionCheck.Preserves(new(1, "", defaultSeeds),
+                    new(1, "", defaultRows.SelectMany(row => row.Content.Defaults).ToArray())))
+                refusals.Add(new(defaultRows[0].Source.ContentKey, PackContentKind.CascadeDefaults, CascadeDefaultsRestrictionCheck.Refused,
+                    ContentPointer(pack, seedItems.Single(seed => seed.Key == defaultRows[0].Source.ContentKey)) + "/defaults"));
             var catalogueRefusals = _catalogueFields.Validate(seedItems.Select(item =>
                 new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
                     pack.PackKey, item.Key, item.Kind, item.Version, item.CanonicalJson,
                     pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray());
             if (catalogueRefusals.Count > 0)
             {
+                _defaults?.Replace(tenant, pack.PackKey, []);
                 foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in catalogueRefusals)
                 {
                     var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
@@ -691,6 +703,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .ToArray();
             if (smuggled.Length > 0)
             {
+                _defaults?.Replace(tenant, pack.PackKey, []);
                 foreach (var item in smuggled)
                 {
                     _logger.LogError(
@@ -725,6 +738,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     item.Key, item.Kind, PackSealedSystemTypeAdmissionCodes.RefusedCode,
                     ContentPointer(pack, item)));
             }
+
+            // A Defaults row becomes visible only after the whole-pack refusal checks above pass.
+            _defaults?.Replace(tenant, pack.PackKey, refusals.Count == 0 ? defaultRows : []);
 
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.

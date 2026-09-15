@@ -58,7 +58,7 @@ internal static class PackCascadeDefaultsContent
                 if (entry.Retention is { } retention)
                 {
                     if (!authored.GetProperty("retention").TryGetProperty("minimumRetentionDays", out _)) return false;
-                    if (retention.MinimumRetentionDays < 0 || string.IsNullOrWhiteSpace(retention.Regime)) return false;
+                    if (retention.MinimumRetentionDays < 0 || !GovernanceRetentionFloor.SupportsRegime(retention.Regime)) return false;
                     if (!Enum.IsDefined(new DefaultFieldClassAuditEventClassMap().Resolve(retention.FloorClass))) return false;
                 }
                 declarations.Add(new(entry.RecordType, entry.Field, new(entry.Classification is null ? null : Array.AsReadOnly(entry.Classification.ToArray()),
