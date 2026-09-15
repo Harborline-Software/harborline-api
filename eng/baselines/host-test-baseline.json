@@ -12,6 +12,8 @@
   },
   "policy": [
     "Ticket 427 runtime: add 66 ordinary platform-independent cases (27 canonical authorization-target, 35 per-request/source-index, three read-only save, one authentic signed-pack reprojection). Focused execution passed all 356 selected cases on the tree-identical pre-rebase runtime commit; the full quality-enabled gate validates this 4041/4062 passed/total inventory. Failure, skip, retry identities and allowances remain unchanged.",
+    "Ticket 426 Standards merge with released PR #156/#158: retain main's measured eight-case reduction from the reach batch (six composed-host additions and retired UI test deletions), then add the four Standards cases. The derived Windows inventory is 3971 passed / 3992 total; the merged commit still requires its own full exact-clone gate. Failure, skip and retry policies are unchanged.",
+    "Ticket 426 Standards adapter: add exactly four ordinary platform-independent cases for composed-empty versus unavailable, immutable exact seed projection and strict unknown-version non-resolution, production no-seed behavior, real development-seeder provenance, and authorization-before-catalogue-read. Windows advances 3975/3996 to 3979/4000; failures and skips remain unchanged. The final exact-clone full gate measures this tuple before landing.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3975 passed / 3996 total. The prior full quality gate on 01b82820 passed the 3988-case inventory; the final integrated gate validates this additional eight-case delta. Exact failure, skip, retry identities and allowances remain unchanged.",
     "Ticket 427 integration: add exactly 61 ordinary, platform-independent cases (50 contract, nine install, two refusal-fence) to the integrated ticket 426 inventory, for +78 passed and total from the original 3889/3910 inventory. The admission-only exact clone at f0de7503 measured 3950 passed, zero failed, 21 skipped, 3971 total. Combining the independently audited 17 ticket 426 cases yields 3967/3988; the final merged-HEAD gate validates this count. Failure allowances, skip counts, and retry identities are unchanged.",
     "Ticket 398: add exactly eight ordinary platform-independent reachability and Health cases. Focused Windows execution passed all eight, including real activation plus production startup reprojection; the macOS and Ubuntu totals advance by the same additive inventory while their named failure and skip policies remain unchanged.",
@@ -81,15 +83,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3996,
-      "passed": 3975,
+      "total": 3988,
+      "passed": 3967,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3996 -> 3988; passed 3975 -> 3967; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Integration batch wip/integrate-reach (T-448, T-449, T-450, T-451): four reach slices under ADR-0086 add six composed-host tests and delete the ui-adapters-blazor test islands (five files) and the fence over the deleted project; counts move accordingly, failed unchanged at 0.",
-    "detectedBy": "full host suite run natively on winbox in .claude/worktrees/ireach before the gate",
-    "arithmeticCrossCheck": "3996 + -8 = 3988; passed = total - notExecuted = 3988 - 21 = 3967."
+    "change": "total 3988 -> 3992; passed 3967 -> 3971; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "PR #153 adds four ordinary platform-independent Standards cases to released main after PR #156's measured eight-case reduction. Preserve the reach batch's composed-host tests, UI package deletions, and PR #158's platform keystore override.",
+    "detectedBy": "Derived from main's full host suite measurement in .claude/worktrees/ireach and the four Standards Fact additions; the merged exact-clone gate must confirm the combined inventory before landing.",
+    "arithmeticCrossCheck": "3988 + 4 = 3992; passed = total - notExecuted = 3992 - 21 = 3971."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

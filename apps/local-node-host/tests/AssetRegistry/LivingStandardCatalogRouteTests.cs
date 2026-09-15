@@ -16,6 +16,8 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
@@ -144,6 +146,28 @@ public sealed class LivingStandardCatalogRouteTests : IAsyncLifetime
         Assert.Equal(11, fieldNames.Length);
         Assert.Contains(ResidentialLivingStandardCatalog.PanelCondition, fieldNames);
         Assert.Contains(ResidentialLivingStandardCatalog.ExposedWiring, fieldNames);
+    }
+
+    [Fact(DisplayName = "the real development seeder supplies the standards catalogue positive control")]
+    public async Task Development_Seeder_Supplies_Standards_Catalogue_Positive_Control()
+    {
+        var tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
+        var seed = Assert.Single(_app.Services.GetRequiredService<IStandardCatalogSeedStore>().List());
+        var registries = new CatalogueRegistries(
+            new InMemoryPackInstallStore(),
+            standards: _app.Services.GetRequiredService<IStandardCatalogSeedStore>());
+        var catalogue = new ProjectedCatalogue(
+            _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>(),
+            registries: registries);
+
+        var entry = Assert.Single((await catalogue.ListAsync(tenant, PackContentKind.StandardsCatalog)).Entries);
+        Assert.Equal(ResidentialLivingStandardCatalog.Key, entry.Id);
+        Assert.Equal("pack-seed", entry.Provenance.Kind);
+        Assert.Null(entry.Provenance.PackKey);
+        Assert.Null(entry.Provenance.PackVersion);
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.SerializeToElement(seed, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            entry.Body));
     }
 
     [Fact(DisplayName = "LIVE: submitting the catalog form projects a condition assessment per rated item")]
