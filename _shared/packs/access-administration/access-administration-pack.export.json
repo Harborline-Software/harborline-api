@@ -217,7 +217,7 @@
         "schemaVersion": 1,
         "viewKind": "views.entity-list/grid",
         "title": "Access holders",
-        "authorizationCapability": "access.holder.read",
+        "authorizationCapability": "members:manage",
         "parameters": {
           "entityType": "AccessGrant",
           "fields": [

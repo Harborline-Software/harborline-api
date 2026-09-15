@@ -5,15 +5,15 @@
   "fromVersion": "1.1.1",
   "toVersion": "1.1.2",
   "artifact": "access-administration-pack-1.1.2.export.json",
-  "sha256": "cccd647381ca9be4e474babd9ef277edd90269833fc3684c62a40de8c06d7615",
+  "sha256": "a5a1a6b1d8e75bc30ba902c0fb2a795e82931631a0ad644bb7018038a3bce122",
   "source": {
     "path": "_shared/packs/access-administration/access-administration-pack.export.json",
-    "sha256": "431657dab3e65e8df8cfad8926902cf4183d51ac1d0bb755c136fc58ef3acc1b",
+    "sha256": "2b40586778534a172ac5cba4cb47590f3380fb793599c7e8fe9ec4a1155745dd",
     "derivation": "Change pack version to 1.1.2, replace WorkflowDefinition/access.privileged-grant-review@1.0.1 with WorkflowDefinition/access.scoped-grant-review@1.0.0, and replace ViewDefinition/access.holders@1.0.0 with ViewDefinition/access.holders@1.0.1 bound to the scoped workflow."
   },
   "signature": {
     "algorithm": "Ed25519",
-    "issuerId": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "issuerId": "U5sTSqFz0sAkTuMvK0P0A4AA657_yeG9UY_JCgoFA6g",
     "epoch": 1,
     "issuedAt": "2026-09-15T16:33:00Z",
     "nonce": "fd3a5943-e24b-4fa5-9059-2ca967967820"
