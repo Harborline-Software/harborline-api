@@ -49,6 +49,9 @@ taking a foundation-tier dependency.
 
 ## Reference docs
 
+- [Catalogue field source v1 — producer contract](Contracts/catalogue-field-source-v1.md)
+  freezes T-427's typed read-only detail declaration and authorization binding. Runtime
+  implementation and acceptance evidence are pending; this document does not advertise support.
 - **ADR 0055** — Dynamic Forms Substrate (Accepted via earlier repository ticket #209)
 - **ADR 0001** — Schema Registry Governance (the keystone's `IFormDefinitionStore` is the v1 implementation of the governance contract)
 - **ADR 0005** — Type Customization Model (`FormDefinitionLineage` formalizes)
