@@ -72,10 +72,10 @@ large_baseline "$large_candidate" 2360 '[{"engine":"roslyn","status":"ok","detai
 out=$(quality_baseline_gate_candidate_compare "$large_candidate" "$large_committed")
 [ "$out" = 'quality-baseline: 0 new, 3 resolved (passing; re-pin is a follow-up PR)' ] || { echo "FAIL small resolved set: $out"; exit 1; }
 printf '%s\n' "$out"
-# quality_baseline_gate itself: the committed fallback when no merge-base artifact is present, and the
-# merge-base artifact when HARBORLINE_QUALITY_BASELINE names one. (These rows lived in the retired landing
-# test; the gate is the only caller now.) The CI verify exports HARBORLINE_QUALITY_BASELINE, so the
-# fallback row clears it explicitly rather than inheriting the runner's.
+# quality_baseline_gate itself: it reads the committed baseline, and ticket 436 made that the only
+# source. The second row proves the artifact override is GONE -- HARBORLINE_QUALITY_BASELINE named a
+# different file and the gate must ignore it, because an environment variable that silently replaces
+# the baseline is the coupling to commit topology this ticket removed.
 gate_root="$fixture/gate"
 mkdir -p "$gate_root/eng/baselines" "$gate_root/artifacts/quality"
 cp "$large_committed" "$gate_root/eng/baselines/quality-baseline.json"
@@ -86,11 +86,11 @@ const baseline = JSON.parse(readFileSync(file, 'utf8'))
 writeFileSync(file, JSON.stringify({...baseline, commit: 'baseline-fixture-405', generatedAt: new Date(Date.now() - (3 * 60 + 2) * 60 * 1000).toISOString()}) + '\n')
 NODE
 cp "$large_committed" "$gate_root/artifacts/quality/findings.json"
-out=$(HARBORLINE_QUALITY_BASELINE= quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with committed fallback exited non-zero: $out"; exit 1; }
-grep -Fq "quality-baseline: using committed fallback $gate_root/eng/baselines/quality-baseline.json (pinned commit=baseline-fixture-405; age=3h" <<<"$out" || { echo "FAIL missing dated committed fallback message: $out"; exit 1; }
+out=$(quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate on the committed baseline exited non-zero: $out"; exit 1; }
+grep -Fq "quality-baseline: using the committed baseline $gate_root/eng/baselines/quality-baseline.json (pinned commit=baseline-fixture-405; age=3h" <<<"$out" || { echo "FAIL missing dated committed baseline message: $out"; exit 1; }
 artifact="$fixture/merge-base.json"; cp "$large_committed" "$artifact"
-out=$(HARBORLINE_QUALITY_BASELINE="$artifact" quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with merge-base artifact exited non-zero: $out"; exit 1; }
-grep -Fq "quality-baseline: using merge-base artifact $artifact" <<<"$out" || { echo "FAIL missing merge-base artifact message: $out"; exit 1; }
+out=$(HARBORLINE_QUALITY_BASELINE="$artifact" quality_baseline_gate "$gate_root" 2>&1) || { echo "FAIL gate with a stray artifact variable exited non-zero: $out"; exit 1; }
+grep -Fq "quality-baseline: using the committed baseline $gate_root/eng/baselines/quality-baseline.json" <<<"$out" || { echo "FAIL the artifact variable still overrides the committed baseline: $out"; exit 1; }
 echo 'quality-baseline-gate: 10 checks passed'
-# (the seven above plus: gate uses the committed fallback; gate uses the merge-base artifact)
-echo 'quality-baseline-gate: detail (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green)'
+# (the seven above plus: gate reads the committed baseline; a stray artifact variable cannot override it)
+echo 'quality-baseline-gate: detail (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green; committed baseline is the only source)'
