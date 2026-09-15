@@ -24,7 +24,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 public sealed class SeededHealthBrowseViewTests
 {
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
-    private const string Version = "1.0.0";
+    private const string PackVersion = "1.1.0";
+    private const string DefinitionVersion = "1.0.0";
     private const string GridKind = "views.entity-list/grid";
 
     private static readonly SurfaceExpectation[] ExpectedSurfaces =
@@ -86,11 +87,11 @@ public sealed class SeededHealthBrowseViewTests
         foreach (var item in items)
         {
             Assert.True(
-                RenderPlanCompiler.TryCompile(item, "harborline.platform", Version, out var plan, out var refusalCode),
+                RenderPlanCompiler.TryCompile(item, "harborline.platform", PackVersion, out var plan, out var refusalCode),
                 $"{item.Key}: {refusalCode}");
             Assert.NotNull(plan);
             Assert.Equal(item.Key, plan.DefinitionId);
-            Assert.Equal(Version, plan.DefinitionVersion);
+            Assert.Equal(DefinitionVersion, plan.DefinitionVersion);
             Assert.Equal("harborline.platform", plan.PackKey);
             Assert.Equal(GridKind, plan.Bindings.GetProperty("viewKind").GetString());
             using var contentDocument = JsonDocument.Parse(item.CanonicalJson);
@@ -111,7 +112,7 @@ public sealed class SeededHealthBrowseViewTests
         using var keyPair = KeyPair.Generate();
         var pack = new InstalledPack(
             "seeded-health-browse.test",
-            Version,
+            PackVersion,
             PackScopeTier.Horizontal,
             PackLifecycleState.Draft,
             items,
@@ -163,9 +164,9 @@ public sealed class SeededHealthBrowseViewTests
         var parameters = content.GetProperty("parameters");
 
         Assert.Equal("ViewDefinition", item.GetProperty("kind").GetString());
-        Assert.Equal(Version, item.GetProperty("version").GetString());
+        Assert.Equal(DefinitionVersion, item.GetProperty("version").GetString());
         Assert.Equal(outerKey, content.GetProperty("key").GetString());
-        Assert.Equal(Version, content.GetProperty("version").GetString());
+        Assert.Equal(DefinitionVersion, content.GetProperty("version").GetString());
         Assert.Equal("bootstrap", content.GetProperty("tenant").GetString());
         Assert.Equal(1, content.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(GridKind, content.GetProperty("viewKind").GetString());

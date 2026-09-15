@@ -343,6 +343,51 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Platform_preload_replaces_active_1_0_0_and_projects_the_seeded_health_and_browse_views()
+    {
+        var context = new PackInstallContext(
+            Tenant,
+            TrustingTheNodeKey(),
+            PackRevocationList.Empty,
+            TimeProvider.System.GetUtcNow(),
+            PackInstallRoutes.RevocationMaxAge,
+            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        var current = PlatformPackPreloadHostedService.ReadExportRequest(
+            _signer.Signer.IssuerId.ToBase64Url());
+        var legacy = current with
+        {
+            Version = "1.0.0",
+            Contents = current.Contents
+                .Where(item => !item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
+                    && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))
+                .ToArray(),
+        };
+
+        var legacyBytes = await ExportAsync(legacy);
+        Assert.True(_installer.Install(legacyBytes, context).Installed);
+        Assert.True(_installer.Activate(context, legacy.Key, legacy.Version).Activated);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, legacy.Key)!.Version);
+        Assert.Equal(13, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
+
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
+        Assert.Equal("1.1.0", active.Version);
+        Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
+        var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
+        Assert.Equal(39, projected.Count);
+        Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
+        Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
+        Assert.Equal(
+            new[] { "1.0.0", "1.1.0" },
+            _store.ListInstalled(Tenant)
+                .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
+                .Select(pack => pack.Version)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    [Fact]
     public async Task Platform_preload_carries_the_one_compiled_descriptor_for_every_record_type()
     {
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
