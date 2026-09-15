@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "3170e2fef1f1aca81e2751af6f904cc5cebaa161",
-  "recordedAt": "2026-09-15T13:07:00Z",
+  "sourcePin": "0bd6acbdaa640b1f4f7d063eed786fa773c224ed+05613edbc88e63b4c98ed4957642ef424ee8d673",
+  "recordedAt": "2026-09-15T13:55:18Z",
   "totals": {
-    "total": 3914,
-    "passed": 3893,
+    "total": 3927,
+    "passed": 3906,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 426 integration: combine the seeded Health/Browse slice's four platform-independent cases with the adapter slice's thirteen, for exactly +17 passed and total from the original 3889/3910 inventory. The adapter-only full Windows gate at 0bd6acbd measured 3902 passed, 0 failed, 21 skipped, 3923 total. Adding the seed's four yields 3906/3927; the integrated final-HEAD gate validates that derived count. No failure allowance, skip, or retry identity changes.",
     "Ticket 426 seeded Health/Browse slice: add exactly four ordinary, platform-independent host test cases, with no conditional compilation or skips. PR #149 verify-windows reported no failures, no permitted failures and no known-flaky retries; it refused only the stale count inventory. The final exact-clone rerun validates this +4 re-pin while preserving the zero-failure allowance.",
     "Exactly the tests named in permittedFailures may fail. Any different failure, any new failure,",
     "or any change to these lists is a gate failure. A count-only baseline is insufficient: it stays",
