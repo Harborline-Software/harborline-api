@@ -1,0 +1,104 @@
+{
+  "envelope": {
+    "payload": {
+      "manifest": {
+        "key": "harborline.access-administration",
+        "version": "1.1.2",
+        "name": "Access administration",
+        "description": "Granting roles, reviewing privileged grants and inspecting access holders.",
+        "scopeTier": "Horizontal",
+        "contents": [
+          {
+            "key": "access.form-submitter",
+            "kind": "RoleDefinition",
+            "version": "1.0.0",
+            "contentAddress": "bafkreihiuwly4hsvbmwhs7ydl64eazmre7fuavdtzply4d2c5psflpynfe"
+          },
+          {
+            "key": "access.grant-a-role",
+            "kind": "FormDefinition",
+            "version": "1.0.1",
+            "contentAddress": "bafkreicj5rda23v2uzkpua2hwxcg6rt5npy5c7vydjpmbpovoxc4bamuau"
+          },
+          {
+            "key": "access.scoped-grant-review",
+            "kind": "WorkflowDefinition",
+            "version": "1.0.0",
+            "contentAddress": "bafkreiawgy72jpn7nlg36djd6mcd67hxv6f3v6573gmyj7ufcypadntk2m"
+          },
+          {
+            "key": "access.holders",
+            "kind": "ViewDefinition",
+            "version": "1.0.1",
+            "contentAddress": "bafkreidvfez4jf7fbiwxnnp3phf3f3uny34dvdgg5eg7eq2wsw6kzwxnsq"
+          },
+          {
+            "key": "access.navigation",
+            "kind": "NavWorkspaceConfig",
+            "version": "1.1.0",
+            "contentAddress": "bafkreie2gpepj7adrjaffck2jxp53n2i2spacoswwna4e6zam5okh4e2eq"
+          }
+        ],
+        "dependencies": [
+          {
+            "key": "harborline.platform",
+            "version": "1.0.0",
+            "declaredDependencyKeys": []
+          }
+        ],
+        "capabilityRequirements": [],
+        "renamedFrom": null,
+        "providerSlot": null,
+        "dcp": {
+          "contentAddress": "bafkreidn6dxucqc4vc4dhty2mixvym7vjqbdjloq2pd3jvnmk3tjmsvdsa",
+          "regulatoryClass": "General",
+          "dcpVersion": "1.0.0"
+        },
+        "exposes": [
+          "access.holders"
+        ],
+        "interfaceVersion": 1
+      },
+      "epoch": 1
+    },
+    "issuerId": "U5sTSqFz0sAkTuMvK0P0A4AA657_yeG9UY_JCgoFA6g",
+    "issuedAt": "2026-09-15T16:33:00+00:00",
+    "nonce": "fd3a5943-e24b-4fa5-9059-2ca967967820",
+    "signature": "X9Yq50WG6era6fnzX4TQyEOwqb8pMfvmPgNDwRjZhbOq7Y09_NKx1nGZpx6GRc243r-I12JZPp1BAfGMmk9aCQ"
+  },
+  "contents": [
+    {
+      "key": "access.form-submitter",
+      "kind": "RoleDefinition",
+      "version": "1.0.0",
+      "contentBase64": "eyJkaXNwbGF5TmFtZSI6IkFjY2VzcyBmb3JtIHN1Ym1pdHRlciIsInJvbGUiOiJhY2Nlc3MtZm9ybS1zdWJtaXR0ZXIifQ=="
+    },
+    {
+      "key": "access.grant-a-role",
+      "kind": "FormDefinition",
+      "version": "1.0.1",
+      "contentBase64": "eyJmaWVsZHNNZXRhIjp7ImVmZmVjdGl2ZUZyb20iOnsib3B0aW9ucyI6bnVsbCwicmVxdWlyZWQiOnRydWUsInR5cGUiOiJ0ZXh0In0sImVmZmVjdGl2ZVRvIjp7Im9wdGlvbnMiOm51bGwsInJlcXVpcmVkIjpmYWxzZSwidHlwZSI6InRleHQifSwicGVyc29uIjp7Im9wdGlvbnMiOm51bGwsInJlcXVpcmVkIjp0cnVlLCJ0eXBlIjoidGV4dCJ9LCJyZWFzb24iOnsib3B0aW9ucyI6WyJtYW51YWwiLCJpbnZpdGF0aW9uIiwid29ya2Zsb3ciLCJ0aWNrZXQiXSwicmVxdWlyZWQiOnRydWUsInR5cGUiOiJzZWxlY3QifSwicmVzaWRlbmN5Ijp7Im9wdGlvbnMiOlsiY2FjaGUiLCJvbmxpbmUtb25seSJdLCJyZXF1aXJlZCI6dHJ1ZSwidHlwZSI6InNlbGVjdCJ9LCJyb2xlIjp7Im9wdGlvbnMiOm51bGwsInJlcXVpcmVkIjp0cnVlLCJ0eXBlIjoidGV4dCJ9LCJzY29wZSI6eyJvcHRpb25zIjpudWxsLCJyZXF1aXJlZCI6dHJ1ZSwidHlwZSI6InRleHQifX0sIm92ZXJsYXkiOnsiZGVzY3JpcHRpb24iOnsia2luZCI6IkxpdGVyYWwiLCJ2YWx1ZSI6IkdyYW50IGEgcGVyc29uIGEgcm9sZSwgaW4gYSBzY29wZSwgZm9yIGEgcGVyaW9kLCB3aXRoIGEgcmVhc29uLiJ9LCJmaWVsZHMiOnsiZWZmZWN0aXZlRnJvbSI6eyJjb250cm9sSGludCI6InRleHQiLCJsYWJlbCI6eyJraW5kIjoiTGl0ZXJhbCIsInZhbHVlIjoiRWZmZWN0aXZlIGZyb20ifSwicGlpU2Vuc2l0aXZpdHkiOiJOb25lIn0sImVmZmVjdGl2ZVRvIjp7ImNvbnRyb2xIaW50IjoidGV4dCIsImxhYmVsIjp7ImtpbmQiOiJMaXRlcmFsIiwidmFsdWUiOiJFZmZlY3RpdmUgdG8ifSwicGlpU2Vuc2l0aXZpdHkiOiJOb25lIn0sInBlcnNvbiI6eyJjb250cm9sSGludCI6InRleHQiLCJsYWJlbCI6eyJraW5kIjoiTGl0ZXJhbCIsInZhbHVlIjoiUGVyc29uIn0sInBpaVNlbnNpdGl2aXR5IjoiRGlyZWN0In0sInJlYXNvbiI6eyJjb250cm9sSGludCI6InNlbGVjdCIsImxhYmVsIjp7ImtpbmQiOiJMaXRlcmFsIiwidmFsdWUiOiJSZWFzb24ifSwicGlpU2Vuc2l0aXZpdHkiOiJOb25lIn0sInJlc2lkZW5jeSI6eyJjb250cm9sSGludCI6InNlbGVjdCIsImxhYmVsIjp7ImtpbmQiOiJMaXRlcmFsIiwidmFsdWUiOiJSZXNpZGVuY3kifSwicGlpU2Vuc2l0aXZpdHkiOiJOb25lIn0sInJvbGUiOnsiY29udHJvbEhpbnQiOiJ0ZXh0IiwibGFiZWwiOnsia2luZCI6IkxpdGVyYWwiLCJ2YWx1ZSI6IlJvbGUifSwicGlpU2Vuc2l0aXZpdHkiOiJOb25lIn0sInNjb3BlIjp7ImNvbnRyb2xIaW50IjoidGV4dCIsImxhYmVsIjp7ImtpbmQiOiJMaXRlcmFsIiwidmFsdWUiOiJTY29wZSJ9LCJwaWlTZW5zaXRpdml0eSI6Ik5vbmUifX0sInJ1bGVzIjpbXSwic2VjdGlvbnMiOlt7ImFjY2VzcyI6eyJyZWFkUm9sZXMiOlsidGF4LnJvbGVzL2FjY2Vzcy1mb3JtLXN1Ym1pdHRlciJdLCJ3cml0ZVJvbGVzIjpbInRheC5yb2xlcy9hY2Nlc3MtZm9ybS1zdWJtaXR0ZXIiXX0sImZpZWxkcyI6WyJwZXJzb24iLCJyb2xlIiwic2NvcGUiLCJyZXNpZGVuY3kiLCJlZmZlY3RpdmVGcm9tIiwiZWZmZWN0aXZlVG8iLCJyZWFzb24iXSwiaWQiOiJncmFudCIsInRpdGxlIjp7ImtpbmQiOiJMaXRlcmFsIiwidmFsdWUiOiJHcmFudCBhIHJvbGUifX1dLCJ0aXRsZSI6eyJraW5kIjoiTGl0ZXJhbCIsInZhbHVlIjoiR3JhbnQgYSByb2xlIn19fQ=="
+    },
+    {
+      "key": "access.scoped-grant-review",
+      "kind": "WorkflowDefinition",
+      "version": "1.0.0",
+      "contentBase64": "eyJhY3Rpb25zIjpbXSwiaW5pdGlhbFN0YXRlIjoicmVxdWVzdGVkIiwia2V5IjoiYWNjZXNzLnNjb3BlZC1ncmFudC1yZXZpZXciLCJwb3N0U3VibWl0UHJvamVjdGlvbiI6ImFjY2Vzcy5zY29wZWQtZ3JhbnQtcmV2aWV3Iiwic3RhdGVzIjpbeyJpZCI6InJlcXVlc3RlZCIsImtpbmQiOiJOb3JtYWwifSx7ImlkIjoiYXBwcm92ZWQiLCJraW5kIjoiVGVybWluYWwifSx7ImlkIjoiZGVjbGluZWQiLCJraW5kIjoiVGVybWluYWwifV0sInN1YmplY3RGb3JtUmVmIjp7ImZvcm1JZCI6ImFjY2Vzcy5ncmFudC1hLXJvbGUiLCJ2ZXJzaW9uIjoiMS4wLjEifSwidGVuYW50IjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIiwidHJhbnNpdGlvbnMiOlt7ImZyb20iOiJyZXF1ZXN0ZWQiLCJpZCI6ImFwcHJvdmUiLCJvbiI6ImFwcHJvdmUiLCJ0byI6ImFwcHJvdmVkIn0seyJmcm9tIjoicmVxdWVzdGVkIiwiaWQiOiJkZWNsaW5lIiwib24iOiJkZWNsaW5lIiwidG8iOiJkZWNsaW5lZCJ9XSwidHJpZ2dlcnMiOlt7ImlkIjoiYXBwcm92ZSIsImtpbmQiOiJIdW1hbkFjdGlvbiIsInRhc2siOiJhcHByb3ZlIn0seyJpZCI6ImRlY2xpbmUiLCJraW5kIjoiSHVtYW5BY3Rpb24iLCJ0YXNrIjoiZGVjbGluZSJ9XSwidmVyc2lvbiI6IjEuMC4wIn0="
+    },
+    {
+      "key": "access.holders",
+      "kind": "ViewDefinition",
+      "version": "1.0.1",
+      "contentBase64": "eyJhdXRob3JpemF0aW9uQ2FwYWJpbGl0eSI6Im1lbWJlcnM6bWFuYWdlIiwia2V5IjoiYWNjZXNzLmhvbGRlcnMiLCJwYXJhbWV0ZXJzIjp7ImFjdGlvbnMiOlt7ImlkIjoiZ3JhbnQiLCJpbnB1dEZvcm0iOiJhY2Nlc3MuZ3JhbnQtYS1yb2xlIiwibGFiZWwiOiJHcmFudCBhIHJvbGUiLCJvcGVyYXRpb24iOiJhY2Nlc3MuZ3JhbnQuc3VibWl0In0seyJpZCI6InByaXZpbGVnZWQtcmV2aWV3IiwibGFiZWwiOiJSZXZpZXcgc2NvcGVkIGdyYW50Iiwib3BlcmF0aW9uIjoiYWNjZXNzLmdyYW50LnJldmlldyIsIndvcmtmbG93IjoiYWNjZXNzLnNjb3BlZC1ncmFudC1yZXZpZXcifSx7ImlkIjoiaG9sZGVyLXJlYWQiLCJsYWJlbCI6IlJlYWQgaG9sZGVyIGFjY2VzcyIsIm9wZXJhdGlvbiI6ImFjY2Vzcy5ob2xkZXIucmVhZCJ9LHsiaWQiOiJuYXJyb3ciLCJsYWJlbCI6Ik5hcnJvdyBncmFudCIsIm9wZXJhdGlvbiI6ImFjY2Vzcy5ncmFudC5uYXJyb3cifSx7ImlkIjoicmV2b2tlIiwibGFiZWwiOiJSZXZva2UgZ3JhbnQiLCJvcGVyYXRpb24iOiJhY2Nlc3MuZ3JhbnQucmV2b2tlIn0seyJpZCI6InJlcGxhY2UtcGFjayIsImxhYmVsIjoiUmVwbGFjZSBBY2Nlc3MgcGFjayIsIm9wZXJhdGlvbiI6ImFjY2Vzcy5wYWNrLnJlcGxhY2UifV0sImVudGl0eVR5cGUiOiJBY2Nlc3NHcmFudCIsImZpZWxkcyI6W3siaWQiOiJwcmluY2lwYWxJZCIsImxhYmVsIjoiUGVyc29uIn0seyJpZCI6InJvbGUiLCJsYWJlbCI6IlJvbGUifSx7ImlkIjoic2NvcGUiLCJsYWJlbCI6IlNjb3BlIn0seyJpZCI6InN0YXR1cyIsImxhYmVsIjoiU3RhdHVzIn1dfSwic2NoZW1hVmVyc2lvbiI6MSwidGVuYW50IjoiYm9vdHN0cmFwIiwidGl0bGUiOiJBY2Nlc3MgaG9sZGVycyIsInZlcnNpb24iOiIxLjAuMSIsInZpZXdLaW5kIjoidmlld3MuZW50aXR5LWxpc3QvZ3JpZCJ9"
+    },
+    {
+      "key": "access.navigation",
+      "kind": "NavWorkspaceConfig",
+      "version": "1.1.0",
+      "contentBase64": "eyJwYW5lbFNldCI6W3siYmluZGluZyI6InBhbmVscy5hY2Nlc3MtZGV0YWlscy50b2dnbGUiLCJib2R5VGVtcGxhdGUiOiJGaWVsZHMiLCJkZWZhdWx0T3BlbiI6ZmFsc2UsImRlZmF1bHRXaWR0aCI6NDAwLCJmb290ZXIiOnsia2luZCI6IkNsYWltIiwibGFiZWxLZXkiOiJhY2Nlc3MuZGV0YWlscy5mb290ZXIifSwiaGVhZGVyRm9ybSI6IlRpdGxlIiwiaWQiOiJhY2Nlc3MtZGV0YWlscyIsImxhYmVsS2V5IjoiYWNjZXNzLmRldGFpbHMiLCJtaW5pbXVtSGVpZ2h0IjozMDAsInNob3J0Y3V0IjoibW9kK3NoaWZ0K2EiLCJ0cmFpdHMiOlsiU2NvcGVkIl19XSwic2VlZFdvcmtzcGFjZXMiOlt7Imdyb3VwcyI6W3siaWQiOiJhY2Nlc3MtaW5zcGVjdGlvbiIsIml0ZW1JZHMiOlsiYWNjZXNzLmhvbGRlcnMiXSwiaXRlbXMiOlt7ImlkIjoiYWNjZXNzLmhvbGRlcnMiLCJsYWJlbEtleSI6ImFjY2Vzcy5ob2xkZXJzIn1dLCJsYWJlbEtleSI6ImFjY2Vzcy5ob2xkZXJzIn1dLCJpZCI6ImFjY2VzcyIsImxhYmVsS2V5IjoiYWNjZXNzLndvcmtzcGFjZSJ9XX0="
+    }
+  ],
+  "dcp": {
+    "contentBase64": "eyJBY2NvdW50YWJsZUluZGl2aWR1YWxSZWdpbWVzIjpbXSwiQXVkaWVuY2UiOnsiQXVkaWVuY2UiOiJnZW5lcmFsIiwiTWluaW11bU9wZXJhdG9yQWdlIjpudWxsLCJNaW5vcnNBc1ByaW5jaXBhbHMiOmZhbHNlLCJNaW5vcnNBc1N1YmplY3RzIjpmYWxzZX0sIkRhdGFTZW5zaXRpdml0eSI6MSwiRGNwVmVyc2lvbiI6IjEuMC4wIiwiSnVyaXNkaWN0aW9uYWxWYXJpYW5jZSI6eyJDb3Vuc2VsRGlzY2xhaW1lclJlZiI6bnVsbCwiSGFzVmFyaWFuY2UiOmZhbHNlLCJKdXJpc2RpY3Rpb25zIjpbXX0sIk9wZXJhdG9yQ2FwYWNpdHkiOnsiTWluaW11bU9wZXJhdG9yQWdlIjpudWxsLCJSZXF1aXJlZENhcGFjaXRpZXMiOltdfSwiT3V0T2ZTY29wZSI6W10sIlJhY2kiOnsiQXJiaXRlciI6IlU1c1RTcUZ6MHNBa1R1TXZLMFAwQTRBQTY1N195ZUc5VVlfSkNnb0ZBNmciLCJDdXJhdG9yIjoiVTVzVFNxRnowc0FrVHVNdkswUDBBNEFBNjU3X3llRzlVWV9KQ2dvRkE2ZyIsIkRlc2lnbmVyIjoiVTVzVFNxRnowc0FrVHVNdkswUDBBNEFBNjU3X3llRzlVWV9KQ2dvRkE2ZyIsIklzU29sb0NvbGxhcHNlZCI6dHJ1ZSwiU3Rld2FyZCI6IlU1c1RTcUZ6MHNBa1R1TXZLMFAwQTRBQTY1N195ZUc5VVlfSkNnb0ZBNmcifSwiUmVndWxhdG9yeUNsYXNzIjowfQ=="
+  }
+}

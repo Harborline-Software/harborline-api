@@ -1,0 +1,35 @@
+{
+  "manifestVersion": 1,
+  "ticket": "T-433",
+  "packKey": "harborline.access-administration",
+  "fromVersion": "1.1.1",
+  "toVersion": "1.1.2",
+  "artifact": "access-administration-pack-1.1.2.export.json",
+  "sha256": "a5a1a6b1d8e75bc30ba902c0fb2a795e82931631a0ad644bb7018038a3bce122",
+  "source": {
+    "path": "_shared/packs/access-administration/access-administration-pack.export.json",
+    "sha256": "2b40586778534a172ac5cba4cb47590f3380fb793599c7e8fe9ec4a1155745dd",
+    "derivation": "Change pack version to 1.1.2, replace WorkflowDefinition/access.privileged-grant-review@1.0.1 with WorkflowDefinition/access.scoped-grant-review@1.0.0, and replace ViewDefinition/access.holders@1.0.0 with ViewDefinition/access.holders@1.0.1 bound to the scoped workflow."
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "issuerId": "U5sTSqFz0sAkTuMvK0P0A4AA657_yeG9UY_JCgoFA6g",
+    "epoch": 1,
+    "issuedAt": "2026-09-15T16:33:00Z",
+    "nonce": "fd3a5943-e24b-4fa5-9059-2ca967967820"
+  },
+  "removed": [
+    "WorkflowDefinition/access.privileged-grant-review@1.0.1",
+    "ViewDefinition/access.holders@1.0.0"
+  ],
+  "added": [
+    "WorkflowDefinition/access.scoped-grant-review@1.0.0",
+    "ViewDefinition/access.holders@1.0.1"
+  ],
+  "retained": [
+    "RoleDefinition/access.form-submitter@1.0.0",
+    "FormDefinition/access.grant-a-role@1.0.1",
+    "NavWorkspaceConfig/access.navigation@1.1.0"
+  ],
+  "setRule": "removed, added, and retained are the exact T-433 replacement assertion sets."
+}
