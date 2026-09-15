@@ -1456,9 +1456,7 @@ var runningPackPlatformVersion =
         ?? typeof(PackInstaller).Assembly.GetName().Version?.ToString()
         ?? "0.0.0")
     .Split('+', 2)[0];
-builder.Services.AddSingleton<IPackPlatformCompatibility>(new PackPlatformCompatibility(
-    runningPackPlatformVersion,
-    Harborline.Api.LocalNodeHost.Data.PackProjection.PackSeedProjector.RegisteredCases));
+builder.Services.AddCatalogueFieldSourceRuntime(runningPackPlatformVersion);
 // F5 (migration-update-architecture D5.2 / D5.3) — bind the DURABLE SQLCipher-backed IPackInstallStore BEFORE
 // AddPackComposerInstall so its TryAdd default (InMemoryPackInstallStore) is skipped. This is what makes an
 // installed+activated pack + its S-8 watermark + tenant overrides SURVIVE a node restart / deploy-dogfood

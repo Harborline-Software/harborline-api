@@ -2,15 +2,18 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "abdb6401c6674c5d496de7a1d4cdbb7b3522e3a2+b49c0080eccb681066f6b21e0266651b2a47ca39",
-  "recordedAt": "2026-09-15T18:34:27Z",
+  "sourcePin": "e40cfd05d4cfee74fb8f75518714fdc5112fb68d",
+  "recordedAt": "2026-09-15T19:31:58Z",
   "totals": {
-    "total": 4008,
-    "passed": 3987,
+    "total": 4074,
+    "passed": 4053,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 427 integration with Terminology PR #159: the combined working-tree host run measured 4074 total cases, 4052 passed, zero failed and 22 skipped. Its one extra dynamic skip was TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan because this checkout lacked the capability-host node toolchain; the required exact-clone gate installs that toolchain before the host suite. Preserve the existing 21 gate skips and zero-failure policy, expecting 4053 passes. The committed merged-head full gate must confirm that tuple. No failure or retry allowance changes.",
+    "Ticket 427 runtime integration: the full exact-clone run on e40cfd05, including current main's host composition and authentic Standards catalogue, measured 4037 passed, zero failed, 21 skipped, 4058 total. Every exact-clone check passed except the previous 4062-case count inventory. No new failures and no known-flaky retries occurred. This measured four-case reduction replaces the previous count only; failure, skip and retry identities and allowances remain unchanged.",
+    "Ticket 427 runtime: add 66 ordinary platform-independent cases (27 canonical authorization-target, 35 per-request/source-index, three read-only save, one authentic signed-pack reprojection). Focused execution passed all 356 selected cases on the tree-identical pre-rebase runtime commit; the full quality-enabled gate validates this 4041/4062 passed/total inventory. Failure, skip, retry identities and allowances remain unchanged.",
     "Ticket 233 integration with Standards PR #153: retain the four independently verified Standards cases and the sixteen terminology cases, giving 4008 total / 3987 expected passed / 21 skipped. The final merged-commit gate verifies this combined inventory without changing failure or retry allowances.",
     "Ticket 233: the Windows exact-clone run at 236f3e12 measured 4004 total cases and 21 skips, adding the sixteen terminology runtime cases to main's 3988 inventory. That run found two architecture failures (refusal code tracing and navigation call-site line inventory); this branch fixes those emissions and inventories before the final full gate. The expected failure count remains zero, with every existing failure allowance, skip and retry identity unchanged.",
     "Ticket 426 Standards merge with released PR #156/#158: retain main's measured eight-case reduction from the reach batch (six composed-host additions and retired UI test deletions), then add the four Standards cases. The derived Windows inventory is 3971 passed / 3992 total; the merged commit still requires its own full exact-clone gate. Failure, skip and retry policies are unchanged.",
