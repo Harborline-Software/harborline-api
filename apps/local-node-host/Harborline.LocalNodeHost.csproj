@@ -258,6 +258,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <!-- SQLCipher: the encrypted SQLite native lib + managed provider. With
          .Sqlite.Core above (no non-cipher bundle) this is the ONLY native SQLite lib
          deployed; the host pins it via SQLitePCL.raw.SetProvider in
