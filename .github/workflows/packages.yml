@@ -152,13 +152,13 @@ jobs:
           # so this job needs Node and that install or the row cannot run. 24 matches the
           # protocol-lane-conformance job; nothing in the repo pins a version.
           node-version: 24
-          cache: npm
-          cache-dependency-path: apps/capability-host/package-lock.json
+          cache: pnpm
+          cache-dependency-path: apps/capability-host/pnpm-lock.yaml
       - name: Install the capability-host node toolchain
         # Nothing here needs `npm run build`: the interop fixture's only api-contracts import is
         # type-only, so vitest never loads that package's dist at runtime.
         working-directory: apps/capability-host
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Build and test
         run: node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.ubuntu.json
       - name: Retain failed host-test evidence
