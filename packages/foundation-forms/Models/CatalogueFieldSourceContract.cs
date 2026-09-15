@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
@@ -11,6 +12,8 @@ namespace Harborline.Api.Foundation.Forms.Models;
 /// <summary>Closed v1 vocabulary and strict wire parsing. Parsing does not establish runtime support.</summary>
 public static class CatalogueFieldSourceContract
 {
+    private static readonly SearchValues<char> LowerHexDigits = SearchValues.Create("0123456789abcdef");
+
     public const string CapabilityId = "forms.catalogue-field-source";
     public const int CoordinateSchemaVersion = 1;
     public const int SourceMappingSchemaVersion = 1;
@@ -92,7 +95,7 @@ public static class CatalogueFieldSourceContract
         RequireObject(value, malformed, "definitionHash", "provenance");
         var hash = RequireString(value.GetProperty("definitionHash"), malformed);
         if (hash.Length != 71 || !hash.StartsWith("sha256:", StringComparison.Ordinal)
-            || hash.AsSpan(7).ContainsAnyExcept("0123456789abcdef"))
+            || hash.AsSpan(7).ContainsAnyExcept(LowerHexDigits))
             throw new CatalogueFieldSourceException(malformed);
         var provenance = value.GetProperty("provenance");
         if (provenance.ValueKind != JsonValueKind.Object || !provenance.TryGetProperty("kind", out var kindValue))
