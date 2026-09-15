@@ -2285,6 +2285,7 @@ builder.Services.AddNodeForms(
 // Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.CatalogueRegistries>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.TerminologyProjection>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 

@@ -39,19 +39,22 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
     private readonly PackRestrictingDefinitionAdmission _restricting;
     private readonly IRoleGateAdmission? _roleGateAdmission;
     private readonly CatalogueFieldSourceAdmission _catalogueFields;
+    private readonly Data.PackProjection.TerminologyProjection? _terminology;
 
     /// <summary>Constructs the adapter over the node's registered admission validator (registry-derived).</summary>
     public PackWorkflowAdmissionAdapter(
         IWorkflowAdmissionValidator admission,
         IRestrictingDefinitionKindValidator? kinds = null,
         IRoleGateAdmission? roleGateAdmission = null,
-        CatalogueFieldSourceAdmission? catalogueFields = null)
+        CatalogueFieldSourceAdmission? catalogueFields = null,
+        Data.PackProjection.TerminologyProjection? terminology = null)
     {
         _admission = admission ?? throw new ArgumentNullException(nameof(admission));
         _restricting = new PackRestrictingDefinitionAdmission(
             kinds ?? RestrictingDefinitionKindValidator.Shared);
         _roleGateAdmission = roleGateAdmission;
         _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
+        _terminology = terminology;
     }
 
     /// <inheritdoc />
@@ -61,6 +64,12 @@ public sealed class PackWorkflowAdmissionAdapter : IPackContentAdmission
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant, _roleGateAdmission));
         refusals.AddRange(_catalogueFields.Validate(composed));
+        if (_terminology is null)
+            refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.TerminologyOverride)
+                .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                    "Terminology runtime consumer is not registered.")));
+        else
+            refusals.AddRange(PackTerminologyContent.Validate(composed, tenant));
 
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.WorkflowDefinition))
         {

@@ -715,11 +715,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         // A verified declaration is not enough: content must have a live projection path in this build.
         // NavWorkspaceConfig is intentionally absent because PackNavigationRoutes projects it directly
-        // from active immutable seeds on read. These three kinds currently have no consumer at all.
+        // from active immutable seeds on read. Standards and cascade defaults still have no consumer.
         var earlyRefusals = UnsupportedContentKindRefusals(contents);
         if (!collectRefusals && earlyRefusals.Count > 0)
         {
-            // Preserve install's established priority (standards, then cascade, then terminology),
+            // Preserve install's established priority (standards, then cascade),
             // independent of the authoring order in the export. CHECK collects the whole list below.
             var refusal = earlyRefusals.MinBy(refusal => refusal.Code switch
             {
@@ -727,18 +727,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.RefusedUnsupportedCascadeDefaults => 1,
                 _ => 2,
             })!;
-            return refusal.Code switch
-            {
-                PackInstallCodes.RefusedUnsupportedStandardsCatalog => HardRefusal(
-                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
-                PackInstallCodes.RefusedUnsupportedCascadeDefaults => HardRefusal(
-                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
-                _ => HardRefusal(
-                    manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedTerminologyOverride,
-                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
-            };
+            return HardRefusal(manifest.Key, manifest.Version, refusal.Code,
+                revocationStale, signerB64, epoch, scope, refusals: [refusal]);
         }
 
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);
@@ -1030,7 +1020,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 PackContentKind.StandardsCatalog => PackInstallCodes.RefusedUnsupportedStandardsCatalog,
                 PackContentKind.CascadeDefaults => PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                PackContentKind.TerminologyOverride => PackInstallCodes.RefusedUnsupportedTerminologyOverride,
                 _ => null,
             };
             if (code is not null)

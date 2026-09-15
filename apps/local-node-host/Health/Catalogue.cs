@@ -153,6 +153,7 @@ public sealed class ProjectedCatalogue : ICatalogue
     private readonly IViewDefinitionRegistry? viewDefinitions;
     private readonly InMemoryRenderPlanCatalogue? renderPlans;
     private readonly CatalogueRegistries? registries;
+    private readonly TerminologyProjection? terminology;
 
     /// <summary>
     /// Reads forms through the same authorized lifecycle that owns the Form definition route family.
@@ -163,16 +164,19 @@ public sealed class ProjectedCatalogue : ICatalogue
         AuthorizedFormDefinitionLifecycle forms,
         IViewDefinitionRegistry? viewDefinitions = null,
         InMemoryRenderPlanCatalogue? renderPlans = null,
-        CatalogueRegistries? registries = null)
+        CatalogueRegistries? registries = null,
+        TerminologyProjection? terminology = null)
     {
         authorizedForms = forms ?? throw new ArgumentNullException(nameof(forms));
         this.viewDefinitions = viewDefinitions;
         this.renderPlans = renderPlans;
         this.registries = registries;
+        this.terminology = terminology;
     }
 
     private bool IsAvailable(PackContentKind kind) => kind == PackContentKind.FormDefinition
         || (kind == PackContentKind.ViewDefinition && viewDefinitions is not null)
+        || (kind == PackContentKind.TerminologyOverride && terminology is not null)
         || registries?.IsAvailable(kind) == true;
 
     public async ValueTask<CatalogueList> ListAsync(
@@ -186,6 +190,8 @@ public sealed class ProjectedCatalogue : ICatalogue
         }
 
         var entries = new List<CatalogueEntry>();
+        if ((kind is null or PackContentKind.TerminologyOverride) && terminology is not null)
+            entries.AddRange(terminology.List(tenant));
         if (kind is null or PackContentKind.FormDefinition)
         {
             await foreach (var definition in ListFormsAsync(tenant, cancellationToken).ConfigureAwait(false))
@@ -213,6 +219,8 @@ public sealed class ProjectedCatalogue : ICatalogue
         string? version = null,
         CancellationToken cancellationToken = default)
     {
+        if (kind == PackContentKind.TerminologyOverride)
+            return terminology?.List(tenant).SingleOrDefault(entry => entry.Id == id && (version is null || entry.Version == version));
         if (kind == PackContentKind.ViewDefinition && viewDefinitions is not null)
         {
             if (version is null)

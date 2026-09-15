@@ -94,6 +94,9 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant));
+        refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.TerminologyOverride)
+            .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                "Terminology requires its runtime consumer and versioned admission.")));
         foreach (var item in composed.Where(c => c.Kind == PackContentKind.FormDefinition))
         {
             if (DeclaresCatalogueFieldSource(item.CanonicalJson)
