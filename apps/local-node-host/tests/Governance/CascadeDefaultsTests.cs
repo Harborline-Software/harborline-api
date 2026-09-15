@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Admission;
+using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Export;
@@ -46,6 +47,110 @@ namespace Harborline.Api.LocalNodeHost.Tests.Governance;
 
 public sealed class CascadeDefaultsTests
 {
+    [Theory]
+    [InlineData("platform.binding.catalogue-read", "bafkreift42gowbpcxbfygt36n7tah63ujbb7ekxvzr2deasxigqgp3cb3q")]
+    [InlineData("platform.binding.records-read", "bafkreib6tp3widcpawwq43y3kvzqk2hqgxgtabsqxnskemfstgkjlww3xy")]
+    public void Released_platform_binding_uses_canonical_sealed_role_and_pinned_content(string key, string expectedCid)
+    {
+        var request = PlatformPackPreloadHostedService.ReadExportRequest("fixture-author");
+        var source = Assert.Single(request.Contents, item => item.Key == key);
+        Assert.Equal("1.1.0", source.Version);
+        Assert.Equal(RoleReference.Administrator.ToString(), source.Content["offeredRoles"]![0]!.GetValue<string>());
+        var canonical = new PackContentCanonicalizer().Canonicalize(source);
+        Assert.Equal(expectedCid, canonical.ContentAddress.ToString());
+    }
+
+    [Fact]
+    public async Task Released_platform_seed_installs_projects_and_audits_pack_author_without_expanding_surfaces()
+    {
+        using var keys = KeyPair.Generate();
+        var codec = new PackFileCodec();
+        var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
+        Assert.Equal("1.2.0", request.Version);
+        Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
+        var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
+        Assert.Equal("platform.defaults.pack-author", source.Key);
+        Assert.Equal("1.0.0", source.Version);
+        var canonical = new PackContentCanonicalizer().Canonicalize(source);
+        Assert.Equal("bafkreiczgrb2t4g3jtgc5cdxtjn4247wyqlw5h7r47bsggwp5bkpbgqjia", canonical.ContentAddress.ToString());
+        Assert.True(PackCascadeDefaultsContent.TryParse(Encoding.UTF8.GetString(canonical.CanonicalBytes.Span), out var parsed, out _, out _));
+        var declaration = Assert.Single(parsed!.Defaults);
+        Assert.Equal("platform.pack.author", declaration.RecordType);
+        Assert.Null(declaration.Field);
+        Assert.True(declaration.Values.TrackChanges);
+        Assert.Equal(39, request.Contents.Count(item => item.Kind == PackContentKind.ViewDefinition));
+        Assert.Single(request.Contents, item => item.Kind == PackContentKind.NavWorkspaceConfig);
+
+        var store = new InMemoryPackInstallStore();
+        var defaults = new ActiveCascadeDefaultsProjection();
+        var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), store,
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: defaults),
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
+        var context = new PackInstallContext(Tenant,
+            new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, request.Epoch, TrustRootStatus.Current)]),
+            PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), TimeSpan.FromDays(30), Principal: "test-operator");
+        var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()), codec, timeProvider: TimeProvider.System);
+        var exported = await exporter.ExportAsync(request, new Ed25519Signer(keys));
+        Assert.True(exported.Succeeded, string.Join(";", exported.Validation.Errors.Select(error => error.Message)));
+        var installed = installer.Install(exported.FileBytes!, context);
+        Assert.True(installed.Installed, string.Join(";", installed.RefusalCodes));
+        Assert.Equal(canonical.ContentAddress, Assert.Single(store.GetVersion(Tenant, request.Key, request.Version)!.SeedItems,
+            item => item.Kind == PackContentKind.CascadeDefaults).ContentAddress);
+        Assert.True(installer.Activate(context, request.Key, request.Version).Activated);
+
+        var roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
+        var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration, new AuthorizationDefinitionAdmission(roles),
+            new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
+        await new AccessGrantAuthorizationSeed(writer, configuration, grants).InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production);
+        var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        services.AddTestAuthorizationGate().AddTestNodeForms();
+        services.AddSingleton<ICascadeDefaultsProjection>(defaults);
+        var audit = Substitute.For<IAuditLog>();
+        audit.AppendAsync(Arg.Any<AuditAppend>(), Arg.Any<CancellationToken>()).Returns(new AuditId(1));
+        services.AddSingleton(audit);
+        using var provider = services.BuildServiceProvider();
+        var forms = provider.GetRequiredService<IFormDefinitionStore>();
+        var views = new Harborline.Api.Foundation.ViewDefinitions.InMemoryViewDefinitionRegistry(
+            Substitute.For<Harborline.Api.Foundation.ViewDefinitions.IViewDefinitionDescriptorRegistry>());
+        var logger = new ProjectionLogger();
+        var projector = new PackSeedProjector(store, provider.GetRequiredService<IEntityTypeRegistry>(), logger,
+            forms: forms, schemas: provider.GetRequiredService<ISchemaRegistry>(), time: TimeProvider.System,
+            authorizedForms: provider.GetRequiredService<AuthorizedFormDefinitionLifecycle>(), roleVocabulary: roles,
+            authorizationDefinitions: writer, defaults: defaults, viewDefinitions: views, renderPlans: new InMemoryRenderPlanCatalogue());
+        var summary = await projector.ProjectActivePacksAsync(Tenant);
+        Assert.True(summary.Refusals.Count == 0, string.Join(";", logger.Errors));
+        var bindings = await configuration.ListAsync(Tenant);
+        var platformBindings = bindings.Where(binding => binding.Definition.PublisherPackageId == request.Key).ToArray();
+        Assert.Equal(2, platformBindings.Length);
+        Assert.All(platformBindings, binding => Assert.Equal(RoleBindingSet.Of(RoleReference.Administrator), binding.EffectiveRoles));
+        var auditor = Assert.Single(bindings, binding => binding.EffectiveRoles.Roles.Contains(RoleReference.Auditor));
+        Assert.Equal(AccessGrantAuthorizationSeed.PackageId, auditor.Definition.PublisherPackageId);
+        Assert.Equal(Permission.AuditRead, auditor.Definition.Operation.Value);
+        var catalogue = new CatalogueRegistries(store, defaults: defaults);
+        Assert.True(catalogue.IsAvailable(PackContentKind.CascadeDefaults));
+        var entry = Assert.Single(await catalogue.ReadAsync(Tenant, PackContentKind.CascadeDefaults));
+        Assert.Equal(source.Key, entry.Id);
+        Assert.Equal(source.Version, entry.Version);
+        Assert.Equal(new CatalogueProvenance(request.Key, request.Version, "pack"), entry.Provenance);
+        var resolved = defaults.Resolve(Tenant, request.Key, "platform.pack.author", "packJson");
+        Assert.True(resolved.Values.TrackChanges);
+        Assert.Equal(source.Key, Assert.Single(resolved.Sources).Value.ContentKey);
+        Assert.Null(defaults.Resolve(Tenant, request.Key, "unrelated", "packJson").Values.TrackChanges);
+        Assert.Empty(await catalogue.ReadAsync(new("another-tenant"), PackContentKind.CascadeDefaults));
+        var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.0"));
+        var policy = provider.GetRequiredService<IAspectResolver>().ResolvePolicy(form, "packJson");
+        Assert.NotNull(policy.Effect(EffectKind.Audit, Trigger.Store));
+        await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("{}"),
+            Tenant, new("writer"), new("harborline", "node", "record"), TestAuthorization.At, "US"));
+        await audit.Received().AppendAsync(Arg.Is<AuditAppend>(entry => entry.Justification == "spine-2 store"), Arg.Any<CancellationToken>());
+    }
+
     private static readonly TenantId Tenant = new("defaults-tenant");
     private const string Package = "tests.defaults";
     internal const string Body = """
@@ -408,6 +513,18 @@ public sealed class CascadeDefaultsTests
         Assert.True(stored.Retention.MaximumHoldUntil >= stored.Retention.MinimumHoldUntil);
         var envelope = await provider.GetRequiredService<IFormDefinitionEnvelopeResolver>().ResolveAsync(form, created);
         Assert.Equal(created.AddDays(expectedDays), envelope.RetentionClass.MinimumHoldUntil);
+    }
+
+    private sealed class ProjectionLogger : Microsoft.Extensions.Logging.ILogger<PackSeedProjector>
+    {
+        public List<string> Errors { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId id,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null) Errors.Add(exception.ToString());
+        }
     }
 
     private sealed class Fixture : IDisposable

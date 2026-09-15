@@ -75,6 +75,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private PlatformPackPreloadHostedService _platformPreload = null!;
     private InMemoryRoleVocabulary _roles = null!;
     private InMemoryPackInstallAudit _audit = null!;
+    private readonly ActiveCascadeDefaultsProjection _defaults = new();
 
     public Task InitializeAsync()
     {
@@ -122,7 +123,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
             _store,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate),
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults),
             _audit,
             TestAuthorization.AllowGate());
         var projector = new PackSeedProjector(
@@ -138,7 +139,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             authorizedForms: _authorizedForms,
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
             roleVocabulary: _roles,
-            renderPlans: _renderPlans);
+            renderPlans: _renderPlans,
+            defaults: _defaults);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
 
         _preload = new AccessAdministrationPreloadHostedService(
@@ -300,11 +302,17 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.NotNull(auditor);
         var platform = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.RoleDefinition));
-        Assert.Equal(3, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
+        Assert.Equal(2, platform.SeedItems.Count(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding));
         Assert.Equal(39, platform.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projectedViews = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projectedViews.Count);
-        var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
+        var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans,
+            new CatalogueRegistries(_store, defaults: _defaults));
+        var defaults = await catalogue.ListAsync(Tenant, PackContentKind.CascadeDefaults);
+        Assert.Empty(defaults.KindsUnavailable);
+        var defaultEntry = Assert.Single(defaults.Entries);
+        Assert.Equal("platform.defaults.pack-author", defaultEntry.Id);
+        Assert.Equal(new CatalogueProvenance(platform.PackKey, platform.Version, "pack"), defaultEntry.Provenance);
         var formsView = await catalogue.GetAsync(
             Tenant, PackContentKind.ViewDefinition, "platform.list.forms", cancellationToken: CancellationToken.None);
         Assert.NotNull(formsView);
@@ -342,8 +350,10 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(2, _audit.Query(Tenant).Count(entry => entry.Action == PackInstallAuditAction.Activated));
     }
 
-    [Fact]
-    public async Task Platform_preload_replaces_active_1_0_0_and_projects_the_seeded_health_and_browse_views()
+    [Theory]
+    [InlineData("1.0.0", 13)]
+    [InlineData("1.1.0", 39)]
+    public async Task Platform_preload_upgrades_legacy_seed_with_defaults_and_frozen_views(string legacyVersion, int legacyViews)
     {
         var context = new PackInstallContext(
             Tenant,
@@ -356,30 +366,49 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             _signer.Signer.IssuerId.ToBase64Url());
         var legacy = current with
         {
-            Version = "1.0.0",
+            Version = legacyVersion,
             Contents = current.Contents
-                .Where(item => !item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
-                    && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))
+                .Where(item => item.Kind != PackContentKind.CascadeDefaults
+                    && (legacyVersion != "1.0.0" || (!item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
+                        && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))))
+                .Select(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding
+                    ? item with
+                    {
+                        Version = "1.0.0",
+                        Content = JsonSerializer.SerializeToNode(new
+                        {
+                            operation = item.Content["operation"]!.GetValue<string>(), scope = "/",
+                            offeredRoles = new[] { "platform/administrator" },
+                        })!,
+                    }
+                    : item)
+                .Append(new PackContentSource("platform.binding.audit-read", PackContentKind.AuthorizationCapabilityBinding,
+                    "1.0.0", JsonSerializer.SerializeToNode(new
+                    {
+                        operation = "audit:read", scope = "/", offeredRoles = new[] { "platform/auditor" },
+                    })!))
                 .ToArray(),
         };
 
         var legacyBytes = await ExportAsync(legacy);
         Assert.True(_installer.Install(legacyBytes, context).Installed);
         Assert.True(_installer.Activate(context, legacy.Key, legacy.Version).Activated);
-        Assert.Equal("1.0.0", _store.GetActive(Tenant, legacy.Key)!.Version);
-        Assert.Equal(13, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
+        Assert.Equal(legacyVersion, _store.GetActive(Tenant, legacy.Key)!.Version);
+        Assert.Equal(legacyViews, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
+        Assert.Empty(_defaults.List(Tenant));
 
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.1.0", active.Version);
+        Assert.Equal("1.2.0", active.Version);
+        Assert.Equal("1.2.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
         Assert.Equal(
-            new[] { "1.0.0", "1.1.0" },
+            new[] { legacyVersion, "1.2.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
@@ -612,7 +641,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             installer = new PackInstaller(
                 new PackVerifier(new Ed25519Verifier(), codec),
                 _store,
-                new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate),
+                new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults),
                 new InMemoryPackInstallAudit(),
                 TestAuthorization.AllowGate());
             ((IPackProjectionReconciler)installer).AttachProjector(new PackSeedProjector(
@@ -630,7 +659,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 // by projection while the form projects — a partial projection, which must not stand.
                 authorizedWorkflows: TestAuthorization.WorkflowLifecycle(
                     _workflows, TestAuthorization.AllowGate(), new RefusingRoleGate()),
-                roleVocabulary: _roles));
+                roleVocabulary: _roles, defaults: _defaults));
         }
 
         return new AccessAdministrationPreloadHostedService(

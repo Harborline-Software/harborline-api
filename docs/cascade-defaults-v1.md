@@ -63,3 +63,50 @@ deactivation, unresolved/resolved ownership, catalogue availability, and an actu
 save/read with unclassified masking and auditing. Retention tests exercise the real store and
 definition-envelope verdicts. The existing role restriction stays enforced. This slice does not
 claim conflict-policy consumption or new record-erasure behavior.
+
+## Released platform seed
+
+Platform pack `harborline.platform@1.2.0` carries `platform.defaults.pack-author@1.0.0`:
+
+```json
+{"schemaVersion":1,"title":"Pack author change tracking","defaults":[{"recordType":"platform.pack.author","trackChanges":true}]}
+```
+
+This applies the existing store-audit effect to the pack-author form only. It declares no other
+axes and adds no navigation, views, forms, or compiled UI. The 13 Workshop surfaces and 39 view
+definitions are unchanged; the platform seed contains 62 items.
+
+`PackContentCanonicalizer` produces content CID
+`bafkreiczgrb2t4g3jtgc5cdxtjn4247wyqlw5h7r47bsggwp5bkpbgqjia` for this body. The regression pins
+that CID, exports the complete embedded platform source through `PackExporter`, verifies and installs
+the signed bytes, projects the Defaults row, checks tenant/pack/content provenance, and executes the
+store-audit effect for the projected pack-author field. Preload tests check the available nonempty
+Defaults catalogue and unchanged surface inventory.
+
+The committed file is an export source, not a pre-signed release artifact. Ordinary platform preload
+canonicalizes and signs it with the node's own-roster signer; signature bytes include the node
+identity, issuance time and nonce and therefore have no single committed file digest. No release
+signature or content-addressed payload is hand-edited.
+The LF-normalized export-source SHA-256 is
+`218f1d806e8413daa06a37ad20dc9e83ac9b15b573491bd43e075ae20338e146`.
+
+### Authorization ownership
+
+The two platform bindings now use the existing sealed `sys.platform-roles/administrator` key
+(binding content version `1.1.0`). The old `platform/...` keys never resolved in the sealed vocabulary.
+The redundant `platform.binding.audit-read` item is removed: T-217/L628 requires exactly one
+effective definition naming Auditor, and `AuthorizationDefinitionAdmission` reserves it for the
+founding `harborline.access-grant` `audit:read` definition. `AuthorizationSeedHostedService` installs
+that definition before platform preload. This is an explicit bootstrap prerequisite, not a claim
+that a released access-grant pack exists or an invented pack-manifest dependency.
+
+The fixture test runs that founding seed, admits the complete platform pack through the real
+authorization writer, and proves both platform Administrator bindings plus the sole access-grant
+Auditor definition. T-398 joins admitted bindings across publishers by operation; it requires no
+duplicate Auditor offer from the carrying platform pack. The platform still supplies its real
+roles and Administrator bindings as M4/M6 require. Neither the Auditor's authority nor the
+admission invariant is broadened, and no view becomes administrator-only by this correction.
+
+The canonicalizer-generated binding CIDs are pinned in `CascadeDefaultsTests`:
+`platform.binding.catalogue-read` is `bafkreift42gowbpcxbfygt36n7tah63ujbb7ekxvzr2deasxigqgp3cb3q`;
+`platform.binding.records-read` is `bafkreib6tp3widcpawwq43y3kvzqk2hqgxgtabsqxnskemfstgkjlww3xy`.

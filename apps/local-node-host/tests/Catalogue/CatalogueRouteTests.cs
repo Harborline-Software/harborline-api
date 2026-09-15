@@ -94,7 +94,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
             _packStore,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: new ActiveCascadeDefaultsProjection()),
             new InMemoryPackInstallAudit(),
             TestAuthorization.AllowGate());
         _platformPreload = new PlatformPackPreloadHostedService(

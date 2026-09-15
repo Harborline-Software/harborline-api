@@ -1,11 +1,19 @@
 {
-  "_note": "Platform catalogue seed: sealed system types, Workshop navigation and list views, the pack-author input form and declared operations, and platform roles/bindings. Domain definitions are authored in separate packs.",
+  "_note": "Platform catalogue seed: sealed system types, Workshop navigation and list views, the pack-author input form with change-audit defaults and declared operations, and platform roles/bindings. Domain definitions are authored in separate packs.",
   "key": "harborline.platform",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Harborline platform",
   "description": "The sealed platform catalogue and Workshop bootstrap.",
   "scopeTier": "Horizontal",
   "contents": [
+    {
+      "key": "platform.defaults.pack-author", "kind": "CascadeDefaults", "version": "1.0.0",
+      "content": {
+        "schemaVersion": 1,
+        "title": "Pack author change tracking",
+        "defaults": [{ "recordType": "platform.pack.author", "trackChanges": true }]
+      }
+    },
     { "key": "FormDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
     { "key": "WorkflowDefinition", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
     { "key": "StandardsCatalog", "kind": "RecordType", "version": "1.0.0", "content": { "sealed": true, "provenance": { "kind": "platform" } } },
@@ -115,9 +123,8 @@
     { "key": "platform.browse.views", "kind": "ViewDefinition", "version": "1.0.0", "content": { "key": "platform.browse.views", "version": "1.0.0", "tenant": "bootstrap", "schemaVersion": 1, "viewKind": "views.entity-list/grid", "title": "Browse views", "parameters": { "entityType": "ViewDefinition", "fields": [{ "id": "id", "label": "Key" }, { "id": "title", "label": "Title" }, { "id": "version", "label": "Version" }, { "id": "status", "label": "Status" }] } } },
     { "key": "platform.role.administrator", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "administrator", "displayName": "Administrator" } },
     { "key": "platform.role.auditor", "kind": "RoleDefinition", "version": "1.0.0", "content": { "role": "auditor", "displayName": "Auditor" } },
-    { "key": "platform.binding.catalogue-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "catalogue:read", "scope": "/", "offeredRoles": ["platform/administrator"] } },
-    { "key": "platform.binding.records-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "records:read", "scope": "/", "offeredRoles": ["platform/administrator"] } },
-    { "key": "platform.binding.audit-read", "kind": "AuthorizationCapabilityBinding", "version": "1.0.0", "content": { "operation": "audit:read", "scope": "/", "offeredRoles": ["platform/auditor"] } }
+    { "key": "platform.binding.catalogue-read", "kind": "AuthorizationCapabilityBinding", "version": "1.1.0", "content": { "operation": "catalogue:read", "scope": "/", "offeredRoles": ["sys.platform-roles/administrator"] } },
+    { "key": "platform.binding.records-read", "kind": "AuthorizationCapabilityBinding", "version": "1.1.0", "content": { "operation": "records:read", "scope": "/", "offeredRoles": ["sys.platform-roles/administrator"] } }
   ],
   "dependencies": [],
   "capabilityRequirements": []

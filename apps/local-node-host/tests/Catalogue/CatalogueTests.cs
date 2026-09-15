@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Blobs;
@@ -14,6 +15,15 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 public sealed class CatalogueTests
 {
     [Fact]
+    public void Released_platform_export_source_has_the_pinned_fixture_digest()
+    {
+        using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
+            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
+        Assert.Equal("218f1d806e8413daa06a37ad20dc9e83ac9b15b573491bd43e075ae20338e146",
+            Convert.ToHexStringLower(SHA256.HashData(stream)));
+    }
+
+    [Fact]
     public void Platform_export_carries_only_catalogue_bootstrap_content()
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
@@ -25,17 +35,18 @@ public sealed class CatalogueTests
         Assert.Equal(16, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
         var allowedKinds = new[]
         {
-            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition", "FormDefinition",
+            "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition", "FormDefinition", "CascadeDefaults",
         };
         Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
         Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
             "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
         Assert.Equal("platform.pack.author", Assert.Single(contents, item => item.GetProperty("kind").GetString() == "FormDefinition").GetProperty("key").GetString());
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
-        Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read", "platform.binding.audit-read" },
+        Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read" },
             contents.Where(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding")
                 .Select(item => item.GetProperty("key").GetString()));
         Assert.Equal(39, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
+        Assert.Equal("platform.defaults.pack-author", Assert.Single(contents, item => item.GetProperty("kind").GetString() == "CascadeDefaults").GetProperty("key").GetString());
     }
 
     [Fact]
