@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "1da2b026ed3c2d16727461a3e7331620f12e75d0",
-  "recordedAt": "2026-09-14T14:00:43Z",
+  "recordedAt": "2026-09-14T16:33:30Z",
   "totals": {
-    "total": 3909,
-    "passed": 3888,
+    "total": 3910,
+    "passed": 3889,
     "failed": 0,
     "notExecuted": 21
   },
@@ -75,15 +75,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 3901,
-      "passed": 3880,
+      "total": 3909,
+      "passed": 3888,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 3901 -> 3909; passed 3880 -> 3888; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "The 3901 pin was taken before this branch finished moving: cd06471e added the pack-check no-write fence and two OperatorCli theories for the insecure-URL refusal, and main took ticket 229's tests through the queue underneath. Eight tests, all passing.",
-    "detectedBy": "verify-windows on PR 121 (run 34849010772) at merge commit 1da2b026: host-baseline-match observed total 3909, passed 3888, failed 0, skipped 21, newFailures empty",
-    "arithmeticCrossCheck": "passed = total - notExecuted = 3909 - 21 = 3888."
+    "change": "total 3909 -> 3910; passed 3888 -> 3889; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Merged released main 43eab7d3801b42b3ac46744e502d309667182e80 (PR #121) into T-431 label branch 97e9255654cecee128933e15300976be75ba6ec0 (PR #140). Preserve the released pack-check code and inventories, including the no-write fence, insecure-URL theories and ticket 229 coverage that raised its last pin from 3901 to 3909. T-431 replaces one AccessNavigationUpgradeCompositionTests Fact with invariant and fr-FR Theory cases, adding exactly one test and pass to released main: 3909/3888/0/21 -> 3910/3889/0/21. The merged native Windows Release suite measured the combined tuple with zero failures and no retries. No permitted-failure, flaky-test or skip policy changed.",
+    "detectedBy": "Released PR #121 verify-windows run 34849010772 measured 3909/3888/0/21 at 1da2b026 (the retained sourcePin); PR #140 run 34849287516 measured its earlier independent 3898 -> 3899 one-case delta. This combined merge was measured locally, not in an exact clone: dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-build --no-restore --logger trx;LogFileName=m5-post121-host-toolchain.trx --results-directory artifacts/m5-post121 -v quiet; artifacts/m5-post121-host-toolchain.log and artifacts/m5-post121/m5-post121-host-toolchain.trx report 3910 total, 3889 passed, 0 failed, 21 skipped in 3m44s. The initial local run (artifacts/m5-post121-host.log and m5-post121-host.trx) reported 3910/3888/0/22 because the capability-host toolchain was absent. After npm ci only in apps/capability-host, the formerly skipped TypeScript loopback case passed 1/1, then the complete suite measured the pinned tuple. Re-pinned with eng/repin-baseline.mjs from that completed full-suite log.",
+    "arithmeticCrossCheck": "3909 + 1 = 3910; passed = total - notExecuted = 3910 - 21 = 3889."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
