@@ -132,6 +132,56 @@ public sealed class CatalogueRegistryTests
         Assert.Empty((await fixture.Catalogue().ListAsync(Tenant, PackContentKind.TemplateDefinition)).Entries);
     }
 
+    [Theory]
+    [InlineData(PackContentKind.ReportDefinition)]
+    [InlineData(PackContentKind.DataExchangeDefinition)]
+    [InlineData(PackContentKind.TaxonomyDefinition)]
+    public async Task Divergent_tenant_rows_keep_tenant_provenance_until_claimed_and_never_borrow_pack_provenance(PackContentKind kind)
+    {
+        using var fixture = new Fixture();
+        var item = Content().Single(item => item.Kind == kind);
+        switch (kind)
+        {
+            case PackContentKind.ReportDefinition:
+                var report = JsonSerializer.Deserialize<ReportDefinition>(item.CanonicalJson, Json)!;
+                await fixture.Reports.RegisterAsync(report with { Title = "Divergent tenant report" });
+                break;
+            case PackContentKind.DataExchangeDefinition:
+                var exchange = JsonSerializer.Deserialize<DataExchangeDefinition>(item.CanonicalJson, Json)!;
+                await fixture.Exchanges.RegisterAsync(exchange with { Settings = JsonSerializer.SerializeToElement(new { mapping = "different" }) });
+                break;
+            case PackContentKind.TaxonomyDefinition:
+                var taxonomy = JsonSerializer.Deserialize<TaxonomyDefinition>(item.CanonicalJson, Json)!;
+                await fixture.Taxonomies.CreateAsync(Tenant, taxonomy.Id, taxonomy.Version, taxonomy.Governance,
+                    "Divergent tenant taxonomy", taxonomy.Owner, taxonomy.DerivedFrom, CancellationToken.None);
+                break;
+        }
+        var catalogue = fixture.Catalogue();
+        var authored = Assert.Single((await catalogue.ListAsync(Tenant, kind)).Entries);
+        Assert.Equal(new CatalogueProvenance(null, null, "tenant"), authored.Provenance);
+        fixture.Install(Tenant, "catalogue.claimant", [item]);
+        Assert.Contains((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals,
+            refusal => refusal.ContentKind == kind && refusal.Code.EndsWith("pinned_tuple_conflict", StringComparison.Ordinal));
+        var refused = await catalogue.ListAsync(Tenant, kind);
+        Assert.Empty(refused.Entries);
+        Assert.Empty(refused.KindsUnavailable);
+        Assert.Null(await catalogue.GetAsync(Tenant, kind, item.Key, item.Version));
+    }
+
+    [Fact]
+    public async Task Divergent_schedule_at_an_active_coordinate_cannot_borrow_pack_provenance()
+    {
+        using var fixture = new Fixture();
+        var item = Content().Single(item => item.Kind == PackContentKind.ScheduleDefinition);
+        var schedule = JsonSerializer.Deserialize<ScheduleDefinition>(item.CanonicalJson, Json)!;
+        await fixture.Schedules.RegisterAsync(schedule with { Title = "Divergent tenant schedule" });
+        fixture.Install(Tenant, "catalogue.claimant", [item]);
+        Assert.Contains((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals,
+            refusal => refusal.ContentKind == item.Kind && refusal.Code.EndsWith("pinned_tuple_conflict", StringComparison.Ordinal));
+        Assert.Empty((await fixture.Catalogue().ListAsync(Tenant, item.Kind)).Entries);
+        Assert.Null(await fixture.Catalogue().GetAsync(Tenant, item.Kind, item.Key, item.Version));
+    }
+
     private static PackSeedItem[] Content()
     {
         var rule = new StandingRuleDefinition("receipt.handler", "1.0.0", new StandingReference("handler"), "matter", ["handler_id"],
@@ -175,6 +225,9 @@ public sealed class CatalogueRegistryTests
         public readonly InMemoryDocumentTemplateRegistry Templates = new();
         public readonly InMemoryStandingRuleDefinitionStore Standings = new();
         public readonly InMemoryScheduleDefinitionRegistry Schedules = new(new HostScheduleKindDescriptorRegistry());
+        public InMemoryReportDefinitionRegistry Reports { get; }
+        public InMemoryDataExchangeDefinitionRegistry Exchanges { get; }
+        public InMemoryTaxonomyRegistry Taxonomies { get; }
         public AuthorizedFormDefinitionLifecycle Forms { get; }
         public PackSeedProjector Projector { get; }
         private CatalogueRegistries Registries { get; }
@@ -188,14 +241,14 @@ public sealed class CatalogueRegistryTests
             var cartridges = new ReportCartridgeRegistry();
             cartridges.Register(new TrialBalanceCartridge(Substitute.For<IChartRepository>(), Substitute.For<IAccountResolver>(),
                 Substitute.For<IFiscalPeriodRepository>(), Substitute.For<IGeneralLedgerReadModel>()));
-            var reports = new InMemoryReportDefinitionRegistry(new HostReportKindDescriptorRegistry(cartridges));
-            var exchanges = new InMemoryDataExchangeDefinitionRegistry(new HostDataExchangeKindDescriptorRegistry([], Substitute.For<IBankFeedProvider>()));
-            var taxonomies = new InMemoryTaxonomyRegistry(TimeProvider.System);
+            Reports = new InMemoryReportDefinitionRegistry(new HostReportKindDescriptorRegistry(cartridges));
+            Exchanges = new InMemoryDataExchangeDefinitionRegistry(new HostDataExchangeKindDescriptorRegistry([], Substitute.For<IBankFeedProvider>()));
+            Taxonomies = new InMemoryTaxonomyRegistry(TimeProvider.System);
             var types = services.GetRequiredService<IEntityTypeRegistry>();
-            Registries = new CatalogueRegistries(Packs, types, authorizedWorkflows, Templates, taxonomies, reports, exchanges, Standings, Schedules);
+            Registries = new CatalogueRegistries(Packs, types, authorizedWorkflows, Templates, Taxonomies, Reports, Exchanges, Standings, Schedules);
             Projector = new PackSeedProjector(Packs, types, NullLogger<PackSeedProjector>.Instance,
-                templates: Templates, workflows: workflows, time: TimeProvider.System, taxonomies: taxonomies, reportDefinitions: reports,
-                scheduleDefinitions: Schedules, dataExchangeDefinitions: exchanges, standingRules: Standings, authorizedWorkflows: authorizedWorkflows);
+                templates: Templates, workflows: workflows, time: TimeProvider.System, taxonomies: Taxonomies, reportDefinitions: Reports,
+                scheduleDefinitions: Schedules, dataExchangeDefinitions: Exchanges, standingRules: Standings, authorizedWorkflows: authorizedWorkflows);
         }
 
         public ProjectedCatalogue Catalogue() => new(Forms, registries: Registries);

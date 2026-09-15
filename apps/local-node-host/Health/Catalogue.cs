@@ -340,14 +340,19 @@ public sealed class CatalogueRegistries(
         var entries = new List<CatalogueEntry>();
         bool Reads(PackContentKind candidate) => (kind is null || kind == candidate) && IsAvailable(candidate);
         void Add(PackContentKind entryKind, string key, string revision, string? title, object body,
-            CatalogueProvenance? provenance = null, DateTimeOffset updatedAt = default, InternationalizedTextDto? localizedTitle = null)
+            CatalogueProvenance? provenance = null, DateTimeOffset updatedAt = default, InternationalizedTextDto? localizedTitle = null,
+            Func<PackSeedItem, bool>? matchesSource = null)
         {
             if ((id is not null && id != key) || (version is not null && version != revision)) return;
             if (provenance is null)
             {
                 var source = active.FirstOrDefault(source => source.Item.Kind == entryKind
                     && source.Item.Key == key && source.Item.Version == revision);
-                if (source.Pack is not null) provenance = PackProvenance(source.Pack);
+                if (source.Pack is not null)
+                {
+                    if (matchesSource?.Invoke(source.Item) == false) return;
+                    provenance = PackProvenance(source.Pack);
+                }
                 else if (installed.Any(pack => pack.SeedItems.Any(item => item.Kind == entryKind
                              && item.Key == key && item.Version == revision))) return;
                 else provenance = new CatalogueProvenance(null, null, "tenant");
@@ -408,14 +413,19 @@ public sealed class CatalogueRegistries(
             foreach (var taxonomy in await taxonomies!.ListDefinitionsAsync(tenant, null, cancellationToken).ConfigureAwait(false))
                 if (taxonomy.RetiredAt is null)
                     Add(PackContentKind.TaxonomyDefinition, taxonomy.Id.Value, taxonomy.Version.ToString(), taxonomy.Description,
-                        taxonomy, updatedAt: taxonomy.PublishedAt);
+                        taxonomy, updatedAt: taxonomy.PublishedAt,
+                        matchesSource: item => MatchesRegistrySource(item, taxonomy, candidate => new
+                        {
+                            candidate.Id, candidate.Version, candidate.Governance, candidate.Description, candidate.Owner, candidate.DerivedFrom,
+                        }));
         if (Reads(PackContentKind.ReportDefinition))
         {
             IEnumerable<ReportDefinition?> definitions = id is not null && version is not null
                 ? (IEnumerable<ReportDefinition?>)new[] { await reports!.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false) }
                 : await reports!.ListDefinitionsAsync(tenant.Value, cancellationToken).ConfigureAwait(false);
             foreach (var report in definitions)
-                if (report is not null) Add(PackContentKind.ReportDefinition, report.Key, report.Version, report.Title, ReportDefinitionDto.From(report));
+                if (report is not null) Add(PackContentKind.ReportDefinition, report.Key, report.Version, report.Title, ReportDefinitionDto.From(report),
+                    matchesSource: item => MatchesRegistrySource(item, report, candidate => ReportDefinitionDto.From(candidate with { Tenant = tenant.Value })));
         }
         if (Reads(PackContentKind.DataExchangeDefinition))
         {
@@ -423,7 +433,8 @@ public sealed class CatalogueRegistries(
                 ? (IEnumerable<DataExchangeDefinition?>)new[] { await exchanges!.GetDefinitionAsync(tenant.Value, id, version, cancellationToken).ConfigureAwait(false) }
                 : await exchanges!.ListDefinitionsAsync(tenant.Value, cancellationToken).ConfigureAwait(false);
             foreach (var exchange in definitions)
-                if (exchange is not null) Add(PackContentKind.DataExchangeDefinition, exchange.Key, exchange.Version, exchange.Title, DataExchangeDefinitionDto.From(exchange));
+                if (exchange is not null) Add(PackContentKind.DataExchangeDefinition, exchange.Key, exchange.Version, exchange.Title, DataExchangeDefinitionDto.From(exchange),
+                    matchesSource: item => MatchesRegistrySource(item, exchange, candidate => DataExchangeDefinitionDto.From(candidate with { Tenant = tenant.Value })));
         }
         foreach (var source in active.Where(source => Reads(source.Item.Kind)))
         {
@@ -443,7 +454,8 @@ public sealed class CatalogueRegistries(
                         Add(item.Kind, rule.RuleId, rule.RuleVersion, rule.Standing.Name, rule, PackProvenance(source.Pack));
                     break;
                 case PackContentKind.ScheduleDefinition:
-                    if (await schedules!.GetDefinitionAsync(tenant.Value, item.Key, item.Version, cancellationToken).ConfigureAwait(false) is { } schedule)
+                    if (await schedules!.GetDefinitionAsync(tenant.Value, item.Key, item.Version, cancellationToken).ConfigureAwait(false) is { } schedule
+                        && MatchesRegistrySource(item, schedule, candidate => candidate with { Tenant = tenant.Value }))
                         Add(item.Kind, schedule.Key, schedule.Version, schedule.Title, schedule, PackProvenance(source.Pack));
                     break;
             }
@@ -453,6 +465,17 @@ public sealed class CatalogueRegistries(
     }
 
     private static CatalogueProvenance PackProvenance(InstalledPack pack) => new(pack.PackKey, pack.Version, "pack");
+
+    private static bool MatchesRegistrySource<T>(PackSeedItem item, T actual, Func<T, object> projectedBody)
+    {
+        try
+        {
+            var expected = JsonSerializer.Deserialize<T>(item.CanonicalJson, Json);
+            return expected is not null && JsonElement.DeepEquals(
+                JsonSerializer.SerializeToElement(projectedBody(actual), Json), JsonSerializer.SerializeToElement(projectedBody(expected), Json));
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException) { return false; }
+    }
 
     private static bool MatchesStandingSource(StandingRuleDefinition rule, PackSeedItem item)
     {
