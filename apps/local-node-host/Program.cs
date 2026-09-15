@@ -25,6 +25,7 @@ using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Blocks.FinancialPayments.Data;
 using Harborline.Api.Blocks.People.Foundation.Data;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.Localization;
 using Harborline.Api.Foundation.LocalFirst;
 using Harborline.Api.Foundation.LocalFirst.Installation;
 using Harborline.Api.Foundation.Packs.DependencyInjection;
@@ -403,6 +404,11 @@ var sqlCipherKeyDerivation = new SqlCipherKeyDerivation();
     Console.WriteLine(
         $"[local-node-host] Gossip anti-entropy round interval: {roundIntervalSeconds}s " +
         "(push-on-change is the primary path; this is the backstop cadence).");
+
+    // T-449: compose Foundation localization from the local-node host's root.
+    // ADR-0086: establish runtime reach for its external dependencies.
+    builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+    builder.Services.AddHarborlineLocalization();
 
     builder.Services
         .AddHarborlineKernelRuntime()              // plugin registry + INodeHost          (Wave 1.1)
