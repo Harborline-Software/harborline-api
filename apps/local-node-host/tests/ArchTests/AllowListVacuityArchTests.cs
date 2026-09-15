@@ -66,9 +66,6 @@ public sealed class AllowListVacuityArchTests
         new("RouteFenceMetadataArchTests", "FenceHelperPaths",
             RouteFenceMetadataArchTests.FenceHelperPathRows,
             RouteFenceMetadataArchTests.DiscoveredMarkerOperationFiles),
-        new("BlazorStaticWebAssetUrlFenceTests", "ForeignAssetOwners",
-            () => [.. BlazorStaticWebAssetUrlFenceTests.ForeignAssetOwnerRows],
-            BlazorStaticWebAssetUrlFenceTests.DiscoveredContentUrlOwners),
         new("RetiredFamilySpellingFenceTests", "TwinAllowList",
             RetiredFamilySpellingFenceTests.TwinAllowListRows,
             RetiredFamilySpellingFenceTests.DiscoveredRetiredSpellingSites),
@@ -173,8 +170,6 @@ public sealed class AllowListVacuityArchTests
             "a projection of InlineRoleConstructionOwners, which is registered above",
         ["AuthorizationModelArchTests.QualifiedRoleCollectionAllowlistRows"] =
             "a projection of QualifiedRoleCollectionAllowlist, which is registered above",
-        ["BlazorStaticWebAssetUrlFenceTests.ForeignAssetOwnerRows"] =
-            "a projection of ForeignAssetOwners, which is registered above",
         ["BootstrapAuthorityArchTests.IssuerSymbols"] =
             "an inventory of the issuer types the fence searches for, not an exception list",
         ["RetiredFamilySpellingFenceTests.RetiredIdentifiers"] =

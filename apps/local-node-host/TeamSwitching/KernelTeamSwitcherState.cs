@@ -1,6 +1,5 @@
 using Harborline.Api.Kernel.Runtime.Notifications;
 using Harborline.Api.Kernel.Runtime.Teams;
-using Harborline.Api.UIAdapters.Blazor.Components.LocalFirst;
 
 namespace Harborline.Api.LocalNodeHost;
 
