@@ -3,6 +3,7 @@
   "version": "0.1.0-alpha.1",
   "description": "Polyglot schema-first contracts for Harborline, including generated Harborline and Capability protocol bindings.",
   "type": "module",
+  "packageManager": "pnpm@11.1.3",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -45,14 +46,24 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "@typescript/native": "npm:typescript@7.0.2",
     "@vitest/coverage-v8": "5.0.0",
     "@microsoft/eslint-formatter-sarif": "3.1.0",
-    "ajv": "^8.17.1",
-    "eslint": "^10.10.0",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.69.0",
-    "vitest": "^5.0.0"
+    "ajv": "8.17.1",
+    "eslint": "10.10.0",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.69.0",
+    "vitest": "5.0.0"
+  },
+  "justifications": {
+    "@typescript/native": "R-0086",
+    "@vitest/coverage-v8": "R-0083",
+    "@microsoft/eslint-formatter-sarif": "R-0084",
+    "ajv": "R-0088",
+    "eslint": "R-0084",
+    "typescript": "R-0086",
+    "typescript-eslint": "R-0084",
+    "vitest": "R-0083"
   },
   "license": "Apache-2.0",
   "repository": {
