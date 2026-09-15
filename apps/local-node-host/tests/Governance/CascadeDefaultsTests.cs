@@ -308,13 +308,13 @@ public sealed class CascadeDefaultsTests
         Assert.False(new CatalogueRegistries(fixture.Packs).IsAvailable(PackContentKind.CascadeDefaults));
         Assert.Single(await catalogue.ReadAsync(Tenant, PackContentKind.CascadeDefaults));
         Assert.Empty(await catalogue.ReadAsync(new("other"), PackContentKind.CascadeDefaults));
-        fixture.Install("1.0.0", Body, package: "contender");
-        fixture.Packs.Activate(Tenant, "contender", "1.0.0");
+        fixture.Install("1.0.0", Body, package: "alternate-pack");
+        fixture.Packs.Activate(Tenant, "alternate-pack", "1.0.0");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Empty(fixture.Defaults.List(Tenant));
-        fixture.Packs.RecordKeyOwnership(Tenant, "defaults", "contender");
+        fixture.Packs.RecordKeyOwnership(Tenant, "defaults", "alternate-pack");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
-        Assert.Equal("contender", Assert.Single(fixture.Defaults.List(Tenant)).Source.PackId);
+        Assert.Equal("alternate-pack", Assert.Single(fixture.Defaults.List(Tenant)).Source.PackId);
     }
 
     [Fact]
