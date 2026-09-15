@@ -67,7 +67,15 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     for (const file of ['eng/build-local-feed.mjs', 'nuget.config', 'Directory.Build.targets', 'Directory.Packages.props']) {
       write(api, file, readFileSync(path.join(root, file)))
     }
-    cpSync(sibling, nested, {recursive: true})
+    // `sibling` was committed moments ago, and a repository just after a commit is not quiescent:
+    // git may still be writing packs, may run `gc --auto`, and leaves locks and temporaries under
+    // .git/objects. A recursive cpSync enumerates the tree and THEN copies each entry, so anything
+    // that vanishes in between is an ENOENT. That ejected api PR 136 from the merge queue and
+    // surfaced downstream as NU1301 'the local source .feed does not exist', blaming the feed for
+    // a test failure. The nested layout needs a real repository (the builder runs rev-parse HEAD
+    // in it), so the fix is to let git do the copying: clone reads refs and objects consistently
+    // instead of racing a directory walk. Ticket T-443.
+    execFileSync('git', ['clone', '--quiet', '--no-hardlinks', sibling, nested], {encoding: 'utf8'})
     const plans = [sibling, nested].map(platform => {
       const result = spawnSync(process.execPath, [path.join(api, 'eng/build-local-feed.mjs'), '--dry-run'], {
         encoding: 'utf8', env: {...process.env, HARBORLINE_PLATFORM_REPO: platform},

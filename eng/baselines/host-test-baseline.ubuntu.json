@@ -2,17 +2,18 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "e961c07e850c2f8dde59b47c8f2b6ae29ca7e42a",
-  "recordedAt": "2026-09-15T12:38:08Z",
+  "sourcePin": "0bd6acbdaa640b1f4f7d063eed786fa773c224ed+05613edbc88e63b4c98ed4957642ef424ee8d673",
+  "recordedAt": "2026-09-15T13:55:18Z",
   "comparison": "named",
   "totals": {
-    "total": 3701,
-    "passed": 3677,
+    "total": 3705,
+    "passed": 3681,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
-    "Ticket 426: advance this platform's existing passed and total counts by exactly 13 ordinary catalogue cases added at e961c07e, with no platform conditionals or skips. This is an additive test-inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, and named comparison remain unchanged.",
+    "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3664/3688 inventory to 3681/3705. This is a derived additive inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",

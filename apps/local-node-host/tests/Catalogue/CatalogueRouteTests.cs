@@ -176,7 +176,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             Assert.True(entry.GetProperty("sealed").GetBoolean());
             var provenance = entry.GetProperty("provenance");
             Assert.Equal("harborline.platform", provenance.GetProperty("packKey").GetString());
-            Assert.Equal("1.0.0", provenance.GetProperty("packVersion").GetString());
+            Assert.Equal(PlatformPackPreloadHostedService.PackVersion, provenance.GetProperty("packVersion").GetString());
             Assert.Equal("platform", provenance.GetProperty("kind").GetString());
         });
     }

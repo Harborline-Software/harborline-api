@@ -35,7 +35,7 @@ public sealed class CatalogueTests
         Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read", "platform.binding.audit-read" },
             contents.Where(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding")
                 .Select(item => item.GetProperty("key").GetString()));
-        Assert.Equal(13, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
+        Assert.Equal(39, contents.Count(item => item.GetProperty("kind").GetString() == "ViewDefinition"));
     }
 
     [Fact]
