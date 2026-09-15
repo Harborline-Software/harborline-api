@@ -74,6 +74,13 @@ public sealed record ViewDefinition
     /// </summary>
     public ShapeRoleMapping? ShapeRoles { get; init; }
 
+    /// <summary>
+    /// Gets the authorization operation a principal must hold to reach this view when the owning pack
+    /// declares the view key in its signed <c>exposes</c> interface. This is authorization metadata,
+    /// not a shape role and not a platform capability requirement.
+    /// </summary>
+    public string? AuthorizationCapability { get; init; }
+
     /// <summary>Gets the kind-specific view payload preserved as JSON — e.g. a saved entity-list
     /// view's columns/filters/sort as data.</summary>
     public required JsonElement Parameters { get; init; }

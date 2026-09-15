@@ -1259,11 +1259,13 @@ else
 }
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
+builder.Services.AddSingleton<ExposedViewAuthorizationReachabilityReports>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
     builder.Services.AddHealthChecks()
         .AddCheck<LocalNodeHealthCheck>("local-node")
         .AddCheck<AuthorizationHealthCheck>("authorization")
         .AddCheck<WorkflowCatalogueLintHealthCheck>("workflow-catalogue-lint")
+        .AddCheck<ExposedViewAuthorizationReachabilityHealthCheck>("exposed-view-authorization-reachability")
         .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
         .AddCheck<LocalNodeReadinessCheck>("local-node-readiness", tags: ["ready"]));
 
@@ -2324,6 +2326,7 @@ builder.Services.AddNodeForms(
 // Ticket 176 slice 1: the catalogue reads the already-composed definition stores; it owns no persistence.
 // Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.CatalogueRegistries>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 
