@@ -8,6 +8,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Transport;
 using Harborline.Api.Foundation.Transport.DependencyInjection;
@@ -1227,6 +1231,32 @@ builder.Services.AddLocalNodePatternAModules();
 // bootstrap window until MultiTeamBootstrapHostedService completes.
 Harborline.Api.Foundation.EngineRoom.EngineRoomServiceCollectionExtensions.AddHarborlineEngineRoom(
     builder.Services);
+if (localNodeOptions.Diagnostics.OtlpEndpoint is { } otlpEndpoint)
+{
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(metrics => metrics
+            .AddMeter(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.MeterName)
+            .AddOtlpExporter((options, readerOptions) =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/metrics");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+                readerOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 1_000;
+            }))
+        .WithTracing(tracing => tracing
+            .AddSource(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.ActivitySourceName)
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/traces");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+            }));
+    Console.WriteLine($"[local-node-host] telemetry export: ENABLED ({otlpEndpoint})");
+}
+else
+{
+    Console.WriteLine("[local-node-host] telemetry export: DISABLED (no LocalNode:Diagnostics:OtlpEndpoint)");
+}
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
