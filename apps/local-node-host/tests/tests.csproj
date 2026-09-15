@@ -27,8 +27,6 @@
          (the canary overlay) via AddJsonFile and bind LocalNodeOptions, so the test proves the actual
          config-LAYERING that turns the cutover on for the dev/reference build (not just the bool gate). -->
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
-    <PackageReference Include="bunit" />
-    <PackageReference Include="AngleSharp" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
@@ -99,7 +97,6 @@
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="..\..\..\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj" />
     <ProjectReference Include="..\..\node-operator-cli\Harborline.NodeOperatorCli.csproj" />
-    <ProjectReference Include="..\..\..\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj" />

@@ -90,7 +90,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice 9 rows: every component type declared under
-    /// <c>packages/ui-adapters-blazor/Components/DataDisplay</c>, renamed with its files.
+    /// the former API Blazor adapter's DataDisplay area, renamed with its files.
     /// Kept as its own array so slices landing in parallel append to their own table.
     /// </summary>
     private static readonly string[] RetiredDataDisplayComponentIdentifiers =
@@ -163,7 +163,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
 
     /// <summary>
-    /// Slice 13 rows: every type declared under <c>packages/ui-adapters-blazor/Components/</c>
+    /// Slice 13 rows: every type declared under the former API Blazor adapter's Components area
     /// {AI, Charts, Editors, LocalFirst, Media, Overlays, Scheduling, Showcase, Structural},
     /// renamed with its files. The six names shared with the slice-9 DataDisplay inventory
     /// (Barcode, Gantt, Map, PdfViewer, Scheduler, Spreadsheet) are already scanned for there and
@@ -214,7 +214,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice 11 rows: every component type declared under
-    /// <c>packages/ui-adapters-blazor/Components/Layout</c> and <c>Components/Navigation</c>,
+    /// the former API Blazor adapter's Layout and Navigation areas,
     /// renamed with its files. Kept as its own array so slices landing in parallel append to
     /// their own table.
     /// </summary>
@@ -299,7 +299,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice 12 rows: every component type declared under
-    /// <c>packages/ui-adapters-blazor/Components/Feedback</c>, <c>Components/Buttons</c> and
+    /// the former API Blazor adapter's Feedback, Buttons and
     /// <c>Components/Utility</c>, renamed with its files. Kept as its own array so slices landing
     /// in parallel append to their own table.
     /// </summary>
@@ -361,7 +361,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice 10 rows: every component/adapter type declared under
-    /// <c>packages/ui-adapters-blazor/Components/Forms</c> (Containers, Fields, Inputs, Schema),
+    /// the former API Blazor adapter's Forms area (Containers, Fields, Inputs, Schema),
     /// renamed with its files. Kept as its own array so slices landing in parallel append to
     /// their own table. <c>ColorPalette</c> is absent because the slice-5 table above already
     /// carries that spelling; slice 10 renamed the component that collided with it.
@@ -495,7 +495,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice 23 rows: the two areas no earlier slice owned. The seven
-    /// <c>packages/ui-adapters-blazor/Shell</c> components (a sibling of <c>Components/</c>, which is
+    /// former API Blazor adapter Shell components (a sibling of <c>Components/</c>, which is
     /// why the per-area slices 9-15 never reached it) and the five public types of the in-repo
     /// <c>packages/client-dotnet</c> client. Both were live code, not prose.
     /// </summary>
@@ -530,8 +530,8 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice C rows: the Blazor JS module-loader interface and class in
-    /// <c>packages/ui-adapters-blazor/Internal/Interop</c> and the cascaded log-level enum in
-    /// <c>packages/ui-adapters-blazor/Enums</c>, each renamed with its file and every call site.
+    /// the former API Blazor adapter's internal interop and cascaded log-level enum,
+    /// each renamed with its file and every call site.
     /// The enum's cascading-parameter NAME moved with the type: it is an in-process cascade key,
     /// never a persisted or served value, and its only writer and reader are both in
     /// <c>HarborlineThemeProvider</c>.
@@ -545,7 +545,7 @@ public sealed class RetiredFamilySpellingFenceTests
 
     /// <summary>
     /// Slice D rows: the F1-spelled component type names that survived only inside JS and scoped-CSS
-    /// DOC HEADERS under <c>packages/ui-adapters-blazor</c>. The types themselves were renamed by the
+    /// DOC HEADERS under the former API Blazor adapter. The types themselves were renamed by the
     /// component slices; these headers were the last places naming them by the retired spelling, so a
     /// header is the reintroduction shape this table has to see.
     /// </summary>
@@ -625,7 +625,7 @@ public sealed class RetiredFamilySpellingFenceTests
         F2Pascal + "Dotnet",
         // Slice D: the Blazor DOM id stems, the CSS class-name stems, the CSS custom-property prefix
         // and the browser global. None is an identifier, and every reader of each one lived in
-        // packages/ui-adapters-blazor and moved with it, so each is a plain literal row.
+        // the former API Blazor adapter and moved with it, so each is a plain literal row.
         F5 + "-field-",
         F5 + "-saved-view-",
         F5 + "-sort-",
@@ -706,21 +706,6 @@ public sealed class RetiredFamilySpellingFenceTests
          "Slice 16 cleared the ui-core contract surface, including the non-identifier forms (custom "
          + "element tag names, data-* sentinels, the Storybook parameter key, the shim element id) that "
          + "the identifier table cannot express."),
-        ("packages/ui-adapters-blazor/Components/Buttons", "SLICE-12",
-         "Slice 12 renamed the Buttons area and it carries no family word in any casing or extension."),
-        ("packages/ui-adapters-blazor/Components/Editors", "SLICE-13",
-         "Slice 13 renamed the Editors area and it carries no family word in any casing or extension."),
-        ("packages/ui-adapters-blazor/Components/Structural", "SLICE-D",
-         "Slice D renamed the two generated select DOM ids that were this area's last family spelling; "
-         + "the area now carries no family word in any casing or extension."),
-        ("packages/ui-adapters-blazor/Components/Utility", "SLICE-D",
-         "Slice D renamed the scoped-CSS custom properties and the two scoped-CSS doc headers here, "
-         + "after slice C took the cascaded log-level enum; the area is now clear."),
-        ("packages/ui-adapters-blazor/Wayfinder", "SLICE-D",
-         "Slice D renamed the helm CSS class-name family, the only family spelling this area had."),
-        ("packages/ui-adapters-blazor/wwwroot", "SLICE-D",
-         "Slice D renamed the five JS interop module doc headers; the asset file stems themselves were "
-         + "already renamed by slice 19, so the served asset tree is now clear."),
     ];
 
     private static readonly string[] CleanDirectories = [.. CleanDirectoryRows.Select(row => row.Directory)];
