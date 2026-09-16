@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {execFileSync, spawnSync} from 'node:child_process'
@@ -50,7 +50,18 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     mkdirSync(path.dirname(path.join(base, file)), {recursive: true})
     writeFileSync(path.join(base, file), content)
   }
-  const git = (...args) => execFileSync('git', ['-C', sibling, ...args], {encoding: 'utf8'}).trim()
+  const git = (repository, ...args) => execFileSync('git', ['-C', repository, ...args], {encoding: 'utf8'}).trim()
+  const commitFixture = repository => {
+    git(repository, 'init', '-q')
+    git(repository, 'add', '.')
+    execFileSync('git', ['-C', repository, '-c', 'user.name=Feed test',
+      '-c', 'user.email=feed-test@example.invalid', '-c', 'commit.gpgsign=false',
+      'commit', '--no-verify', '-qm', 'layout fixture'], {
+      encoding: 'utf8',
+      env: {...process.env, GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z'},
+    })
+    return git(repository, 'rev-parse', 'HEAD')
+  }
   try {
     const pin = readPin()
     write(sibling, 'Directory.Build.props', '<Project><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n')
@@ -60,22 +71,17 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     for (const [id, assembly] of Object.entries(pin.producers)) {
       write(sibling, `projects/${id}/${id}.csproj`, `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsPackable>true</IsPackable><PackageId>${id}</PackageId><AssemblyName>${assembly.slice(0, -4)}</AssemblyName></PropertyGroup></Project>\n`)
     }
-    git('init', '-q')
-    git('add', '.')
-    git('-c', 'user.name=Feed test', '-c', 'user.email=feed-test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-qm', 'layout fixture')
-    write(api, 'eng/platform-pin.json', JSON.stringify({...pin, commit: git('rev-parse', 'HEAD')}))
+    const siblingCommit = commitFixture(sibling)
+    write(api, 'eng/platform-pin.json', JSON.stringify({...pin, commit: siblingCommit}))
     for (const file of ['eng/build-local-feed.mjs', 'nuget.config', 'Directory.Build.targets', 'Directory.Packages.props']) {
       write(api, file, readFileSync(path.join(root, file)))
     }
-    // `sibling` was committed moments ago, and a repository just after a commit is not quiescent:
-    // git may still be writing packs, may run `gc --auto`, and leaves locks and temporaries under
-    // .git/objects. A recursive cpSync enumerates the tree and THEN copies each entry, so anything
-    // that vanishes in between is an ENOENT. That ejected api PR 136 from the merge queue and
-    // surfaced downstream as NU1301 'the local source .feed does not exist', blaming the feed for
-    // a test failure. The nested layout needs a real repository (the builder runs rev-parse HEAD
-    // in it), so the fix is to let git do the copying: clone reads refs and objects consistently
-    // instead of racing a directory walk. Ticket T-443.
-    execFileSync('git', ['clone', '--quiet', '--no-hardlinks', sibling, nested], {encoding: 'utf8'})
+    // Never copy a live repository's metadata: git may remove transient object files between
+    // cpSync enumerating and reading them. Copy only the working tree, then create the independent
+    // repository the builder needs for its pin check. Ticket T-443.
+    cpSync(sibling, nested, {recursive: true, filter: source => path.basename(source) !== '.git'})
+    assert.equal(existsSync(path.join(nested, '.git')), false, 'fixture copy must exclude .git')
+    assert.equal(commitFixture(nested), siblingCommit, 'fixture repositories must have the same deterministic commit')
     const plans = [sibling, nested].map(platform => {
       const result = spawnSync(process.execPath, [path.join(api, 'eng/build-local-feed.mjs'), '--dry-run'], {
         encoding: 'utf8', env: {...process.env, HARBORLINE_PLATFORM_REPO: platform},
