@@ -13,7 +13,12 @@ internal sealed partial class AdminTeamAccessAuthority
 {
     private static readonly AuditEventType GrantReviewRecorded = new("GrantReviewRecorded");
 
-    public async Task<AdminGrantReviewResult?> ReviewGrantAsync(
+    public Task<AdminGrantReviewResult?> ReviewGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) => SerializedGrantActionAsync(
+            () => ReviewGrantCoreAsync(selectedSessionHandle, tenantId, grantId, authority, cancellationToken), cancellationToken);
+
+    private async Task<AdminGrantReviewResult?> ReviewGrantCoreAsync(
         string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default)
     {
@@ -29,12 +34,15 @@ internal sealed partial class AdminTeamAccessAuthority
             throw new ArgumentException("The selected-session principal does not match the write authority.", nameof(authority));
         var tenant = new TenantId(context.CanonicalTenantId);
         var target = new GrantId(parsed);
+        if (await CorrelatedGrantReplayAsync(context.Decision, "grant-reviewed", GrantReviewRecorded, cancellationToken)
+            .ConfigureAwait(false) is { } replay)
+            return new(replay.AuditId, AuditCorrelation(replay)!.Value, replay.OccurredAt);
         var existing = await _grantStore.FindAsync(tenant, target, cancellationToken).ConfigureAwait(false);
         if (existing is null || existing.Status == GrantStatus.Revoked) return null;
         var reviewed = await _grantRevocations.RecordReviewAsync(tenant, target, authority.At, authority.Principal,
             context.Decision, cancellationToken).ConfigureAwait(false);
         if (reviewed is null) return null;
-        var correlation = Guid.NewGuid();
+        var correlation = authority.CorrelationId ?? Guid.NewGuid();
         var audit = await AppendGrantAuditAsync(tenant, target, context.Decision, GrantReviewRecorded,
             "grant-reviewed", correlation, null, cancellationToken).ConfigureAwait(false);
         return new(audit, correlation, reviewed.LastReviewedAt);

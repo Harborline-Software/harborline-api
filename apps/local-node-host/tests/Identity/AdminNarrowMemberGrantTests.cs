@@ -423,6 +423,54 @@ public sealed class AdminNarrowMemberGrantTests
         Assert.Equal(2, (await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded"))).Count);
     }
 
+    [Fact]
+    public async Task Correlated_grant_actions_replay_without_mutation_and_reject_changed_intent()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var original = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var reviewAuthority = FounderAuthority(setup.TenantId) with
+        { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000031") };
+        var review = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), reviewAuthority);
+        Assert.Equal(reviewAuthority.CorrelationId, review!.CorrelationId);
+        var reviewed = await store.FindAsync(tenant, original.GrantId);
+        var reviewReplay = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), reviewAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(review, reviewReplay);
+        Assert.Equal(reviewed, await store.FindAsync(tenant, original.GrantId));
+        Assert.Single(await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded")));
+
+        var narrowAuthority = reviewAuthority with { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000032") };
+        var successor = GrantId.New();
+        var scope = ScopeExpression.Parse("/records/m6-t433-allowed-record-1");
+        var narrow = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), scope, successor, narrowAuthority);
+        Assert.Equal(AdminNarrowMemberGrantStatus.Narrowed, narrow!.Status);
+        Assert.Equal(narrowAuthority.CorrelationId, narrow.CorrelationId);
+        var narrowReplay = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), scope, successor, narrowAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(narrow, narrowReplay);
+        var snapshot = await store.SnapshotAsync(tenant);
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => h.AdminTeam.NarrowMemberScopeAsync(
+            setup.FounderSelectedHandle, setup.TenantId, original.GrantId.ToString(),
+            ScopeExpression.Parse("/records/different"), successor, narrowAuthority));
+        Assert.Equal(snapshot, await store.SnapshotAsync(tenant));
+
+        var revokeAuthority = reviewAuthority with { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000033") };
+        var revoke = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), revokeAuthority);
+        Assert.Equal(revokeAuthority.CorrelationId, revoke!.CorrelationId);
+        var revokeReplay = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), revokeAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(revoke, revokeReplay);
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => h.AdminTeam.RevokeGrantAsync(
+            setup.FounderSelectedHandle, setup.TenantId, successor.ToString(), revokeAuthority with { CorrelationId = Guid.NewGuid() }));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

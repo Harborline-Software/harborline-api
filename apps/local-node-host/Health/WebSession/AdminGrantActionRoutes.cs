@@ -52,13 +52,14 @@ internal static partial class AdminTeamAccessRoutes
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
         if (handle is null || principal is null) return Refused();
+        if (SelectedRequestCorrelation.Bind(context) is { } invalidCorrelation) return invalidCorrelation;
         if (!Guid.TryParse(request?.GrantId, out var grant) || grant == Guid.Empty) return InvalidGrantAction();
         if (!await antiforgery.ConsumeSelectedAsync(context, handle).ConfigureAwait(false)) return AntiforgeryFailed();
         _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
         try
         {
             var result = await authority.ReviewGrantAsync(handle, principal.TenantId.Value, grant.ToString("D"),
-                WriteAuthority(principal, at), context.RequestAborted).ConfigureAwait(false);
+                WriteAuthority(principal, at) with { CorrelationId = context.Features.Get<SelectedRequestCorrelation>()?.Value }, context.RequestAborted).ConfigureAwait(false);
             return result is null ? GrantActionNotFound() : GrantActionSucceeded(context,
                 new("reviewed", grant.ToString("D"), result.AuditId, result.CorrelationId, result.ReviewedAt));
         }
@@ -66,6 +67,7 @@ internal static partial class AdminTeamAccessRoutes
         {
             return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted).ConfigureAwait(false);
         }
+        catch (GrantActionReplayConflictException) { return GrantActionConflict("grant.replay_context_mismatch"); }
     }
 
     internal static async Task<IResult> RevokeGrantAsync(IAdminTeamAccessAuthority authority,
@@ -74,18 +76,19 @@ internal static partial class AdminTeamAccessRoutes
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
         if (handle is null || principal is null) return Refused();
+        if (SelectedRequestCorrelation.Bind(context) is { } invalidCorrelation) return invalidCorrelation;
         if (!Guid.TryParse(request?.GrantId, out var grant) || grant == Guid.Empty) return InvalidGrantAction();
         if (!await antiforgery.ConsumeSelectedAsync(context, handle).ConfigureAwait(false)) return AntiforgeryFailed();
         _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
         try
         {
             var result = await authority.RevokeGrantAsync(handle, principal.TenantId.Value, grant.ToString("D"),
-                WriteAuthority(principal, at), context.RequestAborted).ConfigureAwait(false);
+                WriteAuthority(principal, at) with { CorrelationId = context.Features.Get<SelectedRequestCorrelation>()?.Value }, context.RequestAborted).ConfigureAwait(false);
             if (result is null) return Refused();
             return result.Status switch
             {
                 AdminRevokeMemberStatus.Revoked => GrantActionSucceeded(context,
-                    new("revoked", grant.ToString("D"), result.AuditId)),
+                    new("revoked", grant.ToString("D"), result.AuditId, result.CorrelationId)),
                 AdminRevokeMemberStatus.SelfRevocationRefused => GrantActionConflict("self_revocation_refused"),
                 AdminRevokeMemberStatus.LastAdministratorRefused => GrantActionConflict("last_administrator_refused"),
                 _ => GrantActionNotFound(),
@@ -95,6 +98,7 @@ internal static partial class AdminTeamAccessRoutes
         {
             return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted).ConfigureAwait(false);
         }
+        catch (GrantActionReplayConflictException) { return GrantActionConflict("grant.replay_context_mismatch"); }
     }
 
     internal static async Task<IResult> NarrowScopeAsync(IAdminTeamAccessAuthority authority,
@@ -103,6 +107,7 @@ internal static partial class AdminTeamAccessRoutes
         context.Response.Headers.CacheControl = "no-store";
         var (handle, principal) = ReadSelected(context);
         if (handle is null || principal is null) return Refused();
+        if (SelectedRequestCorrelation.Bind(context) is { } invalidCorrelation) return invalidCorrelation;
         if (!Guid.TryParse(request?.GrantId, out var grant) || grant == Guid.Empty
             || !Guid.TryParse(request.SuccessorId, out var successor) || successor == Guid.Empty
             || string.IsNullOrWhiteSpace(request.Scope)) return InvalidGrantAction();
@@ -114,7 +119,8 @@ internal static partial class AdminTeamAccessRoutes
         try
         {
             var result = await authority.NarrowMemberScopeAsync(handle, principal.TenantId.Value, grant.ToString("D"),
-                scope, new GrantId(successor), WriteAuthority(principal, at), context.RequestAborted).ConfigureAwait(false);
+                scope, new GrantId(successor), WriteAuthority(principal, at) with
+                { CorrelationId = context.Features.Get<SelectedRequestCorrelation>()?.Value }, context.RequestAborted).ConfigureAwait(false);
             if (result is null) return Refused();
             return result.Status switch
             {
@@ -130,6 +136,7 @@ internal static partial class AdminTeamAccessRoutes
             return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted).ConfigureAwait(false);
         }
         catch (LastAdministratorRefusedException) { return GrantActionConflict("last_administrator_refused"); }
+        catch (GrantActionReplayConflictException) { return GrantActionConflict("grant.replay_context_mismatch"); }
     }
 
     private static IResult GrantActionSucceeded(HttpContext context, GrantActionResponse response)
