@@ -153,7 +153,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         // Map the SAME production routes (mirrors HostedFormsApiEndpoint wiring — no [FromServices]).
         FormsRoutes.Map(
             _app,
-            _app.Services.GetRequiredService<IFormEngine>(),
+            new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(), _replayProjections),
             _app.Services.GetRequiredService<IFormCapabilityIssuer>(),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
             _activeTeam,
@@ -161,7 +161,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             TimeProvider.System);
 
         SelectedFormSubmitRoutes.Map(_app.MapSelectedSessionProductGroup(),
-            _app.Services.GetRequiredService<IFormEngine>(),
+            new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(), _replayProjections),
             new SelectedDenialIssuer(_app.Services.GetRequiredService<IFormCapabilityIssuer>(), () => _selectedSubmissionDenial),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
             new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System,
@@ -356,10 +356,10 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         using var secondResponse = await _client.SendAsync(second);
 
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
-        Assert.Equal(
-            await firstResponse.Content.ReadAsStringAsync(),
-            await secondResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        var refusal = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("forms.replay_context_mismatch", refusal.GetProperty("code").GetString());
+        Assert.Equal(1, _replayProjections.Calls);
     }
 
     [Fact(DisplayName = "submit: an over-long Into-Case-Ref header is rejected (400) — a bounded token")]

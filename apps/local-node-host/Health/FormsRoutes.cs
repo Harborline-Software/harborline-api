@@ -258,6 +258,10 @@ public static class FormsRoutes
                 // to the pre-Wave-2b success response; the 202-pending path below is the only other shape.
                 return Results.Created(location, new FormSubmitResponse(receipt.InstanceId.ToString()));
             }
+            catch (FormSubmissionReplayConflictException)
+            {
+                return Results.Conflict(new { code = "forms.replay_context_mismatch" });
+            }
             catch (FormSubmitProjectionPendingException ex)
             {
                 // F-ROUTE: the submission COMMITTED but its post-submit projection did not complete. This is

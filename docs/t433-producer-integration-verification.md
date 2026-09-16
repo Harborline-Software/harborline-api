@@ -27,3 +27,19 @@ Signed fixture bytes are unchanged by reconciliation:
 - Atomicity probe: `a74360ca88b8abc77433211d1731076540987b3e69afef87aa4cbe21c4f12c13`.
 
 Focused evidence is not a full-gate or release receipt. The committed producer must pass the quality-enabled complete gate before release.
+
+## Independent review: omitted-correlation replay
+
+Review of `046cc809` found that `ValidateReplayContextAsync` returned immediately when the new request omitted correlation. Because the form instance derives from tenant/form/idempotency key, this skipped the original actor and payload comparison as well. `ProjectingFormEngine` then received the old receipt with the new actor/candidate.
+
+Ten new route/projection cases reproduced the issue before the engine change: **7 failed / 3 passed**. Six unsafe selected-session combinations (omitted correlation after correlated submission, changed actor, changed payload, or combinations thereof) and a desktop changed-payload retry returned Created and reached the projection runner twice. Safe identical no-header retries on both routes and refusal when adding correlation to an uncorrelated original already passed. Red evidence: `artifacts/t433-action-contract/replay-context-red.log`; TRX SHA-256 `8caa5487082ff1aaa8c727e77ed193ae3792edcd60bace24cb46295c382e4219`.
+
+The shared engine now always locates the original Mint row and compares actor, request fingerprint and nullable correlation equivalence. CLR null and persisted JSON null mean absent correlation; a missing original Mint still fails closed. Correlation is not globally mandatory. Desktop `FormsRoutes` translates the existing replay-context exception to the same `409 forms.replay_context_mismatch` used by the selected route. The old changed-payload Created expectation is corrected; independent identical-payload/no-header controls retain safe replay.
+
+The focused route/engine/projection suite passed **58/58**, including all ten new cases and the real deterministic Access grant/workflow replay. Conflicts assert zero further projection calls and an unchanged persisted entity version/body/binding and Mint receipt. Green evidence: `artifacts/t433-action-contract/replay-context-green.log`; TRX SHA-256 `8a42607e74fe96e3b34a8c7998b5348e6ecb3df3b2a4fbe6ed71e5486be30fd7`.
+
+## Preserved activation-lifetime failures
+
+The complete gate at `046cc809` measured **4,273 total / 4,250 passed / 2 failed / 21 skipped**. Both failures were `PackProjectionResourceLifetimeTests.Paused_form_enumerator_does_not_block_activation_and_retains_its_snapshot` (false/true), canceling at the process-global activation barrier's write acquisition under the unchanged two-second deadline. No baseline or allowance was changed. Retained TRX: `artifacts/t433-action-contract/repaired-host-046cc809.trx`, SHA-256 `a854d69745aace4145845db88975ec50871b6ac00eee0b2748eb0119961bd431`.
+
+The exact theory passed three isolated runs (2/2 each), then three combined producer/preload/form-definition runs (126/126 each). Logs/TRXs use `resource-lifetime-isolated-1..3` and `resource-lifetime-combined-1..3`. The form store, barrier and lifetime test are unchanged from central main. These reruns do not erase the full-suite failures or establish their cause; another complete run must resolve them. The ten replay cases imply a candidate 4,283-case inventory, subject to fresh measured identity reconciliation, not arithmetic-only baseline approval.

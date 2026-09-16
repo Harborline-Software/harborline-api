@@ -579,18 +579,22 @@ public sealed class FormEngine : IFormEngine
     private async ValueTask ValidateReplayContextAsync(EntityId instance, DateTimeOffset submittedAt,
         AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
     {
-        if (authority.CorrelationId is not { } correlation) return;
         await foreach (var row in _authorizedAudit.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(authority.Tenant,
             FormMintAuditEventType, submittedAt, submittedAt), ct).ConfigureAwait(false))
         {
             var body = row.Payload.Payload.Body;
             if (!body.TryGetValue("entity_id", out var entity) || entity?.ToString() != instance.ToString()) continue;
-            if (row.Actor == authority.Principal && body.TryGetValue("correlation_id", out var original) &&
-                original?.ToString() == correlation.ToString("D") && body.TryGetValue("request_fingerprint", out var hash) &&
+            // Header absence is still a request context, never permission to skip actor/payload checks.
+            // Durable audit decoding can represent an absent correlation as JSON null rather than CLR null.
+            var hasCorrelation = body.TryGetValue("correlation_id", out var original);
+            var originalCorrelation = original is null or JsonElement { ValueKind: JsonValueKind.Null }
+                ? null : original.ToString();
+            if (row.Actor == authority.Principal && hasCorrelation &&
+                originalCorrelation == authority.CorrelationId?.ToString("D") && body.TryGetValue("request_fingerprint", out var hash) &&
                 hash?.ToString() == fingerprint) return;
             throw new FormSubmissionReplayConflictException();
         }
-        // A committed entity without its original audit cannot authorize a correlated replay/projection.
+        // A committed entity without its original audit cannot authorize any replay/projection.
         throw new FormSubmissionReplayConflictException();
     }
 
