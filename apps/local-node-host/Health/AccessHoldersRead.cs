@@ -4,6 +4,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,10 @@ namespace Harborline.Api.LocalNodeHost.Health;
 internal static class AccessHoldersRead
 {
     internal const string Route = AuthorizationAdminRoutes.RouteBase + "/holders";
+
+    internal static ViewRequestDescriptor ReadRequest { get; } = new(
+        "authorization.holders.read.v1", "GET", Route, "application/json",
+        "desktop-plane-only", false, TeamRolePermissions.MembersManage, []);
 
     internal sealed record Holder(
         string PartyId, string Source, string GrantId, RoleReference Role,
@@ -30,7 +35,7 @@ internal static class AccessHoldersRead
         http.Response.Headers.CacheControl = "no-store";
         var authority = RequestAuthorization.Authority(http, tenant, time);
         var denied = await RequestAuthorization.RefusalAsync(
-            http, authority, TeamRolePermissions.MembersManage, RouteRecord.TheInstall, ct).ConfigureAwait(false);
+            http, authority, ReadRequest.AuthorizationCapability, RouteRecord.TheInstall, ct).ConfigureAwait(false);
         if (denied is not null) return denied;
 
         var services = http.RequestServices;

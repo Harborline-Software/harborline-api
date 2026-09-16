@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Definitions.Compatibility;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -59,6 +60,11 @@ public static class AssetRegistryRoutes
 {
     /// <summary>Canonical route base for the node-local asset-registry surface.</summary>
     public const string RouteBase = "/api/local-node/asset-registry";
+
+    internal static ViewRequestDescriptor ReadEntityRequest { get; } = new(
+        "records.read.v1", "GET", RouteBase + "/entities/{id}", "application/json",
+        "device-reachable-product", false, TeamRolePermissions.RecordsRead,
+        [new("id", ViewRequestValueKind.Text)]);
 
     /// <summary>Maps the asset-registry routes, closing over the registry stores + active-team accessor + clock.</summary>
     public static void Map(
@@ -299,13 +305,13 @@ public static class AssetRegistryRoutes
             return Results.Ok(new EntityListResponse(rows.Select(ToEntityWire).ToArray()));
         });
 
-        app.MapGet($"{RouteBase}/entities/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
+        app.MapGet(ReadEntityRequest.RouteTemplate, async (string id, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct)
+                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
                 .ConfigureAwait(false) is { } denied)
                 return denied;
             var entity = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct).ConfigureAwait(false);
