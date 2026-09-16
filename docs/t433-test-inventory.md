@@ -106,3 +106,11 @@ Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.Delaye
 Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.In_progress_health_refresh_fences_new_activation_until_its_snapshot_is_published(report: "workflow")
 Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.In_progress_health_refresh_fences_new_activation_until_its_snapshot_is_published(report: "view")
 ```
+
+The direct complete Release host run at `3962c3a92cc3cf24a1f0162d89cdef0ccb9379aa`
+measured **4,158 total / 4,137 passed / 0 failed / 21 skipped** in 4m12s, with no retries.
+`artifacts/t433-atomicity/deferred-health-full-host.trx` records the run from
+`2026-09-16T02:48:46.0957298-04:00` to `2026-09-16T02:52:59.8208675-04:00`; its SHA-256 is
+`498d39238e42e84e3637624bce91f5e697b4b12ffff28fea86c84025a1b171bf`.
+The corresponding console log is `deferred-health-full-host.log` in the same directory.
+This measurement, not arithmetic alone, supplies the updated Windows count tuple.
