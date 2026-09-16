@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "54325cb36721131213422ff30ff769df13f508cb",
-  "recordedAt": "2026-09-16T02:55:00Z",
+  "sourcePin": "1e7f8dc6ca32d3fc0eb310ec343ef0e914cba92d",
+  "recordedAt": "2026-09-16T06:11:30Z",
   "totals": {
-    "total": 4126,
-    "passed": 4105,
+    "total": 4154,
+    "passed": 4133,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "Ticket 433 bounded activation atomicity: the complete Release host run for the async tranche at 1e7f8dc6 measured 4154 total, 4133 passed, zero failed and 21 skipped in 4m5s, with no retries. The preceding clean exact-clone run at 13cb086f measured 4151/4130/0/21 and refused only the old count inventory. Independent discovery compared source pin 54325cb to 13cb086f: 29 added identities and four explicit one-to-one semantic rewrites, giving 25 additions and zero deletions; the async tranche adds three separately named cases. docs/t433-test-inventory.md records full identities, rename mappings, inventory digests and measured evidence. Update only this measured Windows tuple; failure, skip and known-flaky identities and retry allowances remain unchanged. The final clean committed-head all-lane gate must confirm it.",
     "Ticket 427 released detail seed, reconciled with T443 main 6d5bfd5c: the quality-enabled Windows exact-clone run at 54325cb36721131213422ff30ff769df13f508cb measured 4126 total, 4105 passed, zero failed and 21 skipped, with no known-flaky retries. Its only failing check was the previous 4125-case inventory; the added case is the authentic signed platform detail seed install/projection/idempotence/denial integration test. Record the measured one-case increase without changing failure, skip or retry identities or allowances. The final committed-head full gate must confirm this tuple; other host baselines remain unchanged.",
     "Ticket 454 integrated with T433 PR157: the complete Windows host run at 64c0c0ba measured 4125 total cases, 4104 passed, zero failed and 21 skipped in 4m10s, after installing the same contracts/capability prerequisites as exact-clone. This includes three red-to-green late-content refusal regressions and the real preload authorization writer. The final clean-head quality-enabled full gate must confirm this measured tuple. No failure, skip or retry allowance changes; other host baselines remain unchanged.",
     "Ticket 454: the quality-enabled exact-clone run at c8f75ecc measured 4116 total cases, 4093 passed, two failed and 21 skipped, with no flaky rescues. The two failures were the exact navigation-callsite line inventory and the check-route assertion missing the additional fail-closed Defaults admission refusal; both assertions are reconciled without reducing their scope. This pins the measured 4116-case inventory with the unchanged zero-failure/21-skip policy, expecting 4095 passes. The final full gate must confirm that tuple. No failure, skip or retry allowance is added; other host baselines remain unchanged.",
