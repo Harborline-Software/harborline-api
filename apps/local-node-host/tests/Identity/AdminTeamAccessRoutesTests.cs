@@ -272,9 +272,10 @@ public sealed class AdminTeamAccessRoutesTests
     [Trait("PlanCard", "MTW-2-2617")]
     public async Task Revoke_Member_Success_Returns_Revoked_On_The_Principal_Tenant()
     {
+        var auditId = Guid.Parse("fd6e199c-11eb-4da1-85e0-378921391c00");
         var authority = new RecordingAuthority
         {
-            Revoke = new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked),
+            Revoke = new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked) { AuditId = auditId },
         };
         var antiforgery = new RecordingAntiforgeryPolicy();
 
@@ -286,6 +287,7 @@ public sealed class AdminTeamAccessRoutesTests
 
         Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
         Assert.Contains("\"status\":\"revoked\"", response.Body, StringComparison.Ordinal);
+        Assert.Contains(auditId.ToString("D"), response.Body, StringComparison.Ordinal);
         Assert.Equal("tenant-1", authority.RevokeTenantId);
         Assert.Equal("grant-9", authority.RevokeGrantId);
         Assert.Equal(SelectedHandle, antiforgery.RotatedSelectedHandle);

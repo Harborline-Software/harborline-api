@@ -93,7 +93,11 @@ public enum AdminRevokeMemberStatus
 
 /// <summary>The result of an admin member (grant) revocation.</summary>
 /// <param name="SuccessorGrantId">The Administrator grant minted by a handover; null otherwise.</param>
-public sealed record AdminRevokeMemberResult(AdminRevokeMemberStatus Status, string? SuccessorGrantId = null);
+public sealed record AdminRevokeMemberResult(AdminRevokeMemberStatus Status, string? SuccessorGrantId = null)
+{
+    /// <summary>The server-appended audit receipt, reused when the same revocation is observed again.</summary>
+    public Guid? AuditId { get; init; }
+}
 
 /// <summary>Outcome of an administrator narrowing a member's admission-conferred grant (ticket 362).</summary>
 public enum AdminNarrowMemberGrantStatus
@@ -510,11 +514,11 @@ internal sealed class AdminTeamAccessAuthority(
                 .ConfigureAwait(false);
             if (revoked is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
         }
-        await AppendGrantAuditAsync(
+        var auditId = await AppendGrantAuditAsync(
                 tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
                 Guid.NewGuid(), successorGrant: null, cancellationToken)
             .ConfigureAwait(false);
-        return new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked);
+        return new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked) { AuditId = auditId };
     }
 
     /// <inheritdoc />
@@ -730,7 +734,7 @@ internal sealed class AdminTeamAccessAuthority(
     /// One permanent audit row for one leg of a grant act, carrying the SAME admitted decision the act was
     /// gated on. <paramref name="correlationId"/> ties the two legs of a handover (L618) together.
     /// </summary>
-    private async ValueTask AppendGrantAuditAsync(
+    private async ValueTask<Guid> AppendGrantAuditAsync(
         TenantId tenant,
         GrantId grantId,
         AuthorizationDecision admittedDecision,
@@ -756,7 +760,7 @@ internal sealed class AdminTeamAccessAuthority(
                                    new AuditQuery(tenant, eventType), cancellationToken)
                                    .ConfigureAwait(false))
                 {
-                    if (existing.Target == reaction.Target) return;
+                    if (existing.Target == reaction.Target) return existing.AuditId;
                 }
             }
             var payload = await _signer.SignAsync(new AuditPayload(new Dictionary<string, object?>
@@ -766,11 +770,13 @@ internal sealed class AdminTeamAccessAuthority(
                 ["correlation_id"] = correlationId.ToString("D"),
                 ["successor_grant_id"] = successorGrant?.Value.ToString("D"),
             }), admittedDecision.DecidedAt, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
+            var auditId = Guid.NewGuid();
             await _audit.AppendAuthorizedAsync(new AuditRecord(
-                Guid.NewGuid(), tenant, eventType,
+                auditId, tenant, eventType,
                 admittedDecision.DecidedAt, payload,
                 ImmutableArray<AttestingSignature>.Empty, Actor: admittedDecision.Request.Principal,
                 Target: reaction.Target, Act: reaction.Act), admittedDecision, cancellationToken).ConfigureAwait(false);
+            return auditId;
         }
         finally
         {

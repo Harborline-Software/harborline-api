@@ -72,7 +72,9 @@ internal static class AdminTeamAccessRoutes
         string TenantId,
         DateTimeOffset AbsoluteExpiresAtUtc);
 
-    private sealed record RevokeResponse(string Status, string? SuccessorGrantId = null);
+    private sealed record RevokeResponse(string Status, string? SuccessorGrantId = null,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        Guid? AuditId = null);
 
     private sealed record NarrowResponse(string Status, string? NarrowedGrantId = null);
 
@@ -289,7 +291,7 @@ internal static class AdminTeamAccessRoutes
 
         return result.Status switch
         {
-            AdminRevokeMemberStatus.Revoked => Results.Ok(new RevokeResponse("revoked")),
+            AdminRevokeMemberStatus.Revoked => Results.Ok(new RevokeResponse("revoked", AuditId: result.AuditId)),
             // Ledger L618: both legs of the handover committed as one transaction.
             AdminRevokeMemberStatus.HandedOver => Results.Ok(
                 new RevokeResponse("handed_over", result.SuccessorGrantId)),

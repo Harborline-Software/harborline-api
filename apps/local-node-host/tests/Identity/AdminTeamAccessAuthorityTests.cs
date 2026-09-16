@@ -143,6 +143,9 @@ public sealed class AdminTeamAccessAuthorityTests
         // The revoked member no longer appears in the member list.
         var after = await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId);
         Assert.DoesNotContain(after!.Members, m => m.PartyId == "party-web");
+        Assert.NotNull(result.AuditId);
+        var replay = await fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId);
+        Assert.Equal(result.AuditId, replay!.AuditId);
     }
 
     [Fact]
@@ -158,6 +161,7 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Same(sentinel, Assert.Single(captures.RosterWriterDecisions));
         Assert.Same(sentinel, Assert.Single(captures.GrantAudit.Decisions));
         Assert.Same(sentinel, Assert.Single(captures.RosterAudit.Decisions));
+        Assert.Equal(Assert.Single(captures.GrantAudit.Records).AuditId, result!.AuditId);
     }
 
     [Fact]
