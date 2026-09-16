@@ -110,6 +110,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
             if (action.ValueKind != JsonValueKind.Object)
                 throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
             if (!action.TryGetProperty("dispatch", out var dispatch)) continue;
+            var hasFile = ViewRequestPresentationAdmission.Admit(action);
             var fields = new Dictionary<string, ViewRequestValueKind>(StringComparer.Ordinal);
             var hasInput = action.TryGetProperty("input", out var input);
             if (hasInput)
@@ -140,7 +141,9 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
                     });
                 hasInput = true;
             }
-            HostViewRequestDescriptors.Admit(dispatch, new(selection, fields, HasInputObject: hasInput));
+            var request = HostViewRequestDescriptors.Admit(dispatch, new(selection, fields, HasInputObject: hasInput, HasBinaryInput: hasFile));
+            if (hasFile && request.Descriptor.ContentType != "application/octet-stream")
+                throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
         }
     }
 

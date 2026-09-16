@@ -126,6 +126,8 @@ public static class ViewRequestBindingAdmission
             return null;
         var source = Text(binding, "source");
         var pointer = Text(binding, "pointer");
+        if (source == "invocation")
+            return pointer is "/id" or "/idempotencyKey" or "/correlationId" ? ViewRequestValueKind.Text : null;
         if (source == "input" && pointer == "" && sources.HasInputObject) return ViewRequestValueKind.Object;
         if (source == "file" && pointer == "" && sources.HasBinaryInput) return ViewRequestValueKind.Binary;
         // v1 deliberately permits only exact top-level fields, not arbitrary object traversal.

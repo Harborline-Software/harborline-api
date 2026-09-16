@@ -101,6 +101,34 @@ public sealed class ViewRequestBindingAdmissionTests
         Assert.Equal("view_definition.request_binding_invalid", error.ErrorCode);
     }
 
+    [Theory]
+    [InlineData("/id")]
+    [InlineData("/idempotencyKey")]
+    [InlineData("/correlationId")]
+    public void Invocation_values_have_a_closed_host_owned_shape(string pointer)
+    {
+        using var dispatch = JsonDocument.Parse(Dispatch(JsonSerializer.Serialize(new { source = "invocation", pointer })));
+        Assert.NotNull(ViewRequestBindingAdmission.Admit(dispatch.RootElement, Descriptors, Sources));
+    }
+
+    [Theory]
+    [InlineData("/actor")]
+    [InlineData("/tenant")]
+    [InlineData("/headers/Authorization")]
+    [InlineData("")]
+    public void Unknown_invocation_values_are_refused(string pointer) =>
+        Refused(Dispatch(JsonSerializer.Serialize(new { source = "invocation", pointer })));
+
+    [Fact]
+    public void Correlation_header_is_an_explicit_safe_host_placement()
+    {
+        var descriptor = Descriptor with { RouteTemplate = "/api/session/example", Inputs =
+            [new("id", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "X-Correlation-ID")] };
+        using var dispatch = JsonDocument.Parse(Dispatch("""{"source":"invocation","pointer":"/correlationId"}"""));
+        Assert.NotNull(ViewRequestBindingAdmission.Admit(dispatch.RootElement,
+            new Dictionary<string, ViewRequestDescriptor> { [descriptor.Id] = descriptor }, Sources));
+    }
+
     private static string Dispatch(string binding, string extra = "") =>
         "{\"schemaVersion\":1,\"kind\":\"request\",\"descriptorId\":\"test.record.read\"," + extra + "\"bindings\":{\"id\":" + binding + "}}";
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Harborline.Api.Blocks.Assets.Registry.Audit;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Forms;
@@ -103,4 +104,39 @@ public sealed class HostViewRequestAdmissionTests
             } },
         }),
     };
+
+    [Fact]
+    public async Task Admitted_binary_action_emits_file_input_and_refresh_contract()
+    {
+        var definition = BinaryDefinition("application/octet-stream", "data-source");
+        await descriptors.AdmitAsync(definition);
+        var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
+            JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
+        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var action = plan!.Bindings.GetProperty("actions")[0];
+        Assert.Equal("application/octet-stream", action.GetProperty("fileInput").GetProperty("accept").GetString());
+        Assert.Equal("data-source", action.GetProperty("result").GetProperty("refresh").GetString());
+    }
+
+    [Theory]
+    [InlineData("text/html", "data-source")]
+    [InlineData("application/octet-stream", "execute-script")]
+    public async Task Unknown_file_or_result_semantics_are_refused(string accept, string refresh)
+    {
+        await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() => descriptors.AdmitAsync(BinaryDefinition(accept, refresh)).AsTask());
+    }
+
+    private static ViewDefinition BinaryDefinition(string accept, string refresh)
+    {
+        var definition = Definition();
+        var parameters = JsonNode.Parse(definition.Parameters.GetRawText())!;
+        parameters["actions"] = JsonSerializer.SerializeToNode(new[] { new
+        {
+            id = "replace", label = "Replace", operation = "opaque.replace",
+            fileInput = new { accept }, result = new { refresh },
+            dispatch = new { schemaVersion = 1, kind = "request", descriptorId = "packs.replace.selected.v1",
+                bindings = new { packKey = new { literal = "example.pack" }, artifact = new { source = "file", pointer = "" } } },
+        } });
+        return definition with { Parameters = JsonSerializer.SerializeToElement(parameters) };
+    }
 }

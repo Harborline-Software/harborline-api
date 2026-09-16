@@ -217,6 +217,7 @@ public static class RenderPlanCompiler
                 }
                 if (action.TryGetProperty("dispatch", out var dispatch))
                 {
+                    _ = ViewRequestPresentationAdmission.Admit(action);
                     var request = HostViewRequestDescriptors.Resolve(dispatch);
                     JsonElement? input = null;
                     if (action.TryGetProperty("input", out var authoredInput))
@@ -230,6 +231,8 @@ public static class RenderPlanCompiler
                         dispatch = new { schemaVersion = 1, kind = "request", descriptor = request.Descriptor, bindings = request.Bindings },
                         input,
                         inputForm = action.TryGetProperty("inputForm", out var form) ? form : (JsonElement?)null,
+                        fileInput = action.TryGetProperty("fileInput", out var file) ? file : (JsonElement?)null,
+                        result = action.TryGetProperty("result", out var result) ? result : (JsonElement?)null,
                     });
                 }
                 else actions.Add(new { id = id.GetString(), label = label.GetString() });

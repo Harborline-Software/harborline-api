@@ -35,7 +35,7 @@ internal static partial class ViewRequestTransportAdmission
                     break;
                 case ViewRequestPlacement.Header:
                     // Credential, antiforgery and forwarding headers are owned by the transport, never a descriptor input.
-                    if (input.Kind != ViewRequestValueKind.Text || wire != "Idempotency-Key") return false;
+                    if (input.Kind != ViewRequestValueKind.Text || wire is not ("Idempotency-Key" or "X-Correlation-ID")) return false;
                     break;
                 case ViewRequestPlacement.BodyRoot:
                     if (wire.Length != 0 || ++roots > 1
