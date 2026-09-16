@@ -155,10 +155,16 @@ public sealed record PackSeedProjectionSummary(
     int WorkflowDefinitionsRetracted = 0) : IPackProjectionRefusalReport
 {
     /// <inheritdoc />
-    /// <remarks>Any content-grain refusal leaves the admission incomplete, so the next boot re-runs the
-    /// pass. Pack-grain platform refusals are a steady state the host reacts to elsewhere, not a
-    /// half-applied projection, so they do not hold the admission open.</remarks>
-    public bool ProjectionRefused => Refusals.Count > 0;
+    public bool ProjectionRefused => Refusals.Count > 0 || PlatformRefusals.Count > 0
+        || AssetTypesSkippedInvalid > 0 || TemplatesSkippedInvalid > 0
+        || FormDefinitionsSkippedInvalid > 0 || WorkflowDefinitionsSkippedInvalid > 0
+        || FormDefinitionsDeferred > 0 || WorkflowDefinitionsDeferred > 0
+        || AssetTypesContestedUnresolved > 0;
+
+    /// <inheritdoc />
+    public PackInstallRefusal? FirstRefusal => Refusals.FirstOrDefault() is { } refusal
+        ? new(refusal.Code, refusal.Pointer)
+        : ProjectionRefused ? new(PackInstallCodes.ActivateProjectionRefused, "/") : null;
 
     /// <summary>Stable, locale-independent refusal codes produced by this pass.</summary>
     public IReadOnlyList<PackSeedProjectionRefusal> Refusals { get; init; }
@@ -460,6 +466,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         PackProjectionAuthority authority,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(authority);
+        authority.EnsureUsable();
         PackProjectionTransaction? current;
         using (PackProjectionActivationBarrier.Read(cancellationToken)) current = _projectionTransaction;
         if (current is not null)
@@ -836,8 +844,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                             template.RefusalCode ?? PackSeedProjectionRefusalCodes.TemplateProjectionFailedCode,
                                             ContentPointer(pack, item)));
                                         break;
+                                    case TemplateOutcome.Deferred:
+                                        refusals.Add(new(item.Key, item.Kind, "pack.template.registry_not_wired", ContentPointer(pack, item)));
+                                        break;
                                     default:
-                                        // Deferred or exact replay — recognized, but no new publication.
+                                        // Exact replay — recognized, but no new publication.
                                         break;
                                 }
 

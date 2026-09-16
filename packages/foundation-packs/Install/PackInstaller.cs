@@ -372,7 +372,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     else
                     {
                         outcome = new(false, packKey, version, PackInstallCodes.ActivateProjectionRefused,
-                            ProjectionResult: result, Decision: decision);
+                            ProjectionResult: result, Decision: decision,
+                            Refusal: (result as IPackProjectionRefusalReport)?.FirstRefusal);
                     }
                 }
             }

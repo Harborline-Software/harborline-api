@@ -229,8 +229,8 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         kind = "AssetTypeDefinition",
         version = "1.0.0",
         content = parentType is null
-            ? (object)new { id, displayName }
-            : new { id, displayName, parentType },
+            ? (object)new { id, displayName, traits = new[] { "Maintainable" } }
+            : new { id, displayName, parentType, traits = new[] { "Maintainable" } },
     };
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)

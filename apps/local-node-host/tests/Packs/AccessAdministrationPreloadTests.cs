@@ -423,28 +423,13 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 .Where(item => item.Key != "platform.detail.form" && item.Kind != PackContentKind.CascadeDefaults
                     && (legacyVersion != "1.0.0" || (!item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
                         && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))))
-                .Select(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding
-                    ? item with
-                    {
-                        Version = "1.0.0",
-                        Content = JsonSerializer.SerializeToNode(new
-                        {
-                            operation = item.Content["operation"]!.GetValue<string>(), scope = "/",
-                            offeredRoles = new[] { "platform/administrator" },
-                        })!,
-                    }
-                    : item)
-                .Append(new PackContentSource("platform.binding.audit-read", PackContentKind.AuthorizationCapabilityBinding,
-                    "1.0.0", JsonSerializer.SerializeToNode(new
-                    {
-                        operation = "audit:read", scope = "/", offeredRoles = new[] { "platform/auditor" },
-                    })!))
                 .ToArray(),
         };
 
         var legacyBytes = await ExportAsync(legacy);
         Assert.True(_installer.Install(legacyBytes, context).Installed);
-        Assert.True(_installer.Activate(context, legacy.Key, legacy.Version).Activated);
+        var activation = _installer.Activate(context, legacy.Key, legacy.Version);
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
         Assert.Equal(legacyVersion, _store.GetActive(Tenant, legacy.Key)!.Version);
         Assert.Equal(legacyViews, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
         Assert.Empty(_defaults.List(Tenant));
@@ -544,10 +529,9 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             _store.ListInstalled(Tenant),
             pack => pack.PackKey == AccessAdministrationPreloadHostedService.PackKey);
         Assert.NotEqual(PackLifecycleState.Active, pending.Lifecycle);
-        // The form that DID project is retracted with the reversal — nothing of the package stays live.
-        var retracted = await _forms.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
-        Assert.Equal(FormDefinitionStatus.Withdrawn, retracted!.Status);
+        // Staged form publication is discarded, not published and withdrawn as compensation.
+        Assert.Null(await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None));
 
         // The next boot — the host now admitting what it refused — retries from that pending state and
         // finishes the activation without re-installing.

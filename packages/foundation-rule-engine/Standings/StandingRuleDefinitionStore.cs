@@ -33,10 +33,19 @@ public interface IStandingRuleDefinitionStore
 }
 
 /// <summary>In-memory reference store for installed standing-rule definition rows.</summary>
-public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitionStore
+public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitionStore, IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<(string RuleId, string Version), StandingDefinitionRow> _rows = [];
+    private ConcurrentDictionary<(string RuleId, string Version), StandingDefinitionRow> _rows = [];
     private readonly IRestrictingDefinitionKindValidator _restrictingKinds;
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _rows;
+        var next = new ConcurrentDictionary<(string RuleId, string Version), StandingDefinitionRow>(before);
+        _rows = next;
+        return () => _rows = before;
+    });
 
     /// <summary>Constructs the store over the canonical restricting-kind validator.</summary>
     public InMemoryStandingRuleDefinitionStore(IRestrictingDefinitionKindValidator? restrictingKinds = null)
@@ -47,6 +56,7 @@ public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitio
         StandingRuleDefinition definition,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
         _restrictingKinds.EnsureKnown(
@@ -74,6 +84,7 @@ public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitio
         string ruleVersion,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         _rows.TryGetValue((ruleId, ruleVersion), out var row);
         return ValueTask.FromResult(row?.Definition);
@@ -85,6 +96,7 @@ public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitio
         string ruleVersion,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(_rows.TryRemove((ruleId, ruleVersion), out _));
     }
@@ -93,6 +105,7 @@ public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitio
     public async IAsyncEnumerable<StandingRuleDefinition> ListAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         foreach (var row in _rows.Values
             .OrderBy(row => row.Definition.RuleId, StringComparer.Ordinal)
             .ThenBy(row => row.Definition.RuleVersion, StringComparer.Ordinal))

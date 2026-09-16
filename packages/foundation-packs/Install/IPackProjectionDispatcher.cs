@@ -21,6 +21,9 @@ public interface IPackProjectionRefusalReport
 {
     /// <summary>True when the pass refused at least one item, so the admission is NOT complete.</summary>
     bool ProjectionRefused { get; }
+
+    /// <summary>The first stable refusal and source pointer, when supplied by the projector.</summary>
+    PackInstallRefusal? FirstRefusal => null;
 }
 
 /// <summary>Internal reconciliation surface used only by the host startup service.</summary>

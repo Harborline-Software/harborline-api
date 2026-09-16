@@ -2237,6 +2237,8 @@ public sealed class AuthorizationWriteStageTests
 
     private sealed class CapturingProjectionDispatcher : IPackProjectionDispatcher
     {
+        public void StageProjection(PackProjectionTransaction transaction) { }
+
         internal List<PackProjectionAuthority> Captured { get; } = [];
 
         public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default)

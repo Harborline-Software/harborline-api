@@ -260,6 +260,12 @@ internal static class PackInstallRoutes
                     activated = false,
                     error = outcome.Error,
                     detail = outcome.Detail,
+                    projectionRefusals = outcome.ProjectionResult is PackSeedProjectionSummary refusedProjection
+                        ? refusedProjection.Refusals.Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer)).ToArray()
+                        : Array.Empty<ProjectionRefusalDto>(),
+                    platformRefusals = outcome.ProjectionResult is PackSeedProjectionSummary refusedPlatform
+                        ? ToPlatformRefusalDtos(refusedPlatform)
+                        : Array.Empty<PlatformProjectionRefusalDto>(),
                     refusals = outcome.Refusal is null
                         ? Array.Empty<PackRefusalDto>()
                         : new[] { new PackRefusalDto(outcome.Refusal.Code, outcome.Refusal.Pointer) },
@@ -269,8 +275,7 @@ internal static class PackInstallRoutes
             // Draft→Active is when a pack's declarative content becomes live — project its seed layer into
             // the runtime registries the read APIs consume (asset types → the Type Manager dropdown), so an
             // installed+activated pack actually populates the surface instead of only appearing in the pack
-            // list. Idempotent + additive-kind-safe; a projection hiccup must not un-activate the pack, so
-            // failures are logged, not propagated.
+            // list. The installer publishes only a complete projection; refused preparation returns above.
             IReadOnlyList<ProjectionRefusalDto> projectionRefusals = Array.Empty<ProjectionRefusalDto>();
             IReadOnlyList<PlatformProjectionRefusalDto> platformRefusals =
                 Array.Empty<PlatformProjectionRefusalDto>();

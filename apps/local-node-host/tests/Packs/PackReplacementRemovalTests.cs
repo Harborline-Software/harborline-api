@@ -122,7 +122,7 @@ public sealed class PackReplacementRemovalTests
         Assert.NotNull(await world.ReadReportAsync());
     }
 
-    [Fact(DisplayName = "208 s2: a crash mid-admit is repaired by the next boot")]
+    [Fact(DisplayName = "208 s2: cancellation mid-admit discards the replacement and permits an explicit retry")]
     public async Task Crash_Mid_Admit_Is_Repaired_By_The_Next_Boot()
     {
         var world = new World();
@@ -141,7 +141,7 @@ public sealed class PackReplacementRemovalTests
 
         Assert.NotNull(await world.ReadReportAsync());              // still standing: nothing was removed …
         Assert.Null(await world.ReadViewAsync());                   // … and the replacement never landed.
-        Assert.NotEmpty(world.IncompleteAdmissions());              // the durable intent the boot completes.
+        Assert.DoesNotContain(world.IncompleteAdmissions(), row => row.PackVersion == "1.1.0");
 
         // Next boot: the process restart clears the projector's in-process replay guard (a crashed
         // authority is only replayable across a restart, which is exactly the case under test), then the
@@ -149,6 +149,9 @@ public sealed class PackReplacementRemovalTests
         world.Views.TearDownOnRegister = false;
         World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
+        Assert.Null(await world.ReadViewAsync());
+        Assert.NotNull(await world.ReadReportAsync());
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
 
         Assert.NotNull(await world.ReadViewAsync());
         Assert.Null(await world.ReadReportAsync());
@@ -171,7 +174,7 @@ public sealed class PackReplacementRemovalTests
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
-        Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
+        Assert.False(activation.Activated);
 
         var summary = Assert.IsType<PackSeedProjectionSummary>(activation.ProjectionResult);
         Assert.Single(summary.Refusals);
@@ -179,13 +182,16 @@ public sealed class PackReplacementRemovalTests
         Assert.Empty(summary.RetractedByKind);                      // zero removals.
         Assert.Same(reportBefore, await world.ReadReportAsync());   // the replaced package's copy, untouched.
         Assert.Null(await world.ReadViewAsync());
-        Assert.NotEmpty(world.IncompleteAdmissions());              // refused, not complete.
+        Assert.DoesNotContain(world.IncompleteAdmissions(), row => row.PackVersion == "1.1.0");
 
         // The refusal is what holds the admission open: once the registry admits, the next boot's
         // reconciliation completes the same pass — the view lands and only then does the report go.
         world.Views.RefuseOnRegister = false;
         World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
+        Assert.Null(await world.ReadViewAsync());
+        Assert.Same(reportBefore, await world.ReadReportAsync());
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
 
         Assert.NotNull(await world.ReadViewAsync());
         Assert.Null(await world.ReadReportAsync());
@@ -205,7 +211,7 @@ public sealed class PackReplacementRemovalTests
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
-        Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
+        Assert.False(activation.Activated);
         Assert.Same(reportBefore, await world.ReadReportAsync());
 
         // What AccessAdministrationPreloadHostedService does next: the refused activation is reversed.
@@ -213,7 +219,8 @@ public sealed class PackReplacementRemovalTests
         // empty admitted set — 1.1.0 now Inactive, 1.0.0 still Superseded — and retract the replaced
         // package's every definition. Removal belongs to an ACTIVE replacement only.
         var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.1.0", Now, "test-operator");
-        Assert.True(deactivation.Deactivated, deactivation.Error);
+        Assert.False(deactivation.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, deactivation.Error);
         await world.ProjectAsync();
 
         Assert.Same(reportBefore, await world.ReadReportAsync());
@@ -379,9 +386,11 @@ public sealed class PackReplacementRemovalTests
     /// the one exception family the projector deliberately does NOT convert to a refusal, so it leaves
     /// the pass exactly where an abrupt process exit would — after the removal, before the admission.
     /// </summary>
-    private sealed class TearDownableViewRegistry : IViewDefinitionRegistry
+    private sealed class TearDownableViewRegistry : IViewDefinitionRegistry, IPackProjectionParticipant
     {
         private readonly InMemoryViewDefinitionRegistry _inner = new(new AcceptAllViews());
+
+        public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(_inner);
 
         public bool TearDownOnRegister { get; set; }
 
