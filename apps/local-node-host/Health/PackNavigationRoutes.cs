@@ -11,6 +11,9 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Navigation;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -41,9 +44,13 @@ public static class PackNavigationRoutes
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(logger);
 
-        app.MapGet(NavigationRoute, () =>
+        app.MapGet(NavigationRoute, (HttpContext http) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected?.TenantId.IsSystemSentinel == true || selected is null &&
+                (NodeCallerAttributionScope.HasBoundWebPrincipal || http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             var result = PackNavigationComposer.Compose(store, tenant);
             if (result.Error is not null)
             {

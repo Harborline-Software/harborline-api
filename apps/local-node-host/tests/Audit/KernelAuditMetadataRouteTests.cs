@@ -8,6 +8,9 @@ using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Contracts;
+using Harborline.Api.LocalNodeHost.Health;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Audit;
@@ -16,6 +19,23 @@ public sealed class KernelAuditMetadataRouteTests
 {
     private static readonly TenantId Tenant = new("43300000-0000-4000-8000-000000000000");
     private static readonly DateTimeOffset At = new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Selected_role_vocabulary_reads_real_rows_with_tenant_filter_and_unchanged_gate()
+    {
+        var vocabulary = new InMemoryRoleVocabulary([
+            RoleDefinition.CreatePackageRole(RoleDefinitionId.New(), "package-role", "Package role", "package.test"),
+            RoleDefinition.CreateTenantRole(RoleDefinitionId.New(), "own-role", "Own role", Tenant),
+            RoleDefinition.CreateTenantRole(RoleDefinitionId.New(), "other-role", "Other role", new("43300000-0000-4000-8000-000000000099")),
+        ]);
+        var result = await AuthorizationAdminRoutes.ReadSelectedRolesAsync(Context(true), vocabulary, TimeProvider.System, CancellationToken.None);
+        var rows = Assert.IsType<RoleDefinitionDto[]>(((IValueHttpResult)result).Value);
+        Assert.Contains(rows, row => row.Role.Name == "own-role");
+        Assert.Contains(rows, row => row.Role.Name == "package-role");
+        Assert.DoesNotContain(rows, row => row.Role.Name == "other-role");
+        result = await AuthorizationAdminRoutes.ReadSelectedRolesAsync(Context(false), vocabulary, TimeProvider.System, CancellationToken.None);
+        Assert.Equal(403, ((IStatusCodeHttpResult)result).StatusCode);
+    }
 
     [Fact]
     public async Task Metadata_pages_actual_kernel_ids_in_append_order_without_payload_values()

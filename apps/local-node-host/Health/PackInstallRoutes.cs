@@ -13,6 +13,9 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -395,7 +398,11 @@ internal static class PackInstallRoutes
         // GET /packs/installed — list installed versions for the tenant. OPERATE-side: `packages:operate`.
         deviceReachable.MapGet(ListInstalledRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected?.TenantId.IsSystemSentinel == true || selected is null &&
+                (NodeCallerAttributionScope.HasBoundWebPrincipal || http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // The installed-pack LIST is an install-wide read — it names no one pack.
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)

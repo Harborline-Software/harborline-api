@@ -33,6 +33,8 @@ public sealed class HostedAuthorizationAdminApiEndpoint(
             standings,
             activeTeam,
             timeProvider));
+        sharedApp.MapApiRoutes(app => AuthorizationAdminRoutes.MapSelectedRoles(
+            app.MapSelectedSessionProductGroup(), vocabulary, timeProvider));
         if (auditTrail is not null)
             sharedApp.MapApiRoutes(app => KernelAuditMetadataRoutes.Map(
                 app.MapSelectedSessionProductGroup(), auditTrail, timeProvider));

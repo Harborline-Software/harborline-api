@@ -18,6 +18,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Authorization;
 
 using Xunit;
 
@@ -28,6 +30,16 @@ public sealed class PackNavigationRouteTests
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000002045");
     private static readonly PrincipalId Signer = PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]);
+
+    [Fact]
+    public async Task Selected_navigation_reads_only_selected_tenant_not_ambient_team()
+    {
+        var store = new FakeStore();
+        var selectedTenant = new TenantId("43300000-0000-4000-8000-000000000000");
+        using var response = await GetAsync(store, selectedTenant);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(selectedTenant, store.LastReadTenant);
+    }
 
     [Fact(DisplayName = "GET navigation returns the migration fallback signal when no Active pack contributes")]
     public async Task No_active_navigation_returns_not_configured()
@@ -251,11 +263,19 @@ public sealed class PackNavigationRouteTests
         Assert.Equal("pack.nav.bounds_exceeded", json.RootElement.GetProperty("code").GetString());
     }
 
-    private static async Task<HttpResponseMessage> GetAsync(FakeStore store)
+    private static async Task<HttpResponseMessage> GetAsync(FakeStore store, TenantId? selectedTenant = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_NAVIGATION_TEST_URL") ?? "http://127.0.0.1:0");
         var app = builder.Build();
+        if (selectedTenant is { } selected)
+            app.Use(async (http, next) =>
+            {
+                http.Features.Set(new SelectedSessionRequestPrincipal("account", selected,
+                    new PrincipalUserId("holder"), new CanonicalPartyReference("party"),
+                    "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination"));
+                await next(http);
+            });
         var team = new TeamId(Guid.Parse(Tenant.Value));
         var activeTeam = new FixedActiveTeamAccessor(new TeamContext(
             team, "Navigation Test", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
@@ -331,7 +351,8 @@ public sealed class PackNavigationRouteTests
         public InstalledPack? GetVersion(TenantId tenant, string packKey, string version)
             => _packs.FirstOrDefault(p => p.PackKey == packKey && p.Version == version);
 
-        public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) => _packs;
+        public TenantId? LastReadTenant { get; private set; }
+        public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) { LastReadTenant = tenant; return _packs; }
         public bool AnyInstalled() => _packs.Count > 0;
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => null;
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) => [];

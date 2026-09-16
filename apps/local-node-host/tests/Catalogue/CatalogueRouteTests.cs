@@ -159,6 +159,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var body = await _client.GetFromJsonAsync<JsonElement>($"{CatalogueBase}?kind=FormDefinition");
 
         Assert.Contains(FormId, body.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal((int)PackContentKind.FormDefinition, body.GetProperty("entries").EnumerateArray()
+            .Single(entry => entry.GetProperty("id").GetString() == FormId).GetProperty("kind").GetInt32());
     }
 
     [Fact(DisplayName = "M4: sealed catalogue types are absent before the platform seed is active")]
