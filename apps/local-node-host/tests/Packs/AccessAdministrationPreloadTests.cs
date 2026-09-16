@@ -77,6 +77,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     private PlatformPackPreloadHostedService _platformPreload = null!;
     private InMemoryRoleVocabulary _roles = null!;
     private InMemoryPackInstallAudit _audit = null!;
+    private InMemoryAuthorizationConfigurationStore _configuration = null!;
+    private Func<ViewDefinition, CancellationToken, ValueTask>? _beforeViewAdmission;
     private readonly ActiveCascadeDefaultsProjection _defaults = new();
     private readonly CatalogueDetailTemplates _details = new();
 
@@ -108,6 +110,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         _roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
         var roleGate = new RoleGateAdmission(_roles, _forms, _workflows);
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
+        _configuration = configuration;
         var authorizationWriter = new AuthorizationDefinitionWriter(configuration, configuration,
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
@@ -116,8 +119,9 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
-        _views = new InMemoryViewDefinitionRegistry(new HostViewKindDescriptorRegistry(
-            _app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas));
+        _views = new InMemoryViewDefinitionRegistry(new ObservedViewAdmission(
+            new HostViewKindDescriptorRegistry(_app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas),
+            (definition, ct) => _beforeViewAdmission?.Invoke(definition, ct) ?? ValueTask.CompletedTask));
         _reports = new InMemoryReportDefinitionRegistry(
             new HostReportKindDescriptorRegistry(new ReportCartridgeRegistry()));
         _renderPlans = new InMemoryRenderPlanCatalogue();
@@ -625,6 +629,17 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             installedAfterFirstBoot,
             _store.ListInstalled(Tenant).Select(pack => (pack.PackKey, pack.Version, pack.Lifecycle)).ToArray());
         Assert.Equal(2, _store.ListInstalled(Tenant).Count);
+    }
+
+    private sealed class ObservedViewAdmission(
+        IViewDefinitionDescriptorRegistry inner,
+        Func<ViewDefinition, CancellationToken, ValueTask> before) : IViewDefinitionDescriptorRegistry
+    {
+        public async ValueTask AdmitAsync(ViewDefinition definition, CancellationToken cancellationToken = default)
+        {
+            await before(definition, cancellationToken);
+            await inner.AdmitAsync(definition, cancellationToken);
+        }
     }
 
     private async Task PreloadPlatformThenAccessAsync()

@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
@@ -45,6 +46,69 @@ public sealed class PackReplacementRemovalTests
     private const string ViewKey = "access.who-holds-what";
     private const string ReportKey = "access.held-by-person";
     private const string ItemVersion = "1.0.0";
+
+    [Fact]
+    public async Task Competing_replacements_validate_expected_old_version_inside_activation_lease()
+    {
+        using var platform = new RendezvousPlatform();
+        var world = new World(platform);
+        await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
+        await world.ProjectAsync();
+        world.Install("1.1.0", withView: true, withReport: false);
+        world.Install("1.2.0", withView: false, withReport: true);
+        world.AttachProjector();
+        platform.Enabled = true;
+        var outcomes = await Task.WhenAll(
+            Task.Run(() => world.Installer.Activate(world.Context, PackKey, "1.1.0")),
+            Task.Run(() => world.Installer.Activate(world.Context, PackKey, "1.2.0")))
+            .WaitAsync(TimeSpan.FromSeconds(15));
+        var winner = Assert.Single(outcomes, row => row.Activated);
+        var refused = Assert.Single(outcomes, row => !row.Activated);
+        Assert.Equal(PackInstallCodes.ActivateConcurrentChange, refused.Error);
+        Assert.Equal(winner.Version, world.ActiveVersion);
+        Assert.Equal(winner.Version == "1.1.0", await world.ReadViewAsync() is not null);
+        Assert.Equal(winner.Version == "1.2.0", await world.ReadReportAsync() is not null);
+    }
+
+    private sealed class RendezvousPlatform : IPackPlatformCompatibility, IDisposable
+    {
+        private readonly Barrier rendezvous = new(2);
+        public bool Enabled { get; set; }
+        public string PlatformVersion => "1.0.0";
+        public IReadOnlySet<string> Provides
+        {
+            get
+            {
+                if (Enabled && !rendezvous.SignalAndWait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("Both activations must capture the same old pointer.");
+                return new HashSet<string>(StringComparer.Ordinal) { "atomic.rendezvous" };
+            }
+        }
+        public void Dispose() => rendezvous.Dispose();
+    }
+
+    [Fact]
+    public async Task Retirement_throw_restores_the_removed_definition_and_old_active_pointer()
+    {
+        var world = new World();
+        await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
+        await world.ProjectAsync();
+        var beforeView = await world.ReadViewAsync();
+        var beforeReport = await world.ReadReportAsync();
+        world.Install("1.1.0", withView: false, withReport: true);
+        world.AttachProjector();
+        world.Views.ThrowAfterRemove = true;
+        var failed = world.Installer.Activate(world.Context, PackKey, "1.1.0");
+        Assert.False(failed.Activated);
+        Assert.Equal("1.0.0", world.ActiveVersion);
+        Assert.Same(beforeView, await world.ReadViewAsync());
+        Assert.Same(beforeReport, await world.ReadReportAsync());
+        world.Views.ThrowAfterRemove = false;
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
+        Assert.Equal("1.1.0", world.ActiveVersion);
+        Assert.Null(await world.ReadViewAsync());
+        Assert.NotNull(await world.ReadReportAsync());
+    }
 
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000000208");
     private static readonly DateTimeOffset Now = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
@@ -230,6 +294,7 @@ public sealed class PackReplacementRemovalTests
     /// <summary>One tenant, one pack key, the real installer, and the two registries under test.</summary>
     private sealed class World
     {
+        private readonly bool _rendezvous;
         private readonly KeyPair _keyPair = KeyPair.Generate();
         private readonly PackFileCodec _codec = new();
         private readonly InMemoryPackInstallStore _store = new();
@@ -238,8 +303,9 @@ public sealed class PackReplacementRemovalTests
             .AddInMemoryAssetTypeSystem()
             .BuildServiceProvider();
 
-        public World()
+        public World(IPackPlatformCompatibility? platform = null)
         {
+            _rendezvous = platform is not null;
             Views = new TearDownableViewRegistry();
             Reports = new InMemoryReportDefinitionRegistry(new AcceptAllReports());
             Installer = new PackInstaller(
@@ -247,7 +313,7 @@ public sealed class PackReplacementRemovalTests
                 _store,
                 new WorkflowRefusingPackContentAdmission(),
                 new InMemoryPackInstallAudit(),
-                Authorization.TestAuthorization.AllowGate());
+                Authorization.TestAuthorization.AllowGate(), platform);
             Projector = new PackSeedProjector(
                 _store,
                 _services.GetRequiredService<IEntityTypeRegistry>(),
@@ -274,6 +340,8 @@ public sealed class PackReplacementRemovalTests
         public PackSeedProjector Projector { get; }
 
         public PackInstallContext Context { get; }
+
+        public string? ActiveVersion => _store.GetActive(Tenant, PackKey)?.Version;
 
         public IPackProjectionReconciler Reconciler => Installer;
 
@@ -364,7 +432,7 @@ public sealed class PackReplacementRemovalTests
                         ScopeTier: PackScopeTier.Horizontal,
                         Contents: contents,
                         Dependencies: Array.Empty<PackDependencyRef>(),
-                        CapabilityRequirements: Array.Empty<string>(),
+                        CapabilityRequirements: _rendezvous ? ["atomic.rendezvous"] : [],
                         Epoch: 1,
                         Dcp: DomainComplianceProfile.General("access-administration-test-author")),
                     new Ed25519Signer(_keyPair))
@@ -393,6 +461,7 @@ public sealed class PackReplacementRemovalTests
         public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(_inner);
 
         public bool TearDownOnRegister { get; set; }
+        public bool ThrowAfterRemove { get; set; }
 
         /// <summary>Refuses the registration the way real governance does — a refusal the projector turns
         /// into a summary row, not an exception that aborts the pass.</summary>
@@ -406,9 +475,13 @@ public sealed class PackReplacementRemovalTests
                     ? throw new ViewDefinitionGovernanceException("view_definition.descriptor_refused")
                     : _inner.RegisterAsync(definition, cancellationToken);
 
-        public ValueTask<bool> RemoveAsync(
+        public async ValueTask<bool> RemoveAsync(
             string tenant, string key, string version, CancellationToken cancellationToken = default)
-            => _inner.RemoveAsync(tenant, key, version, cancellationToken);
+        {
+            var removed = await _inner.RemoveAsync(tenant, key, version, cancellationToken);
+            if (ThrowAfterRemove) throw new IOException("retirement failed after staging removal");
+            return removed;
+        }
 
         public ValueTask<ViewDefinition?> GetDefinitionAsync(
             string tenant, string key, string version, CancellationToken cancellationToken = default)

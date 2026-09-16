@@ -5,6 +5,22 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 public sealed class PackProjectionTransactionTests
 {
     [Fact]
+    public async Task Committed_cleanup_failure_is_diagnostic_and_observers_run_once_outside_the_lease()
+    {
+        var count = 0;
+        var transaction = new PackProjectionTransaction();
+        transaction.Finally(() => throw new IOException("cleanup failed"));
+        transaction.AfterCommit(() => { count++; return Task.CompletedTask; });
+        transaction.Commit();
+        transaction.Dispose(); // Must not report a refused activation after the commit boundary.
+        await Assert.ThrowsAsync<AggregateException>(transaction.ReactAsync);
+        await transaction.ReactAsync();
+        Assert.Equal(1, count);
+        // A fresh activation proves the failed cleanup still released the publication lease.
+        using var next = new PackProjectionTransaction();
+    }
+
+    [Fact]
     public void Refusal_restores_original_references_and_enlists_shared_store_once()
     {
         var store = new SnapshotStore();

@@ -54,6 +54,7 @@ public sealed class CatalogueDetailRuntime(ICatalogueFormSources sources, Catalo
         JsonElement request, AuthorizationWriteContext authority,
         Func<AuthorizationDecision, CancellationToken, ValueTask>? denied = null, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         var template = templates.Get(authority.Tenant, detailId, detailVersion)
             ?? throw new CatalogueFieldSourceException(CatalogueFieldSourceCodes.SourceVersionUnavailable);
         var mapping = CatalogueFieldSourceAdmission.ParseContent(template.Content)

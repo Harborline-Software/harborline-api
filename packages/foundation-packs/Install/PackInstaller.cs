@@ -351,6 +351,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             using (transaction = new PackProjectionTransaction())
             {
                 transaction.Enlist(_mutations);
+                transaction.Enlist(_projectionStore);
                 transaction.Enlist(_projector);
                 if (!string.Equals(_store.GetActive(tenant, packKey)?.Version, expectedActiveVersion, StringComparison.Ordinal))
                 {
@@ -388,14 +389,21 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         // Audit and observers run only after the write lease and SQLite transaction have closed.
         // A notification failure cannot turn a committed activation into a reported rollback.
-        _audit.AppendAuthorized(new PackInstallAuditEntry(tenant,
-            outcome.Activated ? PackInstallAuditAction.Activated : PackInstallAuditAction.Refused,
-            packKey, version, now, null, null, outcome.Error ?? "pack.install.activated",
-            ActingPrincipal: actingPrincipal), decision);
+        try
+        {
+            _audit.AppendAuthorized(new PackInstallAuditEntry(tenant,
+                outcome.Activated ? PackInstallAuditAction.Activated : PackInstallAuditAction.Refused,
+                packKey, version, now, null, null, outcome.Error ?? "pack.install.activated",
+                ActingPrincipal: actingPrincipal), decision);
+        }
+        catch (Exception exception) when (outcome.Activated)
+        {
+            outcome = outcome with { Detail = "Activation committed; audit notification failed: " + exception.Message };
+        }
         if (outcome.Activated && transaction is not null)
         {
             try { transaction.ReactAsync().GetAwaiter().GetResult(); }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception)
             { outcome = outcome with { Detail = exception.Message }; }
         }
         return outcome;

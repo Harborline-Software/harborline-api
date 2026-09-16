@@ -6,6 +6,14 @@ using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Search;
+using Microsoft.EntityFrameworkCore;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
@@ -13,6 +21,48 @@ public sealed class PackProjectionDurableTransactionTests
 {
     private static readonly TenantId Tenant = new("projection-atomicity");
     private const string Pack = "atomicity.fixture";
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pack_pointer_and_authorization_lifecycle_share_one_encrypted_commit(bool commit)
+    {
+        await using var database = await SearchTestStore.CreateAsync();
+        await using (var packs = database.CreatePacksContext()) await packs.Database.MigrateAsync();
+        var store = new DurablePackInstallStore(database.PacksFactory);
+        Install(store, "1.0.0");
+        store.Activate(Tenant, Pack, "1.0.0");
+        Install(store, "1.1.0");
+        var roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
+        var configuration = new NodeEfAuthorizationConfigurationStore(database.Factory, roles);
+        var writer = new AuthorizationDefinitionWriter(configuration, configuration,
+            new AuthorizationDefinitionAdmission(roles), new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(), TestInMemoryAuthorizationStores.GrantStore());
+        var operation = AuthorizationOperation.Parse("records:read");
+        var definition = new AuthorizationCapabilityDefinition(
+            new AuthorizationCapabilityDefinitionId(Guid.NewGuid()), Pack, 1, operation,
+            new PermissionAtom(operation, ScopeExpression.Parse("/records/m6")), RoleBindingSet.From([RoleReference.Administrator]));
+        await writer.WriteAsync(new InstallAuthorizationDefinition(definition, Tenant), TestAuthorization.Write(Tenant));
+        var before = JsonSerializer.Serialize(await configuration.ListAsync(Tenant));
+        using (var transaction = new PackProjectionTransaction())
+        {
+            transaction.Enlist(store);
+            transaction.Enlist(writer);
+            store.Activate(Tenant, Pack, "1.1.0");
+            await writer.WriteAsync(new ReplaceAuthorizationDefinition(
+                definition with { Revision = 2, OfferedRoles = RoleBindingSet.Empty }, Tenant), TestAuthorization.Write(Tenant));
+            Assert.NotEqual(before, JsonSerializer.Serialize(await configuration.ListAsync(Tenant)));
+            if (commit) transaction.Commit();
+        }
+        await using var restart = SearchTestStore.Reopen(database);
+        var reopenedPacks = new DurablePackInstallStore(restart.PacksFactory);
+        var reopenedConfiguration = new NodeEfAuthorizationConfigurationStore(restart.Factory, roles);
+        Assert.Equal(commit ? "1.1.0" : "1.0.0", reopenedPacks.GetActive(Tenant, Pack)!.Version);
+        var after = JsonSerializer.Serialize(await reopenedConfiguration.ListAsync(Tenant));
+        if (commit) Assert.NotEqual(before, after);
+        else Assert.Equal(before, after);
+        Assert.Equal(after, JsonSerializer.Serialize(await configuration.ListAsync(Tenant)));
+    }
 
     [Theory]
     [InlineData(false)]

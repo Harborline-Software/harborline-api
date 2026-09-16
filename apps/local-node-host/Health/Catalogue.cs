@@ -186,6 +186,7 @@ public sealed class ProjectedCatalogue : ICatalogue
         PackContentKind? kind = null,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         if (kind is { } requested && !IsAvailable(requested))
         {
             return new CatalogueList(Array.Empty<CatalogueEntry>(), [requested]);
@@ -221,6 +222,7 @@ public sealed class ProjectedCatalogue : ICatalogue
         string? version = null,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         if (kind == PackContentKind.TerminologyOverride)
             return terminology?.List(tenant).SingleOrDefault(entry => entry.Id == id && (version is null || entry.Version == version));
         if (kind == PackContentKind.ViewDefinition && viewDefinitions is not null)
@@ -344,6 +346,7 @@ public sealed class CatalogueRegistries(
         TenantId tenant, PackContentKind? kind, string? id = null, string? version = null,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         if (kind == PackContentKind.CascadeDefaults)
             return DefaultsEntries(tenant, id, version);
         var installed = packs.ListInstalled(tenant);

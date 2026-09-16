@@ -142,6 +142,19 @@ public sealed class SearchTestStore : IAsyncDisposable
                 sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
                     Data.Roster.NodeLocalRosterDbContext.MigrationsHistoryTableName)).Options);
 
+    public Data.Packs.NodeLocalPacksDbContext CreatePacksContext() => new(
+        new DbContextOptionsBuilder<Data.Packs.NodeLocalPacksDbContext>()
+            .UseSqlite(OpenKeyedConnection(), contextOwnsConnection: true,
+                sqliteOptionsAction: sqlite => sqlite.MigrationsHistoryTable(
+                    Data.Packs.NodeLocalPacksDbContext.MigrationsHistoryTableName)).Options);
+
+    public IDbContextFactory<Data.Packs.NodeLocalPacksDbContext> PacksFactory => new PacksHarnessFactory(this);
+
+    private sealed class PacksHarnessFactory(SearchTestStore store) : IDbContextFactory<Data.Packs.NodeLocalPacksDbContext>
+    {
+        public Data.Packs.NodeLocalPacksDbContext CreateDbContext() => store.CreatePacksContext();
+    }
+
     /// <summary>An <see cref="IDbContextFactory{TContext}"/> over this harness for services that need one.</summary>
     public IDbContextFactory<NodeLocalSearchDbContext> Factory => new HarnessFactory(this);
 
