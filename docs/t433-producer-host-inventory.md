@@ -1,5 +1,21 @@
 # T433 producer measured host inventory
 
+## CodeRabbit repair measurement
+
+The complete direct Release host run at `88db2856b2b0bd898c796db40bb8dace5a10fc6b` passed **4,308 total / 4,287 passed / 0 failed / 21 skipped**, without retries, from 2026-09-16T11:37:21.9644367Z to 11:45:35.1412345Z (console duration 8m10s). Candidate TRX `artifacts/t433-action-contract/coderabbit-full-host-88db2856.trx` has SHA-256 `4804dd9fd7b3df744abf767957a5754f09e1ff19063824cfd95cdb0860e9d545`. Comparison TRX `artifacts/t433-action-contract/data-source-host-bf639293.trx` has SHA-256 `0621bd6454ee905a59a92eddfcd8c7d086393e0d4af0d57a4ddee006b9d3ca36`.
+
+Exact method/row comparison proves **five additions across four methods, zero removals and identical 21 skip identities**. Cumulative additions versus central main are 144 rows across 75 methods. Existing real SQLite/memory collision tests now require a typed refusal, and existing selected navigation/pack-inventory tests also require no-store; these strengthen assertions without deleting or renaming tests. The separate Node codegen suite adds one production-path caller-binding test, not a host test. All failure/skip/retry/known-flaky policies and other-OS baselines remain unchanged. A fresh committed-head quality-enabled gate is still required.
+
+All five added identities use prefix `Harborline.Api.LocalNodeHost.Tests.`:
+
+| Method after prefix | Argument | Added rows |
+| --- | --- | ---: |
+| AssetRegistry.AssetRegistryEntityReadAuthorizationTests.Selected_entity_reads_never_enter_reusable_caches | allowed: False | 1 |
+| AssetRegistry.AssetRegistryEntityReadAuthorizationTests.Selected_entity_reads_never_enter_reusable_caches | allowed: True | 1 |
+| Identity.AdminTeamAccessRoutesTests.Scope_narrowing_does_not_disguise_unrelated_database_failure_as_conflict | none | 1 |
+| Identity.AdminTeamAccessRoutesTests.Scope_narrowing_successor_collision_returns_opaque_conflict | none | 1 |
+| ViewDefinitions.HostViewRequestAdmissionTests.Missing_input_form_is_a_stable_governance_refusal | none | 1 |
+
 ## Read-only data-source review repair
 
 The complete direct Release host run at `a76ca9443f4953b9865db34b7767569683adfce1` passed **4,303 total / 4,282 passed / 0 failed / 21 skipped**, without retries, from 2026-09-16T10:43:34.8868452Z to 10:48:28.0272978Z (console test duration 4m50s). Full solution restore/build and contracts/capability-host prerequisites completed first. This is a measured host result, not a full-gate receipt.
