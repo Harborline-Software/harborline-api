@@ -352,6 +352,8 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
             new PackInstallWatermark(stranded.PackKey, stranded.Version, new Dictionary<string, int>()),
             Array.Empty<PackTenantOverride>()));
         _store.Activate(tenant, stranded.PackKey, stranded.Version);
+        var activeBefore = _store.GetActive(tenant, stranded.PackKey);
+        Assert.NotNull(activeBefore);
 
         // Activating an unrelated in-window pack runs the shared projection pass — the response must
         // CARRY the sibling's pack-grain refusal, not silently drop it (review item 5b).
@@ -370,6 +372,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
         var ids = await GetTypeIdsAsync();
         Assert.DoesNotContain("fresh.type", ids);
         Assert.Null(_store.GetActive(tenant, "pack.fresh"));
+        Assert.Equal(activeBefore, _store.GetActive(tenant, stranded.PackKey));
         Assert.DoesNotContain("stranded.type", ids);
 
         // And the list surface marks the Active-but-refused pack (an operator can SEE it).

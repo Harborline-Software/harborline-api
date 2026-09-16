@@ -16,11 +16,22 @@ internal sealed class PackProjectionSqliteUnit : IPackProjectionDurableUnit
     internal PackProjectionSqliteUnit(DbContext owner)
     {
         this.owner = owner;
-        connection = (SqliteConnection)owner.Database.GetDbConnection();
-        connectionString = connection.ConnectionString;
-        owner.Database.OpenConnection();
-        transaction = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
-        owner.Database.UseTransaction(transaction);
+        SqliteTransaction? started = null;
+        try
+        {
+            connection = (SqliteConnection)owner.Database.GetDbConnection();
+            connectionString = connection.ConnectionString;
+            owner.Database.OpenConnection();
+            started = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+            owner.Database.UseTransaction(started);
+            transaction = started;
+        }
+        catch
+        {
+            try { started?.Dispose(); }
+            finally { owner.Dispose(); }
+            throw;
+        }
     }
 
     internal T Join<T>(T context) where T : DbContext

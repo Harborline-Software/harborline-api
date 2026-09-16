@@ -114,3 +114,32 @@ measured **4,158 total / 4,137 passed / 0 failed / 21 skipped** in 4m12s, with n
 `498d39238e42e84e3637624bce91f5e697b4b12ffff28fea86c84025a1b171bf`.
 The corresponding console log is `deferred-health-full-host.log` in the same directory.
 This measurement, not arithmetic alone, supplies the updated Windows count tuple.
+
+## Six PR 166 resource-lifetime regressions
+
+These additions follow `40705a70`; they are not included in the earlier 4,158-case measurement.
+All six first failed for the intended defect: three undisposed SQLite owner contexts and three
+activation writers blocked by a paused enumerator. The same cases then passed after constructor
+cleanup and snapshot-before-yield fixes. Evidence is retained as
+`artifacts/t433-atomicity/review-resource-lifetime-{red,green}.log` and `.trx`.
+
+```text
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Failed_sqlite_unit_initialization_disposes_its_owned_context(failureAt: "open")
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Failed_sqlite_unit_initialization_disposes_its_owned_context(failureAt: "begin")
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Failed_sqlite_unit_initialization_disposes_its_owned_context(failureAt: "enlist")
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Paused_form_enumerator_does_not_block_activation_and_retains_its_snapshot(publishedOnly: False)
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Paused_form_enumerator_does_not_block_activation_and_retains_its_snapshot(publishedOnly: True)
+Harborline.Api.LocalNodeHost.Tests.Packs.PackProjectionResourceLifetimeTests.Paused_standing_enumerator_does_not_block_activation_and_retains_its_snapshot
+```
+
+Three existing cases retain their assertions and coverage with corrected descriptions:
+
+- `PackReplacementRemovalTests.Crash_Mid_Admit_Is_Repaired_By_The_Next_Boot` is renamed to
+  `Cancellation_Mid_Admit_Is_Rolled_Back_And_Allows_Explicit_Retry`; its display name is unchanged.
+- `PackSeedProjectionRouteTests.Invalid_workflow_admission_does_not_mutate_activation` is renamed
+  to `Invalid_workflow_admission_leaves_the_pack_Draft`; its display name now describes refusal
+  leaving a Draft rather than an already-Active workflow.
+- `PackSeedProjectionRouteTests.Malformed_property_content_is_admission_gated` keeps its method
+  name; its display name now describes complete activation refusal rather than successful activation.
+
+These are one-to-one naming corrections, not removed tests. No skip/failure/retry allowance changes.

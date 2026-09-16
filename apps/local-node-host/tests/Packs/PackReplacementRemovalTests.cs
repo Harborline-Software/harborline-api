@@ -187,16 +187,15 @@ public sealed class PackReplacementRemovalTests
     }
 
     [Fact(DisplayName = "208 s2: cancellation mid-admit discards the replacement and permits an explicit retry")]
-    public async Task Crash_Mid_Admit_Is_Repaired_By_The_Next_Boot()
+    public async Task Cancellation_Mid_Admit_Is_Rolled_Back_And_Allows_Explicit_Retry()
     {
         var world = new World();
         await world.InstallAndActivateAsync("1.0.0", withView: false, withReport: true);
         await world.ProjectAsync();
         Assert.NotNull(await world.ReadReportAsync());
 
-        // The replacement drops the report and ships the view. The node is torn down inside the pass,
-        // while admitting the view — which now runs FIRST, so the replaced report is still standing when
-        // the process dies. Either way the admission stays incomplete and the next boot re-runs the pass.
+        // The replacement drops the report and ships the view. Cancellation while admitting the view
+        // must discard the whole replacement, including its admission and any staged retirements.
         world.Views.TearDownOnRegister = true;
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
@@ -207,9 +206,8 @@ public sealed class PackReplacementRemovalTests
         Assert.Null(await world.ReadViewAsync());                   // … and the replacement never landed.
         Assert.DoesNotContain(world.IncompleteAdmissions(), row => row.PackVersion == "1.1.0");
 
-        // Next boot: the process restart clears the projector's in-process replay guard (a crashed
-        // authority is only replayable across a restart, which is exactly the case under test), then the
-        // same reconciliation the host's startup hosted service runs re-runs the whole pass.
+        // Restart reconciliation must not activate the canceled draft. Only an explicit retry may
+        // replace the old projection after the cancellation source is removed.
         world.Views.TearDownOnRegister = false;
         World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();

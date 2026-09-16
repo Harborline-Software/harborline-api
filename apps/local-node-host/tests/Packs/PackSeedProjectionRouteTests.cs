@@ -799,8 +799,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
     }
 
-    [Fact(DisplayName = "an inadmissible Active workflow is refused with its localizable code without deactivation")]
-    public async Task Invalid_workflow_admission_does_not_mutate_activation()
+    [Fact(DisplayName = "an inadmissible workflow refuses activation with its localizable code and leaves the pack Draft")]
+    public async Task Invalid_workflow_admission_leaves_the_pack_Draft()
     {
         const string workflowKey = "general.unclassified-workflow";
         const string workflowVersion = "1.0.0";
@@ -1077,7 +1077,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             active.SeedItems.ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson)));
     }
 
-    [Fact(DisplayName = "malformed property nav + template refuse with stable codes without bricking activation")]
+    [Fact(DisplayName = "malformed property content refuses the complete activation with stable codes")]
     public async Task Malformed_property_content_is_admission_gated()
     {
         await InstallAndActivateGeneralAsync();

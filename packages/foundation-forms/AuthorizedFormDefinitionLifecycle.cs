@@ -224,8 +224,10 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         TenantId tenant,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
-        foreach (var definition in Unwrap(handle).List(tenant))
+        FormDefinition[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = Unwrap(handle).List(tenant);
+        foreach (var definition in snapshot)
         {
             ct.ThrowIfCancellationRequested();
             yield return definition;
@@ -237,8 +239,10 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjec
         InMemoryPersistenceHandle handle,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
-        foreach (var definition in Unwrap(handle).ListPublished())
+        FormDefinition[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = Unwrap(handle).ListPublished();
+        foreach (var definition in snapshot)
         {
             ct.ThrowIfCancellationRequested();
             yield return definition;

@@ -105,13 +105,16 @@ public sealed class InMemoryStandingRuleDefinitionStore : IStandingRuleDefinitio
     public async IAsyncEnumerable<StandingRuleDefinition> ListAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
-        foreach (var row in _rows.Values
-            .OrderBy(row => row.Definition.RuleId, StringComparer.Ordinal)
-            .ThenBy(row => row.Definition.RuleVersion, StringComparer.Ordinal))
+        StandingRuleDefinition[] snapshot;
+        using (PackProjectionActivationBarrier.Read(cancellationToken))
+            snapshot = _rows.Values.Select(row => row.Definition)
+                .OrderBy(definition => definition.RuleId, StringComparer.Ordinal)
+                .ThenBy(definition => definition.RuleVersion, StringComparer.Ordinal)
+                .ToArray();
+        foreach (var definition in snapshot)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return row.Definition;
+            yield return definition;
         }
         await Task.CompletedTask.ConfigureAwait(false);
     }
