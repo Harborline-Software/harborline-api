@@ -19,6 +19,7 @@ internal static class HostViewRequestDescriptors
         [AdminTeamAccessRoutes.ReviewGrantRequest.Id] = AdminTeamAccessRoutes.ReviewGrantRequest,
         [AccessHoldersRead.SelectedReadRequest.Id] = AccessHoldersRead.SelectedReadRequest,
         [SelectedFormSubmitRoutes.SubmitRequest.Id] = SelectedFormSubmitRoutes.SubmitRequest,
+        [SelectedPackReplacementRoutes.ReplaceRequest.Id] = SelectedPackReplacementRoutes.ReplaceRequest,
     };
 
     internal static CompiledViewRequest Resolve(JsonElement dispatch) =>
