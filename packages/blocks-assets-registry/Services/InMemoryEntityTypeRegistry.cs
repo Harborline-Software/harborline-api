@@ -116,7 +116,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
     public Task<EntityType> CreateTypeAsync(
         EntityType type, Instant at, string? actorRef = null, CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(type);
         RegistryTenantGuard.Require(type.TenantId);
 
@@ -153,7 +153,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
         string? actorRef = null,
         CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         ArgumentNullException.ThrowIfNull(overrideDescriptor);
 
@@ -192,7 +192,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
         TenantId tenant, EntityTypeId seedId, Instant at, string? actorRef = null,
         CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
 
         if (!_seeds.ContainsKey(seedId))
@@ -223,7 +223,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
     /// <inheritdoc />
     public Task<EntityType?> GetTypeAsync(TenantId tenant, EntityTypeId id, CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         _typesByTenant.TryGetValue((tenant, id), out var type);
         if (type?.OverrideOf == id && _retractedPackSeeds.ContainsKey(id))
@@ -236,7 +236,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
     /// <inheritdoc />
     public Task<IReadOnlyList<EntityType>> ListTypesAsync(TenantId tenant, CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         IReadOnlyList<EntityType> result = _typesByTenant
             .Where(kvp => kvp.Key.Tenant.Equals(tenant))
@@ -250,7 +250,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProje
     public Task<FormBindingRef?> TryResolvePropertyFormAsync(
         TenantId tenant, EntityTypeId typeId, CancellationToken cancellationToken = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read();
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
 
         // Effective binding: tenant override if present, else the shared seed. A private type owned
