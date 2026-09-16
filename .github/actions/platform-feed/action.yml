@@ -18,7 +18,11 @@ runs:
         path: .platform
     - name: Test the feed contract
       shell: bash
-      run: node --test eng/tests/platform-feed.test.mjs
+      run: |
+        if ! node --test eng/tests/platform-feed.test.mjs; then
+          echo "::error title=platform-feed test failed::eng/tests/platform-feed.test.mjs failed; the feed build did not run"
+          exit 1
+        fi
     - name: Build the local package feed
       shell: bash
       env:
