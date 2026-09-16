@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Packs.Install;
 
@@ -9,15 +10,25 @@ namespace Harborline.Api.Foundation.Packs.Install;
 /// prior state fully intact (never a partial seed layer). A durable adapter replaces the swap with a DB
 /// transaction but keeps the same all-or-nothing contract.
 /// </summary>
-public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMutationStore, IPackProjectionAdmissionStore
+public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMutationStore, IPackProjectionAdmissionStore, IPackProjectionParticipant
 {
     private readonly object _gate = new();
-    private readonly Dictionary<TenantId, TenantState> _byTenant = new();
+    private Dictionary<TenantId, TenantState> _byTenant = new();
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _byTenant;
+        var next = before.ToDictionary(pair => pair.Key, pair => pair.Value.Clone());
+        _byTenant = next;
+        return () => _byTenant = before;
+    });
 
     /// <inheritdoc />
     public InstalledPack? GetActive(TenantId tenant, string packKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             if (!_byTenant.TryGetValue(tenant, out var state)
@@ -35,6 +46,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             return _byTenant.TryGetValue(tenant, out var state)
@@ -46,6 +58,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     /// <inheritdoc />
     public bool AnyInstalled()
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             return _byTenant.Values.Any(state => state.Versions.Count > 0);
@@ -54,6 +67,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
 
     public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             if (!_byTenant.TryGetValue(tenant, out var state))
@@ -72,6 +86,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             return _byTenant.TryGetValue(tenant, out var state)
@@ -84,6 +99,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             if (!_byTenant.TryGetValue(tenant, out var state)
@@ -102,6 +118,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         ArgumentNullException.ThrowIfNull(tenantOverride);
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             var next = _byTenant.TryGetValue(tenant, out var current) ? current.Clone() : new TenantState();
@@ -120,6 +137,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         ArgumentNullException.ThrowIfNull(transaction);
         var pack = transaction.InstalledPack;
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             // COPY-ON-WRITE: build the whole next state off to the side; publish only at the very end.
@@ -151,6 +169,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             if (!_byTenant.TryGetValue(tenant, out var current))
@@ -199,6 +218,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             if (!_byTenant.TryGetValue(tenant, out var current)
@@ -227,6 +247,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
     /// <inheritdoc />
     public IReadOnlyDictionary<string, string> GetKeyOwnership(TenantId tenant)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             return _byTenant.TryGetValue(tenant, out var state)
@@ -241,6 +262,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
         ArgumentException.ThrowIfNullOrWhiteSpace(contentKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(owningPackKey);
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             var next = _byTenant.TryGetValue(tenant, out var current) ? current.Clone() : new TenantState();
@@ -251,6 +273,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
 
     IReadOnlyList<PackProjectionAdmission> IPackProjectionAdmissionStore.ListIncompleteProjectionAdmissions()
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             return _byTenant.Values
@@ -265,6 +288,7 @@ public sealed class InMemoryPackInstallStore : IPackInstallStore, IPackInstallMu
 
     void IPackProjectionAdmissionStore.MarkProjectionCompleted(Guid admissionId)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
             foreach (var (tenant, current) in _byTenant)

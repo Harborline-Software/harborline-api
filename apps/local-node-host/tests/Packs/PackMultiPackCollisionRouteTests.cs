@@ -97,8 +97,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
             "1.0.0",
             [new Harborline.Api.Foundation.Packs.Install.Compatibility.PackProjectorCase(
                 PackContentKind.AssetTypeDefinition, ["assets.registry"])]);
-        _projector = new PackSeedProjector(
-            _store, registry, NullLogger<PackSeedProjector>.Instance, platform: _platform, time: TimeProvider.System);
+        _projector = PackProjectionTestFixture.Create(_store, registry, _platform);
 
         _app.Use(async (http, next) =>
         {
@@ -353,12 +352,14 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
             new PackInstallWatermark(stranded.PackKey, stranded.Version, new Dictionary<string, int>()),
             Array.Empty<PackTenantOverride>()));
         _store.Activate(tenant, stranded.PackKey, stranded.Version);
+        var activeBefore = _store.GetActive(tenant, stranded.PackKey);
+        Assert.NotNull(activeBefore);
 
         // Activating an unrelated in-window pack runs the shared projection pass — the response must
         // CARRY the sibling's pack-grain refusal, not silently drop it (review item 5b).
         await InstallAsync(PackBody("pack.fresh", ("fresh.type", "Fresh Type")));
         var activate = await ActivateAsync("pack.fresh", "1.0.0");
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
 
         var body = await ReadJsonAsync(activate);
         var refusal = Assert.Single(body.GetProperty("platformRefusals").EnumerateArray().ToList());
@@ -367,9 +368,11 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
         var unmet = Assert.Single(refusal.GetProperty("unmet").EnumerateArray().ToList());
         Assert.Equal("packs.pillar.future", unmet.GetProperty("capability").GetString());
 
-        // The fresh pack projected; the stranded one did not.
+        // No part of the incomplete projection publishes.
         var ids = await GetTypeIdsAsync();
-        Assert.Contains("fresh.type", ids);
+        Assert.DoesNotContain("fresh.type", ids);
+        Assert.Null(_store.GetActive(tenant, "pack.fresh"));
+        Assert.Equal(activeBefore, _store.GetActive(tenant, stranded.PackKey));
         Assert.DoesNotContain("stranded.type", ids);
 
         // And the list surface marks the Active-but-refused pack (an operator can SEE it).

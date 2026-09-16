@@ -52,7 +52,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// accept-all stub — so a green here is a green in the composed node.
 /// </para>
 /// </summary>
-public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
+public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000000208");
 
@@ -77,6 +77,8 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private PlatformPackPreloadHostedService _platformPreload = null!;
     private InMemoryRoleVocabulary _roles = null!;
     private InMemoryPackInstallAudit _audit = null!;
+    private InMemoryAuthorizationConfigurationStore _configuration = null!;
+    private Func<ViewDefinition, CancellationToken, ValueTask>? _beforeViewAdmission;
     private readonly ActiveCascadeDefaultsProjection _defaults = new();
     private readonly CatalogueDetailTemplates _details = new();
 
@@ -90,8 +92,11 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms(
-            configureWriters: static (services, entityMutations, _) =>
-                services.AddEntityStoreWorkflowDefinitionStore(entityMutations));
+            configureWriters: (services, entityMutations, _) =>
+            {
+                _workflowMutationAccessor = entityMutations;
+                services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
+            });
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         _app = builder.Build();
 
@@ -108,6 +113,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _roles = new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions);
         var roleGate = new RoleGateAdmission(_roles, _forms, _workflows);
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
+        _configuration = configuration;
         var authorizationWriter = new AuthorizationDefinitionWriter(configuration, configuration,
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
@@ -116,8 +122,9 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
-        _views = new InMemoryViewDefinitionRegistry(new HostViewKindDescriptorRegistry(
-            _app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas));
+        _views = new InMemoryViewDefinitionRegistry(new ObservedViewAdmission(
+            new HostViewKindDescriptorRegistry(_app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas),
+            (definition, ct) => _beforeViewAdmission?.Invoke(definition, ct) ?? ValueTask.CompletedTask));
         _reports = new InMemoryReportDefinitionRegistry(
             new HostReportKindDescriptorRegistry(new ReportCartridgeRegistry()));
         _renderPlans = new InMemoryRenderPlanCatalogue();
@@ -128,14 +135,16 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _audit = new InMemoryPackInstallAudit();
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
+            new DiagnosticReadStore(_store, () => _beforeInstallerPackRead?.Invoke()),
             _store,
+            (IPackProjectionAdmissionStore)_store,
             new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults,
                 catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
             _audit,
             TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
                 [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         var projector = new PackSeedProjector(
-            _store,
+            new DiagnosticReadStore(_store, () => _beforeDiagnosticPackRead?.Invoke()),
             _app.Services.GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance,
             forms: _forms,
@@ -148,6 +157,12 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
             roleVocabulary: _roles,
             authorizationDefinitions: authorizationWriter,
+            authorizationDefinitionCatalogue: configuration,
+            workflowLintReports: _workflowLintReports,
+            viewReachabilityReports: _viewReachabilityReports,
+            edgeIndex: new DeferredHealthRefreshProbe(
+                new Harborline.Api.Foundation.Packs.Graph.InMemoryPackContentEdgeIndexProvider(_store),
+                () => _beforeDiagnosticRefresh?.Invoke()),
             renderPlans: _renderPlans,
             defaults: _defaults, catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports), catalogueDetails: _details);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
@@ -423,28 +438,13 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 .Where(item => item.Key != "platform.detail.form" && item.Kind != PackContentKind.CascadeDefaults
                     && (legacyVersion != "1.0.0" || (!item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
                         && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))))
-                .Select(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding
-                    ? item with
-                    {
-                        Version = "1.0.0",
-                        Content = JsonSerializer.SerializeToNode(new
-                        {
-                            operation = item.Content["operation"]!.GetValue<string>(), scope = "/",
-                            offeredRoles = new[] { "platform/administrator" },
-                        })!,
-                    }
-                    : item)
-                .Append(new PackContentSource("platform.binding.audit-read", PackContentKind.AuthorizationCapabilityBinding,
-                    "1.0.0", JsonSerializer.SerializeToNode(new
-                    {
-                        operation = "audit:read", scope = "/", offeredRoles = new[] { "platform/auditor" },
-                    })!))
                 .ToArray(),
         };
 
         var legacyBytes = await ExportAsync(legacy);
         Assert.True(_installer.Install(legacyBytes, context).Installed);
-        Assert.True(_installer.Activate(context, legacy.Key, legacy.Version).Activated);
+        var activation = _installer.Activate(context, legacy.Key, legacy.Version);
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
         Assert.Equal(legacyVersion, _store.GetActive(Tenant, legacy.Key)!.Version);
         Assert.Equal(legacyViews, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
         Assert.Empty(_defaults.List(Tenant));
@@ -544,10 +544,9 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             _store.ListInstalled(Tenant),
             pack => pack.PackKey == AccessAdministrationPreloadHostedService.PackKey);
         Assert.NotEqual(PackLifecycleState.Active, pending.Lifecycle);
-        // The form that DID project is retracted with the reversal — nothing of the package stays live.
-        var retracted = await _forms.GetAsync(
-            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
-        Assert.Equal(FormDefinitionStatus.Withdrawn, retracted!.Status);
+        // Staged form publication is discarded, not published and withdrawn as compensation.
+        Assert.Null(await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None));
 
         // The next boot — the host now admitting what it refused — retries from that pending state and
         // finishes the activation without re-installing.
@@ -641,6 +640,17 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             installedAfterFirstBoot,
             _store.ListInstalled(Tenant).Select(pack => (pack.PackKey, pack.Version, pack.Lifecycle)).ToArray());
         Assert.Equal(2, _store.ListInstalled(Tenant).Count);
+    }
+
+    private sealed class ObservedViewAdmission(
+        IViewDefinitionDescriptorRegistry inner,
+        Func<ViewDefinition, CancellationToken, ValueTask> before) : IViewDefinitionDescriptorRegistry
+    {
+        public async ValueTask AdmitAsync(ViewDefinition definition, CancellationToken cancellationToken = default)
+        {
+            await before(definition, cancellationToken);
+            await inner.AdmitAsync(definition, cancellationToken);
+        }
     }
 
     private async Task PreloadPlatformThenAccessAsync()

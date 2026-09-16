@@ -348,11 +348,11 @@ public sealed class DurablePackInstallStoreRestartTests
             Tenant, Substitute.For<IPackTrustStore>(), Substitute.For<IPackRevocationList>(),
             InstalledAt, TimeSpan.FromHours(1), Principal: "operator");
 
-        var failure = Assert.Throws<InvalidOperationException>(() =>
-            installer.Activate(context, PackKey, "1.0.0"));
+        var failure = installer.Activate(context, PackKey, "1.0.0");
 
-        Assert.Equal(ThrowingAdmissionPackInstallStore.Failure, failure.Message);
-        Assert.NotEqual(PackInstallCodes.ActivateNotInstalled, failure.Message);
+        Assert.False(failure.Activated);
+        Assert.Equal(ThrowingAdmissionPackInstallStore.Failure, failure.Detail);
+        Assert.Equal(PackInstallCodes.ActivateProjectionFailed, failure.Error);
         Assert.Null(inner.GetActive(Tenant, PackKey));
         Assert.Equal(PackLifecycleState.Draft, inner.GetVersion(Tenant, PackKey, "1.0.0")!.Lifecycle);
     }
@@ -376,9 +376,12 @@ public sealed class DurablePackInstallStoreRestartTests
     }
 
     private sealed class ThrowingAdmissionPackInstallStore(InMemoryPackInstallStore inner)
-        : IPackInstallMutationStore, IPackProjectionAdmissionStore
+        : IPackInstallMutationStore, IPackProjectionAdmissionStore, Harborline.Api.Foundation.Definitions.IPackProjectionParticipant
     {
         internal const string Failure = "simulated admission-store failure";
+
+        public void StageProjection(Harborline.Api.Foundation.Definitions.PackProjectionTransaction transaction)
+            => transaction.Enlist(inner);
 
         public InstalledPack? GetActive(TenantId tenant, string packKey) => inner.GetActive(tenant, packKey);
         public InstalledPack? GetVersion(TenantId tenant, string packKey, string version) =>

@@ -1,9 +1,14 @@
+using Harborline.Api.Foundation.Definitions;
+
 namespace Harborline.Api.Foundation.Packs.Install;
 
 /// <summary>Host-internal one-shot projection seam. The authority never crosses a public surface.</summary>
-public interface IPackProjectionDispatcher
+public interface IPackProjectionDispatcher : IPackProjectionParticipant
 {
     object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default);
+
+    void IPackProjectionParticipant.StageProjection(PackProjectionTransaction transaction) =>
+        throw new InvalidOperationException("The pack projector does not support atomic staging.");
 }
 
 /// <summary>
@@ -16,6 +21,9 @@ public interface IPackProjectionRefusalReport
 {
     /// <summary>True when the pass refused at least one item, so the admission is NOT complete.</summary>
     bool ProjectionRefused { get; }
+
+    /// <summary>The first stable refusal and source pointer, when supplied by the projector.</summary>
+    PackInstallRefusal? FirstRefusal => null;
 }
 
 /// <summary>Internal reconciliation surface used only by the host startup service.</summary>

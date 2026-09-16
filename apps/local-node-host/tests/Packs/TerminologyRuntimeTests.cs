@@ -136,16 +136,17 @@ public sealed class TerminologyRuntimeTests
     }
 
     [Fact]
-    public async Task Malformed_overlay_clears_prior_runtime_content_and_refuses_reprojection()
+    public async Task Malformed_overlay_preserves_prior_runtime_content_and_refuses_reprojection()
     {
         using var fixture = new Runtime();
         await fixture.Install(Fixture()["content"]!);
         fixture.Installer!.Activate(Tenant, "terminology.test", "1.0.0", TestAuthorization.At, "operator");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
         fixture.Packs.SaveOverride(Tenant, "terminology.test", new PackTenantOverride("operations.asset", JsonNode.Parse("{\"schemaVersion\":2}")!));
+        var before = JsonSerializer.Serialize(fixture.Projection.List(Tenant));
         var result = await fixture.Projector.ProjectActivePacksAsync(Tenant);
         Assert.Contains(result.Refusals, refusal => refusal.Code == PackTerminologyCodes.UnsupportedVersion);
-        Assert.Empty(fixture.Projection.List(Tenant));
+        Assert.Equal(before, JsonSerializer.Serialize(fixture.Projection.List(Tenant)));
     }
 
     [Fact]
@@ -181,8 +182,9 @@ public sealed class TerminologyRuntimeTests
         fixture.Packs.Commit(new PackInstallTransaction(Tenant, owner,
             new PackInstallWatermark(owner.PackKey, owner.Version, new Dictionary<string, int>()), []));
         fixture.Packs.Activate(Tenant, owner.PackKey, owner.Version);
+        var before = JsonSerializer.Serialize(fixture.Projection.List(Tenant));
         var unresolved = await fixture.Projector.ProjectActivePacksAsync(Tenant);
-        Assert.Empty(fixture.Projection.List(Tenant));
+        Assert.Equal(before, JsonSerializer.Serialize(fixture.Projection.List(Tenant)));
         Assert.Contains(unresolved.Refusals, refusal => refusal.Code == "pack.terminology.ownership_unresolved");
         fixture.Packs.RecordKeyOwnership(Tenant, "operations.asset", owner.PackKey);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);

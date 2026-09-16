@@ -1182,7 +1182,8 @@ public sealed class AuthorizationWriteStageTests
         store.ListInstalled(tenant).Returns(Array.Empty<InstalledPack>());
         var services = new ServiceCollection();
         services.AddScoped(_ => new PackSeedProjector(
-            store, Substitute.For<IEntityTypeRegistry>(), NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System));
+            store, new InMemoryEntityTypeRegistry(new Harborline.Api.Blocks.Assets.Registry.Audit.InMemoryRegistryAuditLog()),
+            NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System));
         using var provider = services.BuildServiceProvider();
         using var firstScope = provider.CreateScope();
         using var secondScope = provider.CreateScope();
@@ -2237,6 +2238,8 @@ public sealed class AuthorizationWriteStageTests
 
     private sealed class CapturingProjectionDispatcher : IPackProjectionDispatcher
     {
+        public void StageProjection(PackProjectionTransaction transaction) { }
+
         internal List<PackProjectionAuthority> Captured { get; } = [];
 
         public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default)

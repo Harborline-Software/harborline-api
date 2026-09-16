@@ -31,7 +31,7 @@ public enum DefinitionLifecycleStatus
 /// adapters supply body serialization, status projection, and named domain failures.
 /// </summary>
 /// <typeparam name="TDefinition">The domain definition revision.</typeparam>
-public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionLifecycleStore<TDefinition>
+public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionLifecycleStore<TDefinition>, IPackProjectionParticipant
     where TDefinition : class
 {
     private readonly SchemaId _schema;
@@ -67,6 +67,9 @@ public abstract class EntityStoreDefinitionLifecycle<TDefinition> : IDefinitionL
 
     /// <summary>The unregistered mutation face held only by the admitted lifecycle.</summary>
     protected IEntityMutationStore Mutations { get; }
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(Mutations);
 
     /// <inheritdoc />
     public async ValueTask<TDefinition> GetAsync(

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Definitions;
 using System.Collections.Concurrent;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
@@ -8,12 +9,21 @@ namespace Harborline.Api.Blocks.AccessGrant;
 /// pack-installed domain entries. Only <see cref="IRoleVocabularyStore"/> mutates it, and never a
 /// sealed platform entry.
 /// </summary>
-public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore
+public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore, IPackProjectionParticipant
 {
     private static readonly RoleOwner PlatformOwner =
         new(RoleOwnerKind.Platform, RoleVocabularies.Platform);
 
-    private readonly ConcurrentDictionary<RoleReference, RoleDefinition> _definitions;
+    private ConcurrentDictionary<RoleReference, RoleDefinition> _definitions;
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _definitions;
+        var next = new ConcurrentDictionary<RoleReference, RoleDefinition>(before);
+        _definitions = next;
+        return () => _definitions = before;
+    });
 
     /// <summary>Creates a vocabulary containing only the sealed platform seed.</summary>
     public InMemoryRoleVocabulary()
@@ -45,6 +55,7 @@ public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore
     /// <inheritdoc />
     public ValueTask InstallAsync(RoleDefinition definition, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ArgumentNullException.ThrowIfNull(definition);
         ct.ThrowIfCancellationRequested();
         RefuseSealed(definition.Role);
@@ -61,6 +72,7 @@ public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore
     /// <inheritdoc />
     public ValueTask<bool> RemoveAsync(RoleReference role, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ct.ThrowIfCancellationRequested();
         RefuseSealed(role);
         return ValueTask.FromResult(_definitions.TryRemove(role, out _));
@@ -80,6 +92,7 @@ public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore
         RoleReference role,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ct.ThrowIfCancellationRequested();
         return ValueTask.FromResult(
             _definitions.TryGetValue(role, out var definition) ? definition : null);
@@ -88,6 +101,7 @@ public sealed class InMemoryRoleVocabulary : IRoleVocabularyStore
     /// <inheritdoc />
     public ValueTask<IReadOnlyList<RoleDefinition>> ListAsync(CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ct.ThrowIfCancellationRequested();
         return ValueTask.FromResult<IReadOnlyList<RoleDefinition>>(_definitions.Values
             .OrderBy(definition => definition.Role.Vocabulary, StringComparer.Ordinal)

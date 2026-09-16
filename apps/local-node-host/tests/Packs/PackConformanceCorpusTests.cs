@@ -72,11 +72,8 @@ public sealed class PackConformanceCorpusTests
             new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
             codec,
             timeProvider: TimeProvider.System);
-        var projector = new PackSeedProjector(
-            store,
-            services.GetRequiredService<IEntityTypeRegistry>(),
-            NullLogger<PackSeedProjector>.Instance,
-            time: TimeProvider.System);
+        var projector = PackProjectionTestFixture.Create(store, services.GetRequiredService<IEntityTypeRegistry>());
+        ((IPackProjectionReconciler)installer).AttachProjector(projector);
 
         foreach (var testCase in activate)
         {
@@ -100,7 +97,8 @@ public sealed class PackConformanceCorpusTests
             {
                 var provider = await exporter.ExportAsync(new PackExportRequest(
                     setup.PackKey, "1.0.0", setup.PackKey, "T-396 corpus provider", PackScopeTier.Horizontal,
-                    [new PackContentSource(setup.ContentKey, PackContentKind.FormDefinition, "1.0.0", new JsonObject())],
+                    [new PackContentSource(setup.ContentKey, PackContentKind.FormDefinition, "1.0.0",
+                        JsonSerializer.SerializeToNode(PackProjectionTestFixture.FormContent("Provider form"))!)],
                     Array.Empty<PackDependencyRef>(), Array.Empty<string>(), 1,
                     Dcp: DomainComplianceProfile.General("conformance-corpus"),
                     Exposes: setup.Exposes, InterfaceVersion: setup.InterfaceVersion), new Ed25519Signer(keyPair));

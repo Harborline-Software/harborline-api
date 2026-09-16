@@ -1,16 +1,26 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.ScheduleDefinitions;
 
 /// <summary>Thread-safe, in-memory reference implementation of <see cref="IScheduleDefinitionRegistry"/>.</summary>
-public sealed class InMemoryScheduleDefinitionRegistry : IScheduleDefinitionRegistry
+public sealed class InMemoryScheduleDefinitionRegistry : IScheduleDefinitionRegistry, IPackProjectionParticipant
 {
     private const string PinnedTupleConflict = "schedule_definition.pinned_tuple_conflict";
 
     private readonly IScheduleDefinitionDescriptorRegistry _descriptors;
     private readonly IScheduleDefinitionCanonicalizer _canonicalizer;
-    private readonly ConcurrentDictionary<(string Tenant, string Key, string Version), ScheduleDefinition> _definitions = new();
+    private ConcurrentDictionary<(string Tenant, string Key, string Version), ScheduleDefinition> _definitions = new();
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _definitions;
+        var next = new ConcurrentDictionary<(string Tenant, string Key, string Version), ScheduleDefinition>(before);
+        _definitions = next;
+        return () => _definitions = before;
+    });
 
     /// <summary>Initializes the registry with engine-owned descriptor admission and pass-through canonicalization.</summary>
     /// <param name="descriptors">The host-supplied schedule descriptor registry.</param>
@@ -35,6 +45,7 @@ public sealed class InMemoryScheduleDefinitionRegistry : IScheduleDefinitionRegi
         ScheduleDefinition definition,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -66,6 +77,7 @@ public sealed class InMemoryScheduleDefinitionRegistry : IScheduleDefinitionRegi
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -80,6 +92,7 @@ public sealed class InMemoryScheduleDefinitionRegistry : IScheduleDefinitionRegi
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);

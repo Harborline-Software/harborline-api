@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Harborline.Api.Foundation.Definitions;
 
 using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Packs.Install;
@@ -31,14 +32,26 @@ public interface IDocumentTemplateRegistry
 /// An in-memory <see cref="IDocumentTemplateRegistry"/> (the cluster default; the node overrides with a
 /// durable store). Keeps the highest published version per key under the S-8 no-downgrade rule.
 /// </summary>
-public sealed class InMemoryDocumentTemplateRegistry : IDocumentTemplateRegistry
+public sealed class InMemoryDocumentTemplateRegistry : IDocumentTemplateRegistry, IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, TemplateDefinition>> _byKey =
+    private ConcurrentDictionary<string, ConcurrentDictionary<string, TemplateDefinition>> _byKey =
         new(StringComparer.Ordinal);
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _byKey;
+        var next = new ConcurrentDictionary<string, ConcurrentDictionary<string, TemplateDefinition>>(
+            before.Select(pair => new KeyValuePair<string, ConcurrentDictionary<string, TemplateDefinition>>(
+                pair.Key, new ConcurrentDictionary<string, TemplateDefinition>(pair.Value, StringComparer.Ordinal))), StringComparer.Ordinal);
+        _byKey = next;
+        return () => _byKey = before;
+    });
 
     /// <inheritdoc />
     public void Publish(TemplateDefinition template)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         ArgumentNullException.ThrowIfNull(template);
         var versions = _byKey.GetOrAdd(template.Key, _ => new ConcurrentDictionary<string, TemplateDefinition>(StringComparer.Ordinal));
         versions[template.Version] = template;
@@ -46,11 +59,15 @@ public sealed class InMemoryDocumentTemplateRegistry : IDocumentTemplateRegistry
 
     /// <inheritdoc />
     public bool Remove(string key, string version)
-        => _byKey.TryGetValue(key, out var versions) && versions.TryRemove(version, out _);
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        return _byKey.TryGetValue(key, out var versions) && versions.TryRemove(version, out _);
+    }
 
     /// <inheritdoc />
     public TemplateDefinition? Resolve(string key)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         if (!_byKey.TryGetValue(key, out var versions) || versions.IsEmpty)
         {
             return null;
@@ -70,7 +87,10 @@ public sealed class InMemoryDocumentTemplateRegistry : IDocumentTemplateRegistry
 
     /// <inheritdoc />
     public TemplateDefinition? Resolve(string key, string version)
-        => _byKey.TryGetValue(key, out var versions) && versions.TryGetValue(version, out var template)
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        return _byKey.TryGetValue(key, out var versions) && versions.TryGetValue(version, out var template)
             ? template
             : null;
+    }
 }

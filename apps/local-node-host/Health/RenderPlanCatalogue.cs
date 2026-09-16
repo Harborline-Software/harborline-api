@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 
@@ -42,13 +43,25 @@ public sealed record RenderPlan(
     JsonElement ErrorState);
 
 /// <summary>Stores emitted plans by definition hash and indexes them by definition coordinates.</summary>
-public sealed class InMemoryRenderPlanCatalogue
+public sealed class InMemoryRenderPlanCatalogue : IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<(string Tenant, string Hash), RenderPlan> plans = new();
-    private readonly ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string> hashes = new();
+    private ConcurrentDictionary<(string Tenant, string Hash), RenderPlan> plans = new();
+    private ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string> hashes = new();
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var oldPlans = plans;
+        var oldHashes = hashes;
+        var nextPlans = new ConcurrentDictionary<(string Tenant, string Hash), RenderPlan>(plans);
+        var nextHashes = new ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string>(hashes);
+        plans = nextPlans;
+        hashes = nextHashes;
+        return () => { plans = oldPlans; hashes = oldHashes; };
+    });
 
     public void Store(TenantId tenant, PackContentKind kind, RenderPlan plan)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         ArgumentNullException.ThrowIfNull(plan);
         var detached = Detach(plan);
         plans[(tenant.Value, detached.DefinitionHash)] = detached;
@@ -57,6 +70,7 @@ public sealed class InMemoryRenderPlanCatalogue
 
     public RenderPlan? Get(TenantId tenant, PackContentKind kind, string definitionId, string definitionVersion)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         if (!hashes.TryGetValue((tenant.Value, kind, definitionId, definitionVersion), out var hash)
             || !plans.TryGetValue((tenant.Value, hash), out var plan))
         {
