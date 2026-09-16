@@ -98,6 +98,8 @@ test('qualified non-boundary Map names are not global exemptions', () => {
     'MapLocalNodeHealthProbes',
     'MapPreAuthOperationalGroup',
     'MapSelectedSessionProductGroup',
+    'MapSelectedRoles',
+    'MapSelected',
   ]) {
     assert.throws(
       () => parseLocalNodeRoutes(`app.${call}();`, 'apps/local-node-host/Health/Synthetic.cs'),

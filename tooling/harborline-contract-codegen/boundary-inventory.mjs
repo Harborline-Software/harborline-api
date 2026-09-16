@@ -27,10 +27,12 @@ const NON_BOUNDARY_MAP_CALLS = new Map([
   ['MapToIPv6', 'IPAddress normalization — not routing'],
 ])
 
-// These five composition helpers are qualified by their declaring file AND symbol. They are not
+// These composition helpers are qualified by their declaring file AND symbol. They are not
 // global name exemptions: discovery verifies each declaration before allowing its call spelling.
 // A same-named helper introduced elsewhere therefore remains unknown and fails closed.
 const QUALIFIED_NON_BOUNDARY_MAP_CALLS = [
+  { source: 'apps/local-node-host/Health/AccessHoldersRead.cs', symbol: 'AccessHoldersRead.MapSelected', reason: 'selected holder-reader composition helper; its MapGet registration is discovered in the declaring file' },
+  { source: 'apps/local-node-host/Health/AuthorizationAdminRoutes.cs', symbol: 'AuthorizationAdminRoutes.MapSelectedRoles', reason: 'selected role-reader composition helper; its MapGet registration is discovered in the declaring file' },
   { source: 'apps/local-node-host/Health/LocalNodeEndpointMapping.cs', symbol: 'LocalNodeEndpointMapping.MapAsync', reason: 'host startup orchestration; its hosted endpoints contain the route registrations' },
   { source: 'apps/local-node-host/Health/DeviceReachableProductDataRouteFence.cs', symbol: 'DeviceReachableProductDataRouteFence.MapDeviceReachableProductDataGroup', reason: 'route-group fence; it adds audience metadata but registers no route' },
   { source: 'apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs', symbol: 'LocalNodeHealthProbeEndpointRouteBuilderExtensions.MapLocalNodeHealthProbes', reason: 'health composition helper; its three MapHealthChecks calls are discovered in the same file' },

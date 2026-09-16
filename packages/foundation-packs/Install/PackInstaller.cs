@@ -200,8 +200,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         DateTimeOffset now,
         string? actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions,
-        CancellationToken cancellationToken,
-        Guid? correlationId)
+        Guid? correlationId,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(packKey))
@@ -457,8 +457,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             context.Now,
             context.Principal,
             context.OwnershipResolutions,
-            cancellationToken,
-            context.CorrelationId);
+            context.CorrelationId,
+            cancellationToken);
     }
 
     /// <inheritdoc />
