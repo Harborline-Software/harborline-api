@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Install.Trust;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
@@ -66,6 +67,40 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.False(receipt.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
         Assert.False(receipt.GetProperty("activation").GetProperty("attempted").GetBoolean());
         Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(Tenant)));
+    }
+
+    [Fact]
+    public async Task Selected_replacement_exposes_native_activation_refusal_as_422_with_inactive_draft()
+    {
+        await PreloadPlatformThenAccessAsync();
+        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var bytes = await ExportAsync(source with { Version = "1.1.2-atomicity-probe.0" });
+        var before = _store.GetActive(Tenant, source.Key);
+        var result = await SelectedPackReplacementRoutes.ReplaceAsync(ReplacementHttp(bytes), source.Key,
+            new RefusingActivation(_installer), _store, TrustingTheNodeKey(), PackRevocationList.Empty,
+            new ReplacementAntiforgery(), TimeProvider.System, null, CancellationToken.None);
+        Assert.Equal(422, ((IStatusCodeHttpResult)result).StatusCode);
+        var wire = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("refused", wire.GetProperty("status").GetString());
+        Assert.True(wire.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
+        var activation = wire.GetProperty("activation");
+        Assert.False(activation.GetProperty("projected").GetBoolean());
+        Assert.Equal("pack.view-definition.malformed", activation.GetProperty("refusal").GetProperty("code").GetString());
+        Assert.Equal("/contents/6/contentBase64", activation.GetProperty("refusal").GetProperty("pointer").GetString());
+        Assert.Equal(before, _store.GetActive(Tenant, source.Key));
+        Assert.Equal(PackLifecycleState.Draft, _store.GetVersion(Tenant, source.Key, "1.1.2-atomicity-probe.0")!.Lifecycle);
+    }
+
+    private sealed class RefusingActivation(IPackInstaller inner) : IPackInstaller
+    {
+        public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
+        public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
+        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Install(bytes, context);
+        public PackActivationOutcome Activate(PackInstallContext context, string key, string version) => new(false, key, version,
+            "pack.projection.refused", Refusal: new("pack.view-definition.malformed", "/contents/6/contentBase64"));
+        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => throw new NotSupportedException();
+        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => throw new NotSupportedException();
     }
 
     [Fact]

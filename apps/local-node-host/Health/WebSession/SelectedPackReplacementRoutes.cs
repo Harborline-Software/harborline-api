@@ -69,6 +69,7 @@ internal static class SelectedPackReplacementRoutes
         PackInstallOutcome? installed = null;
         PackActivationOutcome? activation = null;
         object? refusal = null;
+        var authorizationRefused = false;
         try
         {
             installed = installer.Install(bytes, context);
@@ -76,9 +77,12 @@ internal static class SelectedPackReplacementRoutes
         }
         catch (AuthorizationDeniedException denied)
         {
+            authorizationRefused = true;
             var result = await RequestAuthorization.RefusedAsync(http, denied, ct).ConfigureAwait(false);
             refusal = (result as IValueHttpResult)?.Value;
         }
+        if (activation?.Refusal is { } projectionRefusal)
+            refusal = new { code = projectionRefusal.Code, pointer = projectionRefusal.Pointer };
         var projected = activation?.Projected == true &&
             activation.ProjectionResult is not IPackProjectionRefusalReport { ProjectionRefused: true };
         var replaced = activation?.Activated == true && projected;
@@ -99,7 +103,7 @@ internal static class SelectedPackReplacementRoutes
                 projected, error = activation?.Error, detail = activation?.Detail,
                 projection = activation?.ProjectionResult, refusal },
             activeBefore = before, activeAfter = Snapshot(store.GetActive(principal.TenantId, packKey)),
-        }, statusCode: replaced ? 200 : refusal is not null ? 403 : 422);
+        }, statusCode: replaced ? 200 : authorizationRefused ? 403 : 422);
     }
 
     // This is the active immutable declaration, not a substitute for runtime-catalogue verification.
