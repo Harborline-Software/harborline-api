@@ -24,8 +24,8 @@ public sealed partial class AccessAdministrationPreloadTests
         var bytes = await ExportAsync(source with { Version = "1.1.2" });
         var http = ReplacementHttp(bytes);
         var result = await ReplaceAsync(http, source.Key);
-        Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
         var receipt = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(((IStatusCodeHttpResult)result).StatusCode == 200, receipt.GetRawText());
         Assert.True(receipt.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
         Assert.True(receipt.GetProperty("activation").GetProperty("activated").GetBoolean());
         Assert.True(receipt.GetProperty("activation").GetProperty("projected").GetBoolean());

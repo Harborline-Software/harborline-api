@@ -220,6 +220,7 @@
         "authorizationCapability": "members:manage",
         "parameters": {
           "entityType": "AccessGrant",
+          "dataSource": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.holders.selected.read.v1", "bindings": {} },
           "fields": [
             { "id": "principalId", "label": "Person" },
             { "id": "role", "label": "Role" },
@@ -227,12 +228,57 @@
             { "id": "status", "label": "Status" }
           ],
           "actions": [
-            { "id": "grant", "label": "Grant a role", "operation": "access.grant.submit", "inputForm": "access.grant-a-role" },
-            { "id": "privileged-review", "label": "Review privileged grant", "operation": "access.grant.review", "workflow": "access.privileged-grant-review" },
-            { "id": "holder-read", "label": "Read holder access", "operation": "access.holder.read" },
-            { "id": "narrow", "label": "Narrow grant", "operation": "access.grant.narrow" },
-            { "id": "revoke", "label": "Revoke grant", "operation": "access.grant.revoke" },
-            { "id": "replace-pack", "label": "Replace Access pack", "operation": "access.pack.replace" }
+            {
+              "id": "grant", "label": "Grant a role", "operation": "access.grant.submit",
+              "inputForm": { "formId": "access.grant-a-role", "version": "1.0.1" }, "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "forms.submit.selected.v1", "bindings": {
+                "formId": { "literal": "access.grant-a-role" }, "values": { "source": "input", "pointer": "" },
+                "idempotencyKey": { "source": "invocation", "pointer": "/idempotencyKey" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "privileged-review", "label": "Review privileged grant", "operation": "access.grant.review",
+              "workflow": "access.privileged-grant-review", "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.review.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "holder-read", "label": "Read holder access", "operation": "access.holder.read",
+              "input": { "fieldsMeta": { "recordId": { "type": "text", "required": true } }, "overlay": {} },
+              "result": { "refresh": "none" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "records.read.v1", "bindings": {
+                "id": { "source": "input", "pointer": "/recordId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "narrow", "label": "Narrow grant", "operation": "access.grant.narrow",
+              "input": { "fieldsMeta": { "scope": { "type": "text", "required": true } }, "overlay": {} },
+              "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.narrow-scope.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" }, "scope": { "source": "input", "pointer": "/scope" },
+                "successorId": { "source": "invocation", "pointer": "/id" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "revoke", "label": "Revoke grant", "operation": "access.grant.revoke", "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.revoke.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "replace-pack", "label": "Replace Access pack", "operation": "access.pack.replace",
+              "fileInput": { "accept": "application/octet-stream" }, "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "packs.replace.selected.v1", "bindings": {
+                "packKey": { "literal": "harborline.access-administration" }, "artifact": { "source": "file", "pointer": "" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            }
           ]
         }
       }

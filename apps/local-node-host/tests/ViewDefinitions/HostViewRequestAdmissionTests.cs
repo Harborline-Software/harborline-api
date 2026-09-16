@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.Assets.Registry.Audit;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Forms;
@@ -61,7 +62,7 @@ public sealed class HostViewRequestAdmissionTests
     [InlineData("authorization.grant.narrow-scope.v1", true)]
     public async Task Grant_actions_compile_only_host_owned_selected_session_enforcement(string descriptorId, bool narrow)
     {
-        var bindings = new Dictionary<string, object> { ["grantId"] = new { source = "selection", pointer = "/grantId" } };
+        var bindings = new Dictionary<string, object> { ["target"] = new { source = "selection", pointer = "/grantId" } };
         bindings["correlationId"] = new { source = "invocation", pointer = "/correlationId" };
         if (narrow)
         {
@@ -140,5 +141,28 @@ public sealed class HostViewRequestAdmissionTests
                     correlationId = new { source = "invocation", pointer = "/correlationId" } } },
         } });
         return definition with { Parameters = JsonSerializer.SerializeToElement(parameters) };
+    }
+
+    [Fact]
+    public async Task Declarative_target_binding_does_not_weaken_the_grant_instance_fence()
+    {
+        var definition = Definition();
+        var parameters = JsonNode.Parse(definition.Parameters.GetRawText())!;
+        parameters["actions"] = JsonSerializer.SerializeToNode(new[] { new
+        {
+            id = "apply", label = "Apply", operation = "opaque.apply",
+            dispatch = new { schemaVersion = 1, kind = "request", descriptorId = "authorization.grant.revoke.v1",
+                bindings = new { target = new { source = "selection", pointer = "/grantId" },
+                    correlationId = new { source = "invocation", pointer = "/correlationId" } } },
+        } });
+        Assert.False(PackAuthorizationContentAdmission.IsGrantInstance(parameters));
+        await descriptors.AdmitAsync(definition with { Parameters = JsonSerializer.SerializeToElement(parameters) });
+        parameters["actions"]![0]!["dispatch"]!["bindings"]!["target"] = JsonSerializer.SerializeToNode(new
+        {
+            literal = new { grantId = "smuggled", grantee = "some-person", role = "administrator" },
+        });
+        Assert.True(PackAuthorizationContentAdmission.IsGrantInstance(parameters));
+        await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() => descriptors.AdmitAsync(
+            definition with { Parameters = JsonSerializer.SerializeToElement(parameters) }).AsTask());
     }
 }

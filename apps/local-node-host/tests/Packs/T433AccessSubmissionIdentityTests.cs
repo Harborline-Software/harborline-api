@@ -66,7 +66,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var token = await _app.Services.GetRequiredService<IFormCapabilityVerifier>().VerifyAsync(bearer, at);
         using var candidate = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
-            person = "m6-t433-holder", role = "administrator", scope = "/records", residency = "cache",
+            person = "m6-t433-holder", role = "member", scope = "/records", residency = "cache",
             effectiveFrom = at.AddMinutes(-1).ToString("O"), effectiveTo = "", reason = "manual",
         }));
         var authority = new AuthorizationWriteContext(actor, tenant, at);
@@ -78,6 +78,7 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.Equal(first, replay);
         var grant = Assert.Single(await grants.FindByPrincipalAsync(tenant, new ActorId("m6-t433-holder")));
         Assert.Equal(expectedGrant, grant.GrantId);
+        Assert.Equal(new RoleReference(RoleVocabularies.Domain, "member"), grant.Role);
         Assert.Equal("/records", grant.Scope.Value);
         var workflow = await workflowStore.LoadAsync("access-grant-form:" + expectedInstance);
         Assert.NotNull(workflow);
