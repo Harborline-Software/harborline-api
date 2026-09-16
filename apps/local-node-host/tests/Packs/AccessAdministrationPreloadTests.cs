@@ -534,9 +534,16 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal("1.4.0", active.Version);
+        Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var preservedLegacy = _store.GetVersion(Tenant, legacy.Key, "1.3.0")!;
-        foreach (var item in preservedLegacy.SeedItems.Where(item => item.Kind == PackContentKind.FormDefinition))
-            Assert.Equal(immutableItems[item.Key], (item.ContentAddress, item.CanonicalJson));
+        Assert.Equal(PackLifecycleState.Superseded, preservedLegacy.Lifecycle);
+        var preservedItems = preservedLegacy.SeedItems
+            .Where(item => item.Kind == PackContentKind.FormDefinition)
+            .ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
+        Assert.Equal(immutableItems.Count, preservedItems.Count);
+        Assert.Equal(immutableItems.Keys.Order(StringComparer.Ordinal), preservedItems.Keys.Order(StringComparer.Ordinal));
+        foreach (var item in immutableItems)
+            Assert.Equal(item.Value, preservedItems[item.Key]);
         var preservedDetail = Assert.IsType<FormDefinition>(
             await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0")));
         var preservedAuthor = Assert.IsType<FormDefinition>(
@@ -547,6 +554,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(oldAuthorSemantics, ImmutableFormSemantics(preservedAuthor));
         var newDetail = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
         var newAuthor = await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
+        Assert.Equal(FormDefinitionStatus.Published, newDetail.Status);
+        Assert.Equal(FormDefinitionStatus.Published, newAuthor.Status);
         Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
         Assert.Equal("Author a domain pack", newAuthor.Overlay.Title!.Values["en"]);
         Assert.Equal("1.4.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);

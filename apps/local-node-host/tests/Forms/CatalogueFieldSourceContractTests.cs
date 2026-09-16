@@ -85,6 +85,8 @@ public sealed class CatalogueFieldSourceContractTests
     [InlineData("title", "{\"kind\":\"Literal\",\"value\":\"Unsupported\"}")]
     [InlineData("title", "{}")]
     [InlineData("title", "{\"unsupported\":\"text\"}")]
+    [InlineData("Title", "{}")]
+    [InlineData("tItLe", "{\"kind\":\"Literal\",\"value\":\"Example\"}")]
     [InlineData("title", "{\"defaultLocale\":\"en\",\"values\":{}}")]
     [InlineData("description", "{\"defaultLocale\":\"en\",\"values\":{\"fr\":\"Bonjour\"}}")]
     public void Pack_text_that_is_not_a_complete_internationalized_text_refuses_closed(
@@ -95,13 +97,34 @@ public sealed class CatalogueFieldSourceContractTests
         var release = JsonNode.Parse(resource)!.AsObject();
         var author = release["contents"]!.AsArray().Single(item =>
             item!["key"]!.GetValue<string>() == "platform.pack.author")!;
-        author["content"]!["overlay"]![property] = JsonNode.Parse(malformed);
+        var overlay = author["content"]!["overlay"]!.AsObject();
+        var canonicalProperty = property.Equals("description", StringComparison.OrdinalIgnoreCase)
+            ? "description"
+            : "title";
+        overlay.Remove(canonicalProperty);
+        overlay[property] = JsonNode.Parse(malformed);
         using var mutated = new MemoryStream(Encoding.UTF8.GetBytes(release.ToJsonString()));
 
         var exception = Assert.Throws<InvalidDataException>(() =>
             PlatformPackPreloadHostedService.ReadExportRequest(mutated, "fixture-author"));
-        Assert.Equal($"overlay.{property} must be an InternationalizedTextDto with a populated default locale",
+        Assert.Equal($"overlay.{canonicalProperty} must be an InternationalizedTextDto with a populated default locale",
             exception.Message);
+    }
+
+    [Fact]
+    public void Pack_text_with_duplicate_case_variant_refuses_closed()
+    {
+        using var resource = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
+            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
+        var release = JsonNode.Parse(resource)!.AsObject();
+        var author = release["contents"]!.AsArray().Single(item =>
+            item!["key"]!.GetValue<string>() == "platform.pack.author")!;
+        author["content"]!["overlay"]!["Title"] = JsonNode.Parse("{}");
+        using var mutated = new MemoryStream(Encoding.UTF8.GetBytes(release.ToJsonString()));
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PlatformPackPreloadHostedService.ReadExportRequest(mutated, "fixture-author"));
+        Assert.Equal("Property 'title' is declared more than once with different casing", exception.Message);
     }
 
     [Theory]

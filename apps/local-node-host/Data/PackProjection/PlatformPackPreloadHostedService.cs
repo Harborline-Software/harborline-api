@@ -130,12 +130,14 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     /// </summary>
     internal static void ValidateReleasedFormText(JsonNode content)
     {
-        if (content is not JsonObject root || root["overlay"] is not JsonObject overlay)
+        if (content is not JsonObject root
+            || !TryGetWebProperty(root, "overlay", out var overlayNode)
+            || overlayNode is not JsonObject overlay)
             throw new InvalidDataException("overlay must be an object");
         ValidateOptionalText(overlay, "title", "overlay.title");
         ValidateOptionalText(overlay, "description", "overlay.description");
 
-        if (overlay["fields"] is JsonObject fields)
+        if (TryGetWebProperty(overlay, "fields", out var fieldsNode) && fieldsNode is JsonObject fields)
             foreach (var field in fields)
             {
                 if (field.Value is not JsonObject fieldOverlay)
@@ -146,21 +148,22 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
 
         ValidateTitledArray(overlay, "sections", "overlay.sections", titleRequired: true, validateItems: true);
         ValidateTitledArray(overlay, "pages", "overlay.pages", titleRequired: false, validateItems: false);
-        if (overlay["wizard"] is JsonObject wizard)
+        if (TryGetWebProperty(overlay, "wizard", out var wizardNode) && wizardNode is JsonObject wizard)
             ValidateOptionalText(wizard, "confirmationMessage", "overlay.wizard.confirmationMessage");
     }
 
     private static void ValidateTitledArray(
         JsonObject parent, string property, string path, bool titleRequired, bool validateItems)
     {
-        if (parent[property] is null) return;
-        if (parent[property] is not JsonArray array) throw new InvalidDataException($"{path} must be an array");
+        if (!TryGetWebProperty(parent, property, out var node) || node is null) return;
+        if (node is not JsonArray array) throw new InvalidDataException($"{path} must be an array");
         for (var index = 0; index < array.Count; index++)
         {
             if (array[index] is not JsonObject item) throw new InvalidDataException($"{path}[{index}] must be an object");
             if (titleRequired) ValidateRequiredText(item, "title", $"{path}[{index}].title");
             else ValidateOptionalText(item, "title", $"{path}[{index}].title");
-            if (validateItems && item["items"] is { } items) ValidateFormItems(items, $"{path}[{index}].items");
+            if (validateItems && TryGetWebProperty(item, "items", out var items) && items is not null)
+                ValidateFormItems(items, $"{path}[{index}].items");
         }
     }
 
@@ -172,28 +175,29 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
             if (items[index] is not JsonObject item) throw new InvalidDataException($"{path}[{index}] must be an object");
             var itemPath = $"{path}[{index}]";
             ValidateOptionalText(item, "title", $"{itemPath}.title");
-            if (item["items"] is { } nested) ValidateFormItems(nested, $"{itemPath}.items");
-            if (item["content"] is JsonArray content)
+            if (TryGetWebProperty(item, "items", out var nested) && nested is not null)
+                ValidateFormItems(nested, $"{itemPath}.items");
+            if (TryGetWebProperty(item, "content", out var contentArrayNode) && contentArrayNode is JsonArray content)
             {
                 for (var contentIndex = 0; contentIndex < content.Count; contentIndex++)
                     if (content[contentIndex] is JsonObject contentNode)
                         ValidateOptionalText(contentNode, "text", $"{itemPath}.content[{contentIndex}].text");
             }
-            if (item["action"] is JsonObject action)
+            if (TryGetWebProperty(item, "action", out var actionNode) && actionNode is JsonObject action)
                 ValidateOptionalText(action, "label", $"{itemPath}.action.label");
         }
     }
 
     private static void ValidateRequiredText(JsonObject parent, string property, string path)
     {
-        if (!parent.TryGetPropertyValue(property, out var node) || node is null)
+        if (!TryGetWebProperty(parent, property, out var node) || node is null)
             throw new InvalidDataException($"{path} must be an InternationalizedTextDto with a populated default locale");
         ValidateText(node, path);
     }
 
     private static void ValidateOptionalText(JsonObject parent, string property, string path)
     {
-        if (!parent.TryGetPropertyValue(property, out var node) || node is null) return;
+        if (!TryGetWebProperty(parent, property, out var node) || node is null) return;
         ValidateText(node, path);
     }
 
@@ -201,11 +205,11 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     {
         if (node is not JsonObject text
             || text.Count != 2
-            || !text.TryGetPropertyValue("defaultLocale", out var localeNode)
+            || !TryGetWebProperty(text, "defaultLocale", out var localeNode)
             || localeNode is not JsonValue localeValue
             || !localeValue.TryGetValue<string>(out var locale)
             || string.IsNullOrWhiteSpace(locale)
-            || !text.TryGetPropertyValue("values", out var valuesNode)
+            || !TryGetWebProperty(text, "values", out var valuesNode)
             || valuesNode is not JsonObject values
             || values.Count == 0
             || !values.TryGetPropertyValue(locale, out var defaultValueNode)
@@ -217,5 +221,16 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
                 || !value.TryGetValue<string>(out var translated)
                 || string.IsNullOrWhiteSpace(translated)))
             throw new InvalidDataException($"{path} must be an InternationalizedTextDto with a populated default locale");
+    }
+
+    private static bool TryGetWebProperty(JsonObject parent, string property, out JsonNode? value)
+    {
+        var matches = parent.Where(entry => string.Equals(entry.Key, property, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToArray();
+        if (matches.Length > 1)
+            throw new InvalidDataException($"Property '{property}' is declared more than once with different casing");
+        value = matches.Length == 1 ? matches[0].Value : null;
+        return matches.Length == 1;
     }
 }
