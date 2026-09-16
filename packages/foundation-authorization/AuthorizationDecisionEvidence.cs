@@ -89,7 +89,7 @@ public sealed record AuthorizationDecisionEvidence
     public const string VerdictStage = "verdict";
 
     /// <summary>The evidence schema version. Bumped when the projected step shape changes.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>The number of public steps <see cref="Project"/> always returns.</summary>
     public const int StepCount = 4;
@@ -135,6 +135,8 @@ public sealed record AuthorizationDecisionEvidence
     public AuthorizationRosterInputs? Roster { get; private init; }
     /// <summary>The signed grant constraint failure carried by the deciding request.</summary>
     public string? GrantRefusal { get; private init; }
+    /// <summary>The delegation inputs, evaluated coverage, and closure evidence captured by the gate.</summary>
+    public AuthorizationGrantAttenuationEvidence? GrantAttenuation { get; private init; }
 
     /// <summary>Which deciding path produced this evidence.</summary>
     public AuthorizationEvidenceKind Kind { get; }
@@ -281,6 +283,7 @@ public sealed record AuthorizationDecisionEvidence
                         $"roster:party:{roster.PartyId};member:{roster.Member};ejected:{roster.Ejected};prospective-administrator-grant:{roster.ProspectiveAdministratorGrant}",
                         $"roster:require-member:{roster.RequireMember};require-grant:{roster.RequireGrantCoverage};required:{string.Join(",", roster.RequiredPermissions.Permissions.Order(StringComparer.Ordinal))}"
                     } : Array.Empty<string>(),
+                    .. DescribeAttenuation(),
                 ]),
             new AuthorizationTraceStep(3, StandingsStage,
                 [.. standings.Length == 0 ? ["standings:none"] : standings]),
@@ -309,7 +312,8 @@ public sealed record AuthorizationDecisionEvidence
         AuthorizationVerdict verdict,
         IReadOnlyList<AuthorizationAtomDerivation> derivations,
         IReadOnlyList<RecordStanding> standings,
-        IReadOnlyList<AuthorizationExcludedBinding> excluded)
+        IReadOnlyList<AuthorizationExcludedBinding> excluded,
+        AuthorizationGrantAttenuationEvidence? grantAttenuation)
     {
         var at = request.At;
         var allowed = verdict is AuthorizationVerdict.Allowed;
@@ -364,8 +368,27 @@ public sealed record AuthorizationDecisionEvidence
             [],
             request.Act,
             [.. derivations],
-            [.. excluded]) { Roster = request.Roster, GrantRefusal = request.GrantRefusal };
+            [.. excluded]) { Roster = request.Roster, GrantRefusal = request.GrantRefusal, GrantAttenuation = grantAttenuation };
     }
+
+    private IEnumerable<string> DescribeAttenuation()
+    {
+        if (GrantAttenuation is null) yield break;
+        yield return $"attenuation:requirements:{GrantAttenuation.Atoms.Length}";
+        foreach (var item in GrantAttenuation.Atoms)
+        {
+            yield return $"attenuation:required:{item.Required};covered:{item.Covered}";
+            foreach (var binding in item.Bindings)
+                yield return $"attenuation:required:{item.Required};{DescribeAttenuationBinding(binding)}";
+            foreach (var excluded in item.Excluded)
+                yield return $"attenuation:required:{item.Required};excluded:{excluded.Reason};{DescribeAttenuationBinding(excluded.Binding)}";
+        }
+    }
+
+    private static string DescribeAttenuationBinding(AuthorizationAtomDerivation binding) => Describe(new(
+        binding.Role.ToString(), binding.GrantScope.Value, binding.ValidFrom, binding.ValidUntil,
+        binding.GrantId, binding.GrantOwnerVersion, binding.DefinitionId, binding.Atom.ToString(),
+        binding.InForce, false));
 
     /// <summary>
     /// Classifies a denial from the derivations and standings the gate already read, reading each

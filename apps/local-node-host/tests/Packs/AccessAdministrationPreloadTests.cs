@@ -341,6 +341,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(
             new[]
             {
+                (PackContentKind.RoleDefinition, "access.admitted-user"),
                 (PackContentKind.RoleDefinition, "access.form-submitter"),
                 (PackContentKind.FormDefinition, "access.grant-a-role"),
                 (PackContentKind.ViewDefinition, "access.holders"),
@@ -357,10 +358,13 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var workflow = await _workflows.GetAsync(
             new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None);
         Assert.NotNull(workflow);
-        var holders = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.0");
+        var holders = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.2");
         Assert.NotNull(holders);
         Assert.Equal(HostViewKindDescriptorRegistry.AccessGrantEntityType,
             holders.Parameters.GetProperty("entityType").GetString());
+        var admittedRole = new RoleReference(RoleVocabularies.Domain, "admitted-user");
+        Assert.NotNull(await _roles.ResolveAsync(admittedRole));
+        Assert.Empty(await _configuration.DefinitionsForRoleAsync(Tenant, admittedRole));
     }
 
     [Fact]
@@ -428,7 +432,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new[]
             {
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 5),
+                    PackLifecycleState.Active, 6),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 63),
             },
@@ -492,6 +496,51 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             .ToArray());
         Assert.Equal(2, _store.ListInstalled(Tenant).Count);
         Assert.Equal(2, _audit.Query(Tenant).Count(entry => entry.Action == PackInstallAuditAction.Activated));
+    }
+
+    [Theory]
+    [InlineData("1.1.1")]
+    [InlineData("1.1.2")]
+    public async Task Access_preload_upgrades_released_predecessor_without_rewriting_its_holder_definition(string previousVersion)
+    {
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "access-replacement", $"access-administration-pack-{previousVersion}.export.json"));
+        Assert.Equal(previousVersion == "1.1.1"
+            ? "99A3EDFA484314C7A0523F4D12B9D7F87725F7B65FC95BBC34DC7CA79E7FDCB2"
+            : "392F2545710D5CB3A7DF8724E43D65E751607DEBFAFE00898D704819D55A381F",
+            Convert.ToHexString(SHA256.HashData(bytes)));
+        if (previousVersion == "1.1.1")
+            bytes = await ExportAsync(ReadExactLegacyPlatformRequest(bytes, _signer.Signer.IssuerId.ToBase64Url())
+                with { Exposes = ["access.holders"], InterfaceVersion = 1 });
+        var released = new PackFileCodec().TryDecode(bytes)!;
+        var trust = new InMemoryPackTrustStore([
+            new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
+        ]);
+        var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
+            TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        var installed = _installer.Install(bytes, context);
+        Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
+        var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, previousVersion);
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
+        var previous = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
+        var previousHolder = Assert.Single(previous.SeedItems, item => item.Key == "access.holders");
+
+        await _preload.PreloadAsync(Tenant, CancellationToken.None);
+
+        var active = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
+        Assert.Equal("1.1.3", active.Version);
+        var old = _store.GetVersion(Tenant, active.PackKey, previousVersion)!;
+        Assert.Equal(PackLifecycleState.Superseded, old.Lifecycle);
+        Assert.Equal(previousHolder, Assert.Single(old.SeedItems, item => item.Key == "access.holders"));
+        var view = await _views.GetDefinitionAsync(Tenant.Value, "access.holders", "1.0.2");
+        Assert.NotNull(view);
+        foreach (var action in view.Parameters.GetProperty("actions").EnumerateArray()
+            .Where(action => action.GetProperty("id").GetString() is "narrow" or "revoke"))
+            Assert.Equal("input", action.GetProperty("dispatch").GetProperty("bindings").GetProperty("target").GetProperty("source").GetString());
+        await _preload.PreloadAsync(Tenant, CancellationToken.None);
+        Assert.Equal(active, _store.GetActive(Tenant, active.PackKey));
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
+using Harborline.Api.Blocks.AccessGrant;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
@@ -17,7 +18,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 internal sealed record AccountSetupInvitationIssueRequest(
     string TenantId,
     IReadOnlyCollection<string> RequestedPermissions,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? InitialRole = null);
 
 internal interface IAccountSetupInvitationIssuer
 {
@@ -42,7 +44,9 @@ internal sealed class AccountSetupInvitationIssuer(
     AccountSetupInvitationStore store,
     AuthorizationGate gate,
     TimeProvider timeProvider,
-    AuthorizationRefusalAudit? refusalAudit = null) : IAccountSetupInvitationIssuer
+    AuthorizationRefusalAudit? refusalAudit = null,
+    IRoleVocabularyReader? roles = null,
+    IAuthorizationDefinitionAtomReader? roleDefinitions = null) : IAccountSetupInvitationIssuer
 {
     internal static readonly TimeSpan InvitationLifetime = TimeSpan.FromHours(24);
 
@@ -85,7 +89,8 @@ internal sealed class AccountSetupInvitationIssuer(
         if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
         coverage.RequireAllowed();
         if (!Guid.TryParse(request.TenantId, out var parsedTenant) ||
-            request.RequestedPermissions is null || request.RequestedPermissions.Count == 0 ||
+            request.RequestedPermissions is null ||
+            (request.RequestedPermissions.Count == 0 && request.InitialRole is null) ||
             request.RequestedPermissions.Any(string.IsNullOrWhiteSpace) ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
@@ -120,6 +125,24 @@ internal sealed class AccountSetupInvitationIssuer(
         }
 
         var tenant = new TenantId(tenantId);
+        var initialRole = InvitationInitialRole.Parse(request.InitialRole);
+        if (initialRole is null) return null;
+        string? roleDigest = null;
+        PermissionAtomSet? rolePermissions = null;
+        if (roles is not null && roleDefinitions is not null)
+        {
+            var definition = await roles.ResolveAsync(initialRole.Value, cancellationToken).ConfigureAwait(false);
+            if (definition is null) return null;
+            rolePermissions = PermissionAtomSet.From(await roleDefinitions.AtomsForRoleAsync(
+                tenant, initialRole.Value, cancellationToken).ConfigureAwait(false));
+            if (requested.Permissions.Count == 0 && rolePermissions.Atoms.Count != 0) return null;
+            roleDigest = InvitationInitialRole.Digest(definition, rolePermissions);
+        }
+        else if (request.InitialRole is not null)
+        {
+            // Minimal compositions cannot issue selectable-role authority without installed vocabulary.
+            return null;
+        }
         var principal = new PrincipalUserId(session.TenantPrincipalId);
         var party = await _partyReader.ResolveAsync(tenant, principal, cancellationToken)
             .ConfigureAwait(false);
@@ -143,6 +166,7 @@ internal sealed class AccountSetupInvitationIssuer(
             authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
                 "members", request.IdempotencyKey) with
             {
+                RequiredGrantAtoms = rolePermissions,
                 Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
                 {
                     RequireMember = true, RequireGrantCoverage = true,
@@ -160,7 +184,9 @@ internal sealed class AccountSetupInvitationIssuer(
             session.AccountId,
             session.SessionCorrelationId,
             request.IdempotencyKey,
-            permissions);
+            permissions,
+            initialRole.Value.ToString(),
+            roleDigest);
         var seed = new AccountSetupInvitationSeed(
             TenantId: tenantId,
             InviterAccountId: session.AccountId,
@@ -175,7 +201,9 @@ internal sealed class AccountSetupInvitationIssuer(
             RequestedPermissionsJson: permissionsJson,
             CommandFingerprint: fingerprint,
             IssuedAtUtc: now,
-            AbsoluteExpiresAtUtc: now + InvitationLifetime);
+            AbsoluteExpiresAtUtc: now + InvitationLifetime,
+            InitialRole: initialRole.Value.ToString(),
+            InitialRoleDigest: roleDigest);
         return await _store.IssueAsync(seed, cancellationToken).ConfigureAwait(false);
     }
 
@@ -248,14 +276,18 @@ internal sealed class AccountSetupInvitationIssuer(
         string accountId,
         string sessionCorrelationId,
         string idempotencyKey,
-        IReadOnlyCollection<string> permissions)
+        IReadOnlyCollection<string> permissions,
+        string initialRole,
+        string? roleDigest)
     {
         var canonical = string.Join('\n',
             tenantId,
             accountId,
             sessionCorrelationId,
             idempotencyKey,
-            string.Join('\n', permissions));
+            string.Join('\n', permissions),
+            initialRole,
+            roleDigest ?? "legacy");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 }

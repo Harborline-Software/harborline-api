@@ -34,7 +34,8 @@ internal static partial class AdminTeamAccessRoutes
 
     internal sealed record IssueInvitationRequest(
         IReadOnlyList<string>? RequestedPermissions,
-        string? IdempotencyKey);
+        string? IdempotencyKey,
+        string? InitialRole = null);
 
     /// <param name="SuccessorPrincipalId">
     /// Present only for an Administrator handover (ledger L618): the revocation and the successor's
@@ -191,7 +192,8 @@ internal static partial class AdminTeamAccessRoutes
             return Refused();
         }
 
-        if (request?.RequestedPermissions is null || request.RequestedPermissions.Count == 0 ||
+        if (request?.RequestedPermissions is null ||
+            (request.RequestedPermissions.Count == 0 && request.InitialRole is null) ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
             return Results.Json(
@@ -211,11 +213,12 @@ internal static partial class AdminTeamAccessRoutes
         AdminIssuedInvitation? result;
         try
         {
-            result = await authority.IssueInvitationAsync(
+            result = await authority.IssueRoleInvitationAsync(
                     handle,
                     principal.TenantId.Value,
                     request.RequestedPermissions,
                     request.IdempotencyKey,
+                    request.InitialRole,
                     WriteAuthority(principal, at),
                     context.RequestAborted)
                 .ConfigureAwait(false);

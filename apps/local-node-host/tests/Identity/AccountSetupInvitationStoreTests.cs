@@ -85,7 +85,7 @@ public sealed class AccountSetupInvitationStoreTests
                     "20260718132100_LegacyRenameCheckpointBinding");
                 await upgrading.Database.MigrateAsync();
                 Assert.False(upgrading.Database.HasPendingModelChanges());
-                Assert.Equal(8, (await upgrading.Database.GetAppliedMigrationsAsync()).Count());
+                Assert.Equal(9, (await upgrading.Database.GetAppliedMigrationsAsync()).Count());
             }
 
             await using var restarted = factory.CreateDbContext();

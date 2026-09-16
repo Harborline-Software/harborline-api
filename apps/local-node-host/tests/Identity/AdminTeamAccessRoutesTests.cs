@@ -253,6 +253,20 @@ public sealed class AdminTeamAccessRoutesTests
     }
 
     [Fact]
+    public async Task Explicit_initial_role_is_forwarded_with_empty_permissions_to_authority()
+    {
+        var authority = new RecordingAuthority
+        {
+            Issued = new AdminIssuedInvitation("inv-role", "raw", "tenant-1", ExpiresAt),
+        };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.InvitationsPath, authority,
+            new AdminTeamAccessRoutes.IssueInvitationRequest([], "role-command", "tax.roles/admitted-user"));
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.Equal("tax.roles/admitted-user", authority.InitialRole);
+        Assert.NotNull(authority.IssueTenantId);
+    }
+
+    [Fact]
     [Trait("PlanCard", "MTW-2-2617")]
     public async Task Issue_Invitation_Authority_Refusal_Is_A_NonEnumerating_401()
     {
@@ -868,6 +882,7 @@ public sealed class AdminTeamAccessRoutesTests
         public string? PendingTenantId { get; private set; }
 
         public string? IssueTenantId { get; private set; }
+        public string? InitialRole { get; private set; }
 
         public string? RevokeTenantId { get; private set; }
 
@@ -887,6 +902,16 @@ public sealed class AdminTeamAccessRoutesTests
         {
             PendingTenantId = tenantId;
             return Task.FromResult(Pending);
+        }
+
+        public Task<AdminIssuedInvitation?> IssueRoleInvitationAsync(
+            string selectedSessionHandle, string tenantId, IReadOnlyCollection<string> requestedPermissions,
+            string idempotencyKey, string? initialRole, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default)
+        {
+            InitialRole = initialRole;
+            return IssueInvitationAsync(selectedSessionHandle, tenantId, requestedPermissions,
+                idempotencyKey, authority, cancellationToken);
         }
 
         public Task<AdminIssuedInvitation?> IssueInvitationAsync(

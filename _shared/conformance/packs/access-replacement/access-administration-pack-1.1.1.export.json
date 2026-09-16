@@ -1,17 +1,11 @@
 {
   "_note": "Ticket 433. Ordinary replaceable Access content for the bounded grant, privileged-review, holder-read, narrow, revoke and pack-replacement journey. Definitions and actions only; no grant instances.",
   "key": "harborline.access-administration",
-  "version": "1.1.3",
+  "version": "1.1.1",
   "name": "Access administration",
   "description": "Granting roles, reviewing privileged grants and inspecting access holders.",
   "scopeTier": "Horizontal",
   "contents": [
-    {
-      "key": "access.admitted-user",
-      "kind": "RoleDefinition",
-      "version": "1.0.0",
-      "content": { "role": "admitted-user", "displayName": "Admitted user" }
-    },
     {
       "key": "access.form-submitter",
       "kind": "RoleDefinition",
@@ -215,10 +209,10 @@
     {
       "key": "access.holders",
       "kind": "ViewDefinition",
-      "version": "1.0.2",
+      "version": "1.0.0",
       "content": {
         "key": "access.holders",
-        "version": "1.0.2",
+        "version": "1.0.0",
         "tenant": "bootstrap",
         "schemaVersion": 1,
         "viewKind": "views.entity-list/grid",
@@ -262,19 +256,18 @@
             },
             {
               "id": "narrow", "label": "Narrow grant", "operation": "access.grant.narrow",
-              "input": { "fieldsMeta": { "targetGrant": { "type": "text", "required": true }, "scope": { "type": "text", "required": true } }, "overlay": { "fields": { "targetGrant": { "label": "Grant ID" } } } },
+              "input": { "fieldsMeta": { "scope": { "type": "text", "required": true } }, "overlay": {} },
               "result": { "refresh": "data-source" },
               "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.narrow-scope.v1", "bindings": {
-                "target": { "source": "input", "pointer": "/targetGrant" }, "scope": { "source": "input", "pointer": "/scope" },
+                "target": { "source": "selection", "pointer": "/grantId" }, "scope": { "source": "input", "pointer": "/scope" },
                 "successorId": { "source": "invocation", "pointer": "/id" },
                 "correlationId": { "source": "invocation", "pointer": "/correlationId" }
               } }
             },
             {
               "id": "revoke", "label": "Revoke grant", "operation": "access.grant.revoke", "result": { "refresh": "data-source" },
-              "input": { "fieldsMeta": { "targetGrant": { "type": "text", "required": true } }, "overlay": { "fields": { "targetGrant": { "label": "Grant ID" } } } },
               "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.revoke.v1", "bindings": {
-                "target": { "source": "input", "pointer": "/targetGrant" },
+                "target": { "source": "selection", "pointer": "/grantId" },
                 "correlationId": { "source": "invocation", "pointer": "/correlationId" }
               } }
             },

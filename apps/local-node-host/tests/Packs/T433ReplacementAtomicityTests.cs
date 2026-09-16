@@ -25,7 +25,7 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Mixed_kind_late_failure_preserves_every_published_snapshot(string failure)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.2", failure == "refusal");
+        var replacement = MixedReplacement("1.1.4", failure == "refusal");
         var context = ReplacementContext();
         Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
         var before = await PublishedSnapshotAsync();
@@ -75,7 +75,7 @@ public sealed partial class AccessAdministrationPreloadTests
     public async Task Concurrent_catalogue_reader_sees_only_old_or_complete_new_replacement(bool refuse)
     {
         await PreloadPlatformThenAccessAsync();
-        var replacement = MixedReplacement("1.1.2", refuse);
+        var replacement = MixedReplacement("1.1.4", refuse);
         var context = ReplacementContext();
         Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
         var catalogue = new ProjectedCatalogue(_authorizedForms, _views, _renderPlans);
@@ -127,8 +127,10 @@ public sealed partial class AccessAdministrationPreloadTests
         var holder = source.Contents.Single(item => item.Key == "access.holders");
         var early = holder.Content.DeepClone();
         early["key"] = "m6.early-view";
+        early["version"] = "1.0.0";
         var late = holder.Content.DeepClone();
         late["key"] = "m6.late";
+        late["version"] = "1.0.0";
         if (refuse) late["viewKind"] = "views.not-registered";
         var workflow = source.Contents.Single(item => item.Kind == PackContentKind.WorkflowDefinition).Content.DeepClone();
         workflow["key"] = "m6.workflow";
@@ -149,8 +151,8 @@ public sealed partial class AccessAdministrationPreloadTests
                     JsonSerializer.SerializeToNode(new { role = "atomic-reader", displayName = "Atomic reader" })!),
                 new PackContentSource("m6.binding", PackContentKind.AuthorizationCapabilityBinding, "1.0.0",
                     JsonSerializer.SerializeToNode(new { operation = "records:read", scope = "/records/m6", offeredRoles = new[] { "sys.platform-roles/administrator" } })!),
-                new PackContentSource("m6.early-view", holder.Kind, holder.Version, early),
-                new PackContentSource("m6.late", holder.Kind, holder.Version, late),
+                new PackContentSource("m6.early-view", holder.Kind, "1.0.0", early),
+                new PackContentSource("m6.late", holder.Kind, "1.0.0", late),
             ]).ToArray(),
         };
     }
@@ -218,7 +220,7 @@ public sealed partial class AccessAdministrationPreloadTests
         late["viewKind"] = "views.not-registered";
         var replacement = source with
         {
-            Version = "1.1.2-atomicity-probe.0",
+            Version = "1.1.4-atomicity-probe.0",
             Contents = source.Contents.Concat([
                 new PackContentSource("m6.early-view", holder.Kind, holder.Version, early),
                 new PackContentSource("m6.late-refusal", holder.Kind, holder.Version, late),

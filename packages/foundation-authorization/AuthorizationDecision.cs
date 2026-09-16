@@ -63,7 +63,8 @@ public sealed class AuthorizationDecision : Assets.Entities.IWriteAdmission
         IReadOnlyList<AuthorizationAtomDerivation> derivations,
         IReadOnlyList<RecordStanding> standings,
         IReadOnlyList<AuthorizationResolutionStep> resolutionTrace,
-        IReadOnlyList<AuthorizationExcludedBinding>? excludedBindings = null)
+        IReadOnlyList<AuthorizationExcludedBinding>? excludedBindings = null,
+        AuthorizationGrantAttenuationEvidence? grantAttenuation = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(atomsConsidered);
@@ -77,13 +78,15 @@ public sealed class AuthorizationDecision : Assets.Entities.IWriteAdmission
         Standings = standings.ToImmutableArray();
         Resolution = resolutionTrace.ToImmutableArray();
         ExcludedBindings = (excludedBindings ?? []).ToImmutableArray();
+        GrantAttenuation = grantAttenuation;
         DecidedAt = request.At;
         // Ticket 212 slice 1: built HERE, from the values this decision already computed, so a decision
         // without evidence cannot exist. Nothing is re-evaluated and no store is read.
-        Evidence = AuthorizationDecisionEvidence.ForGate(request, verdict, Derivations, Standings, ExcludedBindings);
+        Evidence = AuthorizationDecisionEvidence.ForGate(request, verdict, Derivations, Standings, ExcludedBindings, grantAttenuation);
     }
 
     public AuthorizationGateRequest Request { get; }
+    public AuthorizationGrantAttenuationEvidence? GrantAttenuation { get; }
     public AuthorizationVerdict Verdict { get; }
     public IReadOnlyList<PermissionAtom> AtomsConsidered { get; }
     public IReadOnlyList<AuthorizationAtomDerivation> Derivations { get; }

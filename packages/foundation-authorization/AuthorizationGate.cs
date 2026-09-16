@@ -115,18 +115,47 @@ public sealed class AuthorizationGate(
             namedRoleUnionAllowed = atomCoverageAllowed;
         }
 
+        AuthorizationGrantAttenuationEvidence? attenuation = null;
+        if (request.RequiredGrantAtoms is { } requiredAtoms)
+        {
+            var evaluated = ImmutableArray.CreateBuilder<AuthorizationGrantAtomEvidence>();
+            foreach (var required in requiredAtoms.Atoms)
+            {
+                // The delegated atom can cover a different scope from the members:manage act. Read
+                // that scope through the gate's own closure; a narrow grant cannot confer a root role.
+                var requiredSnapshot = await closure.ReadAsync(request with
+                {
+                    Act = required,
+                    Target = new AuthorizationTarget(RecordKindFor(required.Operation),
+                        request.Target.RecordId, required.Scope),
+                    RequiredGrantAtoms = null,
+                }, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                var covered = requiredSnapshot.Derivations.Any(item => item.Atom.Covers(required));
+                evaluated.Add(new AuthorizationGrantAtomEvidence(required, covered,
+                    requiredSnapshot.Derivations.OrderBy(DescribeAttenuationDerivation, StringComparer.Ordinal).ToImmutableArray(),
+                    requiredSnapshot.Excluded.OrderBy(item => DescribeAttenuationDerivation(item.Binding), StringComparer.Ordinal)
+                        .ThenBy(item => item.Reason).ToImmutableArray()));
+                if (!covered)
+                {
+                    request = request with { GrantRefusal = request.GrantRefusal ?? "authorization.grant.attenuation_failed" };
+                }
+            }
+            attenuation = new AuthorizationGrantAttenuationEvidence(evaluated.ToImmutable());
+        }
         var verdict = atomCoverageAllowed && request.GrantRefusal is null ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied;
         var verdictName = verdict.ToString().ToLowerInvariant();
         resolution.Add(new AuthorizationResolutionStep(
             AuthorizationResolutionStage.NamedRoleUnionVerdict,
             namedRoleUnion.Select(role => role.ToString()).Order(StringComparer.Ordinal)
                 .Concat(namedRoleAtoms.Select(item => $"compare:{item.Role}:{item.Atom}->{request.Act}"))
+                .Concat(request.RequiredGrantAtoms?.Atoms.Select(atom => $"grant-required:{atom}") ?? [])
                 .ToArray(),
             [$"atom-coverage:{verdictName}", $"named-role-union:{verdictName}"]));
 
         ct.ThrowIfCancellationRequested();
         var decision = new AuthorizationDecision(
-            request, verdict, atoms, derivations, standingSnapshot, resolution, snapshot.Excluded);
+            request, verdict, atoms, derivations, standingSnapshot, resolution, snapshot.Excluded, attenuation);
         activity?.SetCustomProperty("authorization.evidence", decision.Evidence);
         return decision;
     }
@@ -255,6 +284,9 @@ public sealed class AuthorizationGate(
 
     private static string DescribeDerivation(AuthorizationAtomDerivation item) =>
         $"role:{item.Role};atom:{item.Atom};grant:{item.GrantId}@{item.GrantOwnerVersion};definition:{item.DefinitionId};valid:{item.ValidFrom:O}..{item.ValidUntil:O}";
+
+    private static string DescribeAttenuationDerivation(AuthorizationAtomDerivation item) =>
+        $"{DescribeDerivation(item)};scope:{item.GrantScope};in-force:{item.InForce}";
 
     private static string DescribeStanding(RecordStanding item) =>
         $"role:{item.Role};rule:{item.RuleId};evidence:{item.EvidenceVersion}";

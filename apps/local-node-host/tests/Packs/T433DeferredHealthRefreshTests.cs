@@ -30,8 +30,8 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var context = ReplacementContext();
-        var first = HealthReplacement("1.1.2", "1.0.0", hasFinding: false);
-        var second = HealthReplacement("1.1.3", "1.0.1", hasFinding: true);
+        var first = HealthReplacement("1.1.4", "1.0.0", hasFinding: false);
+        var second = HealthReplacement("1.1.5", "1.0.1", hasFinding: true);
         Assert.True(_installer.Install(await ExportAsync(first), context).Installed);
         Assert.True(_installer.Install(await ExportAsync(second), context).Installed);
         var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -93,8 +93,8 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var context = ReplacementContext();
-        var first = HealthReplacement("1.1.2", "1.0.0", hasFinding: false);
-        var second = HealthReplacement("1.1.3", "1.0.1", hasFinding: true, workflowFinding: report == "workflow");
+        var first = HealthReplacement("1.1.4", "1.0.0", hasFinding: false);
+        var second = HealthReplacement("1.1.5", "1.0.1", hasFinding: true, workflowFinding: report == "workflow");
         var installedA = _installer.Install(await ExportAsync(first), context);
         Assert.True(installedA.Installed, JsonSerializer.Serialize(installedA));
         if (report == "workflow")
