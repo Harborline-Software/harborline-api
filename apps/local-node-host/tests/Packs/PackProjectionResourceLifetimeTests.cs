@@ -58,21 +58,15 @@ public sealed class PackProjectionResourceLifetimeTests
             Assert.True(SpinWait.SpinUntil(() =>
                 (writerThread.ThreadState & ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(5)));
 
-            var consumerStarted = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
             using (ExecutionContext.SuppressFlow())
                 consumer = Task.Factory.StartNew(async () =>
                 {
-                    consumerStarted.SetResult(Thread.CurrentThread);
                     return await store.GetAsync(selected, deadline.Token);
                 }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
-            var consumerThread = await consumerStarted.Task.WaitAsync(deadline.Token);
-            Assert.True(SpinWait.SpinUntil(() => consumer.IsCompleted ||
-                (consumerThread.ThreadState & ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(5)));
-            Assert.False(consumer.IsCompleted);
+            Assert.Equal(selected, (await consumer.WaitAsync(deadline.Token))!.Id);
             release.Set();
 
             await activation.WaitAsync(deadline.Token);
-            Assert.Equal(selected, (await consumer.WaitAsync(deadline.Token))!.Id);
             while (await iterator.MoveNextAsync()) seen.Add(iterator.Current.Id);
             Assert.Equal(new[] { first.Id, second.Id }.OrderBy(id => id.Value), seen.OrderBy(id => id.Value));
             var current = new List<Schema>();

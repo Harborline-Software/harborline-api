@@ -61,6 +61,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// accept-all stub — so a green here is a green in the composed node.
 /// </para>
 /// </summary>
+[Collection(PackProjectionBarrierCollection.Name)]
 public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000000208");

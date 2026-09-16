@@ -273,8 +273,8 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         string? tagFilter = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // A paused iterator must not retain a lease: its consumer may need another registry read
-        // behind a queued activation, which cannot proceed until this snapshot lease is released.
+        // A paused iterator must not keep activation waiting while its consumer processes a row.
+        // Materialize one stable projection before yielding control back to that consumer.
         Schema[] snapshot;
         using (PackProjectionActivationBarrier.Read(ct))
             snapshot = _schemas.Values.Select(entry => entry.Schema)
