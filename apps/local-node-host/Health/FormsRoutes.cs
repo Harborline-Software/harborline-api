@@ -308,7 +308,7 @@ public static class FormsRoutes
     /// Reads the optional <c>Idempotency-Key</c> header. Absent ⇒ null (fresh-instance behaviour).
     /// A present-but-whitespace or over-long key is rejected 400 (a bounded token, never unbounded input).
     /// </summary>
-    private static bool TryReadIdempotencyKey(HttpRequest request, out string? idempotencyKey, out IResult? error)
+    internal static bool TryReadIdempotencyKey(HttpRequest request, out string? idempotencyKey, out IResult? error)
     {
         idempotencyKey = null;
         error = null;

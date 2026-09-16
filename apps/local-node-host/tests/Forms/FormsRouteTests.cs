@@ -21,6 +21,7 @@ using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
@@ -45,7 +46,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// in-memory entity store the route contract is agnostic to (the durable node-EF
 /// forms store is the follow-up).
 /// </remarks>
-public sealed class FormsRouteTests : IAsyncLifetime
+public sealed partial class FormsRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-00000000fa01"));
     private static readonly TeamId TeamB = new(Guid.Parse("bbbb0000-0000-0000-0000-00000000fb01"));
@@ -140,6 +141,11 @@ public sealed class FormsRouteTests : IAsyncLifetime
         await store.PublishAsync(new DefinitionCoordinates(TenantA, def.Id.Value, def.Version.ToString()));
 
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
+        _app.Use(async (http, next) =>
+        {
+            if (_selected is not null) http.Features.Set(_selected);
+            await next(http);
+        });
 
         // The durable forms mechanism owns this route; the node-wide middleware must skip it.
         NodeMutationIdempotency.UseOnce(_app, TimeProvider.System);
@@ -153,6 +159,12 @@ public sealed class FormsRouteTests : IAsyncLifetime
             _activeTeam,
             OperatorRoles,
             TimeProvider.System);
+
+        SelectedFormSubmitRoutes.Map(_app.MapSelectedSessionProductGroup(),
+            _app.Services.GetRequiredService<IFormEngine>(),
+            _app.Services.GetRequiredService<IFormCapabilityIssuer>(),
+            _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
+            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System);
 
         await _app.StartAsync();
 
