@@ -14,6 +14,14 @@
     "POST /api/local-node/packs/verify": "pack verify"
   },
   "exemptions": {
+    "GET /api/session/admin/grants/holders": "Selected-session product holder inspection under MembersManage; browser-selected authority, not a node-operator verb.",
+    "GET /api/session/audit/metadata": "Governed selected-session kernel audit metadata projection for product audit inspection; the operator CLI does not impersonate a selected browser session.",
+    "GET /api/session/authorization/role-vocabulary": "Selected-tenant role vocabulary used by pack-declared product controls; not node operation.",
+    "POST /api/session/admin/grants/narrow-scope": "Selected-session scoped grant replacement with antiforgery and the carried MembersManage decision; interactive product administration, not node operation.",
+    "POST /api/session/admin/grants/review": "Selected-session grant review stamp with antiforgery and the carried MembersManage decision; interactive product administration, not node operation.",
+    "POST /api/session/admin/grants/revoke": "Selected-session grant-only revocation with antiforgery and the carried MembersManage decision; interactive product administration, not node operation.",
+    "POST /api/session/forms/{formId}/submit": "Selected-session product form submission with antiforgery and durable form idempotency; the CLI does not mint browser session capabilities.",
+    "POST /api/session/packs/{packKey}/replace": "Interactive selected-session replacement orchestrates immutable draft install and activation with antiforgery; operator pack install and activate remain separate existing verbs.",
     "* /api/llm/{**rest}": "Session-gated LLM reverse-proxy transport; plumbing for the web client, not an operator action.",
     "* /health": "Pre-auth browser/liveness probes; the CLI's health verb uses /ready, the canonical readiness probe.",
     "* /live": "Pre-auth browser/liveness probes; the CLI's health verb uses /ready, the canonical readiness probe.",

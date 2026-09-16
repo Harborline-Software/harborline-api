@@ -63,7 +63,8 @@ public interface IEntityMutationStore : IEntityStore
     /// Mints a new entity. Idempotent on <c>(Scheme, Authority, Nonce, Issuer)</c> — repeating
     /// the call with the same tuple and same body returns the same <see cref="EntityId"/> rather
     /// than minting a duplicate. A matching tuple with a different body raises
-    /// <see cref="IdempotencyConflictException"/>.
+    /// <see cref="IdempotencyConflictException"/>. With <see cref="CreateOptions.RequireNew"/>, every
+    /// existing identifier raises that conflict, including equal bodies; the check and insert are atomic.
     /// </summary>
     internal Task<EntityId> CreateAsync(SchemaId schema, JsonDocument body, CreateOptions options, CancellationToken ct = default);
 

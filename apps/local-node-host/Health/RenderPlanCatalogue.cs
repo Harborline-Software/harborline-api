@@ -7,6 +7,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.ViewDefinitions;
 
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -164,7 +165,7 @@ public static class RenderPlanCompiler
                 JsonSerializer.SerializeToElement(new { code = "definition-unavailable" }));
             return true;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or ViewDefinitionGovernanceException)
         {
             refusalCode = PackRenderPlanCodes.BindingUnresolved;
             return false;
@@ -223,15 +224,37 @@ public static class RenderPlanCompiler
                     || !TryGetProperty(action, "label", out var label) || label.ValueKind != JsonValueKind.String
                     || string.IsNullOrWhiteSpace(label.GetString())
                     || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
-                    || !IsSupportedOperation(operation.GetString()))
+                    || (!action.TryGetProperty("dispatch", out _) && !IsSupportedOperation(operation.GetString())))
                 {
                     refusalCode = PackRenderPlanCodes.BindingUnresolved;
                     return null;
                 }
-                actions.Add(new { id = id.GetString(), label = label.GetString() });
+                if (action.TryGetProperty("dispatch", out var dispatch))
+                {
+                    _ = ViewRequestPresentationAdmission.Admit(action);
+                    var request = HostViewRequestDescriptors.Resolve(dispatch);
+                    JsonElement? input = null;
+                    if (action.TryGetProperty("input", out var authoredInput))
+                    {
+                        input = FormBindings(authoredInput, out refusalCode);
+                        if (input is null) return null;
+                    }
+                    actions.Add(new
+                    {
+                        id = id.GetString(), label = label.GetString(), operation = operation.GetString(),
+                        dispatch = new { schemaVersion = 1, kind = "request", descriptor = request.Descriptor, bindings = request.Bindings },
+                        input,
+                        inputForm = action.TryGetProperty("inputForm", out var form) ? form : (JsonElement?)null,
+                        fileInput = action.TryGetProperty("fileInput", out var file) ? file : (JsonElement?)null,
+                        result = action.TryGetProperty("result", out var result) ? result : (JsonElement?)null,
+                    });
+                }
+                else actions.Add(new { id = id.GetString(), label = label.GetString() });
             }
         }
-        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions });
+        var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.ResolveDataSource(source) : null;
+        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
+            JsonSerializerOptions.Web);
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"

@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 
 using Xunit;
 
@@ -203,6 +204,33 @@ public sealed class SharedRouteGuardPointOfUseTests
         Assert.Equal(
             "spatial",
             AuthorizationGate.RecordKindFor(AuthorizationOperation.Parse(Permission.SpatialRead)));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_selected_principals_tenant_cannot_be_replaced_by_route_authority(bool matches)
+    {
+        var http = ContextWith(TestRouteGate.AllowAll());
+        http.Features.Set(new SelectedSessionRequestPrincipal("account", Tenant,
+            new PrincipalUserId("holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination"));
+        AuthorizationDecision? accepted = null;
+        var result = await RequestAuthorization.RefusalAsync(http,
+            matches ? Tenant : new TenantId("other-tenant"), TeamRolePermissions.RecordsRead,
+            RouteRecord.Of("m6-t433-allowed-record-1"), CancellationToken.None, decision => accepted = decision);
+        if (matches)
+        {
+            Assert.Null(result);
+            Assert.NotNull(accepted);
+            Assert.Equal(Tenant, accepted.Request.Tenant);
+            Assert.Equal("holder", accepted.Request.Principal.Value);
+        }
+        else
+        {
+            AssertRefused(result);
+            Assert.Null(accepted);
+        }
     }
 
     private static DefaultHttpContext ContextWith(AuthorizationGate gate)

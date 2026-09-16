@@ -355,9 +355,9 @@ public sealed class EntityRouteTests : IAsyncLifetime
         return request;
     }
 
-    private static SelectedSessionRequestPrincipal Principal(string id) => new(
+    private SelectedSessionRequestPrincipal Principal(string id) => new(
         accountId: $"account-{id}",
-        tenantId: new TenantId("tenant-entity-tests"),
+        tenantId: Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext.ProjectTenantId(_activeTeam.Active!.TeamId),
         principalUserId: new PrincipalUserId(id),
         canonicalParty: new CanonicalPartyReference($"party-{id}"),
         membershipId: $"membership-{id}",

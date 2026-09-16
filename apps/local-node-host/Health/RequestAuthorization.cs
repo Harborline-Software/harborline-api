@@ -68,7 +68,8 @@ internal static class RequestAuthorization
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(time);
-        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow());
+        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow())
+        { CorrelationId = http.Features.Get<WebSession.SelectedRequestCorrelation>()?.Value };
     }
 
     /// <summary>
@@ -81,7 +82,8 @@ internal static class RequestAuthorization
         TenantId tenant,
         string permission,
         RouteRecord record,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<AuthorizationDecision>? onAllowed = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         var time = http.RequestServices.GetService<TimeProvider>();
@@ -89,7 +91,7 @@ internal static class RequestAuthorization
         // deliberately no wall-clock fallback: inventing one here would date a decision off the record.
         return time is null
             ? ValueTask.FromResult<IResult?>(Denied(permission))
-            : RefusalAsync(http, Authority(http, tenant, time), permission, record, ct);
+            : RefusalAsync(http, Authority(http, tenant, time), permission, record, ct, onAllowed);
     }
 
     /// <summary>
@@ -103,7 +105,8 @@ internal static class RequestAuthorization
         AuthorizationWriteContext writeAuthority,
         string permission,
         RouteRecord record,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<AuthorizationDecision>? onAllowed = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         // A write route hands us the authority it will STAMP its mutation with, whose actor is the acting
@@ -111,6 +114,12 @@ internal static class RequestAuthorization
         // shared helper the production PEP uses; the instant and the tenant are the caller's, untouched, so
         // "one act, one clock read" still holds.
         var authority = writeAuthority with { Principal = NodeGatePrincipal.Resolve(http) };
+        if (http.Features.Get<SelectedSessionRequestPrincipal>() is { } selected &&
+            (authority.Tenant != selected.TenantId || selected.TenantId.IsSystemSentinel))
+        {
+            return await PreDecidedAsync(http, authority with { Tenant = selected.TenantId }, permission, ct)
+                .ConfigureAwait(false);
+        }
         var gate = http.RequestServices.GetService<AuthorizationGate>();
         if (gate is null)
         {
@@ -140,9 +149,10 @@ internal static class RequestAuthorization
             return await PreDecidedAsync(http, authority, permission, ct).ConfigureAwait(false);
         }
 
-        return decision.Verdict == AuthorizationVerdict.Allowed
-            ? null
-            : await RefusedAsync(http, decision, ct).ConfigureAwait(false);
+        if (decision.Verdict != AuthorizationVerdict.Allowed)
+            return await RefusedAsync(http, decision, ct).ConfigureAwait(false);
+        onAllowed?.Invoke(decision);
+        return null;
     }
 
     /// <summary>
@@ -216,7 +226,10 @@ internal static class RequestAuthorization
                 .ConfigureAwait(false);
         }
 
-        return Write(refusal, permission, auditId);
+        var correlation = auditId is not null ? decision?.Request.CorrelationId : null;
+        if (auditId is { } recorded) http.Response.Headers["X-Harborline-Audit-Id"] = recorded.ToString("D");
+        if (correlation is { } correlated) http.Response.Headers["X-Harborline-Audit-Correlation"] = correlated.ToString("D");
+        return Write(refusal, permission, auditId, correlation);
     }
 
     /// <summary>
@@ -224,7 +237,7 @@ internal static class RequestAuthorization
     /// decided the acting principal may see; <see cref="AuthorizationRefusal.Diagnostic"/> is deliberately
     /// not written here — it belongs to the audit row.
     /// </summary>
-    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null)
+    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null, Guid? correlation = null)
     {
         var body = new Dictionary<string, object?>
         {
@@ -237,6 +250,7 @@ internal static class RequestAuthorization
         // Only an appended receipt extends the refusal's original five-field shape.
         if (auditId is { } recordedId)
             body["auditId"] = recordedId;
+        if (correlation is { } correlated) body["correlationId"] = correlated;
         return Results.Json(body, statusCode: StatusCodes.Status403Forbidden);
     }
 }

@@ -2,6 +2,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Harborline.Api.LocalNodeHost.Tests.TestDoubles;
 
+// ClearAllPools in other collections can release this canary's idle pooled handle.
+// Run outside parallel collections so it observes pooling, not another test's cleanup.
+[Collection("Harborline process environment")]
 public sealed class SqliteTestDatabaseTests
 {
     /// <summary>

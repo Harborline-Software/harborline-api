@@ -28,6 +28,8 @@ using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Authorization;
 
 using Xunit;
 
@@ -50,6 +52,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     private HttpClient _unattributedClient = null!;
     private KeyPair _key = null!;
     private InMemoryPackInstallStore _store = null!;
+    private SelectedSessionRequestPrincipal? _selected;
 
     public async Task InitializeAsync()
     {
@@ -94,6 +97,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
         {
+            if (_selected is not null) http.Features.Set(_selected);
             if (http.Request.Headers.ContainsKey("X-Test-Desktop"))
             {
                 http.Features.Set(DesktopPlaneRequestFeature.Instance);
@@ -143,6 +147,23 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList());
         Assert.Equal("acme.pack", entry.GetProperty("packKey").GetString());
         Assert.Equal("Active", entry.GetProperty("lifecycle").GetString());
+    }
+
+    [Fact]
+    public async Task Selected_pack_inventory_does_not_read_ambient_tenant()
+    {
+        var bytes = await ExportAsync(FormPackBody());
+        using var installed = await PostBytesAsync(PackInstallRoutes.InstallRoute, bytes);
+        Assert.Equal(HttpStatusCode.OK, installed.StatusCode);
+        _selected = new SelectedSessionRequestPrincipal("account",
+            new("43300000-0000-4000-8000-000000000000"), new PrincipalUserId("selected-admin"),
+            new CanonicalPartyReference("party"), "membership", 1,
+            [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var response = await _client.GetAsync(PackInstallRoutes.ListInstalledRoute);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        var rows = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Empty(rows.EnumerateArray());
     }
 
     [Fact(DisplayName = "nothing installed exposes only install; first install restores the full pack surface")]

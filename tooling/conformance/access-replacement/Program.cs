@@ -20,3 +20,20 @@ await File.WriteAllBytesAsync(Path.Combine(directory, AccessReplacementFixture.A
 await File.WriteAllTextAsync(manifestPath, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
 Console.WriteLine($"PUBLIC CONFORMANCE FIXTURE ONLY: {manifest["sha256"]}");
 Console.WriteLine($"Issuer: {file.Envelope.IssuerId.ToBase64Url()}");
+var probeBytes = await AccessReplacementFixture.GenerateAsync(root, atomicityProbe: true);
+var probe = new PackFileCodec().TryDecode(probeBytes)!;
+var probeIndex = probe.Contents.ToList().FindIndex(item => item.Key == AccessReplacementFixture.ProbeRefusalKey);
+if (probeIndex < 0) throw new InvalidOperationException("Probe refusal content missing.");
+var probeManifest = new
+{
+    manifestVersion = 1,
+    artifact = AccessReplacementFixture.ProbeArtifactName,
+    sha256 = Convert.ToHexStringLower(SHA256.HashData(probeBytes)),
+    packKey = probe.Envelope!.Payload.Manifest.Key,
+    version = AccessReplacementFixture.ProbeVersion,
+    expectedRefusal = new { code = "pack.view-definition.malformed", pointer = $"/contents/{probeIndex}/contentBase64" },
+};
+await File.WriteAllBytesAsync(Path.Combine(directory, AccessReplacementFixture.ProbeArtifactName), probeBytes);
+await File.WriteAllTextAsync(Path.Combine(directory, "atomicity-probe.manifest.json"),
+    JsonSerializer.Serialize(probeManifest, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
+Console.WriteLine($"PUBLIC ATOMICITY PROBE ONLY: {probeManifest.sha256}; {probeManifest.expectedRefusal.pointer}");

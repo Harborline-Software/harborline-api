@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
@@ -16,11 +17,15 @@ using Harborline.Api.Foundation.Definitions.Compatibility;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
@@ -59,6 +64,12 @@ public static class AssetRegistryRoutes
 {
     /// <summary>Canonical route base for the node-local asset-registry surface.</summary>
     public const string RouteBase = "/api/local-node/asset-registry";
+
+    internal static ViewRequestDescriptor ReadEntityRequest { get; } = new(
+        "records.read.v1", "GET", RouteBase + "/entities/{id}", "application/json",
+        "device-reachable-product", false, TeamRolePermissions.RecordsRead,
+        [new("id", ViewRequestValueKind.Text, ViewRequestPlacement.Path, "id"),
+            new("correlationId", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "X-Correlation-ID")]);
 
     /// <summary>Maps the asset-registry routes, closing over the registry stores + active-team accessor + clock.</summary>
     public static void Map(
@@ -284,6 +295,7 @@ public static class AssetRegistryRoutes
     {
         app.MapGet($"{RouteBase}/entities", async (string? type, HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var tenant = NodeTenant.Resolve(activeTeam);
             // ADR 0060 (ticket 358): authority travels with the READ. The list's act is over the install's
             // collection rather than any one row, so it carries RouteRecord.TheInstall and rides the
@@ -299,13 +311,21 @@ public static class AssetRegistryRoutes
             return Results.Ok(new EntityListResponse(rows.Select(ToEntityWire).ToArray()));
         });
 
-        app.MapGet($"{RouteBase}/entities/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
+        app.MapGet(ReadEntityRequest.RouteTemplate, async (string id, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
+            AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct)
+                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false) is { } denied)
                 return denied;
             var entity = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct).ConfigureAwait(false);
@@ -318,7 +338,19 @@ public static class AssetRegistryRoutes
             var values = boundRecords is null
                 ? null
                 : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
-            return Results.Ok(ToDetailWire(entity, container, path, values));
+            Guid? receipt = null;
+            if (accepted is not null && http.RequestServices.GetService<AuthorizedActAudit>() is { } audit &&
+                await audit.RecordAsync(new AuditEventType("RecordRead"), accepted,
+                    new Dictionary<string, object?> { ["recordId"] = entity.Id.Value }, ct)
+                    .ConfigureAwait(false) is { } auditId)
+            {
+                receipt = auditId;
+                http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
+                if (accepted.Request.CorrelationId is { } correlation)
+                    http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+            }
+            return Results.Ok(ToDetailWire(entity, container, path, values) with
+            { AuditId = receipt, CorrelationId = receipt is not null ? accepted?.Request.CorrelationId : null });
         });
 
         app.MapPost($"{RouteBase}/entities", async (CreateEntityBody body, HttpContext http, CancellationToken ct) =>
@@ -910,7 +942,8 @@ public static class AssetRegistryRoutes
         string[] Path,
         PropertyFormWire? PropertyForm,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Values = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null);
     /// <summary>The type's pinned property-form binding (the entity-detail form).</summary>
     public sealed record PropertyFormWire(string Definition, string Version);
 

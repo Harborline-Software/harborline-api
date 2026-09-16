@@ -16,7 +16,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 /// <summary>Projects the Access pack's submitted grant form through its typed review workflow.</summary>
 internal sealed class AccessGrantFormSubmissionProjection(
     NodeWorkflowInstantiationService instances,
-    IWorkflowTriggerDispatcher dispatcher) : IFormSubmitProjection, IFormSubmissionGate
+    IWorkflowTriggerDispatcher dispatcher,
+    IWorkflowStore workflowStore) : IFormSubmitProjection, IFormSubmissionGate, IFormSubmissionResultReader
 {
     private const string FormId = "access.grant-a-role";
     // A section's role tokens are the QUALIFIED reference (DeclarativeGateReference.ParseRole refuses a
@@ -29,6 +30,24 @@ internal sealed class AccessGrantFormSubmissionProjection(
 
     public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) =>
         form.Value == FormId ? [SubmitterRole] : [];
+
+    public async ValueTask<JsonElement?> ReadResultAsync(FormDefinitionId form, TenantId tenant, EntityId instance,
+        CancellationToken cancellationToken = default)
+    {
+        if (form.Value != FormId) return null;
+        var workflow = await workflowStore.LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(instance.ToString()), cancellationToken).ConfigureAwait(false);
+        if (workflow is null || workflow.TenantId != tenant.Value) return null;
+        var committed = await workflowStore.FindStepResultAsync(
+            new WorkflowStepKey(workflow.Id, 0, GrantIssuanceSteps.Approve), cancellationToken).ConfigureAwait(false);
+        if (committed is null) return null;
+        using var result = JsonDocument.Parse(committed.ResultJson);
+        return JsonSerializer.SerializeToElement(new
+        {
+            workflowInstanceId = workflow.Id, definitionKey = workflow.DefinitionKey,
+            definitionVersion = workflow.DefinitionVersion, outcome = result.RootElement,
+        });
+    }
 
     public async Task<IReadOnlyList<FormSubmitProjectionSkip>> ProjectAsync(
         FormSubmitContext context, CancellationToken cancellationToken = default)

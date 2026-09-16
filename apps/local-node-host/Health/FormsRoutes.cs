@@ -258,6 +258,10 @@ public static class FormsRoutes
                 // to the pre-Wave-2b success response; the 202-pending path below is the only other shape.
                 return Results.Created(location, new FormSubmitResponse(receipt.InstanceId.ToString()));
             }
+            catch (FormSubmissionReplayConflictException)
+            {
+                return Results.Conflict(new { code = "forms.replay_context_mismatch" });
+            }
             catch (FormSubmitProjectionPendingException ex)
             {
                 // F-ROUTE: the submission COMMITTED but its post-submit projection did not complete. This is
@@ -308,7 +312,7 @@ public static class FormsRoutes
     /// Reads the optional <c>Idempotency-Key</c> header. Absent ⇒ null (fresh-instance behaviour).
     /// A present-but-whitespace or over-long key is rejected 400 (a bounded token, never unbounded input).
     /// </summary>
-    private static bool TryReadIdempotencyKey(HttpRequest request, out string? idempotencyKey, out IResult? error)
+    internal static bool TryReadIdempotencyKey(HttpRequest request, out string? idempotencyKey, out IResult? error)
     {
         idempotencyKey = null;
         error = null;
@@ -643,7 +647,10 @@ public sealed record InternationalizedTextDto(
 public sealed record FormSubmitResponse(
     [property: JsonPropertyName("instanceId")] string InstanceId,
     [property: JsonPropertyName("projection"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Projection = null,
-    [property: JsonPropertyName("skips"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormSubmitSkipDto>? Skips = null)
+    [property: JsonPropertyName("skips"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormSubmitSkipDto>? Skips = null,
+    [property: JsonPropertyName("auditId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+    [property: JsonPropertyName("correlationId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null,
+    [property: JsonPropertyName("result"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Result = null)
 {
     /// <summary>The submission committed; its projection is deferred to the reconcile sweep (202, F-ROUTE).</summary>
     public const string ProjectionPending = "pending";

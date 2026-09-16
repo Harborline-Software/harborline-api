@@ -25,7 +25,7 @@ public sealed class T433AccessGrantViewDescriptorTests
 
         Assert.NotNull(descriptor);
         Assert.Equal("AccessGrant", descriptor.RecordType);
-        Assert.Equal(new[] { "principalId", "role", "scope", "status" }, descriptor.Fields.Keys);
+        Assert.Equal(new[] { "grantId", "principalId", "role", "scope", "status" }, descriptor.Fields.Keys);
         Assert.All(descriptor.Fields.Values, kind => Assert.Equal(ViewRecordFieldKind.Text, kind));
     }
 

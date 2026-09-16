@@ -2,15 +2,18 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "9c2851a439073eb0251322ca809b776f0c82adc4",
-  "recordedAt": "2026-09-16T07:32:55Z",
+  "sourcePin": "88db2856b2b0bd898c796db40bb8dace5a10fc6b",
+  "recordedAt": "2026-09-16T11:45:35Z",
   "totals": {
-    "total": 4164,
-    "passed": 4143,
+    "total": 4308,
+    "passed": 4287,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "PR 167 CodeRabbit repairs: complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b measured 4308 total, 4287 passed, zero failed and 21 skipped in 8m10s, without retries. Exact comparison to the prior green gate proves only five added cases across four methods, zero removals and all 21 skip identities unchanged. docs/t433-producer-host-inventory.md records each new identity and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh quality-enabled committed-head gate must confirm the tuple.",
+    "PR 167 independent review: the complete direct Release host run at a76ca9443f4953b9865db34b7767569683adfce1 measured 4303 total, 4282 passed, zero failed and 21 skipped without retries. Comparison with the prior green exact-clone TRX proves exactly nine added data-source admission/compiler cases across three methods, zero removals and identical skip identities. docs/t433-producer-host-inventory.md records all nine identities and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky and retry policies and other-OS baselines remain unchanged. A fresh committed-head quality-enabled full gate must confirm the tuple.",
+    "Ticket 433 producer integration: the quality-enabled exact-clone run at bbfcc15ba35879dd460b86e6a8e510cba95ad953 measured 4294 total, 4273 passed, zero failed and 21 skipped without retries. Method-row reconciliation against central main proves 130 added executions across 68 methods, zero removals and identical skip identities; docs/t433-producer-host-inventory.md lists every addition and the TRX hashes. Only the measured Windows tuple and provenance change. Failure, skip, retry identities/allowances and other-OS baselines remain unchanged. A fresh committed-head full gate must confirm this tuple.",
     "PR 166 review repairs: the complete direct Release host run at 9c2851a439073eb0251322ca809b776f0c82adc4 measured 4164 total, 4143 passed, zero failed and 21 skipped in 4m35s, without retries. Six new red-to-green cases cover SQLite constructor cleanup and activation progress while a form/standing enumeration is paused. Three existing cases have one-to-one naming corrections, not deletions. docs/t433-test-inventory.md records identities and measured evidence. Only the measured Windows tuple and its provenance change; failure, skip and retry identities and allowances remain unchanged. The final PR gate must confirm this tuple.",
     "Ticket 433 deferred-health concurrency repair: the direct complete Release host run at 3962c3a92cc3cf24a1f0162d89cdef0ccb9379aa measured 4158 total, 4137 passed, zero failed and 21 skipped in 4m12s, with no retries. Four separately listed workflow/view race cases cover late old-refresh completion and inverse read-before-new-publication ordering. The previous b9a5c771 all-lane gate passed its measured 4154/4133/0/21 tuple before this repair. docs/t433-test-inventory.md retains each inventory tranche and the new measurement evidence. Change only this measured Windows tuple; failure, skip, known-flaky identities and retry allowances remain unchanged. The final clean committed-head all-lane gate must confirm it.",
     "Ticket 433 bounded activation atomicity: the complete Release host run for the async tranche at 1e7f8dc6 measured 4154 total, 4133 passed, zero failed and 21 skipped in 4m5s, with no retries. The preceding clean exact-clone run at 13cb086f measured 4151/4130/0/21 and refused only the old count inventory. Independent discovery compared source pin 54325cb to 13cb086f: 29 added identities and four explicit one-to-one semantic rewrites, giving 25 additions and zero deletions; the async tranche adds three separately named cases. docs/t433-test-inventory.md records full identities, rename mappings, inventory digests and measured evidence. Update only this measured Windows tuple; failure, skip and known-flaky identities and retry allowances remain unchanged. The final clean committed-head all-lane gate must confirm it.",
@@ -93,23 +96,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4158,
-      "passed": 4137,
+      "total": 4303,
+      "passed": 4282,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4158 -> 4164; passed 4137 -> 4143; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "PR 166 adds six resource-lifetime regressions: failed SQLite initialization at open/begin/enlist and paused form-tenant/form-published/standing enumeration. Three existing cases receive one-to-one naming corrections; no cases are deleted and no failure, skip, or retry policy changes.",
-    "detectedBy": "Direct complete Release host run at 9c2851a439073eb0251322ca809b776f0c82adc4. Console: artifacts/t433-atomicity/review-resource-lifetime-full-host.log; TRX: artifacts/t433-atomicity/review-resource-lifetime-full-host.trx; SHA256 ea2b96e84ed0ae28e5a2bb2064552a81bdc0f016f93a703255bea09e649d5274. This measured run, not arithmetic alone, supplies the tuple.",
-    "arithmeticCrossCheck": "4158 + 6 = 4164; passed = total - notExecuted = 4164 - 21 = 4143."
+    "change": "total 4303 -> 4308; passed 4282 -> 4287; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "Five cases across four methods cover missing input-form governance refusal, two selected entity cache outcomes, opaque successor conflict and unrelated database failure propagation. Existing rollback and navigation/inventory checks are strengthened without identity changes. Exact comparison proves five additions, zero removals and all 21 skip identities unchanged.",
+    "detectedBy": "Complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b with installed contracts/capability prerequisites. Console: artifacts/t433-action-contract/coderabbit-full-host-88db2856.log; TRX: artifacts/t433-action-contract/coderabbit-full-host-88db2856.trx; SHA256 4804dd9fd7b3df744abf767957a5754f09e1ff19063824cfd95cdb0860e9d545. The command terminated exit 0 without retries; this is a host measurement, not a full-gate receipt.",
+    "arithmeticCrossCheck": "4303 + 5 = 4308; passed = total - notExecuted = 4308 - 21 = 4287."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "9c2851a439073eb0251322ca809b776f0c82adc4",
+    "apiCommit": "88db2856b2b0bd898c796db40bb8dace5a10fc6b",
     "platform": "native Windows",
-    "configuration": "Release, direct dotnet test apps/local-node-host/tests/tests.csproj --no-build --no-restore after a complete Release rebuild, with the contracts and capability-host toolchains installed",
+    "configuration": "Release, complete direct host suite after full solution restore/build, contracts and capability-host toolchains installed",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Measured 2026-09-16T07:28:19.1736648Z to 2026-09-16T07:32:55.7275473Z: total 4164, passed 4143, failed 0, skipped 21; console duration 4m35s; no retries.",
+    "runs": "Measured 2026-09-16T11:37:21.9644367Z to 2026-09-16T11:45:35.1412345Z: total 4308, passed 4287, failed 0, skipped 21; console test duration 8m10s; no retries.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final PR exact-clone gate must independently confirm this revision."
   },
   "verdictVocabulary": {

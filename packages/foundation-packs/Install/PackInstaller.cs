@@ -139,7 +139,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
 
         var decision = AuthorizeOrAudit(
-            context.Tenant, context.Principal, context.Now, claimed.PackKey, claimed.Version);
+            context.Tenant, context.Principal, context.Now, claimed.PackKey, claimed.Version, context.CorrelationId);
         var plan = BuildPlan(packBytes, context, decision, claimed);
         var preview = plan.Preview;
 
@@ -200,6 +200,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         DateTimeOffset now,
         string? actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions,
+        Guid? correlationId,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -226,7 +227,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             ArgumentException.ThrowIfNullOrWhiteSpace(actingPrincipal);
         }
 
-        var decision = AuthorizeOrAudit(tenant, actingPrincipal, now, packKey, version);
+        var decision = AuthorizeOrAudit(tenant, actingPrincipal, now, packKey, version, correlationId);
 
         // The target must be installed — fetch it FIRST so the activation guards (provider-slot,
         // cross-pack collision) inspect its persisted manifest state BEFORE any pointer flip.
@@ -456,6 +457,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             context.Now,
             context.Principal,
             context.OwnershipResolutions,
+            context.CorrelationId,
             cancellationToken);
     }
 
@@ -728,15 +730,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         string principal,
         DateTimeOffset at,
         string packKey,
-        string version)
+        string version,
+        Guid? correlationId = null)
     {
+        if (correlationId == Guid.Empty) throw new ArgumentException("Correlation ID must be non-empty.", nameof(correlationId));
         var scope = ScopeExpression.Parse($"/records/{packKey}");
         var request = new AuthorizationGateRequest(
             new PermissionAtom(AuthorizationOperation.Parse(Permission.PackagesOperate), scope),
             new ActorId(principal),
             tenant,
             new AuthorizationTarget("pack", packKey, scope),
-            at);
+            at) { CorrelationId = correlationId };
         var decision = _gate.DecideAsync(request).AsTask().GetAwaiter().GetResult();
         try
         {

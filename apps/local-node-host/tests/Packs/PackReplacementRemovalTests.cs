@@ -209,7 +209,6 @@ public sealed class PackReplacementRemovalTests
         // Restart reconciliation must not activate the canceled draft. Only an explicit retry may
         // replace the old projection after the cancellation source is removed.
         world.Views.TearDownOnRegister = false;
-        World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
         Assert.Null(await world.ReadViewAsync());
         Assert.NotNull(await world.ReadReportAsync());
@@ -249,7 +248,6 @@ public sealed class PackReplacementRemovalTests
         // The refusal is what holds the admission open: once the registry admits, the next boot's
         // reconciliation completes the same pass — the view lands and only then does the report go.
         world.Views.RefuseOnRegister = false;
-        World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
         Assert.Null(await world.ReadViewAsync());
         Assert.Same(reportBefore, await world.ReadReportAsync());
@@ -344,16 +342,6 @@ public sealed class PackReplacementRemovalTests
         public IPackProjectionReconciler Reconciler => Installer;
 
         public void AttachProjector() => Reconciler.AttachProjector(Projector);
-
-        /// <summary>Clears <c>PackSeedProjector.ConsumedAuthorities</c> — the per-process replay guard,
-        /// which a real node restart empties. Test-only; nothing production reaches this field.</summary>
-        public static void SimulateProcessRestart()
-        {
-            var field = typeof(PackSeedProjector).GetField(
-                "ConsumedAuthorities",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-            ((System.Collections.Concurrent.ConcurrentDictionary<Guid, byte>)field.GetValue(null)!).Clear();
-        }
 
         public IReadOnlyList<PackProjectionAdmission> IncompleteAdmissions() =>
             [.. ((IPackProjectionAdmissionStore)_store).ListIncompleteProjectionAdmissions()];

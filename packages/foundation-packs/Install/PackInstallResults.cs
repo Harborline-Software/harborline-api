@@ -486,6 +486,7 @@ public static class PackScopePolicy
 /// <see cref="PackInstallCodes.RefusedNoPrincipal"/>); optional for <see cref="IPackInstaller.Preview"/>,
 /// which never mutates.</param>
 /// <param name="OwnershipResolutions">Optional content-key ownership choices applied only after authorization.</param>
+/// <param name="CorrelationId">Optional validated request audit association; never an authorization input.</param>
 public sealed record PackInstallContext(
     TenantId Tenant,
     IPackTrustStore TrustStore,
@@ -494,4 +495,5 @@ public sealed record PackInstallContext(
     TimeSpan RevocationMaxAge,
     BreakGlass? BreakGlass = null,
     string? Principal = null,
-    IReadOnlyDictionary<string, string>? OwnershipResolutions = null);
+    IReadOnlyDictionary<string, string>? OwnershipResolutions = null,
+    Guid? CorrelationId = null);

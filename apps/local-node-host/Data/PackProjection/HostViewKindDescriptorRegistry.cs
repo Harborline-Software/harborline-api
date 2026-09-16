@@ -5,6 +5,7 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
+using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Health;
@@ -81,6 +82,92 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         {
             throw new ViewDefinitionGovernanceException("view_definition.entity_type_unknown");
         }
+
+        await AdmitRequestsAsync(definition, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask AdmitRequestsAsync(ViewDefinition definition, CancellationToken cancellationToken)
+    {
+        var hasDataSource = definition.Parameters.TryGetProperty("dataSource", out var dataSource);
+        var hasActions = definition.Parameters.TryGetProperty("actions", out var actions);
+        if (!hasDataSource && (!hasActions || actions.ValueKind == JsonValueKind.Array
+            && !actions.EnumerateArray().Any(action => action.ValueKind == JsonValueKind.Object && action.TryGetProperty("dispatch", out _))))
+            return;
+        var row = await DescribeRecordTypeAsync(definition, cancellationToken).ConfigureAwait(false);
+        var selection = row?.Fields.ToDictionary(pair => pair.Key, pair => pair.Value switch
+        {
+            ViewRecordFieldKind.Text or ViewRecordFieldKind.DateTime => ViewRequestValueKind.Text,
+            ViewRecordFieldKind.Ordered => ViewRequestValueKind.Number,
+            ViewRecordFieldKind.Scalar => ViewRequestValueKind.Boolean,
+            _ => ViewRequestValueKind.Object,
+        }, StringComparer.Ordinal) ?? [];
+        if (hasDataSource)
+            HostViewRequestDescriptors.AdmitDataSource(dataSource, new(new Dictionary<string, ViewRequestValueKind>(), new Dictionary<string, ViewRequestValueKind>()));
+        if (!hasActions) return;
+        if (actions.ValueKind != JsonValueKind.Array)
+            throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+        foreach (var action in actions.EnumerateArray())
+        {
+            if (action.ValueKind != JsonValueKind.Object)
+                throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+            if (!action.TryGetProperty("dispatch", out var dispatch)) continue;
+            var hasFile = ViewRequestPresentationAdmission.Admit(action);
+            var fields = new Dictionary<string, ViewRequestValueKind>(StringComparer.Ordinal);
+            var hasInput = action.TryGetProperty("input", out var input);
+            if (hasInput)
+            {
+                if (input.ValueKind != JsonValueKind.Object || !input.TryGetProperty("fieldsMeta", out var metadata)
+                    || metadata.ValueKind != JsonValueKind.Object)
+                    throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+                foreach (var field in metadata.EnumerateObject())
+                    fields.Add(field.Name, InputKind(field.Value));
+            }
+            if (action.TryGetProperty("inputForm", out var form))
+            {
+                if (hasInput || form.ValueKind != JsonValueKind.Object
+                    || !form.TryGetProperty("formId", out var formId) || formId.ValueKind != JsonValueKind.String
+                    || !form.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String)
+                    throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+                FormDefinition stored;
+                try
+                {
+                    stored = await _forms.GetAsync(new DefinitionCoordinates(new TenantId(definition.Tenant),
+                        formId.GetString()!, version.GetString()!), cancellationToken).ConfigureAwait(false);
+                }
+                catch (FormDefinitionNotFoundException)
+                {
+                    throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+                }
+                var schema = await _schemas.GetAsync(stored.SchemaRef, cancellationToken).ConfigureAwait(false)
+                    ?? throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+                foreach (var field in DescribeFields(schema.JsonSchemaText))
+                    fields.Add(field.Key, field.Value switch
+                    {
+                        ViewRecordFieldKind.Text or ViewRecordFieldKind.DateTime => ViewRequestValueKind.Text,
+                        ViewRecordFieldKind.Ordered => ViewRequestValueKind.Number,
+                        ViewRecordFieldKind.Scalar => ViewRequestValueKind.Boolean,
+                        _ => ViewRequestValueKind.Object,
+                    });
+                hasInput = true;
+            }
+            var request = HostViewRequestDescriptors.Admit(dispatch, new(selection, fields, HasInputObject: hasInput, HasBinaryInput: hasFile));
+            if (hasFile && request.Descriptor.ContentType != "application/octet-stream")
+                throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+        }
+    }
+
+    private static ViewRequestValueKind InputKind(JsonElement field)
+    {
+        if (field.ValueKind != JsonValueKind.Object || !field.TryGetProperty("type", out var type)
+            || type.ValueKind != JsonValueKind.String)
+            throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+        return type.GetString() switch
+        {
+            "text" or "select" or "date" or "email" or "phone" or "url" or "textarea" => ViewRequestValueKind.Text,
+            "number" or "currency" => ViewRequestValueKind.Number,
+            "checkbox" => ViewRequestValueKind.Boolean,
+            _ => throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid"),
+        };
     }
 
     /// <inheritdoc />
@@ -97,6 +184,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         {
             return new ViewRecordTypeDescriptor(id.Value, new Dictionary<string, ViewRecordFieldKind>(StringComparer.Ordinal)
             {
+                ["grantId"] = ViewRecordFieldKind.Text,
                 ["principalId"] = ViewRecordFieldKind.Text,
                 ["role"] = ViewRecordFieldKind.Text,
                 ["scope"] = ViewRecordFieldKind.Text,

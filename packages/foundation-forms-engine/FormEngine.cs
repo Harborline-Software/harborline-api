@@ -449,6 +449,8 @@ public sealed class FormEngine : IFormEngine
             ? DeriveIdempotentLocalPart(token.Tenant, form, idempotencyKey!)
             : Guid.NewGuid().ToString("N");
         var instanceId = new EntityId(InstanceScheme, InstanceAuthority, localPart);
+        var requestFingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(candidate.RootElement)));
 
         // F-ROUTE idempotent replay: a resubmit with the same key whose instance ALREADY exists (for this
         // tenant, not soft-deleted) is a no-op — return the existing receipt WITHOUT re-persisting,
@@ -462,6 +464,7 @@ public sealed class FormEngine : IFormEngine
             var prior = await _entities.GetAsync(instanceId, default, ct).ConfigureAwait(false);
             if (prior is not null && prior.Tenant == token.Tenant && prior.DeletedAt is null)
             {
+                await ValidateReplayContextAsync(instanceId, prior.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
                 return new FormSubmitReceipt(instanceId, prior.CreatedAt);
             }
         }
@@ -497,7 +500,10 @@ public sealed class FormEngine : IFormEngine
                 Tenant: token.Tenant,
                 ValidFrom: submittedAt,
                 ExplicitLocalPart: localPart,
-                Binding: binding);
+                Binding: binding,
+                // A lost equal-body create must take the same authenticated replay path as any
+                // other collision, never append a second Mint or project a different request.
+                RequireNew: hasIdempotencyKey);
 
             EntityId entityId;
             try
@@ -516,6 +522,7 @@ public sealed class FormEngine : IFormEngine
                 var winner = await _entities.GetAsync(instanceId, default, ct).ConfigureAwait(false);
                 if (winner is not null && winner.Tenant == token.Tenant && winner.DeletedAt is null)
                 {
+                    await ValidateReplayContextAsync(instanceId, winner.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
                     return new FormSubmitReceipt(instanceId, winner.CreatedAt);
                 }
                 throw;
@@ -550,6 +557,8 @@ public sealed class FormEngine : IFormEngine
                     ["operation"] = Op.Mint.ToString(),
                     ["encrypted_fields"] = encryptedFields.ToArray(),
                     ["submission"] = auditPayload.RootElement.Clone(),
+                    ["correlation_id"] = authority.CorrelationId?.ToString("D"),
+                    ["request_fingerprint"] = requestFingerprint,
                 }),
                 submittedAt,
                 Guid.NewGuid(),
@@ -568,6 +577,28 @@ public sealed class FormEngine : IFormEngine
             storedBody.Dispose();
             snapshot?.FullProjection?.Dispose();
         }
+    }
+
+    private async ValueTask ValidateReplayContextAsync(EntityId instance, DateTimeOffset submittedAt,
+        AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
+    {
+        await foreach (var row in _authorizedAudit.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(authority.Tenant,
+            FormMintAuditEventType, submittedAt, submittedAt), ct).ConfigureAwait(false))
+        {
+            var body = row.Payload.Payload.Body;
+            if (!body.TryGetValue("entity_id", out var entity) || entity?.ToString() != instance.ToString()) continue;
+            // Header absence is still a request context, never permission to skip actor/payload checks.
+            // Durable audit decoding can represent an absent correlation as JSON null rather than CLR null.
+            var hasCorrelation = body.TryGetValue("correlation_id", out var original);
+            var originalCorrelation = original is null or JsonElement { ValueKind: JsonValueKind.Null }
+                ? null : original.ToString();
+            if (row.Actor == authority.Principal && hasCorrelation &&
+                originalCorrelation == authority.CorrelationId?.ToString("D") && body.TryGetValue("request_fingerprint", out var hash) &&
+                hash?.ToString() == fingerprint) return;
+            throw new FormSubmissionReplayConflictException();
+        }
+        // A committed entity without its original audit cannot authorize any replay/projection.
+        throw new FormSubmissionReplayConflictException();
     }
 
     // Audit correspondence is an independent description of the admitted form act. These helpers

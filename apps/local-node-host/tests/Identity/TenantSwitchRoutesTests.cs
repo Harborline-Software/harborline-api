@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -351,6 +353,19 @@ public sealed class TenantSwitchRoutesTests
             string? successorPrincipalId = null,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+            string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<AdminGrantReviewResult?> ReviewGrantAsync(
+            string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
+            string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
+            GrantId successorId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         // Ticket 362 - this fixture never narrows; the member surface is not what it is asserting.
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(

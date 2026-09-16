@@ -68,8 +68,10 @@ public sealed class AuthorizedActAudit
         var request = decision.Request;
         try
         {
+            var auditBody = new Dictionary<string, object?>(body);
+            if (request.CorrelationId is { } correlation) auditBody["correlation_id"] = correlation.ToString("D");
             var payload = await _signer.SignAsync(
-                new AuditPayload(new Dictionary<string, object?>(body)), request.At, Guid.NewGuid(), ct)
+                new AuditPayload(auditBody), request.At, Guid.NewGuid(), ct)
                 .ConfigureAwait(false);
             var record = new AuditRecord(
                 Guid.NewGuid(),

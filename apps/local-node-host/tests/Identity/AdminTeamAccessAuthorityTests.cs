@@ -143,6 +143,26 @@ public sealed class AdminTeamAccessAuthorityTests
         // The revoked member no longer appears in the member list.
         var after = await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId);
         Assert.DoesNotContain(after!.Members, m => m.PartyId == "party-web");
+        Assert.NotNull(result.AuditId);
+        var replay = await fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId);
+        Assert.Equal(result.AuditId, replay!.AuditId);
+    }
+
+    [Fact]
+    public async Task Grant_only_revocation_never_enters_the_roster_writer_and_preserves_other_grants()
+    {
+        var captures = new BoundaryCaptures();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, captures: captures);
+        var tenant = new TenantId(TenantId);
+        var store = new NodeEfGrantStore(fixture.GrantFactory);
+        var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId).ToArray();
+        var result = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            new AuthorizationWriteContext(new ActorId("principal-admin"), tenant, Now));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
+        Assert.Empty(captures.RosterWriterDecisions);
+        Assert.Empty(captures.RosterAudit.Records);
+        Assert.Same(Assert.Single(captures.GrantWriterDecisions), Assert.Single(captures.GrantAudit.Decisions));
+        Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId));
     }
 
     [Fact]
@@ -158,6 +178,7 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Same(sentinel, Assert.Single(captures.RosterWriterDecisions));
         Assert.Same(sentinel, Assert.Single(captures.GrantAudit.Decisions));
         Assert.Same(sentinel, Assert.Single(captures.RosterAudit.Decisions));
+        Assert.Equal(Assert.Single(captures.GrantAudit.Records).AuditId, result!.AuditId);
     }
 
     [Fact]
@@ -999,6 +1020,23 @@ public sealed class AdminTeamAccessAuthorityTests
         IAuthorizedGrantRevocationWriter inner,
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
+        public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
+            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken);
+        }
+
+        public Task<GrantScopeNarrowing?> NarrowScopeAsync(
+            TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
+            GrantRevocation revocation, AuthorizationDecision admittedDecision,
+            CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
+                admittedDecision, cancellationToken);
+        }
+
         public Task<AccessGrant?> RevokeAsync(
             TenantId tenant,
             GrantId grant,

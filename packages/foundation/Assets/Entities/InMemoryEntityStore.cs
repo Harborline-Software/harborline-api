@@ -135,6 +135,8 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore, IP
         {
             if (_storage.Entities.TryGetValue(id, out var existing))
             {
+                if (options.RequireNew)
+                    throw new IdempotencyConflictException($"Entity '{id}' already exists; a new insertion was required.");
                 // Idempotent: same body → return same id.
                 if (existing.BodyJson == canonicalBody)
                     return id;
@@ -260,6 +262,8 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore, IP
 
                     if (_storage.Entities.TryGetValue(id, out var existing))
                     {
+                        if (draft.Options.RequireNew)
+                            throw new IdempotencyConflictException($"Entity '{id}' already exists; a new insertion was required and the batch was rolled back.");
                         if (existing.BodyJson == canonicalBody)
                         {
                             // Idempotent match — entity pre-existed with matching body, accept as-is.

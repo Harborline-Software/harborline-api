@@ -27,10 +27,11 @@ const NON_BOUNDARY_MAP_CALLS = new Map([
   ['MapToIPv6', 'IPAddress normalization — not routing'],
 ])
 
-// These five composition helpers are qualified by their declaring file AND symbol. They are not
-// global name exemptions: discovery verifies each declaration before allowing its call spelling.
-// A same-named helper introduced elsewhere therefore remains unknown and fails closed.
+// Every helper declaration must resolve uniquely. The selected-reader additions also bind the
+// reviewed caller file and static receiver; they must not widen the legacy method-name exemptions.
 const QUALIFIED_NON_BOUNDARY_MAP_CALLS = [
+  { source: 'apps/local-node-host/Health/AccessHoldersRead.cs', symbol: 'AccessHoldersRead.MapSelected', caller: 'apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs', reason: 'selected holder-reader composition helper; its MapGet registration is discovered in the declaring file' },
+  { source: 'apps/local-node-host/Health/AuthorizationAdminRoutes.cs', symbol: 'AuthorizationAdminRoutes.MapSelectedRoles', caller: 'apps/local-node-host/Health/HostedAuthorizationAdminApiEndpoint.cs', reason: 'selected role-reader composition helper; its MapGet registration is discovered in the declaring file' },
   { source: 'apps/local-node-host/Health/LocalNodeEndpointMapping.cs', symbol: 'LocalNodeEndpointMapping.MapAsync', reason: 'host startup orchestration; its hosted endpoints contain the route registrations' },
   { source: 'apps/local-node-host/Health/DeviceReachableProductDataRouteFence.cs', symbol: 'DeviceReachableProductDataRouteFence.MapDeviceReachableProductDataGroup', reason: 'route-group fence; it adds audience metadata but registers no route' },
   { source: 'apps/local-node-host/Health/LocalNodeHealthProbeEndpointRouteBuilderExtensions.cs', symbol: 'LocalNodeHealthProbeEndpointRouteBuilderExtensions.MapLocalNodeHealthProbes', reason: 'health composition helper; its three MapHealthChecks calls are discovered in the same file' },
@@ -212,6 +213,9 @@ export function parseLocalNodeRoutes(text, source, qualifiedNonBoundaryCalls = n
       const argumentStart = match.index + match[0].length
       if (NON_BOUNDARY_MAP_CALLS.has(call)) continue
       if (qualifiedNonBoundaryCalls.has(call)) continue
+      const receiver = /\b([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(text.slice(0, match.index))?.[1]
+      if (receiver && qualifiedNonBoundaryCalls.has(`${source}:${receiver}.${call}`)
+        && !new RegExp(`\\busing\\s+${receiver}\\s*=`).test(text)) continue
       if (HTTP_VERB_MAPS.has(call)) {
         push('local-node-http', call.slice(3).toUpperCase(), normalizeExpression(argumentAt(text, argumentStart, 0)))
         continue
@@ -240,7 +244,7 @@ export function parseLocalNodeRoutes(text, source, qualifiedNonBoundaryCalls = n
   return boundaries
 }
 
-async function validateQualifiedNonBoundaryMapCalls(paths) {
+export async function validateQualifiedNonBoundaryMapCalls(paths) {
   const sources = new Map(await Promise.all(paths.map(async (path) => [
     relative(root, path).replaceAll('\\', '/'),
     await readFile(path, 'utf8'),
@@ -264,7 +268,7 @@ async function validateQualifiedNonBoundaryMapCalls(paths) {
         + `found declarations in ${declaringSources.join(', ') || 'no production file'}`,
       )
     }
-    calls.add(method)
+    calls.add(exemption.caller ? `${exemption.caller}:${exemption.symbol}` : method)
   }
   return calls
 }
