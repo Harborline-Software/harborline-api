@@ -62,6 +62,7 @@ public sealed class HostViewRequestAdmissionTests
     public async Task Grant_actions_compile_only_host_owned_selected_session_enforcement(string descriptorId, bool narrow)
     {
         var bindings = new Dictionary<string, object> { ["grantId"] = new { source = "selection", pointer = "/grantId" } };
+        bindings["correlationId"] = new { source = "invocation", pointer = "/correlationId" };
         if (narrow)
         {
             bindings["scope"] = new { source = "input", pointer = "/scope" };
@@ -100,7 +101,7 @@ public sealed class HostViewRequestAdmissionTests
                 id = "read", label = "Read record", operation = "opaque.example.read",
                 input = new { fieldsMeta = new { recordId = new { type = "text", required = true } }, overlay = new { } },
                 dispatch = new { schemaVersion = 1, kind = "request", descriptorId,
-                    bindings = new { id = new { source, pointer } } },
+                    bindings = new { id = new { source, pointer }, correlationId = new { source = "invocation", pointer = "/correlationId" } } },
             } },
         }),
     };
@@ -135,7 +136,8 @@ public sealed class HostViewRequestAdmissionTests
             id = "replace", label = "Replace", operation = "opaque.replace",
             fileInput = new { accept }, result = new { refresh },
             dispatch = new { schemaVersion = 1, kind = "request", descriptorId = "packs.replace.selected.v1",
-                bindings = new { packKey = new { literal = "example.pack" }, artifact = new { source = "file", pointer = "" } } },
+                bindings = new { packKey = new { literal = "example.pack" }, artifact = new { source = "file", pointer = "" },
+                    correlationId = new { source = "invocation", pointer = "/correlationId" } } },
         } });
         return definition with { Parameters = JsonSerializer.SerializeToElement(parameters) };
     }

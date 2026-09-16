@@ -20,7 +20,8 @@ internal static class SelectedPackReplacementRoutes
         "packs.replace.selected.v1", "POST", "/api/session/packs/{packKey}/replace", "application/octet-stream",
         "selected-session", true, Permission.PackagesOperate,
         [new("packKey", ViewRequestValueKind.Text, ViewRequestPlacement.Path, "packKey"),
-            new("artifact", ViewRequestValueKind.Binary, ViewRequestPlacement.BodyRoot, "")]);
+            new("artifact", ViewRequestValueKind.Binary, ViewRequestPlacement.BodyRoot, ""),
+            new("correlationId", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "X-Correlation-ID")]);
 
     internal static void Map(IEndpointRouteBuilder app, IPackInstaller installer, IPackInstallStore store,
         IPackTrustStore trust, IPackRevocationList revocation, IWebAntiforgeryPolicy antiforgery,

@@ -7,6 +7,9 @@ internal static partial class ViewRequestTransportAdmission
 {
     internal static bool IsValid(ViewRequestDescriptor descriptor)
     {
+        if ((descriptor.RowsPointer is null) != (descriptor.RowIdentityPointer is null)
+            || (descriptor.RowsPointer is { } rows && (!Pointer().IsMatch(rows)
+                || !Pointer().IsMatch(descriptor.RowIdentityPointer!)))) return false;
         if (descriptor.Method is not ("GET" or "POST" or "PUT" or "PATCH" or "DELETE")
             || descriptor.ContentType is not ("application/json" or "application/octet-stream")
             || descriptor.RouteTemplate is not { Length: > 0 } route || !route.StartsWith('/', StringComparison.Ordinal)
@@ -58,4 +61,6 @@ internal static partial class ViewRequestTransportAdmission
     private static partial Regex Name();
     [GeneratedRegex("\\{([A-Za-z][A-Za-z0-9_-]*)\\}", RegexOptions.CultureInvariant)]
     private static partial Regex PathTokens();
+    [GeneratedRegex("^/[A-Za-z][A-Za-z0-9_-]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex Pointer();
 }

@@ -24,7 +24,8 @@ internal static class SelectedFormSubmitRoutes
         "selected-session", true, Permission.FormsAuthor,
         [new("formId", ViewRequestValueKind.Text, ViewRequestPlacement.Path, "formId"),
             new("values", ViewRequestValueKind.Object, ViewRequestPlacement.BodyRoot, ""),
-            new("idempotencyKey", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "Idempotency-Key")]);
+            new("idempotencyKey", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "Idempotency-Key"),
+            new("correlationId", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "X-Correlation-ID")]);
 
     internal static void Map(IEndpointRouteBuilder app, IFormEngine engine,
         IFormCapabilityIssuer issuer, IFormCapabilityVerifier verifier, IFormSubmissionGate submissionGate,

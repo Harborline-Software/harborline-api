@@ -35,7 +35,14 @@ public sealed record ViewRequestDescriptor(
     string Audience,
     bool RequiresAntiforgery,
     string AuthorizationCapability,
-    IReadOnlyList<ViewRequestInput> Inputs);
+    IReadOnlyList<ViewRequestInput> Inputs)
+{
+    /// <summary>Host-owned top-level response-array pointer for a list source, or null for a non-list action.</summary>
+    public string? RowsPointer { get; init; }
+
+    /// <summary>Host-owned top-level stable identity pointer within each list row.</summary>
+    public string? RowIdentityPointer { get; init; }
+}
 
 /// <summary>Source shapes resolved from the admitted row descriptor and input form.</summary>
 public sealed record ViewRequestBindingSources(

@@ -26,7 +26,8 @@ internal static class AccessHoldersRead
 
     internal static ViewRequestDescriptor SelectedReadRequest { get; } = new(
         "authorization.holders.selected.read.v1", "GET", "/api/session/admin/grants/holders", "application/json",
-        "selected-session", false, TeamRolePermissions.MembersManage, []);
+        "selected-session", false, TeamRolePermissions.MembersManage, [])
+        { RowsPointer = "/rows", RowIdentityPointer = "/grantId" };
 
     internal static void MapSelected(IEndpointRouteBuilder app, TimeProvider time) =>
         app.MapGet(SelectedReadRequest.RouteTemplate, (Delegate)((HttpContext http) => ReadSelectedAsync(http, time)));

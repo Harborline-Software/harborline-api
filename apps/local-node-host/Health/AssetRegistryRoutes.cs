@@ -68,7 +68,8 @@ public static class AssetRegistryRoutes
     internal static ViewRequestDescriptor ReadEntityRequest { get; } = new(
         "records.read.v1", "GET", RouteBase + "/entities/{id}", "application/json",
         "device-reachable-product", false, TeamRolePermissions.RecordsRead,
-        [new("id", ViewRequestValueKind.Text, ViewRequestPlacement.Path, "id")]);
+        [new("id", ViewRequestValueKind.Text, ViewRequestPlacement.Path, "id"),
+            new("correlationId", ViewRequestValueKind.Text, ViewRequestPlacement.Header, "X-Correlation-ID")]);
 
     /// <summary>Maps the asset-registry routes, closing over the registry stores + active-team accessor + clock.</summary>
     public static void Map(
