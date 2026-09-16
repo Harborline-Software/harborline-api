@@ -881,6 +881,10 @@ public sealed class AdminTeamAccessRoutesTests
             return Task.FromResult(Revoke);
         }
 
+        public Task<AdminGrantReviewResult?> ReviewGrantAsync(
+            string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public bool GrantOnlyCalled { get; private set; }
         public string? NarrowScope { get; private set; }
         public string? NarrowSuccessor { get; private set; }

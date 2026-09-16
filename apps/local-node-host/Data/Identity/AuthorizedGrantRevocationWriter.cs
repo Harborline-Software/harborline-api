@@ -13,6 +13,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// <summary>Decision-bearing boundary for an admitted admin grant revocation.</summary>
 internal interface IAuthorizedGrantRevocationWriter
 {
+    Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
+        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default);
+
     /// <summary>Atomically narrows a grant's scope without changing its role or subject.</summary>
     Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
@@ -56,6 +59,16 @@ internal sealed class AuthorizedGrantRevocationWriter(
 {
     private static readonly AuthorizationOperation MembersManage =
         AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
+
+    public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
+        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(admittedDecision);
+        admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", grant.ToString());
+        if (actor != admittedDecision.Request.Principal || at != admittedDecision.DecidedAt)
+            throw new ArgumentException("Review attribution must match the admitted decision.", nameof(admittedDecision));
+        return grants.RecordReviewAsync(tenant, grant, at, actor, cancellationToken);
+    }
 
     public Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,

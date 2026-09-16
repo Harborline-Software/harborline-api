@@ -138,6 +138,11 @@ public sealed record AdminNarrowMemberGrantResult(
 /// </summary>
 public interface IAdminTeamAccessAuthority
 {
+    /// <summary>Records an ordinary grant review under the selected administrator's carried decision.</summary>
+    Task<AdminGrantReviewResult?> ReviewGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Revokes only the identified grant; roster membership and other grants are unchanged.</summary>
     Task<AdminRevokeMemberResult?> RevokeGrantAsync(
         string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
@@ -217,7 +222,7 @@ public interface IAdminTeamAccessAuthority
 /// Issuance is delegated to <see cref="IAccountSetupInvitationIssuer"/>, which independently runs the
 /// identical gate + the requested-permissions subset check.
 /// </remarks>
-internal sealed class AdminTeamAccessAuthority(
+internal sealed partial class AdminTeamAccessAuthority(
     IDbContextFactory<NodeLocalWebSessionDbContext> sessionFactory,
     WebSelectedSessionStore selectedSessionStore,
     IDbContextFactory<NodeLocalInstallationIdentityDbContext> identityFactory,
@@ -823,7 +828,7 @@ internal sealed class AdminTeamAccessAuthority(
                 .Request(operation, "members", recordId);
             admittedDecision.RequireAllowedReaction(
                 operation, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);
-            if (eventType != RevocationRefused)
+            if (eventType != RevocationRefused && eventType != GrantReviewRecorded)
             {
                 await foreach (var existing in _audit.QueryAsync(
                                    new AuditQuery(tenant, eventType), cancellationToken)

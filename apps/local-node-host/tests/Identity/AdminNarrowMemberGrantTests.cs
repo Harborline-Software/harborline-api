@@ -398,6 +398,56 @@ public sealed class AdminNarrowMemberGrantTests
     }
 
     [Fact]
+    public async Task Governed_review_stamps_server_actor_and_time_without_changing_authority()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var grant = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = await store.FindAsync(tenant, grant.GrantId);
+        var authority = FounderAuthority(setup.TenantId) with { At = Now.AddMinutes(1) };
+        var result = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            grant.GrantId.ToString(), authority);
+        Assert.NotNull(result);
+        var after = await store.FindAsync(tenant, grant.GrantId);
+        Assert.Equal(before! with { LastReviewedAt = authority.At, LastReviewedBy = authority.Principal }, after);
+        var audit = Assert.Single(await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded")));
+        Assert.Equal(result.AuditId, audit.AuditId);
+        Assert.Equal(authority.Principal, audit.Actor);
+        Assert.Equal(result.CorrelationId.ToString("D"), audit.Payload.Payload.Body["correlation_id"]);
+        var second = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            grant.GrantId.ToString(), authority with { At = Now.AddMinutes(2) });
+        Assert.NotEqual(result.AuditId, second!.AuditId);
+        Assert.Equal(2, (await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded"))).Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Grant_review_and_revoke_denials_leave_store_and_epoch_unchanged(bool review)
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var grant = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = await store.SnapshotAsync(tenant);
+        var epoch = await EpochAsync(h, tenant, member);
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        var actor = new AuthorizationWriteContext(new ActorId(member), tenant, Now);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
+        {
+            if (review) await h.AdminTeam.ReviewGrantAsync(handle, setup.TenantId, grant.GrantId.ToString(), actor);
+            else await h.AdminTeam.RevokeGrantAsync(handle, setup.TenantId, grant.GrantId.ToString(), actor);
+        });
+        Assert.Equal(before, await store.SnapshotAsync(tenant));
+        Assert.Equal(epoch, await EpochAsync(h, tenant, member));
+    }
+
+    [Fact]
     public async Task Scope_narrowing_denial_writes_no_grant_or_epoch()
     {
         var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
