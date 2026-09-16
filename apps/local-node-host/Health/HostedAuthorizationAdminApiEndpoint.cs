@@ -2,6 +2,8 @@ using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.RuleEngine.Standings;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.Kernel.Audit;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -17,7 +19,8 @@ public sealed class HostedAuthorizationAdminApiEndpoint(
     StandingCatalogue standings,
     IActiveTeamAccessor activeTeam,
     TimeProvider timeProvider,
-    ILogger<HostedAuthorizationAdminApiEndpoint> logger) : IHostedService
+    ILogger<HostedAuthorizationAdminApiEndpoint> logger,
+    IAuditTrail? auditTrail = null) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -30,6 +33,9 @@ public sealed class HostedAuthorizationAdminApiEndpoint(
             standings,
             activeTeam,
             timeProvider));
+        if (auditTrail is not null)
+            sharedApp.MapApiRoutes(app => KernelAuditMetadataRoutes.Map(
+                app.MapSelectedSessionProductGroup(), auditTrail, timeProvider));
         logger.LogInformation(
             "Desktop-plane-only authorization administration API registered at {RouteBase}.",
             AuthorizationAdminRoutes.RouteBase);
