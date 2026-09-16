@@ -22,6 +22,7 @@ public static class PackProjectionActivationBarrier
 {
     private static readonly object Gate = new();
     private static readonly AsyncLocal<Lease?> Ownership = new();
+    private static readonly LinkedList<bool> Waiters = new();
     private static int readers;
     private static bool writing;
 
@@ -42,16 +43,29 @@ public static class PackProjectionActivationBarrier
         }
         lock (Gate)
         {
-            while (writing || (write && readers != 0))
+            // Queue only independent operations. A stream of new readers must not overtake an
+            // activation that is already waiting for the current readers to finish.
+            var waiter = Waiters.AddLast(write);
+            try
             {
+                while (writing || (write && readers != 0) || Waiters.First != waiter)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Monitor.Wait(Gate, 50);
+                }
                 cancellationToken.ThrowIfCancellationRequested();
-                Monitor.Wait(Gate, 50);
+                if (write) writing = true;
+                else readers++;
+                var lease = new Lease(write, previous);
+                Ownership.Value = lease;
+                return lease;
             }
-            if (write) writing = true;
-            else readers++;
-            var lease = new Lease(write, previous);
-            Ownership.Value = lease;
-            return lease;
+            finally
+            {
+                Waiters.Remove(waiter);
+                // Admit the next compatible reader, or release contenders after cancellation.
+                Monitor.PulseAll(Gate);
+            }
         }
     }
 

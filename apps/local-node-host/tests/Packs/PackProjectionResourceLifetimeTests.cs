@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
+[Collection(PackProjectionBarrierCollection.Name)]
 public sealed class PackProjectionResourceLifetimeTests
 {
     private static readonly TenantId Tenant = new("projection-resource-lifetime");
