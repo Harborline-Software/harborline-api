@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "dd921c972da4d284b4a0b81d8636cb390251c0d7",
-  "recordedAt": "2026-09-16T16:10:04.564Z",
+  "sourcePin": "752d8618148d8ba98d385b1ccd01ba34eb66390d",
+  "recordedAt": "2026-09-16T17:51:29.7070372Z",
   "totals": {
-    "total": 4316,
-    "passed": 4295,
+    "total": 4348,
+    "passed": 4327,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "M6 pack-defined Access admission and stable attenuation evidence: the Windows exact-clone run at 752d8618148d8ba98d385b1ccd01ba34eb66390d measured 4348 total, 4327 passed, zero failed and 21 skipped in 4m8s, without retries. The 32-case increase covers persisted invitation roles, public admitted-user bootstrap, authentic 1.1.1 to 1.1.4 replacement fixtures, input-bound grant targeting, single-decider attenuation, and stable allow/deny evidence. The preceding committed-head run exposed and then reconciled only stale migration, decision-constructor, live-scan, and trace-version controls; the repeated full run had no failure identities. Only the Windows count and provenance move; failure, skip, known-flaky and retry policies and other-OS baselines remain unchanged. The final committed-head exact-clone gate must confirm this tuple.",
     "M6 released platform form text and projection lifetime: the Windows exact-clone run at dd921c972da4d284b4a0b81d8636cb390251c0d7 measured 4316 total, 4295 passed, zero failed and 21 skipped in 6m27s, without retries. Seven malformed-localizable-text rows, one duplicate-case refusal, and one schema-enumerator snapshot regression were added; the prior two-row synthetic legacy-upgrade theory was replaced by one authentic byte-pinned 1.3.0 to 1.4.0 upgrade, for a measured net increase of eight. Only the Windows count and provenance move; failure, skip, known-flaky and retry policies and other-OS baselines remain unchanged. The final committed-head exact-clone gate must confirm this tuple.",
     "PR 167 CodeRabbit repairs: complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b measured 4308 total, 4287 passed, zero failed and 21 skipped in 8m10s, without retries. Exact comparison to the prior green gate proves only five added cases across four methods, zero removals and all 21 skip identities unchanged. docs/t433-producer-host-inventory.md records each new identity and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh quality-enabled committed-head gate must confirm the tuple.",
     "PR 167 independent review: the complete direct Release host run at a76ca9443f4953b9865db34b7767569683adfce1 measured 4303 total, 4282 passed, zero failed and 21 skipped without retries. Comparison with the prior green exact-clone TRX proves exactly nine added data-source admission/compiler cases across three methods, zero removals and identical skip identities. docs/t433-producer-host-inventory.md records all nine identities and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky and retry policies and other-OS baselines remain unchanged. A fresh committed-head quality-enabled full gate must confirm the tuple.",
@@ -97,24 +98,24 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4303,
-      "passed": 4282,
+      "total": 4316,
+      "passed": 4295,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4303 -> 4308; passed 4282 -> 4287; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "Five cases across four methods cover missing input-form governance refusal, two selected entity cache outcomes, opaque successor conflict and unrelated database failure propagation. Existing rollback and navigation/inventory checks are strengthened without identity changes. Exact comparison proves five additions, zero removals and all 21 skip identities unchanged.",
-    "detectedBy": "Complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b with installed contracts/capability prerequisites. Console: artifacts/t433-action-contract/coderabbit-full-host-88db2856.log; TRX: artifacts/t433-action-contract/coderabbit-full-host-88db2856.trx; SHA256 4804dd9fd7b3df744abf767957a5754f09e1ff19063824cfd95cdb0860e9d545. The command terminated exit 0 without retries; this is a host measurement, not a full-gate receipt.",
-    "arithmeticCrossCheck": "4303 + 5 = 4308; passed = total - notExecuted = 4308 - 21 = 4287."
+    "change": "total 4316 -> 4348; passed 4295 -> 4327; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "Thirty-two cases cover persisted invitation roles, admitted-user bootstrap, authentic Access replacement fixtures, input-bound grant targeting, single-decider attenuation, and stable allow/deny evidence. No failure, skip, known-flaky, retry, or other-host policy changed.",
+    "detectedBy": "Committed-head Windows exact-clone run at 752d8618148d8ba98d385b1ccd01ba34eb66390d. Every step except the prior Windows count inventory passed; the host suite measured 4348 total, 4327 passed, zero failed and 21 skipped in 4m8s, with no retries and no new failure identities. Report: .claude/gate-evidence/exact-clone-fail.json recorded 2026-09-16T17:50:53Z.",
+    "arithmeticCrossCheck": "4316 + 32 = 4348; passed = total - notExecuted = 4348 - 21 = 4327."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "88db2856b2b0bd898c796db40bb8dace5a10fc6b",
+    "apiCommit": "752d8618148d8ba98d385b1ccd01ba34eb66390d",
     "platform": "native Windows",
     "configuration": "Release, complete direct host suite after full solution restore/build, contracts and capability-host toolchains installed",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Measured 2026-09-16T11:37:21.9644367Z to 2026-09-16T11:45:35.1412345Z: total 4308, passed 4287, failed 0, skipped 21; console test duration 8m10s; no retries.",
-    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final PR exact-clone gate must independently confirm this revision."
+    "runs": "Measured by committed-head exact clone ending 2026-09-16T17:50:53Z: total 4348, passed 4327, failed 0, skipped 21; host-suite duration 4m8s; no retries. Every non-baseline step passed.",
+    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final committed-head exact-clone gate must independently confirm this revision."
   },
   "verdictVocabulary": {
     "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",
