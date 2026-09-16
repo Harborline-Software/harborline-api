@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -82,16 +83,23 @@ public sealed class CatalogueFieldSourceContractTests
 
     [Theory]
     [InlineData("title", "{\"kind\":\"Literal\",\"value\":\"Unsupported\"}")]
+    [InlineData("title", "{}")]
+    [InlineData("title", "{\"unsupported\":\"text\"}")]
     [InlineData("title", "{\"defaultLocale\":\"en\",\"values\":{}}")]
     [InlineData("description", "{\"defaultLocale\":\"en\",\"values\":{\"fr\":\"Bonjour\"}}")]
     public void Pack_text_that_is_not_a_complete_internationalized_text_refuses_closed(
         string property, string malformed)
     {
-        var content = Content(false);
-        content["overlay"]![property] = JsonNode.Parse(malformed);
+        using var resource = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
+            "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
+        var release = JsonNode.Parse(resource)!.AsObject();
+        var author = release["contents"]!.AsArray().Single(item =>
+            item!["key"]!.GetValue<string>() == "platform.pack.author")!;
+        author["content"]!["overlay"]![property] = JsonNode.Parse(malformed);
+        using var mutated = new MemoryStream(Encoding.UTF8.GetBytes(release.ToJsonString()));
 
         var exception = Assert.Throws<InvalidDataException>(() =>
-            PlatformPackPreloadHostedService.ValidateReleasedFormText(content));
+            PlatformPackPreloadHostedService.ReadExportRequest(mutated, "fixture-author"));
         Assert.Equal($"overlay.{property} must be an InternationalizedTextDto with a populated default locale",
             exception.Message);
     }

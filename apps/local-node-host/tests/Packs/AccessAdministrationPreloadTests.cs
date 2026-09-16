@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -491,10 +493,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(2, _audit.Query(Tenant).Count(entry => entry.Action == PackInstallAuditAction.Activated));
     }
 
-    [Theory]
-    [InlineData("1.0.0", 13)]
-    [InlineData("1.1.0", 39)]
-    public async Task Platform_preload_upgrades_legacy_seed_with_defaults_and_frozen_views(string legacyVersion, int legacyViews)
+    [Fact]
+    public async Task Platform_preload_upgrades_exact_released_1_3_without_rewriting_immutable_forms()
     {
         var context = new PackInstallContext(
             Tenant,
@@ -503,30 +503,52 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             TimeProvider.System.GetUtcNow(),
             PackInstallRoutes.RevocationMaxAge,
             Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
-        var current = PlatformPackPreloadHostedService.ReadExportRequest(
-            _signer.Signer.IssuerId.ToBase64Url());
-        var legacy = current with
-        {
-            Version = legacyVersion,
-            Contents = current.Contents
-                .Where(item => item.Key != "platform.detail.form" && item.Kind != PackContentKind.CascadeDefaults
-                    && (legacyVersion != "1.0.0" || (!item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
-                        && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))))
-                .ToArray(),
-        };
-
+        var fixtureBytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "platform", "platform-pack-1.3.0.export.json"));
+        Assert.Equal("EF1308048DFC3553A912594CA3E9133222905581B64A315D709A743A3F24E1C4",
+            Convert.ToHexString(SHA256.HashData(fixtureBytes)));
+        var legacy = ReadExactLegacyPlatformRequest(fixtureBytes, _signer.Signer.IssuerId.ToBase64Url());
+        Assert.Equal("1.3.0", legacy.Version);
+        var legacyAuthor = Assert.Single(legacy.Contents, item => item.Key == "platform.pack.author");
+        var legacyDetail = Assert.Single(legacy.Contents, item => item.Key == "platform.detail.form");
+        Assert.Equal("1.0.0", legacyAuthor.Version);
+        Assert.Equal("1.0.0", legacyDetail.Version);
+        Assert.Equal("Literal", legacyAuthor.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
+        Assert.Equal("Literal", legacyDetail.Content["overlay"]!["title"]!["kind"]!.GetValue<string>());
         var legacyBytes = await ExportAsync(legacy);
         Assert.True(_installer.Install(legacyBytes, context).Installed);
         var activation = _installer.Activate(context, legacy.Key, legacy.Version);
         Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
-        Assert.Equal(legacyVersion, _store.GetActive(Tenant, legacy.Key)!.Version);
-        Assert.Equal(legacyViews, (await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None)).Count);
-        Assert.Empty(_defaults.List(Tenant));
+        var installedLegacy = _store.GetVersion(Tenant, legacy.Key, legacy.Version)!;
+        var immutableItems = installedLegacy.SeedItems
+            .Where(item => item.Kind == PackContentKind.FormDefinition)
+            .ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
+        var oldDetail = Assert.IsType<FormDefinition>(
+            await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0")));
+        var oldAuthor = Assert.IsType<FormDefinition>(
+            await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.0")));
+        var oldDetailSemantics = ImmutableFormSemantics(oldDetail);
+        var oldAuthorSemantics = ImmutableFormSemantics(oldAuthor);
 
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         Assert.Equal("1.4.0", active.Version);
+        var preservedLegacy = _store.GetVersion(Tenant, legacy.Key, "1.3.0")!;
+        foreach (var item in preservedLegacy.SeedItems.Where(item => item.Kind == PackContentKind.FormDefinition))
+            Assert.Equal(immutableItems[item.Key], (item.ContentAddress, item.CanonicalJson));
+        var preservedDetail = Assert.IsType<FormDefinition>(
+            await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0")));
+        var preservedAuthor = Assert.IsType<FormDefinition>(
+            await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.0")));
+        Assert.Equal(FormDefinitionStatus.Withdrawn, preservedDetail.Status);
+        Assert.Equal(FormDefinitionStatus.Withdrawn, preservedAuthor.Status);
+        Assert.Equal(oldDetailSemantics, ImmutableFormSemantics(preservedDetail));
+        Assert.Equal(oldAuthorSemantics, ImmutableFormSemantics(preservedAuthor));
+        var newDetail = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
+        var newAuthor = await _forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
+        Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
+        Assert.Equal("Author a domain pack", newAuthor.Overlay.Title!.Values["en"]);
         Assert.Equal("1.4.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
@@ -534,13 +556,23 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
         Assert.Equal(
-            new[] { legacyVersion, "1.4.0" },
+            new[] { "1.3.0", "1.4.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
     }
+
+    private static string ImmutableFormSemantics(FormDefinition definition) => JsonSerializer.Serialize(new
+    {
+        definition.Envelope,
+        definition.SchemaRef,
+        definition.Overlay,
+        definition.CatalogueFieldSource,
+        definition.CreatedAt,
+        definition.PackSource,
+    });
 
     [Fact]
     public async Task Platform_preload_carries_the_one_compiled_descriptor_for_every_record_type()
@@ -731,6 +763,28 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     {
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
         await _preload.PreloadAsync(Tenant, CancellationToken.None);
+    }
+
+    private static PackExportRequest ReadExactLegacyPlatformRequest(byte[] bytes, string authoringPrincipal)
+    {
+        var document = JsonSerializer.Deserialize<ExportPackRequestDto>(bytes,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        return new PackExportRequest(
+            document.Key,
+            document.Version,
+            document.Name ?? document.Key,
+            document.Description ?? string.Empty,
+            Enum.Parse<PackScopeTier>(document.ScopeTier, true),
+            (document.Contents ?? []).Select(item => new PackContentSource(
+                item.Key,
+                Enum.Parse<PackContentKind>(item.Kind, true),
+                item.Version,
+                JsonNode.Parse(item.Content!.Value.GetRawText())!)).ToArray(),
+            (document.Dependencies ?? []).Select(dependency => new PackDependencyRef(
+                dependency.Key, dependency.Version, dependency.DeclaredDependencyKeys ?? [])).ToArray(),
+            document.CapabilityRequirements ?? [],
+            PackComposerRoutes.OwnRosterEpoch,
+            Dcp: DomainComplianceProfile.General(authoringPrincipal));
     }
 
     private async Task<byte[]> ExportAsync(PackExportRequest request)

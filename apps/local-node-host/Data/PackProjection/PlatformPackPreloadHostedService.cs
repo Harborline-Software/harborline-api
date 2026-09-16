@@ -20,10 +20,6 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 /// <summary>Installs the released platform catalogue seed through the ordinary pack path before Access.</summary>
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
-    private static readonly HashSet<string> InternationalizedTextProperties = new(StringComparer.Ordinal)
-    {
-        "title", "description", "label", "helpText", "confirmationMessage", "presentationBadge", "text",
-    };
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
     public const string PackVersion = "1.4.0";
     private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
@@ -102,6 +98,11 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Missing platform export document '{ResourceName}'.");
+        return ReadExportRequest(stream, authoringPrincipal);
+    }
+
+    internal static PackExportRequest ReadExportRequest(Stream stream, string authoringPrincipal)
+    {
         var document = JsonSerializer.Deserialize<ExportPackRequestDto>(stream, ExportJsonOptions)
             ?? throw new InvalidOperationException("The platform export document is not a JSON object.");
         return new PackExportRequest(Key: document.Key, Version: document.Version, Name: document.Name ?? document.Key,
@@ -129,56 +130,92 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     /// </summary>
     internal static void ValidateReleasedFormText(JsonNode content)
     {
-        if (!TryValidateInternationalizedText(content, string.Empty, out var error))
-            throw new InvalidDataException(error);
+        if (content is not JsonObject root || root["overlay"] is not JsonObject overlay)
+            throw new InvalidDataException("overlay must be an object");
+        ValidateOptionalText(overlay, "title", "overlay.title");
+        ValidateOptionalText(overlay, "description", "overlay.description");
+
+        if (overlay["fields"] is JsonObject fields)
+            foreach (var field in fields)
+            {
+                if (field.Value is not JsonObject fieldOverlay)
+                    throw new InvalidDataException($"overlay.fields.{field.Key} must be an object");
+                ValidateRequiredText(fieldOverlay, "label", $"overlay.fields.{field.Key}.label");
+                ValidateOptionalText(fieldOverlay, "helpText", $"overlay.fields.{field.Key}.helpText");
+            }
+
+        ValidateTitledArray(overlay, "sections", "overlay.sections", titleRequired: true, validateItems: true);
+        ValidateTitledArray(overlay, "pages", "overlay.pages", titleRequired: false, validateItems: false);
+        if (overlay["wizard"] is JsonObject wizard)
+            ValidateOptionalText(wizard, "confirmationMessage", "overlay.wizard.confirmationMessage");
     }
 
-    private static bool TryValidateInternationalizedText(JsonNode node, string path, out string error)
+    private static void ValidateTitledArray(
+        JsonObject parent, string property, string path, bool titleRequired, bool validateItems)
     {
-        error = string.Empty;
-        if (node is JsonArray array)
+        if (parent[property] is null) return;
+        if (parent[property] is not JsonArray array) throw new InvalidDataException($"{path} must be an array");
+        for (var index = 0; index < array.Count; index++)
         {
-            for (var index = 0; index < array.Count; index++)
-                if (array[index] is { } child
-                    && !TryValidateInternationalizedText(child, $"{path}[{index}]", out error)) return false;
-            return true;
+            if (array[index] is not JsonObject item) throw new InvalidDataException($"{path}[{index}] must be an object");
+            if (titleRequired) ValidateRequiredText(item, "title", $"{path}[{index}].title");
+            else ValidateOptionalText(item, "title", $"{path}[{index}].title");
+            if (validateItems && item["items"] is { } items) ValidateFormItems(items, $"{path}[{index}].items");
         }
-        if (node is not JsonObject obj) return true;
+    }
 
-        foreach (var property in obj)
+    private static void ValidateFormItems(JsonNode node, string path)
+    {
+        if (node is not JsonArray items) throw new InvalidDataException($"{path} must be an array");
+        for (var index = 0; index < items.Count; index++)
         {
-            if (property.Value is null) continue;
-            var childPath = string.IsNullOrEmpty(path) ? property.Key : $"{path}.{property.Key}";
-            var textCandidate = property.Value is not JsonObject candidate
-                || candidate.ContainsKey("defaultLocale") || candidate.ContainsKey("values")
-                || candidate.ContainsKey("kind") || candidate.ContainsKey("value");
-            if (InternationalizedTextProperties.Contains(property.Key) && textCandidate)
+            if (items[index] is not JsonObject item) throw new InvalidDataException($"{path}[{index}] must be an object");
+            var itemPath = $"{path}[{index}]";
+            ValidateOptionalText(item, "title", $"{itemPath}.title");
+            if (item["items"] is { } nested) ValidateFormItems(nested, $"{itemPath}.items");
+            if (item["content"] is JsonArray content)
             {
-                if (property.Value is not JsonObject text
-                    || text.Count != 2
-                    || !text.TryGetPropertyValue("defaultLocale", out var localeNode)
-                    || localeNode is not JsonValue localeValue
-                    || !localeValue.TryGetValue<string>(out var locale)
-                    || string.IsNullOrWhiteSpace(locale)
-                    || !text.TryGetPropertyValue("values", out var valuesNode)
-                    || valuesNode is not JsonObject values
-                    || values.Count == 0
-                    || !values.TryGetPropertyValue(locale, out var defaultValueNode)
-                    || defaultValueNode is not JsonValue defaultValue
-                    || !defaultValue.TryGetValue<string>(out var localized)
-                    || string.IsNullOrWhiteSpace(localized)
-                    || values.Any(entry => string.IsNullOrWhiteSpace(entry.Key)
-                        || entry.Value is not JsonValue value
-                        || !value.TryGetValue<string>(out var translated)
-                        || string.IsNullOrWhiteSpace(translated)))
-                {
-                    error = $"{childPath} must be an InternationalizedTextDto with a populated default locale";
-                    return false;
-                }
-                continue;
+                for (var contentIndex = 0; contentIndex < content.Count; contentIndex++)
+                    if (content[contentIndex] is JsonObject contentNode)
+                        ValidateOptionalText(contentNode, "text", $"{itemPath}.content[{contentIndex}].text");
             }
-            if (!TryValidateInternationalizedText(property.Value, childPath, out error)) return false;
+            if (item["action"] is JsonObject action)
+                ValidateOptionalText(action, "label", $"{itemPath}.action.label");
         }
-        return true;
+    }
+
+    private static void ValidateRequiredText(JsonObject parent, string property, string path)
+    {
+        if (!parent.TryGetPropertyValue(property, out var node) || node is null)
+            throw new InvalidDataException($"{path} must be an InternationalizedTextDto with a populated default locale");
+        ValidateText(node, path);
+    }
+
+    private static void ValidateOptionalText(JsonObject parent, string property, string path)
+    {
+        if (!parent.TryGetPropertyValue(property, out var node) || node is null) return;
+        ValidateText(node, path);
+    }
+
+    private static void ValidateText(JsonNode node, string path)
+    {
+        if (node is not JsonObject text
+            || text.Count != 2
+            || !text.TryGetPropertyValue("defaultLocale", out var localeNode)
+            || localeNode is not JsonValue localeValue
+            || !localeValue.TryGetValue<string>(out var locale)
+            || string.IsNullOrWhiteSpace(locale)
+            || !text.TryGetPropertyValue("values", out var valuesNode)
+            || valuesNode is not JsonObject values
+            || values.Count == 0
+            || !values.TryGetPropertyValue(locale, out var defaultValueNode)
+            || defaultValueNode is not JsonValue defaultValue
+            || !defaultValue.TryGetValue<string>(out var localized)
+            || string.IsNullOrWhiteSpace(localized)
+            || values.Any(entry => string.IsNullOrWhiteSpace(entry.Key)
+                || entry.Value is not JsonValue value
+                || !value.TryGetValue<string>(out var translated)
+                || string.IsNullOrWhiteSpace(translated)))
+            throw new InvalidDataException($"{path} must be an InternationalizedTextDto with a populated default locale");
     }
 }
