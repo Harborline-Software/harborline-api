@@ -143,3 +143,11 @@ Three existing cases retain their assertions and coverage with corrected descrip
   name; its display name now describes complete activation refusal rather than successful activation.
 
 These are one-to-one naming corrections, not removed tests. No skip/failure/retry allowance changes.
+
+The direct complete Release host run at `9c2851a439073eb0251322ca809b776f0c82adc4`
+measured **4,164 total / 4,143 passed / 0 failed / 21 skipped** in 4m35s, without retries.
+`artifacts/t433-atomicity/review-resource-lifetime-full-host.trx` records
+`2026-09-16T07:28:19.1736648Z` through `2026-09-16T07:32:55.7275473Z`; SHA-256:
+`ea2b96e84ed0ae28e5a2bb2064552a81bdc0f016f93a703255bea09e649d5274`.
+The matching `.log` is in the same directory. The Windows baseline's tuple, source pin,
+delta and measurement provenance all refer to this run; policy history remains historical.
