@@ -185,6 +185,7 @@ builder.Services.Configure<LocalNodeOptions>(
 
 var localNodeOptions = new LocalNodeOptions();
 builder.Configuration.GetSection("LocalNode").Bind(localNodeOptions);
+LocalNodeStorageProvider.ValidateAndAnnounce(localNodeOptions.Storage);
 
 builder.Services.AddSingleton<Harborline.Api.Kernel.Sync.Network.INetworkTrustState>(
     new Harborline.Api.Kernel.Sync.Network.ConfiguredNetworkTrustState(localNodeOptions.Sync.NetworkTrust));
@@ -511,9 +512,11 @@ var sqlitePath = Path.Combine(
 void AddInstallStore(IServiceCollection services, bool pooling = true)
 {
     if (!string.IsNullOrWhiteSpace(localNodeOptions.StoreDekHex))
-        services.AddSqlCipherLocalNodeDbContextWithStoreDek(keyHierarchy.AtRestRootKey.Span, sqlitePath, pooling);
+        services.AddSqlCipherLocalNodeDbContextWithStoreDek(
+            keyHierarchy.AtRestRootKey.Span, sqlitePath, pooling, localNodeOptions.Storage);
     else
-        services.AddSqlCipherLocalNodeDbContext(rootSeed, sqlitePath, sqlCipherKeyDerivation, pooling);
+        services.AddSqlCipherLocalNodeDbContext(
+            rootSeed, sqlitePath, sqlCipherKeyDerivation, pooling, localNodeOptions.Storage);
 }
 {
     var genesisSigner = new Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner(rootSeed);
@@ -552,7 +555,8 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
         var rosterFactory = genesisStore.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
         await using (var rosterStore = await rosterFactory.CreateDbContextAsync(CancellationToken.None))
         {
-            await rosterStore.Database.MigrateAsync(CancellationToken.None).ConfigureAwait(false);
+            await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(
+                rosterStore.Database, CancellationToken.None).ConfigureAwait(false);
             var maximumWireFormat = await rosterStore.RosterRecords.AsNoTracking()
                 .Where(row => row.TeamId == genesisTeamId.ToString("D"))
                 .Select(row => (int?)row.WireFormatVersion)
@@ -591,7 +595,8 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
             await using var identity = await genesisStore
                 .GetRequiredService<IDbContextFactory<NodeLocalInstallationIdentityDbContext>>()
                 .CreateDbContextAsync(CancellationToken.None).ConfigureAwait(false);
-            await identity.Database.MigrateAsync(CancellationToken.None).ConfigureAwait(false);
+            await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(
+                identity.Database, CancellationToken.None).ConfigureAwait(false);
             if (await identity.InstallationAccessGrants.AsNoTracking().AnyAsync(
                     row => row.AuditCorrelationId == InstallationFounderBootstrapCeremony.CorrelationId,
                     CancellationToken.None).ConfigureAwait(false))

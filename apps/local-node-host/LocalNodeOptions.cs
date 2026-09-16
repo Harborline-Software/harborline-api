@@ -13,6 +13,13 @@ namespace Harborline.Api.LocalNodeHost;
 public sealed class LocalNodeOptions
 {
     /// <summary>
+    /// T-456 — relational storage selection for this local-node host. SQLite with SQLCipher remains
+    /// the default; PostgreSQL is an explicit server-owned-encryption-at-rest opt-up and requires TLS.
+    /// Bound from <c>LocalNode:Storage</c>.
+    /// </summary>
+    public StorageOptions Storage { get; set; } = new();
+
+    /// <summary>
     /// PERS-1 — the node's deployment ROLE (ADR 0137 D11 cache/relay/canonical node-role model). Bound from
     /// <c>LocalNode:Role</c>. Defaults to <see cref="NodeRole.Edge"/> (the single-device Harborline App behaviour).
     /// BOTH roles wire a durable, mandatory-envelope-at-rest blob store (a <c>FileSystemBlobStore</c> wrapped by
@@ -336,6 +343,29 @@ public sealed class LocalNodeOptions
         var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(userHome, ".local", "share", "sunfish", "local-node");
     }
+}
+
+/// <summary>T-456 relational storage configuration bound from <c>LocalNode:Storage</c>.</summary>
+public sealed class StorageOptions
+{
+    /// <summary>The configured relational provider; SQLite remains the default.</summary>
+    public StorageProvider Provider { get; set; } = StorageProvider.Sqlite;
+
+    /// <summary>
+    /// PostgreSQL connection string. This is required only when <see cref="Provider"/> is
+    /// <see cref="StorageProvider.Postgres"/> and must require TLS.
+    /// </summary>
+    public string? ConnectionString { get; set; }
+}
+
+/// <summary>T-456 relational providers supported by the local-node host.</summary>
+public enum StorageProvider
+{
+    /// <summary>The default encrypted embedded SQLCipher store.</summary>
+    Sqlite,
+
+    /// <summary>Server-grade PostgreSQL storage with server-owned encryption at rest.</summary>
+    Postgres,
 }
 
 /// <summary>Fixed W4 transport options for the optional local-node LAN listener.</summary>

@@ -257,7 +257,8 @@ public static class AdministratorRecoveryCommand
                 // The node may never have started since this table was introduced, so bring the roster schema
                 // up before writing to it. Migrating only this context is deliberate: recovery must not
                 // silently apply unrelated schema on a store the operator has not started.
-                await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+                await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(context.Database, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             candidate = DeriveGenesisCandidate(rootSeed, teamId);

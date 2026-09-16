@@ -77,21 +77,21 @@ internal static class LocalNodeExclusiveEfContextCatalog
     /// </summary>
     internal static IServiceCollection AddLocalNodeExclusiveSqlCipherContext<TContext>(
         this IServiceCollection services,
+        StorageOptions storage,
         string connectionString,
-        SqlCipherConnectionInterceptor interceptor)
+        SqlCipherConnectionInterceptor? interceptor)
         where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-        ArgumentNullException.ThrowIfNull(interceptor);
+        ArgumentNullException.ThrowIfNull(storage);
 
         var descriptor = For<TContext>();
         services.AddLocalNodeSaveChangesEnlistment();
         services.AddDbContextFactory<TContext>((provider, options) =>
         {
-            options.UseSqlite(connectionString, sqlite =>
-                sqlite.MigrationsHistoryTable(descriptor.MigrationsHistoryTable));
-            options.AddInterceptors(interceptor);
+            LocalNodeStorageProvider.Configure(
+                options, storage, connectionString, interceptor, descriptor.MigrationsHistoryTable);
             options.AddLocalNodeSaveChangesEnlistment(provider);
             options.ConfigureWarnings(warnings =>
                 warnings.Ignore(
@@ -310,8 +310,8 @@ internal static class LocalNodeExclusiveEfContextCatalog
             migrationsHistoryTable,
             owner,
             migrations,
-            (services, connectionString, interceptor) =>
-                services.AddLocalNodeExclusiveSqlCipherContext<TContext>(connectionString, interceptor));
+            (services, storage, connectionString, interceptor) =>
+                services.AddLocalNodeExclusiveSqlCipherContext<TContext>(storage, connectionString, interceptor));
     }
 
     private static T? ReadAttributeArgument<T>(Type declaringType, Type attributeType)
@@ -496,7 +496,7 @@ internal sealed record LocalNodeExclusiveEfContextDescriptor(
     string MigrationsHistoryTable,
     LocalNodeExclusiveMigrationOwner Owner,
     ImmutableArray<LocalNodeCompiledMigrationDescriptor> CompiledMigrations,
-    Action<IServiceCollection, string, SqlCipherConnectionInterceptor> Register);
+    Action<IServiceCollection, StorageOptions, string, SqlCipherConnectionInterceptor?> Register);
 
 /// <summary>A catalog-owned serial migration step. It is executed by exactly one startup owner.</summary>
 internal interface ILocalNodeExclusiveContextMigrator
@@ -521,6 +521,7 @@ internal sealed class LocalNodeExclusiveContextMigrator<TContext>(IDbContextFact
         await using var context = await _factory
             .CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
-        await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+        await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(context.Database, cancellationToken)
+            .ConfigureAwait(false);
     }
 }

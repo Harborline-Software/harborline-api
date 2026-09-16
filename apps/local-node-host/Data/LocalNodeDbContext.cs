@@ -28,10 +28,8 @@ namespace Harborline.Api.LocalNodeHost.Data;
 ///   <item>PG-quoted filtered indexes (<c>"Col" IS NOT NULL</c>) — Postgres-only
 ///     syntax; the filter is dropped on SQLite (the index degrades to non-filtered).</item>
 /// </list>
-/// The Npgsql opt-up path (capable-hardware tier per ADR 0114) is served by the
-/// Bridge's own <c>SignalBridgeDbContext</c>, which references Npgsql directly;
-/// this host references only the SQLite provider, so it guards on
-/// <c>Database.IsSqlite()</c>.
+/// The Npgsql opt-up path belongs to this host behind <c>LocalNode:Storage:Provider</c>.
+/// SQLite-specific mapping guards remain scoped to <c>Database.IsSqlite()</c>.
 /// </para>
 /// <para>
 /// <b>Council condition C3.</b> No LINQ query in the fleet may project <em>into</em>
@@ -109,14 +107,11 @@ public sealed class LocalNodeDbContext : DbContext
         }
 
         // ADR 0114 C1 — per-provider column-type overrides.
-        // This host references only the SQLite provider (the embedded local node
-        // is SQLite/SQLCipher-only; the Npgsql opt-up path runs from the Bridge's
-        // own SignalBridgeDbContext, not here). When the active provider is SQLite,
+        // When the active provider is SQLite,
         // rewrite every Postgres-only column type to its SQLite equivalent so the
         // SAME entity modules build cleanly without a per-module migration fork.
-        // `Database.IsNpgsql()` cannot be called here because Npgsql is not
-        // referenced; `IsSqlite()` (from the referenced SQLite provider) is the
-        // available, dependency-correct guard.
+        // `IsSqlite()` confines these rewrites to the SQLCipher default; Postgres
+        // keeps the module-authored relational hints.
         if (Database.IsSqlite())
         {
             ApplySqliteColumnTypeGuards(modelBuilder);

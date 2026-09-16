@@ -136,6 +136,16 @@ jobs:
       - name: Build the local platform feed
         run: node eng/build-local-feed.mjs
 
+      - name: Start PostgreSQL 16 with TLS for composed storage tests
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d --name hl-pg -p 5432:5432 -e POSTGRES_PASSWORD=harborline -e POSTGRES_USER=harborline -e POSTGRES_DB=harborline postgres:16
+          until docker exec hl-pg pg_isready -U harborline -d harborline; do sleep 1; done
+          docker exec -u postgres hl-pg sh -c 'openssl req -new -x509 -nodes -days 1 -subj "/CN=localhost" -keyout /var/lib/postgresql/server.key -out /var/lib/postgresql/server.crt && chmod 600 /var/lib/postgresql/server.key && psql -c "ALTER SYSTEM SET ssl = '\''on'\'';" && psql -c "ALTER SYSTEM SET ssl_cert_file = '\''/var/lib/postgresql/server.crt'\'';" && psql -c "ALTER SYSTEM SET ssl_key_file = '\''/var/lib/postgresql/server.key'\'';"'
+          docker restart hl-pg
+          until docker exec hl-pg pg_isready -U harborline -d harborline; do sleep 1; done
+          echo "HARBORLINE_TEST_POSTGRES=Host=localhost;Port=5432;Username=harborline;Password=harborline;Database=harborline;SSL Mode=Require;Trust Server Certificate=true" >> "$GITHUB_ENV"
+
       - name: eng/verify.sh
         run: bash eng/verify.sh
 

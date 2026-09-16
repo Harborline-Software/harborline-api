@@ -24,7 +24,7 @@ public static class DurableGenesisIdentity
         CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await db.Database.MigrateAsync(ct).ConfigureAwait(false);
+        await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(db.Database, ct).ConfigureAwait(false);
         var canonicalTeam = tenantId.ToString("D");
         if (!await db.RosterRecords.AsNoTracking()
                 .Where(row => row.TeamId == canonicalTeam).AnyAsync(ct).ConfigureAwait(false))

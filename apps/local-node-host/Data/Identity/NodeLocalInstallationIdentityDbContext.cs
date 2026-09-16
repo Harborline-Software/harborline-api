@@ -303,7 +303,7 @@ public sealed class NodeLocalInstallationIdentityDbContext : DbContext
                     "absolute_expires_at_utc > issued_at_utc");
                 table.HasCheckConstraint(
                     "ck_account_setup_invitation_digest",
-                    "length(token_digest) = 64 AND token_digest NOT GLOB '*[^0-9A-F]*'");
+                    LocalNodeStorageProvider.HexDigest64Check(Database, "token_digest"));
                 table.HasCheckConstraint(
                     "ck_account_setup_invitation_purpose",
                     "purpose = 'AccountSetup'");
@@ -365,7 +365,7 @@ public sealed class NodeLocalInstallationIdentityDbContext : DbContext
                     "absolute_expires_at_utc > issued_at_utc");
                 table.HasCheckConstraint(
                     "ck_recovery_invitation_digest",
-                    "length(token_digest) = 64 AND token_digest NOT GLOB '*[^0-9A-F]*'");
+                    LocalNodeStorageProvider.HexDigest64Check(Database, "token_digest"));
             });
             entity.HasKey(row => row.RecoveryInvitationId);
             entity.Property(row => row.RecoveryInvitationId)

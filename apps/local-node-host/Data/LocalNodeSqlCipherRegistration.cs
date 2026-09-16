@@ -27,7 +27,8 @@ public static class LocalNodeSqlCipherRegistration
         ReadOnlySpan<byte> rootSeed,
         string databasePath,
         ISqlCipherKeyDerivation keyDerivation,
-        bool pooling = true)
+        bool pooling = true,
+        StorageOptions? storage = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
@@ -40,7 +41,7 @@ public static class LocalNodeSqlCipherRegistration
         }
 
         var dek = keyDerivation.DeriveSqlCipherKey(rootSeed, RelationalStoreKeyId);
-        return RegisterWithResolvedDek(services, dek, databasePath, pooling);
+        return RegisterWithResolvedDek(services, dek, databasePath, pooling, storage ?? new StorageOptions());
     }
 
     /// <summary>Registers the same store graph with a shell-resolved recoverable Store DEK.</summary>
@@ -48,7 +49,8 @@ public static class LocalNodeSqlCipherRegistration
         this IServiceCollection services,
         ReadOnlySpan<byte> storeDek,
         string databasePath,
-        bool pooling = true)
+        bool pooling = true,
+        StorageOptions? storage = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrEmpty(databasePath);
@@ -59,38 +61,42 @@ public static class LocalNodeSqlCipherRegistration
                 nameof(storeDek));
         }
 
-        return RegisterWithResolvedDek(services, storeDek.ToArray(), databasePath, pooling);
+        return RegisterWithResolvedDek(services, storeDek.ToArray(), databasePath, pooling, storage ?? new StorageOptions());
     }
 
     private static IServiceCollection RegisterWithResolvedDek(
         IServiceCollection services,
         byte[] dek,
         string databasePath,
-        bool pooling)
+        bool pooling,
+        StorageOptions storage)
     {
         try
         {
-            // Microsoft.EntityFrameworkCore.Sqlite can bring a non-cipher provider into the graph.
-            // Pin e_sqlcipher explicitly so PRAGMA key can never degrade into a silent no-op.
-            if (Interlocked.Exchange(ref s_providerInitialized, 1) == 0)
+            if (storage.Provider == StorageProvider.Sqlite &&
+                Interlocked.Exchange(ref s_providerInitialized, 1) == 0)
             {
+                // Microsoft.EntityFrameworkCore.Sqlite can bring a non-cipher provider into the graph.
+                // Pin e_sqlcipher explicitly so PRAGMA key can never degrade into a silent no-op.
                 SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_e_sqlcipher());
             }
 
             var directory = Path.GetDirectoryName(databasePath);
-            if (!string.IsNullOrEmpty(directory))
+            if (storage.Provider == StorageProvider.Sqlite && !string.IsNullOrEmpty(directory))
             {
                 Directory.CreateDirectory(directory);
             }
 
-            var interceptor = new SqlCipherConnectionInterceptor(dek);
+            SqlCipherConnectionInterceptor? interceptor = storage.Provider == StorageProvider.Sqlite
+                ? new SqlCipherConnectionInterceptor(dek)
+                : null;
 
             var connectionString = $"Data Source={databasePath};" + (pooling ? string.Empty : "Pooling=False;");
             services.AddLocalNodeSaveChangesEnlistment();
             services.AddDbContextFactory<LocalNodeDbContext>((provider, options) =>
             {
-                options.UseSqlite(connectionString);
-                options.AddInterceptors(interceptor);
+                LocalNodeStorageProvider.Configure(
+                    options, storage, connectionString, interceptor, "__EFMigrationsHistory");
                 options.AddLocalNodeSaveChangesEnlistment(provider);
                 options.ConfigureWarnings(warnings =>
                     warnings.Ignore(
@@ -99,7 +105,7 @@ public static class LocalNodeSqlCipherRegistration
 
             foreach (var descriptor in LocalNodeExclusiveEfContextCatalog.All)
             {
-                descriptor.Register(services, connectionString, interceptor);
+                descriptor.Register(services, storage, connectionString, interceptor);
             }
 
             // This owner proves the main store key first, then migrates its exact catalog subset.
@@ -143,9 +149,10 @@ internal sealed class LocalNodeStoreEncryptionGuard : IHostedService
 
         try
         {
-            // Opening invokes the shared interceptor: PRAGMA key followed by a verification probe.
-            await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+            if (context.Database.IsSqlite())
+                await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await LocalNodeStorageProvider.MigrateOrEnsureCreatedAsync(context.Database, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (InvalidKeyException)
         {
@@ -156,7 +163,8 @@ internal sealed class LocalNodeStoreEncryptionGuard : IHostedService
         }
         finally
         {
-            await context.Database.CloseConnectionAsync().ConfigureAwait(false);
+            if (context.Database.IsSqlite())
+                await context.Database.CloseConnectionAsync().ConfigureAwait(false);
         }
 
         foreach (var migrator in _migrators)

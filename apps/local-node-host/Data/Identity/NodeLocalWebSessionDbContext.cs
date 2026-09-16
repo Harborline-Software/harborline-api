@@ -186,7 +186,7 @@ public sealed class NodeLocalWebSessionDbContext : DbContext
                     "AND authorization_epoch > 0");
                 table.HasCheckConstraint(
                     "ck_web_installation_session_handle_digest",
-                    "length(handle_digest) = 64 AND handle_digest NOT GLOB '*[^0-9A-F]*'");
+                    LocalNodeStorageProvider.HexDigest64Check(Database, "handle_digest"));
                 table.HasCheckConstraint(
                     "ck_web_installation_session_expiry",
                     "absolute_expires_at_utc > issued_at_utc " +

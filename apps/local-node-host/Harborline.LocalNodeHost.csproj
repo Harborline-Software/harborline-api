@@ -231,6 +231,7 @@
          deployed; the host pins it via SQLitePCL.raw.SetProvider in
          LocalNodeSqlCipherRegistration so PRAGMA key always takes effect (SC-1). -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
   <ItemGroup>
