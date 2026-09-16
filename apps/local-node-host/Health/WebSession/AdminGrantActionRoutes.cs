@@ -15,18 +15,19 @@ internal static partial class AdminTeamAccessRoutes
     internal static ViewRequestDescriptor RevokeGrantRequest { get; } = new(
         "authorization.grant.revoke.v1", "POST", "/api/session/admin/grants/revoke", "application/json",
         "selected-session", true, TeamRolePermissions.MembersManage,
-        [new("grantId", ViewRequestValueKind.Text)]);
+        [new("grantId", ViewRequestValueKind.Text, ViewRequestPlacement.BodyField, "grantId")]);
 
     internal static ViewRequestDescriptor NarrowScopeRequest { get; } = new(
         "authorization.grant.narrow-scope.v1", "POST", "/api/session/admin/grants/narrow-scope", "application/json",
         "selected-session", true, TeamRolePermissions.MembersManage,
-        [new("grantId", ViewRequestValueKind.Text), new("scope", ViewRequestValueKind.Text),
-            new("successorId", ViewRequestValueKind.Text)]);
+        [new("grantId", ViewRequestValueKind.Text, ViewRequestPlacement.BodyField, "grantId"),
+            new("scope", ViewRequestValueKind.Text, ViewRequestPlacement.BodyField, "scope"),
+            new("successorId", ViewRequestValueKind.Text, ViewRequestPlacement.BodyField, "successorId")]);
 
     internal static ViewRequestDescriptor ReviewGrantRequest { get; } = new(
         "authorization.grant.review.v1", "POST", "/api/session/admin/grants/review", "application/json",
         "selected-session", true, TeamRolePermissions.MembersManage,
-        [new("grantId", ViewRequestValueKind.Text)]);
+        [new("grantId", ViewRequestValueKind.Text, ViewRequestPlacement.BodyField, "grantId")]);
 
     internal sealed record GrantBody(string? GrantId);
     internal sealed record NarrowScopeBody(string? GrantId, string? Scope, string? SuccessorId);

@@ -14,8 +14,13 @@ public enum ViewRequestValueKind
     Binary,
 }
 
-/// <summary>A required input to a host-owned request descriptor.</summary>
-public sealed record ViewRequestInput(string Name, ViewRequestValueKind Kind);
+/// <summary>Closed host-owned serialization placements, never selectable by a pack binding.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ViewRequestPlacement>))]
+public enum ViewRequestPlacement { Path, BodyField, BodyRoot, Header }
+
+/// <summary>A required input whose wire name and placement belong to the host descriptor.</summary>
+public sealed record ViewRequestInput(string Name, ViewRequestValueKind Kind,
+    ViewRequestPlacement? Placement = null, string? WireName = null);
 
 /// <summary>
 /// Host-owned transport and enforcement metadata. A pack names <see cref="Id"/> and binds
@@ -89,6 +94,7 @@ public static class ViewRequestBindingAdmission
         var id = Text(dispatch, "descriptorId");
         Require(id is not null && descriptors.TryGetValue(id, out _));
         var descriptor = descriptors[id!];
+        Require(ViewRequestTransportAdmission.IsValid(descriptor));
         Require(dispatch.TryGetProperty("bindings", out var bindings) && bindings.ValueKind == JsonValueKind.Object);
         var inputs = descriptor.Inputs.ToDictionary(input => input.Name, StringComparer.Ordinal);
         Require(UniqueProperties(bindings, inputs.Keys.ToHashSet(StringComparer.Ordinal)));
