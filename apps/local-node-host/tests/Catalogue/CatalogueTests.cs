@@ -19,7 +19,7 @@ public sealed class CatalogueTests
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
             "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        Assert.Equal("218f1d806e8413daa06a37ad20dc9e83ac9b15b573491bd43e075ae20338e146",
+        Assert.Equal("ef1308048dfc3553a912594ca3e9133222905581b64a315d709a743a3f24e1c4",
             Convert.ToHexStringLower(SHA256.HashData(stream)));
     }
 
@@ -40,7 +40,7 @@ public sealed class CatalogueTests
         Assert.All(contents, item => Assert.Contains(item.GetProperty("kind").GetString(), allowedKinds));
         Assert.DoesNotContain(contents, item => item.GetProperty("kind").GetString() is
             "WorkflowDefinition" or "ProtocolDefinition" or "AssetTypeDefinition");
-        Assert.Equal("platform.pack.author", Assert.Single(contents, item => item.GetProperty("kind").GetString() == "FormDefinition").GetProperty("key").GetString());
+        Assert.Equal(new[] { "platform.detail.form", "platform.pack.author" }, contents.Where(item => item.GetProperty("kind").GetString() == "FormDefinition").Select(item => item.GetProperty("key").GetString()));
         Assert.Equal(2, contents.Count(item => item.GetProperty("kind").GetString() == "RoleDefinition"));
         Assert.Equal(new[] { "platform.binding.catalogue-read", "platform.binding.records-read" },
             contents.Where(item => item.GetProperty("kind").GetString() == "AuthorizationCapabilityBinding")

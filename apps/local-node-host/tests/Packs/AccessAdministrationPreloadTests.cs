@@ -21,6 +21,7 @@ using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
@@ -77,6 +78,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
     private InMemoryRoleVocabulary _roles = null!;
     private InMemoryPackInstallAudit _audit = null!;
     private readonly ActiveCascadeDefaultsProjection _defaults = new();
+    private readonly CatalogueDetailTemplates _details = new();
 
     public async Task InitializeAsync()
     {
@@ -127,9 +129,11 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
             _store,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults),
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults,
+                catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
             _audit,
-            TestAuthorization.AllowGate());
+            TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
+                [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         var projector = new PackSeedProjector(
             _store,
             _app.Services.GetRequiredService<IEntityTypeRegistry>(),
@@ -145,7 +149,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             roleVocabulary: _roles,
             authorizationDefinitions: authorizationWriter,
             renderPlans: _renderPlans,
-            defaults: _defaults);
+            defaults: _defaults, catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports), catalogueDetails: _details);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
 
         _preload = new AccessAdministrationPreloadHostedService(
@@ -182,6 +186,45 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
             TimeProvider.System,
             NullLogger<PlatformPackPreloadHostedService>.Instance);
 
+    }
+
+    [Fact]
+    public async Task Released_platform_detail_seed_projects_exact_form_fields_and_replays_without_mutation()
+    {
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+        var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0"));
+        Assert.NotNull(definition);
+        Assert.Equal("forms.catalogue-field-source", definition.CatalogueFieldSource!.CapabilityId);
+        Assert.Equal(1, definition.CatalogueFieldSource.CoordinateSchemaVersion);
+        Assert.Equal(1, definition.CatalogueFieldSource.SourceMappingSchemaVersion);
+        Assert.Equal("FormDefinition", definition.CatalogueFieldSource.SourceKind);
+        Assert.Equal(CatalogueFieldSourceContract.Fields, definition.CatalogueFieldSource!.Fields);
+        Assert.Equal(new[] { "formId", "title", "version", "cascadeLayer" },
+            definition.CatalogueFieldSource.Fields.Select(field => field.FieldId));
+        var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", "platform.pack.author", "1.0.0", "formId");
+        var source = _authorizedForms.CatalogueSources.Resolve(Tenant, coordinate)!;
+        var request = JsonSerializer.SerializeToElement(CatalogueFieldSourceContract.Fields.Select(field =>
+            new CatalogueFieldReadRequest(coordinate with { Field = field.FieldId }, source.Identity.Binding)));
+        var runtime = new CatalogueDetailRuntime(_authorizedForms.CatalogueSources, _details, TestAuthorization.AllowGate());
+        var projection = await runtime.ProjectAsync("platform.detail.form", "1.0.0", request, TestAuthorization.Write(Tenant));
+        Assert.Equal(new[] { "formId", "title", "version", "cascadeLayer" }, projection.Values.Keys);
+        Assert.Equal("platform.pack.author", projection.Values["formId"].GetString());
+        Assert.Equal("1.0.0", projection.Values["version"].GetString());
+        Assert.True(projection.ReadOnly);
+        Assert.Equal("1.3.0", projection.DetailBinding.Provenance.PackVersion);
+        Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "1.0.0")!.DefinitionHash,
+            projection.DetailBinding.DefinitionHash);
+        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+        Assert.Equal(JsonSerializer.Serialize(definition),
+            JsonSerializer.Serialize(await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0"))));
+        var denied = new CatalogueDetailRuntime(_authorizedForms.CatalogueSources, _details,
+            TestAuthorization.Gate(decision => !decision.Target.Scope.Value.EndsWith("/title", StringComparison.Ordinal)));
+        var partial = await denied.ProjectAsync("platform.detail.form", "1.0.0", request, TestAuthorization.Write(Tenant));
+        Assert.DoesNotContain("title", partial.Values.Keys);
+        Assert.DoesNotContain("title", partial.FieldsMeta.Keys);
+        Assert.False(partial.Overlay.GetProperty("fields").TryGetProperty("title", out _));
+        // The zero protected-getter-read invariant is exercised with the same runtime by
+        // CatalogueFieldRuntimeTests.Denied_non_pii_title_has_zero_getter_reads_and_no_declaration_value_or_section_reference.
     }
 
     public async Task DisposeAsync()
@@ -295,7 +338,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 5),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 62),
+                    PackLifecycleState.Active, 63),
             },
             firstBoot);
         Assert.Equal(
@@ -377,7 +420,7 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         {
             Version = legacyVersion,
             Contents = current.Contents
-                .Where(item => item.Kind != PackContentKind.CascadeDefaults
+                .Where(item => item.Key != "platform.detail.form" && item.Kind != PackContentKind.CascadeDefaults
                     && (legacyVersion != "1.0.0" || (!item.Key.StartsWith("platform.health.", StringComparison.Ordinal)
                         && !item.Key.StartsWith("platform.browse.", StringComparison.Ordinal))))
                 .Select(item => item.Kind == PackContentKind.AuthorizationCapabilityBinding
@@ -409,15 +452,15 @@ public sealed class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.2.0", active.Version);
-        Assert.Equal("1.2.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
+        Assert.Equal("1.3.0", active.Version);
+        Assert.Equal("1.3.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
         Assert.Equal(
-            new[] { legacyVersion, "1.2.0" },
+            new[] { legacyVersion, "1.3.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)
