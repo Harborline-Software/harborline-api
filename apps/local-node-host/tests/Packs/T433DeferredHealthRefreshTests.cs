@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
@@ -47,6 +48,13 @@ public sealed partial class AccessAdministrationPreloadTests
         _beforeDiagnosticPackRead = () =>
         {
             if (Volatile.Read(ref phase) != 1 || Interlocked.Increment(ref diagnosticReads) != expectedRead) return;
+            // The inner store's per-call lease has ended. Only the callback's outer read lease
+            // can refuse this upgrade, independently of whether B has reached its writer yet.
+            var upgrade = Assert.Throws<InvalidOperationException>(() =>
+            {
+                using var transaction = new PackProjectionTransaction();
+            });
+            Assert.Equal("A projection read lease cannot be upgraded to activation.", upgrade.Message);
             reading.TrySetResult();
             if (!release.Wait(TimeSpan.FromSeconds(15)))
                 throw new TimeoutException("The test must release the consistent health snapshot read.");
