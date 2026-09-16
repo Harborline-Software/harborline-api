@@ -94,7 +94,6 @@ public sealed class PackAccessContentTests
         Assert.Equal(definition.Definition.OfferedRoles, definition.EffectiveRoles);
 
         // Re-projecting the same pack on the next boot is a no-op, not a second revision.
-        World.SimulateProcessRestart();
         Assert.Empty((await world.ProjectAsync()).Refusals);
         Assert.Equal(1, Assert.Single(await world.Definitions.ListAsync(Tenant)).Definition.Revision);
     }
@@ -161,7 +160,6 @@ public sealed class PackAccessContentTests
 
         var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.0.0", Now, "test-operator");
         Assert.True(deactivation.Deactivated, deactivation.Error);
-        World.SimulateProcessRestart();
         var down = await world.ProjectAsync();
 
         Assert.Equal(1, down.RetractedByKind.GetValueOrDefault(PackContentKind.RoleDefinition));
@@ -230,7 +228,6 @@ public sealed class PackAccessContentTests
 
         var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.0.0", Now, "test-operator");
         Assert.True(deactivation.Deactivated, deactivation.Error);
-        World.SimulateProcessRestart();
         await world.ProjectAsync();
 
         // Retraction narrows exactly the installing tenant; the other tenant is untouched because the
@@ -320,16 +317,6 @@ public sealed class PackAccessContentTests
 
         public void Add(string key, PackContentKind kind, JsonNode content) =>
             _contents.Add(new PackContentSource(key, kind, ItemVersion, content));
-
-        /// <summary>Clears <c>PackSeedProjector.ConsumedAuthorities</c> — the per-process replay guard,
-        /// which a real node restart empties. Test-only; nothing production reaches this field.</summary>
-        public static void SimulateProcessRestart()
-        {
-            var field = typeof(PackSeedProjector).GetField(
-                "ConsumedAuthorities",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-            ((System.Collections.Concurrent.ConcurrentDictionary<Guid, byte>)field.GetValue(null)!).Clear();
-        }
 
         public Task<PackSeedProjectionSummary> ProjectAsync() =>
             ((IPackSeedProjector)Projector).ProjectActivePacksAsync(Tenant);
