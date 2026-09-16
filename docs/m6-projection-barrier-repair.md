@@ -53,3 +53,40 @@ enumeration, transaction commit/rollback, and replacement atomicity. TRX:
 
 No failure baseline, retry allowance, or existing timeout was changed. The full
 exact-clone gate remains required before this branch is released.
+
+## Schema iterator follow-up
+
+The full exact-clone run at `36a6cfa14e92297a47ba1ac3ed6b3d837c9315f4`
+stalled in the host suite. Source inspection found that `InMemorySchemaRegistry.ListAsync`
+still held its read lease across `yield return`. A consumer does not inherit an
+async iterator's ambient lease. A queued activation can therefore wait for the
+paused iterator while a subsequent consumer read waits behind that activation.
+The running suite was stopped after its prolonged all-wait state was observed;
+no stack capture identified its particular blocked test. The following bounded
+regression independently demonstrates the schema-iterator cycle.
+
+`Paused_schema_enumerator_allows_queued_activation_and_consumer_read_and_retains_snapshot`
+holds an independent reader, pauses schema enumeration, queues activation,
+starts an independent consumer read, and releases the initial reader. Before
+the schema repair this failed after its ten-second cancellation bound waiting
+for activation. The retained `barrier-schema-red.trx` has SHA-256
+`0CF7DA12F80893E6E46AAD8CC7CF56298CB8ACF7ABAAD460BCD2A169E8C65A91`.
+
+The registry now materializes matching schemas under the read lease and releases
+it before yielding. The regression also checks that its original enumeration
+excludes the newly committed schema, a fresh enumeration includes it, and the
+consumer read completes. All actors use separate execution contexts.
+
+An audit of every production file containing `PackProjectionActivationBarrier.Read`
+and `yield return` found the form and standing iterators already snapshot before
+yield; role vocabulary's yields belong to a separate seed generator with no
+lease. Schema enumeration was the only remaining lease spanning a yield.
+
+Final expanded check:
+
+```powershell
+dotnet test apps/local-node-host/tests/tests.csproj -c Release --no-restore --filter "FullyQualifiedName~PackProjectionTransactionTests|FullyQualifiedName~PackProjectionResourceLifetimeTests|FullyQualifiedName~AccessAdministrationPreloadTests|FullyQualifiedName~Standing|FullyQualifiedName~Schema" --logger "trx;LogFileName=barrier-schema-final.trx" --results-directory artifacts/m6-platform-form-title
+```
+
+Result: 156 passed, zero failed or skipped. TRX SHA-256:
+`CD8FCBB3147B3D0B6DC149C668AF25D88A221D445AF813CC2F21FEE75982F279`.
