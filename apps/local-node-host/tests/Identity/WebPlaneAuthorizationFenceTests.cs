@@ -374,7 +374,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ── The INNER serving app: the real production listener.
             var app = new SharedHostedWebApp(
                 outerProvider,
-                Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
+                Options.Create(new LocalNodeOptions { HealthPort = 0 }),
                 new LocalNodeExecutableEndpointRegistry(),
                 outerProvider.GetRequiredService<ILogger<SharedHostedWebApp>>(),
                 outerProvider.GetRequiredService<TimeProvider>());

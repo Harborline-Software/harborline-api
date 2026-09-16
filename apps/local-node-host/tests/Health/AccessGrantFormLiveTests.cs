@@ -125,7 +125,7 @@ public sealed partial class ComposedHostBootSmokeTests
 
     private static ComposedHost StartAccessHost(string? directory = null) => ComposedHost.Start(
         "Access granting form", false, false, false, false, "Production",
-        dataDirectoryOverride: directory, healthPort: 7335);
+        dataDirectoryOverride: directory);
 
     private static async Task<HttpClient> AccessClientAsync(ComposedHost host)
     {
