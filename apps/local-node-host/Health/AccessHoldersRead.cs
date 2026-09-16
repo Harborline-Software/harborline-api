@@ -6,6 +6,10 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Roster;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +23,22 @@ internal static class AccessHoldersRead
     internal static ViewRequestDescriptor ReadRequest { get; } = new(
         "authorization.holders.read.v1", "GET", Route, "application/json",
         "desktop-plane-only", false, TeamRolePermissions.MembersManage, []);
+
+    internal static ViewRequestDescriptor SelectedReadRequest { get; } = new(
+        "authorization.holders.selected.read.v1", "GET", "/api/session/admin/grants/holders", "application/json",
+        "selected-session", false, TeamRolePermissions.MembersManage, []);
+
+    internal static void MapSelected(IEndpointRouteBuilder app, TimeProvider time) =>
+        app.MapGet(SelectedReadRequest.RouteTemplate, (Delegate)((HttpContext http) => ReadSelectedAsync(http, time)));
+
+    private static Task<IResult> ReadSelectedAsync(HttpContext http, TimeProvider time)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        var principal = http.Features.Get<SelectedSessionRequestPrincipal>();
+        if (principal is null || string.IsNullOrWhiteSpace(http.Request.Cookies[WebSessionCookieNames.Selected]))
+            return Task.FromResult<IResult>(Results.Unauthorized());
+        return ReadAsync(http, principal.TenantId, time, http.RequestAborted);
+    }
 
     internal sealed record Holder(
         string PartyId, string Source, string GrantId, RoleReference Role,

@@ -23,17 +23,48 @@ internal static partial class AdminTeamAccessRoutes
         [new("grantId", ViewRequestValueKind.Text), new("scope", ViewRequestValueKind.Text),
             new("successorId", ViewRequestValueKind.Text)]);
 
+    internal static ViewRequestDescriptor ReviewGrantRequest { get; } = new(
+        "authorization.grant.review.v1", "POST", "/api/session/admin/grants/review", "application/json",
+        "selected-session", true, TeamRolePermissions.MembersManage,
+        [new("grantId", ViewRequestValueKind.Text)]);
+
     internal sealed record GrantBody(string? GrantId);
     internal sealed record NarrowScopeBody(string? GrantId, string? Scope, string? SuccessorId);
-    private sealed record GrantActionResponse(string Status, string? GrantId, Guid? AuditId, Guid? CorrelationId = null);
+    private sealed record GrantActionResponse(string Status, string? GrantId, Guid? AuditId,
+        Guid? CorrelationId = null, DateTimeOffset? ReviewedAt = null);
 
     private static void MapGrantActions(IEndpointRouteBuilder app, IAdminTeamAccessAuthority authority,
         IWebAntiforgeryPolicy antiforgery, TimeProvider time)
     {
+        AccessHoldersRead.MapSelected(app, time);
+        app.MapPost(ReviewGrantRequest.RouteTemplate, (GrantBody? request, HttpContext context) =>
+            ReviewGrantAsync(authority, antiforgery, request, context, time.GetUtcNow()));
         app.MapPost(RevokeGrantRequest.RouteTemplate, (GrantBody? request, HttpContext context) =>
             RevokeGrantAsync(authority, antiforgery, request, context, time.GetUtcNow()));
         app.MapPost(NarrowScopeRequest.RouteTemplate, (NarrowScopeBody? request, HttpContext context) =>
             NarrowScopeAsync(authority, antiforgery, request, context, time.GetUtcNow()));
+    }
+
+    internal static async Task<IResult> ReviewGrantAsync(IAdminTeamAccessAuthority authority,
+        IWebAntiforgeryPolicy antiforgery, GrantBody? request, HttpContext context, DateTimeOffset at)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var (handle, principal) = ReadSelected(context);
+        if (handle is null || principal is null) return Refused();
+        if (!Guid.TryParse(request?.GrantId, out var grant) || grant == Guid.Empty) return InvalidGrantAction();
+        if (!await antiforgery.ConsumeSelectedAsync(context, handle).ConfigureAwait(false)) return AntiforgeryFailed();
+        _ = await antiforgery.RotateSelectedAsync(context, handle).ConfigureAwait(false);
+        try
+        {
+            var result = await authority.ReviewGrantAsync(handle, principal.TenantId.Value, grant.ToString("D"),
+                WriteAuthority(principal, at), context.RequestAborted).ConfigureAwait(false);
+            return result is null ? GrantActionNotFound() : GrantActionSucceeded(context,
+                new("reviewed", grant.ToString("D"), result.AuditId, result.CorrelationId, result.ReviewedAt));
+        }
+        catch (AuthorizationDeniedException denial)
+        {
+            return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted).ConfigureAwait(false);
+        }
     }
 
     internal static async Task<IResult> RevokeGrantAsync(IAdminTeamAccessAuthority authority,

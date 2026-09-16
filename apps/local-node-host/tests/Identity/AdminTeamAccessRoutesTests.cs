@@ -573,6 +573,21 @@ public sealed class AdminTeamAccessRoutesTests
         Assert.Contains(audit.ToString("D"), response.Body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Review_route_binds_selected_actor_and_forwards_distinct_server_receipt()
+    {
+        var audit = Guid.NewGuid();
+        var correlation = Guid.NewGuid();
+        var authority = new RecordingAuthority { Review = new(audit, correlation, Now) };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.ReviewGrantRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.GrantBody(Guid.NewGuid().ToString("D")));
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("tenant-1", authority.ReviewAuthority!.Value.Tenant.Value);
+        Assert.Equal(Now, authority.ReviewAuthority.Value.At);
+        Assert.Contains(audit.ToString("D"), response.Body, StringComparison.Ordinal);
+        Assert.Contains(correlation.ToString("D"), response.Body, StringComparison.Ordinal);
+    }
+
     // --- path invariants ----------------------------------------------------------------------
 
     [Fact]
@@ -587,6 +602,7 @@ public sealed class AdminTeamAccessRoutesTests
                      AdminTeamAccessRoutes.NarrowMemberPath,
                      AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate,
                      AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate,
+                     AdminTeamAccessRoutes.ReviewGrantRequest.RouteTemplate,
                  })
         {
             Assert.DoesNotContain('{', path);
@@ -724,7 +740,10 @@ public sealed class AdminTeamAccessRoutesTests
         await using var responseBody = new MemoryStream();
         context.Response.Body = responseBody;
 
-        IResult result = path == AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate
+        IResult result = path == AdminTeamAccessRoutes.ReviewGrantRequest.RouteTemplate
+            ? await AdminTeamAccessRoutes.ReviewGrantAsync(authority, antiforgery,
+                (AdminTeamAccessRoutes.GrantBody)request, context, Now)
+            : path == AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate
             ? await AdminTeamAccessRoutes.NarrowScopeAsync(authority, antiforgery,
                 (AdminTeamAccessRoutes.NarrowScopeBody)request, context, Now)
             : path == AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate
@@ -883,7 +902,14 @@ public sealed class AdminTeamAccessRoutesTests
 
         public Task<AdminGrantReviewResult?> ReviewGrantAsync(
             string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            ReviewAuthority = authority;
+            return Task.FromResult(Review);
+        }
+
+        public AdminGrantReviewResult? Review { get; init; }
+        public AuthorizationWriteContext? ReviewAuthority { get; private set; }
 
         public bool GrantOnlyCalled { get; private set; }
         public string? NarrowScope { get; private set; }

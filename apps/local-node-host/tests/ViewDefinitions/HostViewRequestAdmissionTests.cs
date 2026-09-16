@@ -56,6 +56,7 @@ public sealed class HostViewRequestAdmissionTests
 
     [Theory]
     [InlineData("authorization.grant.revoke.v1", false)]
+    [InlineData("authorization.grant.review.v1", false)]
     [InlineData("authorization.grant.narrow-scope.v1", true)]
     public async Task Grant_actions_compile_only_host_owned_selected_session_enforcement(string descriptorId, bool narrow)
     {

@@ -16,6 +16,8 @@ internal static class HostViewRequestDescriptors
         [AccessHoldersRead.ReadRequest.Id] = AccessHoldersRead.ReadRequest,
         [AdminTeamAccessRoutes.RevokeGrantRequest.Id] = AdminTeamAccessRoutes.RevokeGrantRequest,
         [AdminTeamAccessRoutes.NarrowScopeRequest.Id] = AdminTeamAccessRoutes.NarrowScopeRequest,
+        [AdminTeamAccessRoutes.ReviewGrantRequest.Id] = AdminTeamAccessRoutes.ReviewGrantRequest,
+        [AccessHoldersRead.SelectedReadRequest.Id] = AccessHoldersRead.SelectedReadRequest,
     };
 
     internal static CompiledViewRequest Resolve(JsonElement dispatch) =>
