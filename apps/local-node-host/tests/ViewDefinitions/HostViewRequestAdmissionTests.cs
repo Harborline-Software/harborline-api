@@ -57,6 +57,62 @@ public sealed class HostViewRequestAdmissionTests
     }
 
     [Theory]
+    [InlineData("authorization.grant.review.v1")]
+    [InlineData("records.read.v1")]
+    [InlineData("authorization.holders.read.v1")]
+    [InlineData("unknown")]
+    public async Task Data_source_admission_refuses_mutations_non_lists_and_unknown_descriptors(string descriptorId)
+    {
+        var exception = await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() =>
+            descriptors.AdmitAsync(DataSourceDefinition(descriptorId)).AsTask());
+        Assert.Equal("view_definition.request_binding_invalid", exception.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData("authorization.grant.review.v1")]
+    [InlineData("records.read.v1")]
+    [InlineData("authorization.holders.read.v1")]
+    [InlineData("unknown")]
+    public void Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors(string descriptorId)
+    {
+        var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
+            JsonSerializer.Serialize(DataSourceDefinition(descriptorId), JsonSerializerOptions.Web), Cid.FromBytes([]));
+        Assert.False(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code));
+        Assert.Null(plan);
+        Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
+    }
+
+    [Fact]
+    public async Task Data_source_admits_and_compiles_registered_read_only_list_metadata()
+    {
+        var definition = DataSourceDefinition("authorization.holders.selected.read.v1");
+        await descriptors.AdmitAsync(definition);
+        var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
+            JsonSerializer.Serialize(definition, JsonSerializerOptions.Web), Cid.FromBytes([]));
+        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var descriptor = plan!.Bindings.GetProperty("dataSource").GetProperty("descriptor");
+        Assert.Equal("GET", descriptor.GetProperty("method").GetString());
+        Assert.Equal("/rows", descriptor.GetProperty("rowsPointer").GetString());
+        Assert.Equal("/grantId", descriptor.GetProperty("rowIdentityPointer").GetString());
+    }
+
+    private static ViewDefinition DataSourceDefinition(string descriptorId)
+    {
+        var bindings = new Dictionary<string, object>();
+        if (descriptorId is "authorization.grant.review.v1" or "records.read.v1")
+        {
+            bindings[descriptorId == "records.read.v1" ? "id" : "target"] = new { literal = "example-target" };
+            bindings["correlationId"] = new { literal = "43300000-0000-4000-8000-000000000101" };
+        }
+        return Definition() with { Parameters = JsonSerializer.SerializeToElement(new
+        {
+            entityType = "AccessGrant", fields = new[] { new { id = "grantId", label = "Grant" } },
+            dataSource = new { schemaVersion = 1, kind = "request", descriptorId, bindings },
+            actions = Array.Empty<object>(),
+        }) };
+    }
+
+    [Theory]
     [InlineData("authorization.grant.revoke.v1", false)]
     [InlineData("authorization.grant.review.v1", false)]
     [InlineData("authorization.grant.narrow-scope.v1", true)]

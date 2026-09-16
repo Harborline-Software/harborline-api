@@ -101,7 +101,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
             _ => ViewRequestValueKind.Object,
         }, StringComparer.Ordinal) ?? [];
         if (hasDataSource)
-            HostViewRequestDescriptors.Admit(dataSource, new(new Dictionary<string, ViewRequestValueKind>(), new Dictionary<string, ViewRequestValueKind>()));
+            HostViewRequestDescriptors.AdmitDataSource(dataSource, new(new Dictionary<string, ViewRequestValueKind>(), new Dictionary<string, ViewRequestValueKind>()));
         if (!hasActions) return;
         if (actions.ValueKind != JsonValueKind.Array)
             throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");

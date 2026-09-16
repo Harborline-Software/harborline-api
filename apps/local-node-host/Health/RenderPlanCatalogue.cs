@@ -252,7 +252,7 @@ public static class RenderPlanCompiler
                 else actions.Add(new { id = id.GetString(), label = label.GetString() });
             }
         }
-        var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.Resolve(source) : null;
+        var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.ResolveDataSource(source) : null;
         return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
             JsonSerializerOptions.Web);
     }

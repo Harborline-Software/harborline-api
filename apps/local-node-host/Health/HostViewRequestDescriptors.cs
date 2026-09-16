@@ -27,4 +27,19 @@ internal static class HostViewRequestDescriptors
 
     internal static CompiledViewRequest Admit(JsonElement dispatch, ViewRequestBindingSources sources) =>
         ViewRequestBindingAdmission.Admit(dispatch, Requests, sources);
+
+    internal static CompiledViewRequest ResolveDataSource(JsonElement dispatch) =>
+        RequireListSource(Resolve(dispatch));
+
+    internal static CompiledViewRequest AdmitDataSource(JsonElement dispatch, ViewRequestBindingSources sources) =>
+        RequireListSource(Admit(dispatch, sources));
+
+    private static CompiledViewRequest RequireListSource(CompiledViewRequest request)
+    {
+        // Data sources run on view load, without the explicit intention required by actions.
+        if (request.Descriptor.Method != "GET" || request.Descriptor.RowsPointer is null
+            || request.Descriptor.RowIdentityPointer is null)
+            throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+        return request;
+    }
 }
