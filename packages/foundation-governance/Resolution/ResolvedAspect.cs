@@ -31,4 +31,8 @@ public sealed record ResolvedAspect(
     ResidencyRequirement? Residency,
     Immutability Immutability,
     Provenance? Provenance,
-    DiscoveryAspect? Discovery);
+    DiscoveryAspect? Discovery)
+{
+    /// <summary>Active pack defaults and per-axis tenant provenance used by this resolution.</summary>
+    public ResolvedCascadeDefaults? Defaults { get; init; }
+}

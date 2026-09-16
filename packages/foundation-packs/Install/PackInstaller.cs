@@ -498,6 +498,22 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackTenantNarrowing.WideningRefusedCode, wideningPath, decision);
         }
 
+        if (item.Kind == PackContentKind.CascadeDefaults)
+        {
+            var patches = _store.GetOverrides(tenant, packKey).ToDictionary(row => row.ContentKey, row => row.OverlayPatch, StringComparer.Ordinal);
+            patches[contentKey] = overlayPatch;
+            var composed = active.SeedItems.Where(seed => seed.Kind == PackContentKind.CascadeDefaults).Select(seed =>
+            {
+                var json = patches.TryGetValue(seed.Key, out var patch)
+                    ? Harborline.Api.Foundation.Catalog.Templates.TemplateMerger.ApplyMergePatch(seed.ParseContent(), patch)?.ToJsonString() ?? "null"
+                    : seed.CanonicalJson;
+                return new PackComposedItem(packKey, seed.Key, seed.Kind, seed.Version, json, SeedCanonicalJson: seed.CanonicalJson);
+            }).ToArray();
+            var admitted = _admission.Admit(composed, tenant);
+            if (!admitted.IsAdmissible)
+                return AuditNarrowingRefusal(tenant, packKey, contentKey, now, principal,
+                    admitted.Refusals[0].Code, admitted.Refusals[0].Pointer, decision);
+        }
         _mutations.SaveOverride(tenant, packKey, new PackTenantOverride(contentKey, overlayPatch.DeepClone()));
         _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Narrowed, packKey, active.Version, now, null, null,
@@ -851,7 +867,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             collected.AddRange(platformRefusals);
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
                 PackInstallCodes.RefusedAdmission,
-                ContentPointer(contents, refusal.ContentKey))));
+                ContentPointer(contents, refusal.ContentKey) + refusal.Pointer)));
             collected.AddRange(unmetReferences.Select(reference => new PackInstallRefusal(
                 PackInstallCodes.RefusedUnmetContentReference,
                 ContentPointer(contents, reference.FromContentKey))));
@@ -882,7 +898,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             refusals = admission.Refusals
                 .Select(refusal => new PackInstallRefusal(
                     PackInstallCodes.RefusedAdmission,
-                    ContentPointer(contents, refusal.ContentKey)))
+                    ContentPointer(contents, refusal.ContentKey) + refusal.Pointer))
                 .ToList();
         }
         else if (unmetReferences.Count > 0)
@@ -1018,7 +1034,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         return new InstallPlan(preview, null, epoch, null, null, null, PackInstallAuditAction.Refused);
     }
 
-    private static List<PackInstallRefusal> UnsupportedContentKindRefusals(IReadOnlyList<PackContentItem> contents)
+    private List<PackInstallRefusal> UnsupportedContentKindRefusals(IReadOnlyList<PackContentItem> contents)
     {
         var refusals = new List<PackInstallRefusal>();
         for (var index = 0; index < contents.Count; index++)
@@ -1026,7 +1042,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             var code = contents[index].Kind switch
             {
                 PackContentKind.StandardsCatalog => PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                PackContentKind.CascadeDefaults => PackInstallCodes.RefusedUnsupportedCascadeDefaults,
+                PackContentKind.CascadeDefaults when _admission is not IPackCascadeDefaultsAdmission { ConsumesCascadeDefaults: true }
+                    => PackInstallCodes.RefusedUnsupportedCascadeDefaults,
                 _ => null,
             };
             if (code is not null)

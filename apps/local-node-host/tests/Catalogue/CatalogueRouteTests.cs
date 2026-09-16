@@ -94,7 +94,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
             _packStore,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: new ActiveCascadeDefaultsProjection()),
             new InMemoryPackInstallAudit(),
             TestAuthorization.AllowGate());
         _platformPreload = new PlatformPackPreloadHostedService(
@@ -204,7 +204,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
         var active = Assert.IsType<InstalledPack>(
             _packStore.GetActive(_tenantA, PlatformPackPreloadHostedService.PackKey));
-        var duplicate = active with { SeedItems = [.. active.SeedItems, active.SeedItems[0]] };
+        var descriptor = Assert.Single(active.SeedItems, item => item.Kind == PackContentKind.RecordType && item.Key == "FormDefinition");
+        var duplicate = active with { SeedItems = [.. active.SeedItems, descriptor] };
 
         var types = SystemRecordType.FromActivePlatformPack(duplicate);
 

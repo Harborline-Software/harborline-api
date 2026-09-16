@@ -124,6 +124,8 @@ public sealed class FieldPolicyEnforcer : IFieldPolicyEnforcer
             var auditClass = _classMap.Resolve(ret.Params.RetainFloorClass ?? string.Empty);
             retention = await _retention
                 .ResolveAsync(ctx.Tenant, auditClass, ctx.RecordCreatedAt, ct).ConfigureAwait(false);
+            retention = GovernanceRetentionFloor.Apply(retention, ctx.RecordCreatedAt,
+                ret.Params.RetainRegime, ret.Params.RetainMinimumDays);
             applied.Add("retain");
         }
 

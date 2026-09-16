@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
@@ -286,6 +287,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         new(PackContentKind.NavWorkspaceConfig, Array.Empty<string>()),
         new(PackContentKind.TemplateDefinition, Array.Empty<string>()),
         new(PackContentKind.TaxonomyDefinition, Array.Empty<string>()),
+        new(PackContentKind.CascadeDefaults, Array.Empty<string>()),
         new(PackContentKind.ReportDefinition, Array.Empty<string>()),
         new(PackContentKind.DataExchangeDefinition, Array.Empty<string>()),
         new(PackContentKind.ScheduleDefinition, Array.Empty<string>()),
@@ -312,6 +314,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly WorkflowCatalogueLintReports? _workflowLintReports;
     private readonly ExposedViewAuthorizationReachabilityReports? _viewReachabilityReports;
     private readonly ITaxonomyRegistry? _taxonomies;
+    private readonly ActiveCascadeDefaultsProjection? _defaults;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
     private readonly IScheduleDefinitionRegistry? _scheduleDefinitions;
@@ -374,9 +377,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         IAuthorizationDefinitionCatalogueReader? authorizationDefinitionCatalogue = null,
         CatalogueFieldSourceAdmission? catalogueFields = null,
         CatalogueDetailTemplates? catalogueDetails = null,
-        TerminologyProjection? terminology = null)
+        TerminologyProjection? terminology = null,
+        ActiveCascadeDefaultsProjection? defaults = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _defaults = defaults;
         _types = types ?? throw new ArgumentNullException(nameof(types));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _templates = templates;
@@ -458,6 +463,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         var workflowsRetracted = 0;
         var refusals = new List<PackSeedProjectionRefusal>();
         var platformRefusals = new List<PackPlatformProjectionRefusal>();
+        var pendingDefaults = new List<ProjectedCascadeDefaults>();
 
         var installed = _store.ListInstalled(tenant);
 
@@ -590,6 +596,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // (L633) One item's reverse projection, shared by the two retraction loops below: every kind the
         // projector parses retracts, so a replacement can never leave the replaced package's copy live.
         var retractedByKind = new Dictionary<PackContentKind, int>();
+        _defaults?.Reconcile(tenant, installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active
+                && !platformRefused.Contains(pack))
+            .SelectMany(pack => pack.SeedItems.Where(item => item.Kind == PackContentKind.CascadeDefaults
+                    && DecideContested(pack, item, collisions) == ContestedDecision.Project)
+                .Select(item => (pack.PackKey, pack.Version, item.Key))).ToHashSet());
         async Task RetractItemAsync(InstalledPack pack, PackSeedItem item)
         {
             var result = item.Kind switch
@@ -660,6 +671,32 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // The kind half of the prohibition needs no code: PackContentKind has no grant member and
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
             var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
+            var defaultRows = new List<ProjectedCascadeDefaults>();
+            var defaultSeeds = new List<CascadeDeclaration>();
+            var defaultCoordinates = new HashSet<(string? Type, string? Field)>();
+            foreach (var item in seedItems.Where(item => item.Kind == PackContentKind.CascadeDefaults))
+            {
+                if (DecideContested(pack, item, collisions) != ContestedDecision.Project) continue;
+                if (_defaults is null)
+                    refusals.Add(new(item.Key, item.Kind, "pack.defaults.registry_not_wired", ContentPointer(pack, item)));
+                else if (!PackCascadeDefaultsContent.TryParse(item.CanonicalJson, out var content, out var code, out var pointer))
+                    refusals.Add(new(item.Key, item.Kind, code, ContentPointer(pack, item) + pointer));
+                else if (!PackCascadeDefaultsContent.TryParse(pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson,
+                             out var seedDefaults, out var seedCode, out var seedPointer))
+                    refusals.Add(new(item.Key, item.Kind, seedCode, ContentPointer(pack, item) + seedPointer));
+                else if (content!.Defaults.Any(declaration => !defaultCoordinates.Add((declaration.RecordType, declaration.Field))))
+                    refusals.Add(new(item.Key, item.Kind, PackCascadeDefaultsContent.Malformed, ContentPointer(pack, item) + "/defaults"));
+                else
+                {
+                    defaultSeeds.AddRange(seedDefaults!.Defaults);
+                    defaultRows.Add(new(new(tenant, pack.PackKey, pack.Version, item.Key, item.Version,
+                        item.CanonicalJson != pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson), content));
+                }
+            }
+            if (defaultRows.Count > 0 && !CascadeDefaultsRestrictionCheck.Preserves(new(1, "", defaultSeeds),
+                    new(1, "", defaultRows.SelectMany(row => row.Content.Defaults).ToArray())))
+                refusals.Add(new(defaultRows[0].Source.ContentKey, PackContentKind.CascadeDefaults, CascadeDefaultsRestrictionCheck.Refused,
+                    ContentPointer(pack, seedItems.Single(seed => seed.Key == defaultRows[0].Source.ContentKey)) + "/defaults"));
             var composedItems = seedItems.Select(item =>
                 new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
                     pack.PackKey, item.Key, item.Kind, item.Version, item.CanonicalJson,
@@ -668,6 +705,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .Concat(Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyContent.Validate(composedItems, tenant)).ToArray();
             if (contentRefusals.Length > 0)
             {
+                _defaults?.Replace(tenant, pack.PackKey, []);
                 foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in contentRefusals)
                 {
                     var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
@@ -682,6 +720,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 .ToArray();
             if (smuggled.Length > 0)
             {
+                _defaults?.Replace(tenant, pack.PackKey, []);
                 foreach (var item in smuggled)
                 {
                     _logger.LogError(
@@ -717,6 +756,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     ContentPointer(pack, item)));
             }
 
+            pendingDefaults.AddRange(defaultRows);
+
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.
             // The platform pack's descriptor catalogue points at the one compiled descriptor set. It is
@@ -729,6 +770,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 switch (item.Kind)
                 {
+                    case PackContentKind.CascadeDefaults:
+                        // Parsed above; publication waits for every projection and retraction refusal.
+                        break;
                     case PackContentKind.TemplateDefinition:
                         switch (DecideContested(pack, item, collisions))
                         {
@@ -1284,6 +1328,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Other content kinds and replacement retractions can refuse after Defaults parsing.
+        // Publish once, only after the entire admission has succeeded; a refused pass leaves no row.
+        _defaults?.Replace(tenant, authority.PackId,
+            refusals.Count == 0 && platformRefusals.Count == 0 ? pendingDefaults : []);
 
         return new PackSeedProjectionSummary(
             seeded, present, invalid, formsDeferred, templatesPublished, templatesInvalid, otherSkipped,

@@ -97,11 +97,15 @@ public sealed class FormDefinitionEnvelopeResolver : IFormDefinitionEnvelopeReso
         var verdicts = new List<RetentionVerdict>(governingClasses.Length);
         foreach (var governingClass in governingClasses)
         {
-            verdicts.Add(await _retention.ResolveAsync(
+            var verdict = await _retention.ResolveAsync(
                 definition.Tenant,
                 governingClass,
                 recordCreatedAt,
-                cancellationToken).ConfigureAwait(false));
+                cancellationToken).ConfigureAwait(false);
+            foreach (var requirement in resolvedAspects.Select(aspect => aspect.Retention).OfType<RetentionRequirement>()
+                         .Where(requirement => _classMap.Resolve(requirement.FloorClass) == governingClass))
+                verdict = GovernanceRetentionFloor.Apply(verdict, recordCreatedAt, requirement.Regime, requirement.MinimumRetentionDays);
+            verdicts.Add(verdict);
         }
 
         var held = false;
