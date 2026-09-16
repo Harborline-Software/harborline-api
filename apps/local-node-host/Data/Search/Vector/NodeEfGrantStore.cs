@@ -127,6 +127,32 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
                 : throw new InvalidOperationException("A revoked grant cannot replace its revocation evidence."), ct);
 
     /// <inheritdoc />
+    public async Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenantId, GrantId currentGrantId, ScopeExpression narrowed, GrantId successorId,
+        GrantRevocation revocation, CancellationToken ct = default)
+    {
+        await using var ctx = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        GrantScopeNarrowing? result = null;
+        await HomeEpochFenceTransaction.RunAsync(ctx, async () =>
+        {
+            var row = await ctx.Grants.FirstOrDefaultAsync(
+                grant => grant.TenantId == tenantId.Value && grant.GrantId == currentGrantId.ToString(), ct).ConfigureAwait(false);
+            if (row is null) return;
+            var current = ToGrant(row);
+            var replacement = GrantScopeNarrowing.Prepare(current, narrowed, successorId, revocation);
+            var population = (await ctx.Grants.AsNoTracking().Where(grant => grant.TenantId == tenantId.Value)
+                .ToArrayAsync(ct).ConfigureAwait(false)).Select(ToGrant).Append(replacement.Reissued);
+            LastAdministratorGuard.EnsureNotLastAdministrator(current, replacement.Revoked, population);
+            ctx.Grants.Add(ToRow(replacement.Reissued, sourceReference: null));
+            ctx.Entry(row).CurrentValues.SetValues(ToRow(replacement.Revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
+            await AdvanceEpochAsync(ctx, tenantId, current.Subject, ct).ConfigureAwait(false);
+            await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            result = replacement;
+        }, ct).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<AdministratorHandover?> HandoverAdministratorAsync(
         TenantId tenantId, GrantId currentGrantId, AccessGrant successor, GrantRevocation revocation,
         CancellationToken ct = default)

@@ -101,6 +101,31 @@ public sealed class InMemoryGrantStore : IGrantStore, IGrantAuthorizationEpochRe
                 : throw new InvalidOperationException("A revoked grant cannot replace its revocation evidence."));
 
     /// <inheritdoc />
+    public Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenantId, GrantId currentGrantId, ScopeExpression narrowed, GrantId successorId,
+        GrantRevocation revocation, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            var currentKey = (tenantId.Value, currentGrantId.Value);
+            if (!_grants.TryGetValue(currentKey, out var current)) return Task.FromResult<GrantScopeNarrowing?>(null);
+            var result = GrantScopeNarrowing.Prepare(current, narrowed, successorId, revocation);
+            var successorKey = (tenantId.Value, successorId.Value);
+            if (_grants.ContainsKey(successorKey)) throw new InvalidOperationException("A grant id cannot replace immutable grant evidence.");
+            LastAdministratorGuard.EnsureNotLastAdministrator(current, result.Revoked,
+                _grants.Values.Where(grant => grant.TenantId == tenantId).Append(result.Reissued));
+            _grants.Add(successorKey, result.Reissued);
+            _ownerVersions.Add(successorKey, 1);
+            _sourceByGrant.Add(successorKey, null);
+            _grants[currentKey] = result.Revoked;
+            _ownerVersions[currentKey] = checked(_ownerVersions[currentKey] + 1);
+            AdvanceEpoch(result.Reissued);
+            return Task.FromResult<GrantScopeNarrowing?>(result);
+        }
+    }
+
+    /// <inheritdoc />
     public Task<AdministratorHandover?> HandoverAdministratorAsync(
         TenantId tenantId, GrantId currentGrantId, AccessGrant successor, GrantRevocation revocation,
         CancellationToken ct = default)
