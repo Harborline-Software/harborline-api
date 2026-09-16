@@ -815,6 +815,10 @@ public sealed class AdminTeamAccessRoutesTests
             return Task.FromResult(Revoke);
         }
 
+        public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+            string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
             string selectedSessionHandle, string tenantId, string grantId,
             Harborline.Api.Foundation.IdentityAtlas.Permissions.ScopeExpression narrowedScope,

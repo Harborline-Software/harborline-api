@@ -362,6 +362,39 @@ public sealed class AdminNarrowMemberGrantTests
         Assert.Equal(delegated.AuditId, result.AuditId);
         Assert.Equal(revoked.Payload.Payload.Body["correlation_id"], delegated.Payload.Payload.Body["correlation_id"]);
         Assert.Equal(result.CorrelationId!.Value.ToString("D"), delegated.Payload.Payload.Body["correlation_id"]);
+        var revokedSuccessor = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, revokedSuccessor!.Status);
+        Assert.NotNull(revokedSuccessor.AuditId);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(outside)).Verdict);
+    }
+
+    [Fact]
+    public async Task Grant_only_revocation_preserves_roster_and_membership_with_stable_replay_receipt()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        await h.AdmitInvitationTargetToRosterAsync(setup.InvitationId);
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var target = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId).ToArray();
+        var roster = System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default));
+        var result = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            target.GrantId.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
+        Assert.NotNull(result.AuditId);
+        var replay = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            target.GrantId.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(result.AuditId, replay!.AuditId);
+        Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId));
+        Assert.Equal(roster, System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default)));
+        Assert.Equal(GrantStatus.Revoked, (await store.FindAsync(tenant, target.GrantId))!.Status);
+        // Roster admission independently conveys a member role; removing one grant must not strip it.
+        Assert.Contains("records:read", await AtomsAsync(h, tenant, member));
+        Assert.Contains(Permission.ContactsRead, await AtomsAsync(h, tenant, member));
     }
 
     [Fact]

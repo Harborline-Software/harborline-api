@@ -138,6 +138,11 @@ public sealed record AdminNarrowMemberGrantResult(
 /// </summary>
 public interface IAdminTeamAccessAuthority
 {
+    /// <summary>Revokes only the identified grant; roster membership and other grants are unchanged.</summary>
+    Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Replaces a live grant at a strictly narrower scope, preserving its role and subject.</summary>
     Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
         string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
@@ -423,13 +428,24 @@ internal sealed class AdminTeamAccessAuthority(
     }
 
     /// <inheritdoc />
-    public async Task<AdminRevokeMemberResult?> RevokeMemberGrantAsync(
+    public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) =>
+        RevokeGrantCoreAsync(selectedSessionHandle, tenantId, grantId, authority, null, false, cancellationToken);
+
+    public Task<AdminRevokeMemberResult?> RevokeMemberGrantAsync(
         string selectedSessionHandle,
         string tenantId,
         string grantId,
         AuthorizationWriteContext authority,
         string? successorPrincipalId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RevokeGrantCoreAsync(selectedSessionHandle, tenantId, grantId, authority,
+            successorPrincipalId, true, cancellationToken);
+
+    private async Task<AdminRevokeMemberResult?> RevokeGrantCoreAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        string? successorPrincipalId, bool revokeMembership, CancellationToken cancellationToken)
     {
         EnsureAuthorityTenant(tenantId, authority);
         var coverage = await _gate.DecideAsync(
@@ -505,9 +521,10 @@ internal sealed class AdminTeamAccessAuthority(
             }
         }
 
-        var revokedParty = await _partyReader.ResolveAsync(
-                tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
-            .ConfigureAwait(false);
+        var revokedParty = revokeMembership
+            ? await _partyReader.ResolveAsync(tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
+                .ConfigureAwait(false)
+            : null;
         // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
         if (revokedParty is not null)
         {

@@ -149,6 +149,23 @@ public sealed class AdminTeamAccessAuthorityTests
     }
 
     [Fact]
+    public async Task Grant_only_revocation_never_enters_the_roster_writer_and_preserves_other_grants()
+    {
+        var captures = new BoundaryCaptures();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, captures: captures);
+        var tenant = new TenantId(TenantId);
+        var store = new NodeEfGrantStore(fixture.GrantFactory);
+        var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId).ToArray();
+        var result = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            new AuthorizationWriteContext(new ActorId("principal-admin"), tenant, Now));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
+        Assert.Empty(captures.RosterWriterDecisions);
+        Assert.Empty(captures.RosterAudit.Records);
+        Assert.Same(Assert.Single(captures.GrantWriterDecisions), Assert.Single(captures.GrantAudit.Decisions));
+        Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId));
+    }
+
+    [Fact]
     public async Task Admin_Revocation_Carries_One_Gate_Decision_To_All_Four_Write_Boundaries()
     {
         var captures = new BoundaryCaptures();

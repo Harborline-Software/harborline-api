@@ -354,6 +354,10 @@ public sealed class TenantSwitchRoutesTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+            string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
             string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
             GrantId successorId, AuthorizationWriteContext authority,
