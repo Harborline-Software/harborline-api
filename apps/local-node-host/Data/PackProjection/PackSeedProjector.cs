@@ -1364,8 +1364,15 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // diagnostic reads the compiled, published workflow catalogue only after this pass is complete.
         if (_authorizedWorkflows is not null && _workflowLintReports is not null)
         {
-            _projectionTransaction.AfterCommit(() => _workflowLintReports.RefreshAsync(
-                    _authorizedWorkflows, tenant, installed, CancellationToken.None));
+            _projectionTransaction.AfterCommit(async () =>
+            {
+                // A newer activation may have committed before this deferred callback runs. Read one
+                // current pack/catalogue snapshot and publish its diagnostics before allowing another.
+                using var read = PackProjectionActivationBarrier.Read();
+                await _workflowLintReports.RefreshAsync(
+                    _authorizedWorkflows, tenant, _store.ListInstalled(tenant), CancellationToken.None)
+                    .ConfigureAwait(false);
+            });
         }
 
         // T-398: this whole-catalogue pass is deliberately diagnostic. It observes only the compiled
@@ -1376,9 +1383,13 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             && _roleVocabulary is not null
             && _viewReachabilityReports is not null)
         {
-            _projectionTransaction.AfterCommit(() => _viewReachabilityReports.RefreshAsync(
-                    tenant, installed, _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
-                    CancellationToken.None));
+            _projectionTransaction.AfterCommit(async () =>
+            {
+                using var read = PackProjectionActivationBarrier.Read();
+                await _viewReachabilityReports.RefreshAsync(
+                    tenant, _store.ListInstalled(tenant), _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
+                    CancellationToken.None).ConfigureAwait(false);
+            });
         }
 
         // Other content kinds and replacement retractions can refuse after Defaults parsing.

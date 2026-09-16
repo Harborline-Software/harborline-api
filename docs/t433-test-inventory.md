@@ -94,3 +94,15 @@ Harborline.Api.LocalNodeHost.Tests.Packs.T433ActivationAsyncTests.Canceled_activ
 ```
 
 No failure allowances, skip identities, known-flaky identities, or retry policies changed.
+
+## Four later deferred-health concurrency cases
+
+These additions follow the complete green gate at `b9a5c771`; they are not included in its
+4,154-case measurement. Both earlier inventory tranches remain unchanged.
+
+```text
+Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.Delayed_activation_health_refresh_cannot_erase_newer_active_findings(report: "workflow")
+Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.Delayed_activation_health_refresh_cannot_erase_newer_active_findings(report: "view")
+Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.In_progress_health_refresh_fences_new_activation_until_its_snapshot_is_published(report: "workflow")
+Harborline.Api.LocalNodeHost.Tests.Packs.AccessAdministrationPreloadTests.In_progress_health_refresh_fences_new_activation_until_its_snapshot_is_published(report: "view")
+```

@@ -75,6 +75,26 @@ This is not a cross-process memory transaction, and readiness must continue to g
 during startup restoration. Explicit deactivation and legacy-incomplete-admission reconciliation
 retain their existing lifecycle semantics; replacement retirements run inside this activation unit.
 
+## Deferred health diagnostics
+
+Workflow lint and exposed-view reachability run after the activation write lease is released.
+Each callback acquires one outer read lease, rereads the current installed packs, reads every
+required runtime registry and replaces its cached report before releasing that lease. It never
+combines a captured older activation's pack list with newer runtime definitions.
+
+If A's callback starts late, it reports the current B snapshot. If A starts before B can publish,
+B waits until A has published that internally consistent report. Separate Health checks remain
+eventually updated diagnostic caches; this is not a joint health/catalogue snapshot or an M8
+configuration generation abstraction.
+
+The two stale-completion regressions first produced B's real finding and then observed A erase
+it. The workflow scenario seeds explicit legacy installed and already-published evidence using
+the existing canonicalizer, envelope serializer and entity backing store: current authoring and
+new-tuple runtime admission correctly reject newly introduced unreachable states. No validator
+is weakened, and the execution read continues to revalidate such legacy definitions. The view
+scenario uses ordinary install/activation throughout. Two inverse-order cases pause each callback
+after acquiring its read lease and prove B cannot publish until it is released.
+
 ## Evidence
 
 - Original real Access valid-early-view / unsupported-late-view failure reproduced on base.
@@ -99,3 +119,6 @@ retain their existing lifecycle semantics; replacement retirements run inside th
   with zero new and zero resolved findings. The [identity inventory](t433-test-inventory.md)
   records all 25 earlier additions, four one-to-one rewrites/no deletions, and three async additions.
   Final committed-head full-gate evidence is recorded separately.
+- The complete all-lane quality gate at `b9a5c771` passed all 16 steps in 12m45s, before the
+  independent deferred-health review finding. The receipt and exact-clone host TRX are retained
+  beside `full-gate-final.log`; that receipt is not claimed for the subsequent reporting repair.

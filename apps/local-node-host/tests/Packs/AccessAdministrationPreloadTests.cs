@@ -92,8 +92,11 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms(
-            configureWriters: static (services, entityMutations, _) =>
-                services.AddEntityStoreWorkflowDefinitionStore(entityMutations));
+            configureWriters: (services, entityMutations, _) =>
+            {
+                _workflowMutationAccessor = entityMutations;
+                services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
+            });
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         _app = builder.Build();
 
@@ -132,14 +135,16 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         _audit = new InMemoryPackInstallAudit();
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
+            new DiagnosticReadStore(_store, () => _beforeInstallerPackRead?.Invoke()),
             _store,
+            (IPackProjectionAdmissionStore)_store,
             new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), roleGateAdmission: roleGate, defaults: _defaults,
                 catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
             _audit,
             TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
                 [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         var projector = new PackSeedProjector(
-            _store,
+            new DiagnosticReadStore(_store, () => _beforeDiagnosticPackRead?.Invoke()),
             _app.Services.GetRequiredService<IEntityTypeRegistry>(),
             NullLogger<PackSeedProjector>.Instance,
             forms: _forms,
@@ -152,6 +157,12 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             authorizedWorkflows: TestAuthorization.WorkflowLifecycle(_workflows, TestAuthorization.AllowGate(), roleGate),
             roleVocabulary: _roles,
             authorizationDefinitions: authorizationWriter,
+            authorizationDefinitionCatalogue: configuration,
+            workflowLintReports: _workflowLintReports,
+            viewReachabilityReports: _viewReachabilityReports,
+            edgeIndex: new DeferredHealthRefreshProbe(
+                new Harborline.Api.Foundation.Packs.Graph.InMemoryPackContentEdgeIndexProvider(_store),
+                () => _beforeDiagnosticRefresh?.Invoke()),
             renderPlans: _renderPlans,
             defaults: _defaults, catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports), catalogueDetails: _details);
         ((IPackProjectionReconciler)_installer).AttachProjector(projector);
