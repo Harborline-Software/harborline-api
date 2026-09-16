@@ -244,6 +244,24 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Empty(_repository.ReadTenants);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Selected_entity_reads_never_enter_reusable_caches(bool allowed)
+    {
+        var entityId = await CreateUnitAsync("Selected tenant record");
+        _selected = new SelectedSessionRequestPrincipal("selected-account", _tenant,
+            new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        _holdsRecordsRead = allowed;
+        foreach (var route in new[] { $"{AssetBase}/entities", $"{AssetBase}/entities/{entityId}" })
+        {
+            using var response = await _client.GetAsync(route);
+            Assert.Equal(allowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+        }
+    }
+
     [Fact]
     public async Task Selected_record_read_never_reads_the_ambient_tenants_matching_record()
     {

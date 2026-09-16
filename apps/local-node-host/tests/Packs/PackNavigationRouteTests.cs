@@ -39,6 +39,7 @@ public sealed class PackNavigationRouteTests
         using var response = await GetAsync(store, selectedTenant);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(selectedTenant, store.LastReadTenant);
+        Assert.True(response.Headers.CacheControl?.NoStore);
     }
 
     [Fact(DisplayName = "GET navigation returns the migration fallback signal when no Active pack contributes")]

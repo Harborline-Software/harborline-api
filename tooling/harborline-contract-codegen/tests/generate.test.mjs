@@ -11,6 +11,7 @@ import {
   parseLocalNodeRoutes,
   parseTauriCommands,
   validateInventory,
+  validateQualifiedNonBoundaryMapCalls,
 } from '../boundary-inventory.mjs'
 
 const root = resolve(import.meta.dirname, '../../..')
@@ -105,6 +106,29 @@ test('qualified non-boundary Map names are not global exemptions', () => {
       () => parseLocalNodeRoutes(`app.${call}();`, 'apps/local-node-host/Health/Synthetic.cs'),
       new RegExp(`unknown endpoint registration form ${call}\\(`),
     )
+  }
+})
+
+test('production validated selected-reader exemptions retain exact caller source and receiver', async () => {
+  const base = resolve(root, 'apps/local-node-host')
+  const paths = readdirSync(base, { recursive: true })
+    .filter(path => path.endsWith('.cs') && !path.split(/[\\/]/).some(part => ['tests', 'tools', 'bin', 'obj'].includes(part)))
+    .map(path => resolve(base, path))
+  const exemptions = await validateQualifiedNonBoundaryMapCalls(paths)
+  for (const [source, symbol] of [
+    ['apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs', 'AccessHoldersRead.MapSelected'],
+    ['apps/local-node-host/Health/HostedAuthorizationAdminApiEndpoint.cs', 'AuthorizationAdminRoutes.MapSelectedRoles'],
+  ]) {
+    assert.deepEqual(parseLocalNodeRoutes(`${symbol}(app);`, source, exemptions), [])
+    assert.throws(() => parseLocalNodeRoutes(`${symbol}(app);`, 'apps/local-node-host/Health/Unreviewed.cs', exemptions),
+      /unknown endpoint registration form/)
+    const method = symbol.split('.')[1]
+    assert.throws(() => parseLocalNodeRoutes(`using External.Routes; Unrelated.${method}(app);`, source, exemptions),
+      /unknown endpoint registration form/)
+    assert.throws(() => parseLocalNodeRoutes(`External.${symbol}(app);`, source, exemptions),
+      /unknown endpoint registration form/)
+    assert.throws(() => parseLocalNodeRoutes(`using ${symbol.split('.')[0]} = External.Routes; ${symbol}(app);`, source, exemptions),
+      /unknown endpoint registration form/)
   }
 })
 

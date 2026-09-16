@@ -295,6 +295,7 @@ public static class AssetRegistryRoutes
     {
         app.MapGet($"{RouteBase}/entities", async (string? type, HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var tenant = NodeTenant.Resolve(activeTeam);
             // ADR 0060 (ticket 358): authority travels with the READ. The list's act is over the install's
             // collection rather than any one row, so it carries RouteRecord.TheInstall and rides the
@@ -312,6 +313,7 @@ public static class AssetRegistryRoutes
 
         app.MapGet(ReadEntityRequest.RouteTemplate, async (string id, HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
                 http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))

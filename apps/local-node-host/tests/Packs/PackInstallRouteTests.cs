@@ -159,7 +159,10 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
             new("43300000-0000-4000-8000-000000000000"), new PrincipalUserId("selected-admin"),
             new CanonicalPartyReference("party"), "membership", 1,
             [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
-        var rows = await _client.GetFromJsonAsync<JsonElement>(PackInstallRoutes.ListInstalledRoute);
+        using var response = await _client.GetAsync(PackInstallRoutes.ListInstalledRoute);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        var rows = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Empty(rows.EnumerateArray());
     }
 

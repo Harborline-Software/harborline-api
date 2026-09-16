@@ -139,6 +139,7 @@ internal static partial class AdminTeamAccessRoutes
             return await RequestAuthorization.RefusedAsync(context, denial, context.RequestAborted).ConfigureAwait(false);
         }
         catch (LastAdministratorRefusedException) { return GrantActionConflict("last_administrator_refused"); }
+        catch (GrantSuccessorConflictException) { return GrantActionConflict("grant.successor_conflict"); }
         catch (GrantActionReplayConflictException) { return GrantActionConflict("grant.replay_context_mismatch"); }
     }
 

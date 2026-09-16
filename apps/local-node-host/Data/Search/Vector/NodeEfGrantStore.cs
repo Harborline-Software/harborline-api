@@ -2,6 +2,7 @@ using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 
@@ -146,7 +147,17 @@ public sealed class NodeEfGrantStore(IDbContextFactory<NodeLocalSearchDbContext>
             ctx.Grants.Add(ToRow(replacement.Reissued, sourceReference: null));
             ctx.Entry(row).CurrentValues.SetValues(ToRow(replacement.Revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
             await AdvanceEpochAsync(ctx, tenantId, current.Subject, ct).ConfigureAwait(false);
-            await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (DbUpdateException conflict) when (
+                conflict.InnerException is SqliteException { SqliteErrorCode: 19, SqliteExtendedErrorCode: 1555 }
+                && conflict.Entries.Any(entry => entry.State == EntityState.Added && entry.Entity is GrantRow added
+                    && added.TenantId == tenantId.Value && added.GrantId == successorId.ToString()))
+            {
+                throw new GrantSuccessorConflictException(successorId, conflict);
+            }
             result = replacement;
         }, ct).ConfigureAwait(false);
         return result;

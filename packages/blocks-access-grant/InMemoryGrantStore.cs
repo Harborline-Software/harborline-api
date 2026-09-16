@@ -112,7 +112,7 @@ public sealed class InMemoryGrantStore : IGrantStore, IGrantAuthorizationEpochRe
             if (!_grants.TryGetValue(currentKey, out var current)) return Task.FromResult<GrantScopeNarrowing?>(null);
             var result = GrantScopeNarrowing.Prepare(current, narrowed, successorId, revocation);
             var successorKey = (tenantId.Value, successorId.Value);
-            if (_grants.ContainsKey(successorKey)) throw new InvalidOperationException("A grant id cannot replace immutable grant evidence.");
+            if (_grants.ContainsKey(successorKey)) throw new GrantSuccessorConflictException(successorId);
             LastAdministratorGuard.EnsureNotLastAdministrator(current, result.Revoked,
                 _grants.Values.Where(grant => grant.TenantId == tenantId).Append(result.Reissued));
             _grants.Add(successorKey, result.Reissued);

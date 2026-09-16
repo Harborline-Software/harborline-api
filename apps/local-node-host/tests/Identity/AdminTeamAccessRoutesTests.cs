@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -767,6 +768,32 @@ public sealed class AdminTeamAccessRoutesTests
             context.Response.Headers[WebAntiforgeryPolicy.HeaderName].FirstOrDefault());
     }
 
+    [Fact]
+    public async Task Scope_narrowing_successor_collision_returns_opaque_conflict()
+    {
+        var successor = GrantId.New();
+        var authority = new RecordingAuthority { ScopeWriteFailure = new GrantSuccessorConflictException(
+            successor, new InvalidOperationException("classified database details")) };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.NarrowScopeBody(Guid.NewGuid().ToString("D"), "/records/allowed", successor.ToString()));
+        Assert.Equal(StatusCodes.Status409Conflict, response.StatusCode);
+        Assert.Contains("grant.successor_conflict", response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(successor.ToString(), response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("classified", response.Body, StringComparison.Ordinal);
+        Assert.Equal("no-store", response.CacheControl);
+    }
+
+    [Fact]
+    public async Task Scope_narrowing_does_not_disguise_unrelated_database_failure_as_conflict()
+    {
+        var failure = new DbUpdateException("unrelated storage failure");
+        var authority = new RecordingAuthority { ScopeWriteFailure = failure };
+        var actual = await Assert.ThrowsAsync<DbUpdateException>(() => InvokePostAsync(
+            AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.NarrowScopeBody(Guid.NewGuid().ToString("D"), "/records/allowed", Guid.NewGuid().ToString("D"))));
+        Assert.Same(failure, actual);
+    }
+
     private static DefaultHttpContext BuildContext(string? selectedHandle, bool withPrincipal)
     {
         var services = new ServiceCollection()
@@ -815,6 +842,7 @@ public sealed class AdminTeamAccessRoutesTests
 
     private sealed class RecordingAuthority : IAdminTeamAccessAuthority
     {
+        public Exception? ScopeWriteFailure { get; init; }
         public AuthorizationDeniedException? Denial { get; init; }
 
         public AdminTeamMembersResult? Members { get; init; }
@@ -925,6 +953,7 @@ public sealed class AdminTeamAccessRoutesTests
             NarrowGrantId = grantId;
             NarrowScope = narrowedScope.Value;
             NarrowSuccessor = successorId.ToString();
+            if (ScopeWriteFailure is not null) return Task.FromException<AdminNarrowMemberGrantResult?>(ScopeWriteFailure);
             if (Denial is not null) return Task.FromException<AdminNarrowMemberGrantResult?>(Denial);
             return Task.FromResult(Narrow);
         }

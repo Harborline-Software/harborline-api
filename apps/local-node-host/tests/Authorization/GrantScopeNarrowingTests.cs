@@ -82,7 +82,7 @@ public sealed class GrantScopeNarrowingTests
         await store.Grants.AppendAsync(Tenant, original);
         await store.Grants.AppendAsync(Tenant, occupied);
         var epoch = await ((IGrantAuthorizationEpochReader)store.Grants).ReadAuthorizationEpochAsync(Tenant, Holder);
-        await Assert.ThrowsAnyAsync<Exception>(() => store.Grants.NarrowScopeAsync(Tenant, original.GrantId,
+        await Assert.ThrowsAsync<GrantSuccessorConflictException>(() => store.Grants.NarrowScopeAsync(Tenant, original.GrantId,
             ScopeExpression.Parse("/records/m6-t433-allowed-record-1"), occupied.GrantId, Revocation()));
         Assert.Equal(original, await store.Grants.FindAsync(Tenant, original.GrantId));
         Assert.Equal(occupied, await store.Grants.FindAsync(Tenant, occupied.GrantId));

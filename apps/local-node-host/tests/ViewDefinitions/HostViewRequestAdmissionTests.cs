@@ -22,6 +22,22 @@ public sealed class HostViewRequestAdmissionTests
         Substitute.For<IFormDefinitionStore>(), Substitute.For<ISchemaRegistry>());
 
     [Fact]
+    public async Task Missing_input_form_is_a_stable_governance_refusal()
+    {
+        var definition = Definition();
+        var parameters = JsonNode.Parse(definition.Parameters.GetRawText())!;
+        var action = parameters["actions"]![0]!.AsObject();
+        action.Remove("input");
+        action["inputForm"] = JsonSerializer.SerializeToNode(new { formId = "missing.input", version = "1.0.0" });
+        var registry = new HostViewKindDescriptorRegistry(
+            new InMemoryEntityTypeRegistry(new InMemoryRegistryAuditLog()),
+            new NoopFormDefinitionStore(), Substitute.For<ISchemaRegistry>());
+        var error = await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() => registry.AdmitAsync(
+            definition with { Parameters = JsonSerializer.SerializeToElement(parameters) }).AsTask());
+        Assert.Equal("view_definition.request_binding_invalid", error.ErrorCode);
+    }
+
+    [Fact]
     public async Task Admitted_record_read_emits_the_same_route_and_gate_the_host_executes()
     {
         var definition = Definition();

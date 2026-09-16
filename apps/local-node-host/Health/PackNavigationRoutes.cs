@@ -46,6 +46,7 @@ public static class PackNavigationRoutes
 
         app.MapGet(NavigationRoute, (HttpContext http) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (selected?.TenantId.IsSystemSentinel == true || selected is null &&
                 (NodeCallerAttributionScope.HasBoundWebPrincipal || http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))

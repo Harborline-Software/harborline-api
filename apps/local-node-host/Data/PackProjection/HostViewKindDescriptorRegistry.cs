@@ -5,6 +5,7 @@ using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
+using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Health;
@@ -127,8 +128,16 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
                     || !form.TryGetProperty("formId", out var formId) || formId.ValueKind != JsonValueKind.String
                     || !form.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String)
                     throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
-                var stored = await _forms.GetAsync(new DefinitionCoordinates(new TenantId(definition.Tenant),
-                    formId.GetString()!, version.GetString()!), cancellationToken).ConfigureAwait(false);
+                FormDefinition stored;
+                try
+                {
+                    stored = await _forms.GetAsync(new DefinitionCoordinates(new TenantId(definition.Tenant),
+                        formId.GetString()!, version.GetString()!), cancellationToken).ConfigureAwait(false);
+                }
+                catch (FormDefinitionNotFoundException)
+                {
+                    throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
+                }
                 var schema = await _schemas.GetAsync(stored.SchemaRef, cancellationToken).ConfigureAwait(false)
                     ?? throw new ViewDefinitionGovernanceException("view_definition.request_binding_invalid");
                 foreach (var field in DescribeFields(schema.JsonSchemaText))

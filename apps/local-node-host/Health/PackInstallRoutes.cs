@@ -405,6 +405,7 @@ internal static class PackInstallRoutes
         // GET /packs/installed — list installed versions for the tenant. OPERATE-side: `packages:operate`.
         deviceReachable.MapGet(ListInstalledRoute, async (HttpContext http, CancellationToken ct) =>
         {
+            http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
             if (selected?.TenantId.IsSystemSentinel == true || selected is null &&
                 (NodeCallerAttributionScope.HasBoundWebPrincipal || http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
