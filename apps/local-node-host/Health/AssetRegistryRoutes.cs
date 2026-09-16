@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.Assets.Registry.Model;
 using Harborline.Api.Blocks.Assets.Registry.Services;
@@ -19,9 +20,12 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
@@ -307,11 +311,17 @@ public static class AssetRegistryRoutes
 
         app.MapGet(ReadEntityRequest.RouteTemplate, async (string id, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
+                http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
+            AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct)
+                    http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
+                    decision => accepted = decision)
                 .ConfigureAwait(false) is { } denied)
                 return denied;
             var entity = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct).ConfigureAwait(false);
@@ -324,6 +334,11 @@ public static class AssetRegistryRoutes
             var values = boundRecords is null
                 ? null
                 : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
+            if (accepted is not null && http.RequestServices.GetService<AuthorizedActAudit>() is { } audit &&
+                await audit.RecordAsync(new AuditEventType("RecordRead"), accepted,
+                    new Dictionary<string, object?> { ["recordId"] = entity.Id.Value }, ct)
+                    .ConfigureAwait(false) is { } auditId)
+                http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
             return Results.Ok(ToDetailWire(entity, container, path, values));
         });
 

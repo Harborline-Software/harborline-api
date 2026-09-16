@@ -19,6 +19,7 @@ using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -49,6 +50,8 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private TenantId _tenant;
+    private SelectedSessionRequestPrincipal? _selected;
+    private ReadTrackingRepository _repository = null!;
 
     public async Task InitializeAsync()
     {
@@ -74,6 +77,7 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
             _holdsRecordsRead || operation != TeamRolePermissions.RecordsRead));
         // The shipped refusal-audit composition — the same registration Program.cs makes.
         builder.Services.AddAuthorizationRefusalAudit();
+        builder.Services.AddAuthorizedActAudit();
 
         _app = builder.Build();
 
@@ -88,12 +92,14 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         _app.Use(async (http, next) =>
         {
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            if (_selected is not null) http.Features.Set(_selected);
             await next(http);
         });
+        _repository = new ReadTrackingRepository(_app.Services.GetRequiredService<IRegistryEntityRepository>());
         AssetRegistryRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             _app.Services.GetRequiredService<IEntityTypeRegistry>(),
-            _app.Services.GetRequiredService<IRegistryEntityRepository>(),
+            _repository,
             _app.Services.GetRequiredService<ITypedRelationshipStore>(),
             _app.Services.GetRequiredService<IConditionAssessmentStore>(),
             _app.Services.GetRequiredService<IFormSubmissionRecordStore>(),
@@ -199,6 +205,66 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.DoesNotContain(diagnostic, body, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Selected_record_read_uses_selected_tenant_and_returns_its_actual_audit_receipt()
+    {
+        var entityId = await CreateUnitAsync("Selected tenant record");
+        _activeTeam.Active = TeamContextFor(TeamB, "Other active team");
+        _selected = new SelectedSessionRequestPrincipal("selected-account", _tenant,
+            new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        using var response = await _client.GetAsync($"{AssetBase}/entities/{entityId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var id = Guid.Parse(Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Id")));
+        var rows = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(new AuditQuery(_tenant)))
+            rows.Add(row);
+        var accepted = Assert.Single(rows, row => row.AuditId == id);
+        Assert.Equal("selected-holder", accepted.Actor!.Value.Value);
+        Assert.Equal(entityId, accepted.Target!.Value.RecordId);
+        Assert.Equal("records:read", accepted.Act!.Value.Operation.Value);
+        Assert.Equal(_tenant, accepted.TenantId);
+        Assert.Equal("record", accepted.Target.Value.RecordKind);
+        Assert.NotNull(accepted.AuthoritySnapshot);
+
+        _holdsRecordsRead = false;
+        _repository.ReadTenants.Clear();
+        using var denied = await _client.GetAsync($"{AssetBase}/entities/{entityId}");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var body = await denied.Content.ReadFromJsonAsync<JsonElement>();
+        var refusal = Assert.Single(await RefusalRowsAsync());
+        Assert.Equal("selected-holder", refusal.Actor!.Value.Value);
+        Assert.Equal(body.GetProperty("auditId").GetGuid(), refusal.AuditId);
+        Assert.Empty(_repository.ReadTenants);
+    }
+
+    [Fact]
+    public async Task Selected_record_read_never_reads_the_ambient_tenants_matching_record()
+    {
+        var entityId = await CreateUnitAsync("Other tenant secret");
+        _selected = new SelectedSessionRequestPrincipal("selected-account", new TenantId(TeamB.Value.ToString()),
+            new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        _repository.ReadTenants.Clear();
+        using var response = await _client.GetAsync($"{AssetBase}/entities/{entityId}");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(_selected.TenantId, Assert.Single(_repository.ReadTenants));
+        Assert.DoesNotContain(_tenant, _repository.ReadTenants);
+        Assert.False(response.Headers.Contains("X-Harborline-Audit-Id"));
+    }
+
+    [Fact]
+    public async Task Selected_cookie_without_its_principal_never_falls_back_or_reads()
+    {
+        var entityId = await CreateUnitAsync("Ambient secret");
+        _repository.ReadTenants.Clear();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{AssetBase}/entities/{entityId}");
+        request.Headers.Add("Cookie", "__Host-hl-selected=unresolved");
+        using var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(_repository.ReadTenants);
+    }
+
     private async Task AssertRefusedAsync(HttpResponseMessage response, string entityId)
     {
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -233,6 +299,24 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)
         => new(teamId, name, new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+
+    private sealed class ReadTrackingRepository(IRegistryEntityRepository inner) : IRegistryEntityRepository
+    {
+        public List<TenantId> ReadTenants { get; } = [];
+        public Task<RegistryEntity?> GetByIdAsync(TenantId tenant, RegistryEntityId id, CancellationToken cancellationToken = default)
+        {
+            ReadTenants.Add(tenant);
+            return inner.GetByIdAsync(tenant, id, cancellationToken);
+        }
+        public Task<IReadOnlyList<RegistryEntity>> ListByTenantAsync(TenantId tenant, bool includeRetired = false, CancellationToken cancellationToken = default)
+            => inner.ListByTenantAsync(tenant, includeRetired, cancellationToken);
+        public Task<IReadOnlyList<RegistryEntity>> ListByTypeAsync(TenantId tenant, EntityTypeId type, bool includeRetired = false, CancellationToken cancellationToken = default)
+            => inner.ListByTypeAsync(tenant, type, includeRetired, cancellationToken);
+        public Task UpsertAsync(RegistryEntity entity, Instant at, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.UpsertAsync(entity, at, actorRef, cancellationToken);
+        public Task RetireAsync(TenantId tenant, RegistryEntityId id, Instant at, string? actorRef = null, CancellationToken cancellationToken = default)
+            => inner.RetireAsync(tenant, id, at, actorRef, cancellationToken);
+    }
 
     /// <summary>A mutable active-team accessor so a test can switch the active team mid-flight.</summary>
     private sealed class MutableActiveTeamAccessor(TeamContext? active) : IActiveTeamAccessor

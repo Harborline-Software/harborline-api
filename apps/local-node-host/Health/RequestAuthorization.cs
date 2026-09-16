@@ -81,7 +81,8 @@ internal static class RequestAuthorization
         TenantId tenant,
         string permission,
         RouteRecord record,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<AuthorizationDecision>? onAllowed = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         var time = http.RequestServices.GetService<TimeProvider>();
@@ -89,7 +90,7 @@ internal static class RequestAuthorization
         // deliberately no wall-clock fallback: inventing one here would date a decision off the record.
         return time is null
             ? ValueTask.FromResult<IResult?>(Denied(permission))
-            : RefusalAsync(http, Authority(http, tenant, time), permission, record, ct);
+            : RefusalAsync(http, Authority(http, tenant, time), permission, record, ct, onAllowed);
     }
 
     /// <summary>
@@ -103,7 +104,8 @@ internal static class RequestAuthorization
         AuthorizationWriteContext writeAuthority,
         string permission,
         RouteRecord record,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<AuthorizationDecision>? onAllowed = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         // A write route hands us the authority it will STAMP its mutation with, whose actor is the acting
@@ -111,6 +113,12 @@ internal static class RequestAuthorization
         // shared helper the production PEP uses; the instant and the tenant are the caller's, untouched, so
         // "one act, one clock read" still holds.
         var authority = writeAuthority with { Principal = NodeGatePrincipal.Resolve(http) };
+        if (http.Features.Get<SelectedSessionRequestPrincipal>() is { } selected &&
+            (authority.Tenant != selected.TenantId || selected.TenantId.IsSystemSentinel))
+        {
+            return await PreDecidedAsync(http, authority with { Tenant = selected.TenantId }, permission, ct)
+                .ConfigureAwait(false);
+        }
         var gate = http.RequestServices.GetService<AuthorizationGate>();
         if (gate is null)
         {
@@ -140,9 +148,10 @@ internal static class RequestAuthorization
             return await PreDecidedAsync(http, authority, permission, ct).ConfigureAwait(false);
         }
 
-        return decision.Verdict == AuthorizationVerdict.Allowed
-            ? null
-            : await RefusedAsync(http, decision, ct).ConfigureAwait(false);
+        if (decision.Verdict != AuthorizationVerdict.Allowed)
+            return await RefusedAsync(http, decision, ct).ConfigureAwait(false);
+        onAllowed?.Invoke(decision);
+        return null;
     }
 
     /// <summary>
