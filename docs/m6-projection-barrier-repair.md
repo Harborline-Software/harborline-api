@@ -73,10 +73,10 @@ assertions, and cancellation assertions remain in place.
 Inspection also found an admission defect: new independent readers could enter
 ahead of a waiting activation indefinitely. The regression holds an initial
 reader, starts an activation on a separate execution context, observes that
-contender waiting, and then starts another reader. The old barrier immediately
+activation waiting, and then starts another reader. The old barrier immediately
 admits the latter reader; the new FIFO queue preserves the activation's place.
 Nested reads remain reentrant, and adjacent independent readers remain
-compatible. Cancellation removes the queued contender and wakes successors;
+compatible. Cancellation removes the queued activation and wakes successors;
 a final cancellation check prevents admission after a cancellation races with
 the last holder leaving.
 
