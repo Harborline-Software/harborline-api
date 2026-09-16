@@ -81,6 +81,22 @@ public sealed class CatalogueFieldSourceContractTests
     }
 
     [Theory]
+    [InlineData("title", "{\"kind\":\"Literal\",\"value\":\"Unsupported\"}")]
+    [InlineData("title", "{\"defaultLocale\":\"en\",\"values\":{}}")]
+    [InlineData("description", "{\"defaultLocale\":\"en\",\"values\":{\"fr\":\"Bonjour\"}}")]
+    public void Pack_text_that_is_not_a_complete_internationalized_text_refuses_closed(
+        string property, string malformed)
+    {
+        var content = Content(false);
+        content["overlay"]![property] = JsonNode.Parse(malformed);
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PlatformPackPreloadHostedService.ValidateReleasedFormText(content));
+        Assert.Equal($"overlay.{property} must be an InternationalizedTextDto with a populated default locale",
+            exception.Message);
+    }
+
+    [Theory]
     [InlineData("\"coordinateSchemaVersion\":1,", "", CatalogueFieldSourceCodes.MissingSupportDeclaration)]
     [InlineData("\"sourceMappingSchemaVersion\":1,", "", CatalogueFieldSourceCodes.MissingSupportDeclaration)]
     [InlineData("\"capabilityId\":\"forms.catalogue-field-source\",", "", CatalogueFieldSourceCodes.MissingSupportDeclaration)]

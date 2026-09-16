@@ -20,8 +20,12 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 /// <summary>Installs the released platform catalogue seed through the ordinary pack path before Access.</summary>
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
+    private static readonly HashSet<string> InternationalizedTextProperties = new(StringComparer.Ordinal)
+    {
+        "title", "description", "label", "helpText", "confirmationMessage", "presentationBadge", "text",
+    };
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "1.3.0";
+    public const string PackVersion = "1.4.0";
     private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
 
     private readonly IPackExporter exporter;
@@ -102,12 +106,79 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
             ?? throw new InvalidOperationException("The platform export document is not a JSON object.");
         return new PackExportRequest(Key: document.Key, Version: document.Version, Name: document.Name ?? document.Key,
             Description: document.Description ?? string.Empty, ScopeTier: Enum.Parse<PackScopeTier>(document.ScopeTier, true),
-            Contents: (document.Contents ?? []).Select(item => new PackContentSource(item.Key,
-                Enum.Parse<PackContentKind>(item.Kind, true), item.Version,
-                JsonNode.Parse(item.Content!.Value.GetRawText())!)).ToArray(),
+            Contents: (document.Contents ?? []).Select(ToContentSource).ToArray(),
             Dependencies: (document.Dependencies ?? []).Select(dependency => new PackDependencyRef(
                 dependency.Key, dependency.Version, dependency.DeclaredDependencyKeys ?? [])).ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? [], Epoch: PackComposerRoutes.OwnRosterEpoch,
             Dcp: DomainComplianceProfile.General(authoringPrincipal));
+    }
+
+    private static PackContentSource ToContentSource(ExportContentDto item)
+    {
+        var kind = Enum.Parse<PackContentKind>(item.Kind, true);
+        var content = JsonNode.Parse(item.Content!.Value.GetRawText())!;
+        if (kind == PackContentKind.FormDefinition) ValidateReleasedFormText(content);
+        return new PackContentSource(item.Key, kind, item.Version, content);
+    }
+
+    /// <summary>
+    /// The sealed platform seed is authored against the public form wire contract. Refuse legacy or
+    /// incomplete localized text at resource load rather than signing a pack that admission would
+    /// silently lower to empty copy. This check is intentionally bounded to the released platform
+    /// resource; it does not reinterpret already-admitted immutable pack versions.
+    /// </summary>
+    internal static void ValidateReleasedFormText(JsonNode content)
+    {
+        if (!TryValidateInternationalizedText(content, string.Empty, out var error))
+            throw new InvalidDataException(error);
+    }
+
+    private static bool TryValidateInternationalizedText(JsonNode node, string path, out string error)
+    {
+        error = string.Empty;
+        if (node is JsonArray array)
+        {
+            for (var index = 0; index < array.Count; index++)
+                if (array[index] is { } child
+                    && !TryValidateInternationalizedText(child, $"{path}[{index}]", out error)) return false;
+            return true;
+        }
+        if (node is not JsonObject obj) return true;
+
+        foreach (var property in obj)
+        {
+            if (property.Value is null) continue;
+            var childPath = string.IsNullOrEmpty(path) ? property.Key : $"{path}.{property.Key}";
+            var textCandidate = property.Value is not JsonObject candidate
+                || candidate.ContainsKey("defaultLocale") || candidate.ContainsKey("values")
+                || candidate.ContainsKey("kind") || candidate.ContainsKey("value");
+            if (InternationalizedTextProperties.Contains(property.Key) && textCandidate)
+            {
+                if (property.Value is not JsonObject text
+                    || text.Count != 2
+                    || !text.TryGetPropertyValue("defaultLocale", out var localeNode)
+                    || localeNode is not JsonValue localeValue
+                    || !localeValue.TryGetValue<string>(out var locale)
+                    || string.IsNullOrWhiteSpace(locale)
+                    || !text.TryGetPropertyValue("values", out var valuesNode)
+                    || valuesNode is not JsonObject values
+                    || values.Count == 0
+                    || !values.TryGetPropertyValue(locale, out var defaultValueNode)
+                    || defaultValueNode is not JsonValue defaultValue
+                    || !defaultValue.TryGetValue<string>(out var localized)
+                    || string.IsNullOrWhiteSpace(localized)
+                    || values.Any(entry => string.IsNullOrWhiteSpace(entry.Key)
+                        || entry.Value is not JsonValue value
+                        || !value.TryGetValue<string>(out var translated)
+                        || string.IsNullOrWhiteSpace(translated)))
+                {
+                    error = $"{childPath} must be an InternationalizedTextDto with a populated default locale";
+                    return false;
+                }
+                continue;
+            }
+            if (!TryValidateInternationalizedText(property.Value, childPath, out error)) return false;
+        }
+        return true;
     }
 }

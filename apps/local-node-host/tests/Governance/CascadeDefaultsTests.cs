@@ -68,7 +68,7 @@ public sealed class CascadeDefaultsTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.3.0", request.Version);
+        Assert.Equal("1.4.0", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
@@ -148,7 +148,7 @@ public sealed class CascadeDefaultsTests
         Assert.Equal(source.Key, Assert.Single(resolved.Sources).Value.ContentKey);
         Assert.Null(defaults.Resolve(Tenant, request.Key, "unrelated", "packJson").Values.TrackChanges);
         Assert.Empty(await catalogue.ReadAsync(new("another-tenant"), PackContentKind.CascadeDefaults));
-        var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.0"));
+        var form = await forms.GetAsync(new(Tenant, "platform.pack.author", "1.0.1"));
         var policy = provider.GetRequiredService<IAspectResolver>().ResolvePolicy(form, "packJson");
         Assert.NotNull(policy.Effect(EffectKind.Audit, Trigger.Store));
         await provider.GetRequiredService<IFieldPolicyEnforcer>().StoreAsync(new(policy, Encoding.UTF8.GetBytes("{}"),

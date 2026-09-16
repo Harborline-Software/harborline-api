@@ -183,7 +183,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var source = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
         var replacement = source with
         {
-            Version = "1.3.1",
+            Version = "1.4.1",
             Contents = source.Contents.Append(new PackContentSource(
                 "platform.binding.forbidden-auditor", PackContentKind.AuthorizationCapabilityBinding, "1.0.0",
                 JsonSerializer.SerializeToNode(new
