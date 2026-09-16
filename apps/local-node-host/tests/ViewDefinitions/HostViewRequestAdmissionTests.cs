@@ -107,17 +107,20 @@ public sealed class HostViewRequestAdmissionTests
         }),
     };
 
-    [Fact]
-    public async Task Admitted_binary_action_emits_file_input_and_refresh_contract()
+    [Theory]
+    [InlineData("application/octet-stream", "data-source")]
+    [InlineData("application/octet-stream", "view")]
+    [InlineData(".json", "view")]
+    public async Task Admitted_binary_action_emits_file_input_and_refresh_contract(string accept, string refresh)
     {
-        var definition = BinaryDefinition("application/octet-stream", "data-source");
+        var definition = BinaryDefinition(accept, refresh);
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
         Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
         var action = plan!.Bindings.GetProperty("actions")[0];
-        Assert.Equal("application/octet-stream", action.GetProperty("fileInput").GetProperty("accept").GetString());
-        Assert.Equal("data-source", action.GetProperty("result").GetProperty("refresh").GetString());
+        Assert.Equal(accept, action.GetProperty("fileInput").GetProperty("accept").GetString());
+        Assert.Equal(refresh, action.GetProperty("result").GetProperty("refresh").GetString());
     }
 
     [Theory]

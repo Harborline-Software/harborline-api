@@ -273,7 +273,7 @@
             },
             {
               "id": "replace-pack", "label": "Replace Access pack", "operation": "access.pack.replace",
-              "fileInput": { "accept": "application/octet-stream" }, "result": { "refresh": "data-source" },
+              "fileInput": { "accept": ".json" }, "result": { "refresh": "view" },
               "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "packs.replace.selected.v1", "bindings": {
                 "packKey": { "literal": "harborline.access-administration" }, "artifact": { "source": "file", "pointer": "" },
                 "correlationId": { "source": "invocation", "pointer": "/correlationId" }

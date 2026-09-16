@@ -5,10 +5,10 @@
   "fromVersion": "1.1.1",
   "toVersion": "1.1.2",
   "artifact": "access-administration-pack-1.1.2.export.json",
-  "sha256": "a5a1a6b1d8e75bc30ba902c0fb2a795e82931631a0ad644bb7018038a3bce122",
+  "sha256": "392f2545710d5cb3a7df8724e43d65e751607debfafe00898d704819d55a381f",
   "source": {
     "path": "_shared/packs/access-administration/access-administration-pack.export.json",
-    "sha256": "2b40586778534a172ac5cba4cb47590f3380fb793599c7e8fe9ec4a1155745dd",
+    "sha256": "99a3edfa484314c7a0523f4d12b9d7f87725f7b65fc95bbc34dc7ca79e7fdcb2",
     "derivation": "Change pack version to 1.1.2, replace WorkflowDefinition/access.privileged-grant-review@1.0.1 with WorkflowDefinition/access.scoped-grant-review@1.0.0, and replace ViewDefinition/access.holders@1.0.0 with ViewDefinition/access.holders@1.0.1 bound to the scoped workflow."
   },
   "signature": {

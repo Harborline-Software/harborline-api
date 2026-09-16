@@ -12,10 +12,10 @@ public static class ViewRequestPresentationAdmission
         if (file)
         {
             Require(!action.TryGetProperty("input", out _) && !action.TryGetProperty("inputForm", out _));
-            Require(SingleText(fileInput, "accept") == "application/octet-stream");
+            Require(SingleText(fileInput, "accept") is "application/octet-stream" or ".json");
         }
         if (action.TryGetProperty("result", out var result))
-            Require(SingleText(result, "refresh") is "none" or "data-source");
+            Require(SingleText(result, "refresh") is "none" or "data-source" or "view");
         return file;
     }
 
