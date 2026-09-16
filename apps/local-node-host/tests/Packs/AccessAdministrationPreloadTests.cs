@@ -522,7 +522,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var installedLegacy = _store.GetVersion(Tenant, legacy.Key, legacy.Version)!;
         var immutableItems = installedLegacy.SeedItems
             .Where(item => item.Kind == PackContentKind.FormDefinition)
-            .ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
+            .ToDictionary(item => item.Key, item => (item.Version, item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
         var oldDetail = Assert.IsType<FormDefinition>(
             await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.0")));
         var oldAuthor = Assert.IsType<FormDefinition>(
@@ -539,7 +539,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(PackLifecycleState.Superseded, preservedLegacy.Lifecycle);
         var preservedItems = preservedLegacy.SeedItems
             .Where(item => item.Kind == PackContentKind.FormDefinition)
-            .ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
+            .ToDictionary(item => item.Key, item => (item.Version, item.ContentAddress, item.CanonicalJson), StringComparer.Ordinal);
         Assert.Equal(immutableItems.Count, preservedItems.Count);
         Assert.Equal(immutableItems.Keys.Order(StringComparer.Ordinal), preservedItems.Keys.Order(StringComparer.Ordinal));
         foreach (var item in immutableItems)
