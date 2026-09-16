@@ -8,6 +8,8 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Harborline.Api.Kernel.Audit;
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Forms;
@@ -38,8 +40,46 @@ public sealed partial class FormsRouteTests
             auditId ??= currentAudit;
             Assert.Equal(auditId, currentAudit);
             Assert.Equal(auditId, body.GetProperty("auditId").GetString());
+            Assert.Equal("43300000-0000-4000-8000-000000000010", body.GetProperty("correlationId").GetString());
         }
         Assert.StartsWith("forminst:forms/", instance);
+    }
+
+    [Theory]
+    [InlineData("not-a-guid", HttpStatusCode.BadRequest)]
+    [InlineData("43300000-0000-4000-8000-000000000011", HttpStatusCode.Conflict)]
+    public async Task Selected_submit_refuses_malformed_or_changed_replay_correlation(string correlation, HttpStatusCode expected)
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var first = SelectedSubmit();
+        using var accepted = await _client.SendAsync(first);
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        using var replay = SelectedSubmit();
+        replay.Headers.Remove("X-Correlation-ID");
+        replay.Headers.Add("X-Correlation-ID", correlation);
+        using var refused = await _client.SendAsync(replay);
+        Assert.Equal(expected, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Selected_submit_changed_payload_with_same_key_and_correlation_refuses_without_second_mint()
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var first = SelectedSubmit();
+        using var accepted = await _client.SendAsync(first);
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        using var replay = SelectedSubmit();
+        replay.Content = JsonContent.Create(new { station = "changed", result = "PASS" });
+        using var refused = await _client.SendAsync(replay);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        var rows = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) rows.Add(row);
+        Assert.Single(rows);
     }
 
     [Theory]
@@ -86,6 +126,7 @@ public sealed partial class FormsRouteTests
         request.Headers.Add("Cookie", "__Host-hl-selected=selected-handle");
         request.Headers.Add("X-Harborline-Antiforgery", "test-csrf");
         request.Headers.Add("Idempotency-Key", "selected-form-test-v1");
+        request.Headers.Add("X-Correlation-ID", "43300000-0000-4000-8000-000000000010");
         return request;
     }
 }

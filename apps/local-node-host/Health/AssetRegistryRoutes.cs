@@ -315,6 +315,7 @@ public static class AssetRegistryRoutes
             if (selected is null && (NodeCallerAttributionScope.HasBoundWebPrincipal ||
                 http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
                 return Results.Unauthorized();
+            if (selected is not null && SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
@@ -334,12 +335,19 @@ public static class AssetRegistryRoutes
             var values = boundRecords is null
                 ? null
                 : await boundRecords.ReadValuesAsync(tenant, entity, ct).ConfigureAwait(false);
+            Guid? receipt = null;
             if (accepted is not null && http.RequestServices.GetService<AuthorizedActAudit>() is { } audit &&
                 await audit.RecordAsync(new AuditEventType("RecordRead"), accepted,
                     new Dictionary<string, object?> { ["recordId"] = entity.Id.Value }, ct)
                     .ConfigureAwait(false) is { } auditId)
+            {
+                receipt = auditId;
                 http.Response.Headers["X-Harborline-Audit-Id"] = auditId.ToString("D");
-            return Results.Ok(ToDetailWire(entity, container, path, values));
+                if (accepted.Request.CorrelationId is { } correlation)
+                    http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
+            }
+            return Results.Ok(ToDetailWire(entity, container, path, values) with
+            { AuditId = receipt, CorrelationId = receipt is not null ? accepted?.Request.CorrelationId : null });
         });
 
         app.MapPost($"{RouteBase}/entities", async (CreateEntityBody body, HttpContext http, CancellationToken ct) =>
@@ -931,7 +939,8 @@ public static class AssetRegistryRoutes
         string[] Path,
         PropertyFormWire? PropertyForm,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Values = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null);
     /// <summary>The type's pinned property-form binding (the entity-detail form).</summary>
     public sealed record PropertyFormWire(string Definition, string Version);
 

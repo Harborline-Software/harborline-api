@@ -9,6 +9,8 @@ public readonly record struct AuthorizationWriteContext(
     TenantId Tenant,
     DateTimeOffset At)
 {
+    /// <summary>Validated request correlation for audit association; it grants no authority.</summary>
+    public Guid? CorrelationId { get; init; }
     /// <summary>Builds a request from a coordinator-derived operation and record identity.</summary>
     public AuthorizationGateRequest Request(
         AuthorizationOperation operation,
@@ -21,7 +23,7 @@ public readonly record struct AuthorizationWriteContext(
             Principal,
             Tenant,
             new AuthorizationTarget(recordKind, recordId, scope),
-            At);
+            At) { CorrelationId = CorrelationId };
     }
 
     /// <summary>
@@ -37,6 +39,6 @@ public readonly record struct AuthorizationWriteContext(
             Principal,
             Tenant,
             new AuthorizationTarget(string.Empty, string.Empty, scope),
-            At);
+            At) { CorrelationId = CorrelationId };
     }
 }

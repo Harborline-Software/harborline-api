@@ -15,7 +15,7 @@ public interface IFormSubmissionResultReader
 
 internal static class FormSubmissionAuditReceipt
 {
-    internal static async ValueTask<(Guid AuditId, Guid CorrelationId)?> ReadAsync(IAuditTrail trail,
+    internal static async ValueTask<(Guid AuditId, Guid? CorrelationId)?> ReadAsync(IAuditTrail trail,
         FormDefinitionId form, TenantId tenant, ActorId actor, FormSubmitReceipt receipt, CancellationToken ct)
     {
         await foreach (var row in trail.QueryAsync(new AuditQuery(tenant,
@@ -24,7 +24,9 @@ internal static class FormSubmissionAuditReceipt
             if (row.Actor != actor || row.Target?.RecordId != form.Value || row.AuthoritySnapshot is null ||
                 !row.Payload.Payload.Body.TryGetValue("entity_id", out var entity)) continue;
             var id = entity switch { string text => text, JsonElement json when json.ValueKind == JsonValueKind.String => json.GetString(), _ => null };
-            if (id == receipt.InstanceId.ToString()) return (row.AuditId, row.Payload.Nonce);
+            if (id != receipt.InstanceId.ToString()) continue;
+            row.Payload.Payload.Body.TryGetValue("correlation_id", out var correlation);
+            return (row.AuditId, Guid.TryParse(correlation?.ToString(), out var parsed) ? parsed : null);
         }
         return null;
     }

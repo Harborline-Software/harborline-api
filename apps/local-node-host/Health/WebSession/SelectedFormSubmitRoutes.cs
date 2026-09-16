@@ -37,6 +37,7 @@ internal static class SelectedFormSubmitRoutes
             var handle = http.Request.Cookies[WebSessionCookieNames.Selected];
             if (principal is null || principal.TenantId.IsSystemSentinel || string.IsNullOrWhiteSpace(handle))
                 return Results.Unauthorized();
+            if (SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
             if (!await antiforgery.ConsumeSelectedAsync(http, handle).ConfigureAwait(false))
                 return Results.Json(new { code = "antiforgery_failed" }, statusCode: StatusCodes.Status403Forbidden);
             _ = await antiforgery.RotateSelectedAsync(http, handle).ConfigureAwait(false);
@@ -66,7 +67,8 @@ internal static class SelectedFormSubmitRoutes
                 if (auditReceipt is { } recorded)
                 {
                     http.Response.Headers["X-Harborline-Audit-Id"] = recorded.AuditId.ToString("D");
-                    http.Response.Headers["X-Harborline-Audit-Correlation"] = recorded.CorrelationId.ToString("D");
+                    if (recorded.CorrelationId is { } correlation)
+                        http.Response.Headers["X-Harborline-Audit-Correlation"] = correlation.ToString("D");
                 }
                 var result = submissionGate is IFormSubmissionResultReader reader
                     ? await reader.ReadResultAsync(form, principal.TenantId, receipt.InstanceId, ct).ConfigureAwait(false) : null;
@@ -79,6 +81,10 @@ internal static class SelectedFormSubmitRoutes
             catch (AuthorizationDeniedException denial)
             {
                 return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
+            }
+            catch (FormSubmissionReplayConflictException)
+            {
+                return Results.Conflict(new { code = "forms.replay_context_mismatch" });
             }
             catch (FormSubmitProjectionPendingException pending)
             {

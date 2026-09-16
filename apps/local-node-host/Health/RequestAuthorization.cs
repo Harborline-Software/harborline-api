@@ -68,7 +68,8 @@ internal static class RequestAuthorization
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(time);
-        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow());
+        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow())
+        { CorrelationId = http.Features.Get<WebSession.SelectedRequestCorrelation>()?.Value };
     }
 
     /// <summary>
@@ -225,7 +226,10 @@ internal static class RequestAuthorization
                 .ConfigureAwait(false);
         }
 
-        return Write(refusal, permission, auditId);
+        var correlation = auditId is not null ? decision?.Request.CorrelationId : null;
+        if (auditId is { } recorded) http.Response.Headers["X-Harborline-Audit-Id"] = recorded.ToString("D");
+        if (correlation is { } correlated) http.Response.Headers["X-Harborline-Audit-Correlation"] = correlated.ToString("D");
+        return Write(refusal, permission, auditId, correlation);
     }
 
     /// <summary>
@@ -233,7 +237,7 @@ internal static class RequestAuthorization
     /// decided the acting principal may see; <see cref="AuthorizationRefusal.Diagnostic"/> is deliberately
     /// not written here — it belongs to the audit row.
     /// </summary>
-    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null)
+    private static IResult Write(AuthorizationRefusal refusal, string permission, Guid? auditId = null, Guid? correlation = null)
     {
         var body = new Dictionary<string, object?>
         {
@@ -246,6 +250,7 @@ internal static class RequestAuthorization
         // Only an appended receipt extends the refusal's original five-field shape.
         if (auditId is { } recordedId)
             body["auditId"] = recordedId;
+        if (correlation is { } correlated) body["correlationId"] = correlated;
         return Results.Json(body, statusCode: StatusCodes.Status403Forbidden);
     }
 }

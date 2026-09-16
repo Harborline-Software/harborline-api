@@ -213,6 +213,8 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         _selected = new SelectedSessionRequestPrincipal("selected-account", _tenant,
             new PrincipalUserId("selected-holder"), new CanonicalPartyReference("selected-party"),
             "membership", 1, [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+        const string correlation = "43300000-0000-4000-8000-000000000021";
+        _client.DefaultRequestHeaders.Add("X-Correlation-ID", correlation);
         using var response = await _client.GetAsync($"{AssetBase}/entities/{entityId}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var id = Guid.Parse(Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Id")));
@@ -226,6 +228,8 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         Assert.Equal(_tenant, accepted.TenantId);
         Assert.Equal("record", accepted.Target.Value.RecordKind);
         Assert.NotNull(accepted.AuthoritySnapshot);
+        Assert.Equal(correlation, accepted.Payload.Payload.Body["correlation_id"]?.ToString());
+        Assert.Equal(correlation, Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Correlation")));
 
         _holdsRecordsRead = false;
         _repository.ReadTenants.Clear();
@@ -235,6 +239,8 @@ public sealed class AssetRegistryEntityReadAuthorizationTests : IAsyncLifetime
         var refusal = Assert.Single(await RefusalRowsAsync());
         Assert.Equal("selected-holder", refusal.Actor!.Value.Value);
         Assert.Equal(body.GetProperty("auditId").GetGuid(), refusal.AuditId);
+        Assert.Equal(correlation, body.GetProperty("correlationId").GetString());
+        Assert.Equal(correlation, refusal.Payload.Payload.Body["correlation_id"]?.ToString());
         Assert.Empty(_repository.ReadTenants);
     }
 

@@ -37,6 +37,7 @@ internal static class SelectedPackReplacementRoutes
         var handle = http.Request.Cookies[WebSessionCookieNames.Selected];
         if (principal is null || principal.TenantId.IsSystemSentinel || string.IsNullOrWhiteSpace(handle))
             return Results.Unauthorized();
+        if (SelectedRequestCorrelation.Bind(http) is { } invalidCorrelation) return invalidCorrelation;
         if (!await antiforgery.ConsumeSelectedAsync(http, handle).ConfigureAwait(false))
             return Results.Json(new { code = "antiforgery_failed" }, statusCode: 403);
         _ = await antiforgery.RotateSelectedAsync(http, handle).ConfigureAwait(false);
@@ -87,9 +88,11 @@ internal static class SelectedPackReplacementRoutes
                 new Dictionary<string, object?> { ["packKey"] = packKey, ["version"] = installed?.Version,
                     ["draftInstalled"] = installed?.Installed == true, ["replaced"] = replaced }, ct).ConfigureAwait(false);
         if (auditId is { } recorded) http.Response.Headers["X-Harborline-Audit-Id"] = recorded.ToString("D");
+        var correlationId = auditId is not null ? authority.CorrelationId : null;
+        if (correlationId is { } correlated) http.Response.Headers["X-Harborline-Audit-Correlation"] = correlated.ToString("D");
         return Results.Json(new
         {
-            status = replaced ? "replaced" : "refused", packKey, auditId,
+            status = replaced ? "replaced" : "refused", packKey, auditId, correlationId,
             draftInstall = new { installed = installed?.Installed == true, version = installed?.Version,
                 refusalCodes = installed?.RefusalCodes ?? [], action = installed?.Action.ToString() },
             activation = new { attempted = activation is not null, activated = activation?.Activated == true,

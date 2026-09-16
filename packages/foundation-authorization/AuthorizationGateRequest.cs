@@ -16,6 +16,8 @@ public sealed record AuthorizationGateRequest(
     DateTimeOffset At)
 {
     public AuthorizationRosterInputs? Roster { get; init; }
+    /// <summary>Validated audit association only; never consulted by authorization policy.</summary>
+    public Guid? CorrelationId { get; init; }
     /// <summary>A server-verified grant constraint failure; the gate retains it in its decision.</summary>
     public string? GrantRefusal { get; init; }
 }

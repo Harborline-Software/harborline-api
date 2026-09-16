@@ -13,7 +13,7 @@ internal static class KernelAuditMetadataRoutes
 {
     internal const string Route = "/api/session/audit/metadata";
     private static readonly string[] IdentifierKeys =
-        ["entity_id", "grant_id", "successor_grant_id", "workflow_instance_id", "packKey", "version"];
+        ["entity_id", "grant_id", "successor_grant_id", "workflow_instance_id", "recordId", "packKey", "version"];
 
     internal static void Map(IEndpointRouteBuilder app, IAuditTrail trail, TimeProvider time) =>
         app.MapGet(Route, (HttpContext http, DateTimeOffset from, DateTimeOffset to,

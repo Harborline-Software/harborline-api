@@ -149,6 +149,7 @@ public sealed class AuthorizationRefusalAudit
                 [DiagnosticKey] = refusal.Diagnostic,
                 ["decisionEvidence"] = decision?.Evidence.Project(),
             };
+            if (decision?.Request.CorrelationId is { } correlation) body["correlation_id"] = correlation.ToString("D");
             var payload = await _signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid(), ct)
                 .ConfigureAwait(false);
             var record = new AuditRecord(
