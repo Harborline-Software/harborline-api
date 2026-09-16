@@ -1,11 +1,45 @@
 {
   "_note": "Platform catalogue seed: sealed system types, Workshop navigation and list views, the pack-author input form with change-audit defaults and declared operations, and platform roles/bindings. Domain definitions are authored in separate packs.",
   "key": "harborline.platform",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Harborline platform",
   "description": "The sealed platform catalogue and Workshop bootstrap.",
   "scopeTier": "Horizontal",
   "contents": [
+    {
+      "key": "platform.detail.form", "kind": "FormDefinition", "version": "1.0.0",
+      "content": {
+        "catalogueFieldSource": {
+          "capabilityId": "forms.catalogue-field-source",
+          "coordinateSchemaVersion": 1,
+          "sourceMappingSchemaVersion": 1,
+          "sourceKind": "FormDefinition",
+          "fields": [
+            { "fieldId": "formId", "source": "catalogue.entry.formId" },
+            { "fieldId": "title", "source": "catalogue.entry.title" },
+            { "fieldId": "version", "source": "catalogue.entry.version" },
+            { "fieldId": "cascadeLayer", "source": "catalogue.entry.cascadeLayer" }
+          ]
+        },
+        "overlay": {
+          "title": { "kind": "Literal", "value": "Form details" },
+          "fields": {
+            "formId": { "label": { "kind": "Literal", "value": "Form ID" }, "controlHint": "text", "readOnly": true, "piiSensitivity": "None" },
+            "title": { "label": { "kind": "Literal", "value": "Title" }, "controlHint": "text", "readOnly": true, "piiSensitivity": "None" },
+            "version": { "label": { "kind": "Literal", "value": "Version" }, "controlHint": "text", "readOnly": true, "piiSensitivity": "None" },
+            "cascadeLayer": { "label": { "kind": "Literal", "value": "Cascade layer" }, "controlHint": "text", "readOnly": true, "piiSensitivity": "None" }
+          },
+          "sections": [{ "id": "details", "title": { "kind": "Literal", "value": "Details" }, "fields": ["formId", "title", "version", "cascadeLayer"] }],
+          "rules": []
+        },
+        "fieldsMeta": {
+          "formId": { "type": "text", "required": false },
+          "title": { "type": "text", "required": false },
+          "version": { "type": "text", "required": false },
+          "cascadeLayer": { "type": "text", "required": false }
+        }
+      }
+    },
     {
       "key": "platform.defaults.pack-author", "kind": "CascadeDefaults", "version": "1.0.0",
       "content": {
@@ -127,5 +161,5 @@
     { "key": "platform.binding.records-read", "kind": "AuthorizationCapabilityBinding", "version": "1.1.0", "content": { "operation": "records:read", "scope": "/", "offeredRoles": ["sys.platform-roles/administrator"] } }
   ],
   "dependencies": [],
-  "capabilityRequirements": []
+  "capabilityRequirements": ["forms.catalogue-field-source"]
 }

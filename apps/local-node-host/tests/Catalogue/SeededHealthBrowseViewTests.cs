@@ -24,7 +24,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Catalogue;
 public sealed class SeededHealthBrowseViewTests
 {
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
-    private const string PackVersion = "1.2.0";
+    private const string PackVersion = "1.3.0";
     private const string DefinitionVersion = "1.0.0";
     private const string GridKind = "views.entity-list/grid";
 

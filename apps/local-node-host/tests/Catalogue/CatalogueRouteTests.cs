@@ -9,6 +9,8 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Forms;
+using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -94,9 +96,11 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
             _packStore,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: new ActiveCascadeDefaultsProjection()),
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: new ActiveCascadeDefaultsProjection(),
+                catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
             new InMemoryPackInstallAudit(),
-            TestAuthorization.AllowGate());
+            TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
+                [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         _platformPreload = new PlatformPackPreloadHostedService(
             new PackExporter(
                 new PackContentCanonicalizer(),
