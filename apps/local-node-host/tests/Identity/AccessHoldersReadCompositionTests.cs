@@ -79,12 +79,14 @@ public sealed class AccessHoldersReadCompositionTests
 
                 var viewRows = json.RootElement.GetProperty("rows").EnumerateArray().ToArray();
                 Assert.Equal(rows.Length, viewRows.Length);
+                Assert.Equal(expectedIds, viewRows.Select(row => row.GetProperty("grantId").GetString()).Order().ToArray());
                 var canonical = Assert.Single(viewRows, row =>
                     row.GetProperty("principalId").GetString() == "principal-target"
                     && row.GetProperty("scope").GetString() == "/records/example");
                 Assert.Equal(AccessGrantAuthorizationSeed.MemberRole.ToString(), canonical.GetProperty("role").GetString());
                 Assert.Equal("/records/example", canonical.GetProperty("scope").GetString());
                 Assert.Equal("Active", canonical.GetProperty("status").GetString());
+                Assert.Equal("32900000-0000-4000-8000-000000000001", canonical.GetProperty("grantId").GetString());
             }
         }
         finally

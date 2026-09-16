@@ -22,7 +22,7 @@ internal static class AccessHoldersRead
 
     /// <summary>Canonical shared-view row for the pack-defined <c>AccessGrant</c> entity.</summary>
     internal sealed record AccessGrantRow(
-        string PrincipalId, string Role, string Scope, string Status);
+        string GrantId, string PrincipalId, string Role, string Scope, string Status);
 
     internal static async Task<IResult> ReadAsync(
         HttpContext http, TenantId tenant, TimeProvider time, CancellationToken ct)
@@ -54,7 +54,7 @@ internal static class AccessHoldersRead
                     ? "No unique live party binding in this tenant: missing, tombstoned, detached, duplicated or wrong-tenant."
                     : null));
             rows.Add(new AccessGrantRow(
-                grant.Subject.Value,
+                grant.GrantId.ToString(), grant.Subject.Value,
                 grant.Role.ToString(),
                 grant.Scope.Value,
                 "Active"));

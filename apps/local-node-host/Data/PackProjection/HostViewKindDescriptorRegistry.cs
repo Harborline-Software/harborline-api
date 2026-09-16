@@ -97,6 +97,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         {
             return new ViewRecordTypeDescriptor(id.Value, new Dictionary<string, ViewRecordFieldKind>(StringComparer.Ordinal)
             {
+                ["grantId"] = ViewRecordFieldKind.Text,
                 ["principalId"] = ViewRecordFieldKind.Text,
                 ["role"] = ViewRecordFieldKind.Text,
                 ["scope"] = ViewRecordFieldKind.Text,
