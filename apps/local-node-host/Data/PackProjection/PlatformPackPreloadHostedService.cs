@@ -84,9 +84,11 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
                 return;
             }
         }
-        var activated = installer.Activate(context, PackKey, PackVersion);
+        var activated = await installer.ActivateAsync(context, PackKey, PackVersion, cancellationToken).ConfigureAwait(false);
         if (!activated.Activated)
             logger.LogError("Platform pack activation was refused: {Reason}.", activated.Error);
+        else if (activated.Detail is not null)
+            logger.LogWarning("Platform pack activation committed with post-commit diagnostics: {Detail}", activated.Detail);
     }
 
     // CA1869: one cached instance, as CompromisedDeviceResponseService and the audit reader already do.

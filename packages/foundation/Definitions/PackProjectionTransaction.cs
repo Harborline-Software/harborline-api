@@ -135,21 +135,29 @@ public sealed class PackProjectionTransaction : IDisposable
     /// <summary>Defers observers until the committed projection is visible and the write lease is released.</summary>
     public void AfterCommit(Func<Task> reaction) => reactions.Add(reaction);
 
-    /// <summary>Runs post-commit observers outside the activation lease.</summary>
-    public async Task ReactAsync()
+    /// <summary>Runs observers outside the lease, returning diagnostics without reversing a durable success.</summary>
+    public async Task<AggregateException?> ReactAsync()
     {
         if (!disposed) throw new InvalidOperationException("Release the projection lease before notifying observers.");
-        if (!committed || reacted) return;
+        if (!committed || reacted) return null;
         reacted = true;
         var failures = new List<Exception>();
         if (postCommitCleanupFailure is not null) failures.Add(postCommitCleanupFailure);
         foreach (var reaction in reactions)
         {
-            try { await reaction().ConfigureAwait(false); }
-            catch (Exception exception) { failures.Add(exception); }
+            // The async boundary captures synchronous delegate throws as well as asynchronous faults.
+            // SuppressThrowing only controls the await: every fault/cancellation is collected below.
+            var pending = InvokeReactionAsync(reaction);
+            await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (pending.Exception is { } failure) failures.AddRange(failure.InnerExceptions);
+            else if (pending.IsCanceled) failures.Add(new TaskCanceledException(pending));
         }
-        if (failures.Count > 0) throw new AggregateException("Projection committed; post-commit notification or cleanup failed.", failures);
+        return failures.Count > 0
+            ? new AggregateException("Projection committed; post-commit notification or cleanup failed.", failures)
+            : null;
     }
+
+    private static async Task InvokeReactionAsync(Func<Task> reaction) => await reaction().ConfigureAwait(false);
 
     /// <summary>Commits durable state before exposing the prepared registry references.</summary>
     public void Commit()

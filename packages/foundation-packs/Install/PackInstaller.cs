@@ -193,16 +193,16 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview, brokeGlass, decision);
     }
 
-    private PackActivationOutcome ActivateCore(
+    private async Task<PackActivationOutcome> ActivateCoreAsync(
         TenantId tenant,
         string packKey,
         string version,
         DateTimeOffset now,
         string? actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions,
-        out PackProjectionAuthority? projectionAuthority)
+        CancellationToken cancellationToken)
     {
-        projectionAuthority = null;
+        cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(packKey))
         {
             AuditPreDecisionRefusal(tenant, packKey, version, now, actingPrincipal,
@@ -260,8 +260,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
                 compositionRefusal.Error!, compositionRefusal.Detail, decision, compositionRefusal.Refusal);
 
-        return CommitActivation(tenant, packKey, version, now, actingPrincipal, ownershipResolutions,
-            expectedActiveVersion, decision);
+        return await CommitActivationAsync(tenant, packKey, version, now, actingPrincipal, ownershipResolutions,
+            expectedActiveVersion, decision, cancellationToken).ConfigureAwait(false);
     }
 
     private PackActivationOutcome? FindDeclaredPlatformDependencyRefusal(
@@ -360,17 +360,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         return null;
     }
 
-    private PackActivationOutcome CommitActivation(
+    private async Task<PackActivationOutcome> CommitActivationAsync(
         TenantId tenant, string packKey, string version, DateTimeOffset now, string actingPrincipal,
         IReadOnlyDictionary<string, string>? ownershipResolutions, string? expectedActiveVersion,
-        AuthorizationDecision decision)
+        AuthorizationDecision decision, CancellationToken cancellationToken)
     {
         PackActivationOutcome outcome;
         var authority = new PackProjectionAuthority(decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
         PackProjectionTransaction? transaction = null;
         try
         {
-            using (transaction = new PackProjectionTransaction())
+            using (transaction = new PackProjectionTransaction(cancellationToken))
             {
                 var target = _store.GetVersion(tenant, packKey, version);
                 if (!string.Equals(_store.GetActive(tenant, packKey)?.Version, expectedActiveVersion, StringComparison.Ordinal))
@@ -395,9 +395,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
                         _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
                     ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version, Admission(authority));
-                    var result = _projector?.Project(authority);
+                    var result = _projector?.Project(authority, cancellationToken);
                     if (Admitted(result))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         if (_projector is not null) ProjectionStore().MarkProjectionCompleted(authority.Nonce);
                         transaction.Commit();
                         outcome = new(true, packKey, version, null, Projected: _projector is not null,
@@ -435,26 +436,27 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
         if (outcome.Activated && transaction is not null)
         {
-            try { transaction.ReactAsync().GetAwaiter().GetResult(); }
-            catch (Exception exception)
-            { outcome = outcome with { Detail = exception.Message }; }
+            var diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
+            if (diagnostics is not null)
+                outcome = outcome with { Detail = string.IsNullOrEmpty(outcome.Detail)
+                    ? diagnostics.Message : outcome.Detail + " " + diagnostics.Message };
         }
         return outcome;
     }
 
     /// <inheritdoc />
-    public PackActivationOutcome Activate(PackInstallContext context, string packKey, string version)
+    public Task<PackActivationOutcome> ActivateAsync(
+        PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var outcome = ActivateCore(
+        return ActivateCoreAsync(
             context.Tenant,
             packKey,
             version,
             context.Now,
             context.Principal,
             context.OwnershipResolutions,
-            out var authority);
-        return authority is null ? outcome : Project(outcome, authority);
+            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -654,17 +656,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 }
             }
         }
-    }
-
-    private PackActivationOutcome Project(
-        PackActivationOutcome outcome,
-        PackProjectionAuthority authority)
-    {
-        return ProjectAndRetire(
-            outcome,
-            authority,
-            static (current, result) => current with { Projected = true, ProjectionResult = result },
-            static (current, ex) => current with { Detail = ex.Message });
     }
 
     private PackDeactivationOutcome Project(

@@ -192,7 +192,9 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             }
         }
 
-        var activated = _installer.Activate(context, PackKey, PackVersion);
+        var activated = await _installer.ActivateAsync(context, PackKey, PackVersion, cancellationToken).ConfigureAwait(false);
+        if (activated.Activated && activated.Detail is not null)
+            _logger.LogWarning("Access pack activation committed with post-commit diagnostics: {Detail}", activated.Detail);
         if (!activated.Activated)
         {
             _logger.LogError(

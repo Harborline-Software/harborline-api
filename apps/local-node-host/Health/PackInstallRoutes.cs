@@ -248,7 +248,9 @@ internal static class PackInstallRoutes
                 OwnershipResolutions: (request.Resolutions ?? Array.Empty<CollisionResolutionDto>())
                     .Where(r => !string.IsNullOrWhiteSpace(r.ContentKey) && !string.IsNullOrWhiteSpace(r.OwningPackKey))
                     .ToDictionary(r => r.ContentKey, r => r.OwningPackKey, StringComparer.Ordinal));
-            var outcome = installer.Activate(context, request.PackKey, request.Version);
+            var outcome = await installer.ActivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
+            if (outcome.Activated && outcome.Detail is not null)
+                logger.LogWarning("Pack activation committed with post-commit diagnostics: {Detail}", outcome.Detail);
             logger.LogInformation(
                 "Pack ACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → activated={Activated} [{Error}].",
                 tenant, request.PackKey, request.Version, outcome.Activated, outcome.Error);

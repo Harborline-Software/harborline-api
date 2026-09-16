@@ -21,6 +21,12 @@ Successful preparation completes admission evidence and commits SQLite before re
 write lease. Participating readers cannot observe the sequential private root assignments.
 Cleanup after a successful durable commit cannot report activation as refused; notification
 failures are diagnostics on a committed outcome. Observers run once after releasing the lease.
+The production activation API is `ActivateAsync`: its four current HTTP/startup callers await
+post-commit reactions directly. Reactions return an explicit diagnostic aggregate, including
+synchronous delegate faults, asynchronous faults and cancellation; later observers still run.
+Cancellation before commit rolls back preparation. Cancellation after commit cannot report a
+rollback or skip the already-committed projection's notifications. There is no production
+sync-over-async compatibility entry point; old synchronous test fixtures have a test-only helper.
 
 The AsyncLocal carries only reentrant lease ownership. Staged domain state lives on explicitly
 enlisted participant instances. Projection is sequential: child work must not inherit and
@@ -82,6 +88,14 @@ retain their existing lifecycle semantics; replacement retirements run inside th
   pointer, projection or admission row (both in-memory and encrypted SQLite).
 - Shared encrypted SQLite pack/config commit and rollback survive context/file reopen.
 - Forbidden auditor offers remain refused by existing authorization admission.
-- Expanded relevant suite at this checkpoint: 545 passed, zero failed, including the prior
+- Expanded relevant suite at this checkpoint: 548 passed, zero failed, including the prior
   342-case pack suite, both cross-pack races, authorization/Defaults fixtures and exact call-site
-  inventories. Full-gate evidence is recorded separately.
+  inventories, plus post-commit async diagnostics and pre/post-commit cancellation checks.
+  The preceding full host run at `13cb086f` passed 4,130 cases with zero failures and 21 skips;
+  its only exact-clone refusal was the stale 4,126-case recorded inventory. The official quality
+  comparison then identified four new findings, repaired by this async tranche without suppressions.
+  The following complete Release host measurement passed 4,133 cases, zero failed, 21 skipped
+  (4,154 total, 4m5s). Fresh Release SARIF passes the official committed-baseline comparison
+  with zero new and zero resolved findings. The [identity inventory](t433-test-inventory.md)
+  records all 25 earlier additions, four one-to-one rewrites/no deletions, and three async additions.
+  Final committed-head full-gate evidence is recorded separately.

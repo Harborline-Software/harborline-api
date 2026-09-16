@@ -406,8 +406,9 @@ public sealed record PackInstallOutcome(
 /// a provider-slot occupied refusal, or an unresolved cross-pack collision).</param>
 /// <param name="Detail">A human-readable detail for a refusal — e.g. the incumbent provider pack a
 /// slot-occupied refusal names, or the contested key + the other pack an unresolved-collision refusal
-/// names — so the surface is honest about WHY, not just a bare code. <c>null</c> on success.</param>
-/// <param name="Projected">Whether synchronous projection completed.</param>
+/// names — so the surface is honest about WHY, not just a bare code. A committed activation may
+/// carry post-commit observer diagnostics here without becoming a refusal.</param>
+/// <param name="Projected">Whether projection completed before the activation result.</param>
 /// <param name="ProjectionResult">Opaque host-owned projection summary; never carries authority.</param>
 /// <param name="Decision">The exact decision that admitted or refused the activation request.</param>
 /// <param name="Refusal">The 394 code and RFC 6901 pointer for a refused activation, or <c>null</c>

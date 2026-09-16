@@ -162,8 +162,8 @@ public sealed record PackSeedProjectionSummary(
         || AssetTypesContestedUnresolved > 0;
 
     /// <inheritdoc />
-    public PackInstallRefusal? FirstRefusal => Refusals.FirstOrDefault() is { } refusal
-        ? new(refusal.Code, refusal.Pointer)
+    public PackInstallRefusal? FirstRefusal => Refusals.Count > 0
+        ? new(Refusals[0].Code, Refusals[0].Pointer)
         : ProjectionRefused ? new(PackInstallCodes.ActivateProjectionRefused, "/") : null;
 
     /// <summary>Stable, locale-independent refusal codes produced by this pass.</summary>
@@ -480,7 +480,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             result = await ProjectCoreAsync(authority, cancellationToken).ConfigureAwait(false);
             if (!result.ProjectionRefused && result.PlatformRefusals.Count == 0) transaction.Commit();
         }
-        await transaction.ReactAsync().ConfigureAwait(false);
+        var diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
+        if (diagnostics is not null)
+            _logger.LogWarning(diagnostics, "Pack projection committed with post-commit observer or cleanup failures.");
         return result;
     }
 

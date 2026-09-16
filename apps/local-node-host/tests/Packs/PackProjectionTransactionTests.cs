@@ -13,11 +13,34 @@ public sealed class PackProjectionTransactionTests
         transaction.AfterCommit(() => { count++; return Task.CompletedTask; });
         transaction.Commit();
         transaction.Dispose(); // Must not report a refused activation after the commit boundary.
-        await Assert.ThrowsAsync<AggregateException>(transaction.ReactAsync);
-        await transaction.ReactAsync();
+        var diagnostics = await transaction.ReactAsync();
+        Assert.Equal("cleanup failed", Assert.Single(diagnostics!.InnerExceptions).Message);
+        Assert.Null(await transaction.ReactAsync());
         Assert.Equal(1, count);
         // A fresh activation proves the failed cleanup still released the publication lease.
         using var next = new PackProjectionTransaction();
+    }
+
+    [Fact]
+    public async Task Committed_observer_failures_do_not_throw_or_skip_later_observers()
+    {
+        var observed = 0;
+        var transaction = new PackProjectionTransaction();
+        transaction.AfterCommit(() => throw new IOException("synchronous observer failure"));
+        transaction.AfterCommit(async () => { await Task.Yield(); throw new InvalidOperationException("asynchronous observer failure"); });
+        transaction.AfterCommit(() => Task.FromCanceled(new CancellationToken(canceled: true)));
+        transaction.AfterCommit(() => { observed++; return Task.CompletedTask; });
+        transaction.Commit();
+        transaction.Dispose();
+
+        var diagnostics = await transaction.ReactAsync();
+        Assert.Collection(diagnostics!.InnerExceptions,
+            failure => Assert.Equal("synchronous observer failure", Assert.IsType<IOException>(failure).Message),
+            failure => Assert.Equal("asynchronous observer failure", Assert.IsType<InvalidOperationException>(failure).Message),
+            failure => Assert.IsType<TaskCanceledException>(failure));
+        Assert.Equal(1, observed);
+        Assert.Null(await transaction.ReactAsync());
+        Assert.Equal(1, observed);
     }
 
     [Fact]
