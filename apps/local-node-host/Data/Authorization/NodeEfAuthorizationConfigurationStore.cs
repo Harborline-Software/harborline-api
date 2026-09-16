@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
@@ -23,8 +25,29 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     IDbContextFactory<NodeLocalSearchDbContext> factory,
     IRoleVocabularyReader vocabulary)
     : AuthorizationConfigurationStateReader, IAuthorizationConfigurationStore, IAuthorizationDefinitionReader,
-        IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader
+        IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader, IPackProjectionParticipant
 {
+    private PackProjectionSqliteUnit? projectionUnit;
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var unit = transaction.Durable(() => new PackProjectionSqliteUnit(factory.CreateDbContext()));
+        transaction.Finally(() => projectionUnit = null);
+        projectionUnit = unit;
+        return static () => { };
+    });
+
+    private async Task<NodeLocalSearchDbContext> CreateContextAsync(CancellationToken ct)
+    {
+        var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return projectionUnit is null ? context : projectionUnit.Join(context);
+    }
+
+    private static Task InTransactionAsync(NodeLocalSearchDbContext context, Func<Task> action, CancellationToken ct) =>
+        context.Database.CurrentTransaction is null
+            ? HomeEpochFenceTransaction.RunAsync(context, action, ct)
+            : action();
+
     /// <summary>
     /// ADR 0066 clause 3 — the ONE derivation from a live admission to a durable grant.
     /// The grant is keyed on the ROSTER PARTY ID: that is the actor id the roster plane's own reads use
@@ -107,7 +130,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedPartyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedByPartyId);
         ArgumentNullException.ThrowIfNull(permissions);
-        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var db = await CreateContextAsync(ct).ConfigureAwait(false);
         return await HomeEpochFenceTransaction.RunAsync(db, async () =>
         {
             var id = StableId(tenant.Value + ":admission:" + admittedPartyId);
@@ -144,7 +168,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     {
         ArgumentNullException.ThrowIfNull(narrowed);
         ArgumentNullException.ThrowIfNull(revocation);
-        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var db = await CreateContextAsync(ct).ConfigureAwait(false);
         AdmissionGrantNarrowing? result = null;
         await HomeEpochFenceTransaction.RunAsync(db, async () =>
         {
@@ -191,7 +216,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     public override async ValueTask<AuthorizationConfigurationState> ReadStateAsync(
         AuthorizationCapabilityDefinitionId definitionId, TenantId? tenantId = null, CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         var definition = await CurrentDefinitionAsync(context, definitionId, tenantId, ct).ConfigureAwait(false);
         if (definition is null) return new(null, RoleBindingSet.Empty, 0);
         var binding = tenantId is null ? null : await CurrentBindingAsync(context, tenantId.Value, definitionId, ct).ConfigureAwait(false);
@@ -218,8 +244,9 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         TenantId? bootstrapTenant,
         CancellationToken ct)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await HomeEpochFenceTransaction.RunAsync(context, async () =>
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
+        await InTransactionAsync(context, async () =>
         {
         if (bootstrapTenant is not null &&
             (await HasBootstrapRetirementEvidenceAsync(context, ct).ConfigureAwait(false) ||
@@ -326,7 +353,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
 
     public async ValueTask<IReadOnlyList<AuthorizationCapabilityDefinition>> DefinitionsForRoleAsync(TenantId tenantId, RoleReference role, CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         var ids = await context.AuthorizationDefinitions
             .Where(x => x.DeclaringTenantId == null || x.DeclaringTenantId == tenantId.Value)
             .Select(x => x.DefinitionId).Distinct().ToArrayAsync(ct).ConfigureAwait(false);
@@ -347,7 +375,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
 
     public async ValueTask<RoleBindingSet> EffectiveBindingAsync(TenantId tenantId, AuthorizationCapabilityDefinitionId definitionId, CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         var definition = await CurrentDefinitionAsync(context, definitionId, tenantId, ct).ConfigureAwait(false);
         if (definition is null) return RoleBindingSet.Empty;
         var binding = await CurrentBindingAsync(context, tenantId, definitionId, ct).ConfigureAwait(false);
@@ -360,7 +389,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         TenantId tenantId,
         CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         var ids = (await context.AuthorizationDefinitions
                 .Where(row => row.DeclaringTenantId == null || row.DeclaringTenantId == tenantId.Value)
                 .Select(row => row.DefinitionId)
@@ -384,7 +414,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         AuthorizationCapabilityDefinitionId definitionId,
         CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         return await FindAsync(context, tenantId, definitionId, ct).ConfigureAwait(false);
     }
 
@@ -394,7 +425,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         DateTimeOffset at,
         CancellationToken ct = default)
     {
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
+        await using var context = await CreateContextAsync(ct).ConfigureAwait(false);
         var atUnixMs = at.ToUnixTimeMilliseconds();
         var ids = await context.AuthorizationDefinitions
             .Where(row => row.EffectiveAtUnixMs.HasValue && row.EffectiveAtUnixMs.Value <= atUnixMs)

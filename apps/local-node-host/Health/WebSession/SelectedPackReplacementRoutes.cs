@@ -60,7 +60,7 @@ internal static class SelectedPackReplacementRoutes
         }
         var bytes = body.ToArray();
         var context = new PackInstallContext(principal.TenantId, trust, revocation, authority.At,
-            PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value);
+            PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value, CorrelationId: authority.CorrelationId);
         var before = Snapshot(store.GetActive(principal.TenantId, packKey));
         var preview = installer.Preview(bytes, context);
         // Naming comes only from the verified artifact. A path cannot redirect installation to another pack.
@@ -74,7 +74,7 @@ internal static class SelectedPackReplacementRoutes
         try
         {
             installed = installer.Install(bytes, context);
-            if (installed.Installed) activation = installer.Activate(context, packKey, installed.Version);
+            if (installed.Installed) activation = await installer.ActivateAsync(context, packKey, installed.Version, ct).ConfigureAwait(false);
         }
         catch (AuthorizationDeniedException denied)
         {

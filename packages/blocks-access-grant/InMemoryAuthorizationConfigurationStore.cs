@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
@@ -13,14 +14,25 @@ public sealed class InMemoryAuthorizationConfigurationStore :
     IAuthorizationDefinitionReader,
     IAuthorizationDefinitionCatalogueReader,
     IHistoricalAuthorizationConfigurationReader,
-    IDisposable
+    IDisposable, IPackProjectionParticipant
 {
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly object _bootstrapGate;
     private readonly InMemoryAuthorizationBootstrapFence _bootstrapFence;
-    private readonly Dictionary<AuthorizationCapabilityDefinitionId, List<EffectiveDefinitionRevision>> _definitions = [];
-    private readonly Dictionary<(TenantId TenantId, AuthorizationCapabilityDefinitionId DefinitionId), List<CapabilityRoleBindingRevision>>
+    private Dictionary<AuthorizationCapabilityDefinitionId, List<EffectiveDefinitionRevision>> _definitions = [];
+    private Dictionary<(TenantId TenantId, AuthorizationCapabilityDefinitionId DefinitionId), List<CapabilityRoleBindingRevision>>
         _bindings = [];
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var definitions = _definitions;
+        var bindings = _bindings;
+        var nextDefinitions = definitions.ToDictionary(pair => pair.Key, pair => new List<EffectiveDefinitionRevision>(pair.Value));
+        var nextBindings = bindings.ToDictionary(pair => pair.Key, pair => new List<CapabilityRoleBindingRevision>(pair.Value));
+        _definitions = nextDefinitions;
+        _bindings = nextBindings;
+        return () => { _definitions = definitions; _bindings = bindings; };
+    });
 
     internal InMemoryAuthorizationConfigurationStore(InMemoryAuthorizationBootstrapFence bootstrapFence)
     {
@@ -38,6 +50,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         TenantId? tenantId = null,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -75,6 +88,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(write);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -114,6 +128,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         }
         _ = tenant;
         ct.ThrowIfCancellationRequested();
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         lock (_bootstrapGate)
         {
             _mutex.Wait(ct);
@@ -150,6 +165,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         RoleReference role,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -174,6 +190,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         DateTimeOffset at,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -203,6 +220,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         AuthorizationCapabilityDefinitionId definitionId,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -221,6 +239,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         TenantId tenantId,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -242,6 +261,7 @@ public sealed class InMemoryAuthorizationConfigurationStore :
         AuthorizationCapabilityDefinitionId definitionId,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await _mutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {

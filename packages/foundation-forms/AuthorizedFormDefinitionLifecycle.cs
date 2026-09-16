@@ -14,8 +14,13 @@ using System.Runtime.CompilerServices;
 namespace Harborline.Api.Foundation.Forms;
 
 /// <summary>The unavoidable authorize-stage façade for form-definition mutations.</summary>
-public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
+public sealed class AuthorizedFormDefinitionLifecycle : IDisposable, IPackProjectionParticipant
 {
+    public void StageProjection(PackProjectionTransaction transaction)
+    {
+        transaction.Enlist(inner);
+        transaction.Enlist(CatalogueSources);
+    }
     public CatalogueFormSources CatalogueSources { get; } = new();
     public void Dispose() => CatalogueSources.Dispose();
     private readonly IFormDefinitionStore inner;
@@ -34,14 +39,22 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
         }
     }
 
-    private sealed class InMemoryFormDefinitionState(TimeProvider time) : IDisposable
+    private sealed class InMemoryFormDefinitionState(TimeProvider time) : IDisposable, IPackProjectionParticipant
     {
         private readonly SemaphoreSlim mutationLock = new(initialCount: 1, maxCount: 1);
         private readonly TimeProvider clock = time;
         private Dictionary<TenantId, Dictionary<FormDefinitionId, Dictionary<SemanticVersion, FormDefinition>>> store = new();
 
+        public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+        {
+            // Mutate already copies the full path before writing; retaining this root is sufficient.
+            var before = store;
+            return () => store = before;
+        });
+
         public FormDefinition Read(DefinitionCoordinates coordinates)
         {
+            using var projectionLease = PackProjectionActivationBarrier.Read();
             var id = new FormDefinitionId(coordinates.Address.Identity.Value);
             var version = new SemanticVersion(
                 coordinates.Version.Major, coordinates.Version.Minor, coordinates.Version.Patch);
@@ -51,6 +64,7 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
 
         public FormDefinition? ReadCurrent(DefinitionAddress address)
         {
+            using var projectionLease = PackProjectionActivationBarrier.Read();
             var id = new FormDefinitionId(address.Identity.Value);
             if (!store.TryGetValue(address.Tenant, out var byId) || !byId.TryGetValue(id, out var versions))
                 return null;
@@ -78,6 +92,7 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
 
         public async ValueTask<FormDefinition> RegisterAsync(FormDefinition definition, CancellationToken ct)
         {
+            using var projectionLease = PackProjectionActivationBarrier.Read(ct);
             var frozen = FormDefinitionFreezer.Freeze(definition);
             FormDefinitionValidation.ValidateOverlayOrThrow(frozen);
             FormDefinitionValidation.ValidateSchemaRefOrThrow(frozen);
@@ -109,6 +124,7 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
             DateTimeOffset? transitionedAt,
             CancellationToken ct)
         {
+            using var projectionLease = PackProjectionActivationBarrier.Read(ct);
             await mutationLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
@@ -182,6 +198,9 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
             ? state
             : throw new ObjectDisposedException(nameof(InMemoryFormDefinitionStore));
 
+    internal static void StageInMemory(InMemoryPersistenceHandle handle, PackProjectionTransaction transaction)
+        => transaction.Enlist(Unwrap(handle));
+
     internal static ValueTask<FormDefinition> ReadInMemoryAsync(
         InMemoryPersistenceHandle handle,
         DefinitionCoordinates coordinates,
@@ -205,7 +224,10 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
         TenantId tenant,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        foreach (var definition in Unwrap(handle).List(tenant))
+        FormDefinition[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = Unwrap(handle).List(tenant);
+        foreach (var definition in snapshot)
         {
             ct.ThrowIfCancellationRequested();
             yield return definition;
@@ -217,7 +239,10 @@ public sealed class AuthorizedFormDefinitionLifecycle : IDisposable
         InMemoryPersistenceHandle handle,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        foreach (var definition in Unwrap(handle).ListPublished())
+        FormDefinition[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = Unwrap(handle).ListPublished();
+        foreach (var definition in snapshot)
         {
             ct.ThrowIfCancellationRequested();
             yield return definition;

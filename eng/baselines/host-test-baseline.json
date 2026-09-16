@@ -2,15 +2,18 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "54325cb36721131213422ff30ff769df13f508cb",
-  "recordedAt": "2026-09-16T02:55:00Z",
+  "sourcePin": "9c2851a439073eb0251322ca809b776f0c82adc4",
+  "recordedAt": "2026-09-16T07:32:55Z",
   "totals": {
-    "total": 4126,
-    "passed": 4105,
+    "total": 4164,
+    "passed": 4143,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "PR 166 review repairs: the complete direct Release host run at 9c2851a439073eb0251322ca809b776f0c82adc4 measured 4164 total, 4143 passed, zero failed and 21 skipped in 4m35s, without retries. Six new red-to-green cases cover SQLite constructor cleanup and activation progress while a form/standing enumeration is paused. Three existing cases have one-to-one naming corrections, not deletions. docs/t433-test-inventory.md records identities and measured evidence. Only the measured Windows tuple and its provenance change; failure, skip and retry identities and allowances remain unchanged. The final PR gate must confirm this tuple.",
+    "Ticket 433 deferred-health concurrency repair: the direct complete Release host run at 3962c3a92cc3cf24a1f0162d89cdef0ccb9379aa measured 4158 total, 4137 passed, zero failed and 21 skipped in 4m12s, with no retries. Four separately listed workflow/view race cases cover late old-refresh completion and inverse read-before-new-publication ordering. The previous b9a5c771 all-lane gate passed its measured 4154/4133/0/21 tuple before this repair. docs/t433-test-inventory.md retains each inventory tranche and the new measurement evidence. Change only this measured Windows tuple; failure, skip, known-flaky identities and retry allowances remain unchanged. The final clean committed-head all-lane gate must confirm it.",
+    "Ticket 433 bounded activation atomicity: the complete Release host run for the async tranche at 1e7f8dc6 measured 4154 total, 4133 passed, zero failed and 21 skipped in 4m5s, with no retries. The preceding clean exact-clone run at 13cb086f measured 4151/4130/0/21 and refused only the old count inventory. Independent discovery compared source pin 54325cb to 13cb086f: 29 added identities and four explicit one-to-one semantic rewrites, giving 25 additions and zero deletions; the async tranche adds three separately named cases. docs/t433-test-inventory.md records full identities, rename mappings, inventory digests and measured evidence. Update only this measured Windows tuple; failure, skip and known-flaky identities and retry allowances remain unchanged. The final clean committed-head all-lane gate must confirm it.",
     "Ticket 427 released detail seed, reconciled with T443 main 6d5bfd5c: the quality-enabled Windows exact-clone run at 54325cb36721131213422ff30ff769df13f508cb measured 4126 total, 4105 passed, zero failed and 21 skipped, with no known-flaky retries. Its only failing check was the previous 4125-case inventory; the added case is the authentic signed platform detail seed install/projection/idempotence/denial integration test. Record the measured one-case increase without changing failure, skip or retry identities or allowances. The final committed-head full gate must confirm this tuple; other host baselines remain unchanged.",
     "Ticket 454 integrated with T433 PR157: the complete Windows host run at 64c0c0ba measured 4125 total cases, 4104 passed, zero failed and 21 skipped in 4m10s, after installing the same contracts/capability prerequisites as exact-clone. This includes three red-to-green late-content refusal regressions and the real preload authorization writer. The final clean-head quality-enabled full gate must confirm this measured tuple. No failure, skip or retry allowance changes; other host baselines remain unchanged.",
     "Ticket 454: the quality-enabled exact-clone run at c8f75ecc measured 4116 total cases, 4093 passed, two failed and 21 skipped, with no flaky rescues. The two failures were the exact navigation-callsite line inventory and the check-route assertion missing the additional fail-closed Defaults admission refusal; both assertions are reconciled without reducing their scope. This pins the measured 4116-case inventory with the unchanged zero-failure/21-skip policy, expecting 4095 passes. The final full gate must confirm that tuple. No failure, skip or retry allowance is added; other host baselines remain unchanged.",
@@ -90,24 +93,24 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4074,
-      "passed": 4053,
+      "total": 4158,
+      "passed": 4137,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4074 -> 4080; passed 4053 -> 4059; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-433 contributes six Access producer, descriptor, and deterministic signed-fixture cases to main 864b1347, including landed Terminology and catalogue runtime. The integrated host run measured 4080 total, 4059 passed, zero failures, and 21 skips with the capability toolchain installed. No failure, skip, or retry policy changed.",
-    "detectedBy": "Full Release host run on def185f7490ac3f681dc65ca6348e5b9b52aceb1 under the normal shared gate lock. Retained full console log: artifacts/pr157-ci-reconcile/host-measure-integrated.log; TRX: artifacts/pr157-ci-reconcile/integrated-host-results/host-tests.trx. A committed-tree all-lane quality-enabled gate follows this measured repin.",
-    "arithmeticCrossCheck": "4074 + 6 = 4080; passed = total - notExecuted = 4080 - 21 = 4059."
+    "change": "total 4158 -> 4164; passed 4137 -> 4143; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "PR 166 adds six resource-lifetime regressions: failed SQLite initialization at open/begin/enlist and paused form-tenant/form-published/standing enumeration. Three existing cases receive one-to-one naming corrections; no cases are deleted and no failure, skip, or retry policy changes.",
+    "detectedBy": "Direct complete Release host run at 9c2851a439073eb0251322ca809b776f0c82adc4. Console: artifacts/t433-atomicity/review-resource-lifetime-full-host.log; TRX: artifacts/t433-atomicity/review-resource-lifetime-full-host.trx; SHA256 ea2b96e84ed0ae28e5a2bb2064552a81bdc0f016f93a703255bea09e649d5274. This measured run, not arithmetic alone, supplies the tuple.",
+    "arithmeticCrossCheck": "4158 + 6 = 4164; passed = total - notExecuted = 4164 - 21 = 4143."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "6a2f245ca0eb65b6665673b734e92f0fbf98ae4c",
+    "apiCommit": "9c2851a439073eb0251322ca809b776f0c82adc4",
     "platform": "native Windows",
-    "configuration": "Release, via eng/run-exact-clone.mjs, which builds a clean clone of HEAD rather than the working tree",
+    "configuration": "Release, direct dotnet test apps/local-node-host/tests/tests.csproj --no-build --no-restore after a complete Release rebuild, with the contracts and capability-host toolchains installed",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Destination exact-clone failure evidence recorded 2026-09-07T22:45:49Z: total 3575, passed 3553, failed 4, skipped 18. Fix 1 does not run the full suite; the expected repaired totals await the controller gate.",
-    "note": "NO LINUX RUN HAS EVER BEEN PINNED. This bar describes native Windows only. GitHub Actions runs ubuntu-latest and fails 27, of which 22 are CI=true PathMap failures now fixed in harborline-api 4f076a7. Do not compare this pin to a CI result without re-measuring."
+    "runs": "Measured 2026-09-16T07:28:19.1736648Z to 2026-09-16T07:32:55.7275473Z: total 4164, passed 4143, failed 0, skipped 21; console duration 4m35s; no retries.",
+    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final PR exact-clone gate must independently confirm this revision."
   },
   "verdictVocabulary": {
     "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",

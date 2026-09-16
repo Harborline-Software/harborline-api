@@ -335,18 +335,19 @@ public sealed class CascadeDefaultsTests
     }
 
     [Fact]
-    public async Task Unsupported_legacy_projection_is_refused_and_retracts_superseded_values()
+    public async Task Unsupported_legacy_projection_is_refused_and_preserves_admitted_values()
     {
         using var fixture = new Fixture();
         fixture.Install("1.0.0", Body);
         fixture.Packs.Activate(Tenant, Package, "1.0.0");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
+        var before = Assert.Single(fixture.Defaults.List(Tenant));
         fixture.Install("1.1.0", Body.Replace("\"schemaVersion\":1", "\"schemaVersion\":2", StringComparison.Ordinal));
         fixture.Packs.Activate(Tenant, Package, "1.1.0");
         var refusal = Assert.Single((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
         Assert.Equal(PackCascadeDefaultsContent.UnsupportedVersion, refusal.Code);
         Assert.EndsWith("/schemaVersion", refusal.Pointer);
-        Assert.Empty(fixture.Defaults.List(Tenant));
+        Assert.Same(before, Assert.Single(fixture.Defaults.List(Tenant)));
     }
 
     [Theory]
@@ -441,11 +442,11 @@ public sealed class CascadeDefaultsTests
         fixture.Install("1.0.0", Body);
         fixture.Packs.Activate(Tenant, Package, "1.0.0");
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
-        Assert.Single(fixture.Defaults.List(Tenant));
+        var before = Assert.Single(fixture.Defaults.List(Tenant));
         fixture.Packs.SaveOverride(Tenant, Package, new("defaults", JsonNode.Parse("""{"defaults":[]}""")!));
         var refusal = Assert.Single((await fixture.Projector.ProjectActivePacksAsync(Tenant)).Refusals);
         Assert.Equal(CascadeDefaultsRestrictionCheck.Refused, refusal.Code);
-        Assert.Empty(fixture.Defaults.List(Tenant));
+        Assert.Same(before, Assert.Single(fixture.Defaults.List(Tenant)));
     }
 
     [Fact]

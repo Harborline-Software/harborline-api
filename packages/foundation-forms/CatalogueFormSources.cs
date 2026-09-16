@@ -30,15 +30,24 @@ public abstract class CatalogueFormSourceHandle(CatalogueFormSourceIdentity iden
 /// unavailable: resolving it never loads a definition. Mutation invalidation and payload reads share a
 /// lock; persistence and index publication are serialized so a stale write cannot revive a source.
 /// </summary>
-public sealed class CatalogueFormSources : ICatalogueFormSources, IDisposable
+public sealed class CatalogueFormSources : ICatalogueFormSources, IDisposable, IPackProjectionParticipant
 {
     private readonly object sync = new();
     private readonly SemaphoreSlim mutations = new(1);
-    private readonly Dictionary<DefinitionCoordinates, Snapshot> sources = new();
+    private Dictionary<DefinitionCoordinates, Snapshot> sources = new();
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = sources;
+        var next = new Dictionary<DefinitionCoordinates, Snapshot>(before);
+        sources = next;
+        return () => sources = before;
+    });
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     internal async ValueTask<FormDefinition> PersistAsync(DefinitionCoordinates coordinates, Func<ValueTask<FormDefinition>> persist)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         await mutations.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -73,6 +82,7 @@ public sealed class CatalogueFormSources : ICatalogueFormSources, IDisposable
 
     public CatalogueFormSourceHandle? Resolve(TenantId tenant, CatalogueFieldCoordinate coordinate)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         var coordinates = new DefinitionCoordinates(tenant, coordinate.Id, coordinate.Version);
         lock (sync) return sources.TryGetValue(coordinates, out var snapshot)
             ? new Handle(this, coordinates, snapshot) : null;
@@ -93,6 +103,7 @@ public sealed class CatalogueFormSources : ICatalogueFormSources, IDisposable
                 throw new CatalogueFieldSourceException(CatalogueFieldSourceCodes.SourceBindingMismatch);
             return () =>
             {
+                using var projectionLease = PackProjectionActivationBarrier.Read();
                 lock (owner.sync)
                 {
                     if (!owner.sources.TryGetValue(key, out var current) || !ReferenceEquals(current, snapshot))

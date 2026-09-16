@@ -11,11 +11,101 @@ using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Xunit;
+using Harborline.Api.Conformance;
+using Harborline.Api.Foundation.Packs.Serialization;
+using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Kernel.Audit;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed partial class AccessAdministrationPreloadTests
 {
+    [Fact]
+    public async Task Selected_replacement_real_signed_probe_preserves_active_runtime_and_returns_native_pointer()
+    {
+        await PreloadPlatformThenAccessAsync();
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Harborline.Api.slnx"))) directory = directory.Parent;
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(directory!.FullName, AccessReplacementFixture.DirectoryPath,
+            AccessReplacementFixture.ProbeArtifactName));
+        var signed = new PackFileCodec().TryDecode(bytes)!;
+        var trust = new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, signed.Envelope!.IssuerId, 1, TrustRootStatus.Current)]);
+        var before = await PublishedSnapshotAsync();
+        var http = ReplacementHttp(bytes);
+        var correlation = Guid.Parse("43300000-0000-4000-8000-000000000109");
+        http.Request.Headers["X-Correlation-ID"] = correlation.ToString("D");
+        var trail = new InMemoryAuditTrail();
+        var audit = new AuthorizedActAudit(trail, _signer.Signer, NullLogger<AuthorizedActAudit>.Instance);
+        var result = await SelectedPackReplacementRoutes.ReplaceAsync(http, signed.Envelope.Payload.Manifest.Key,
+            _installer, _store, trust, PackRevocationList.Empty, new ReplacementAntiforgery(), TimeProvider.System, audit, CancellationToken.None);
+        Assert.Equal(422, ((IStatusCodeHttpResult)result).StatusCode);
+        var wire = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("refused", wire.GetProperty("status").GetString());
+        Assert.True(wire.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
+        var activation = wire.GetProperty("activation");
+        Assert.False(activation.GetProperty("activated").GetBoolean());
+        Assert.False(activation.GetProperty("projected").GetBoolean());
+        Assert.Equal("pack.view-definition.malformed", activation.GetProperty("refusal").GetProperty("code").GetString());
+        Assert.Equal("/contents/6/contentBase64", activation.GetProperty("refusal").GetProperty("pointer").GetString());
+        Assert.Equal(before, await PublishedSnapshotAsync());
+        Assert.Equal(PackLifecycleState.Draft, _store.GetVersion(Tenant, signed.Envelope.Payload.Manifest.Key, AccessReplacementFixture.ProbeVersion)!.Lifecycle);
+        var rows = new List<AuditRecord>();
+        await foreach (var row in trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
+        var receipt = Assert.Single(rows);
+        Assert.Equal("PackReplacementAttempt", receipt.EventType.Value);
+        Assert.Equal(receipt.AuditId, wire.GetProperty("auditId").GetGuid());
+        Assert.Equal(correlation, wire.GetProperty("correlationId").GetGuid());
+        Assert.Equal(correlation.ToString("D"), receipt.Payload.Payload.Body["correlation_id"]);
+    }
+
+    [Fact]
+    public async Task Selected_replacement_postcommit_diagnostic_preserves_success_and_carried_correlation()
+    {
+        await PreloadPlatformThenAccessAsync();
+        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var http = ReplacementHttp(await ExportAsync(source with { Version = "1.1.2" }));
+        var correlation = Guid.Parse("43300000-0000-4000-8000-000000000110");
+        http.Request.Headers["X-Correlation-ID"] = correlation.ToString("D");
+        var installer = new DiagnosticActivation(_installer);
+        var result = await SelectedPackReplacementRoutes.ReplaceAsync(http, source.Key, installer, _store,
+            TrustingTheNodeKey(), PackRevocationList.Empty, new ReplacementAntiforgery(), TimeProvider.System, null, CancellationToken.None);
+        Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
+        var wire = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("replaced", wire.GetProperty("status").GetString());
+        var activation = wire.GetProperty("activation");
+        Assert.True(activation.GetProperty("activated").GetBoolean());
+        Assert.True(activation.GetProperty("projected").GetBoolean());
+        Assert.Equal("Activation committed; observer diagnostic", activation.GetProperty("detail").GetString());
+        Assert.Equal(correlation, installer.Installed!.Decision!.Request.CorrelationId);
+        var decision = installer.Activated!.Decision!;
+        Assert.Equal(correlation, decision.Request.CorrelationId);
+        var trail = new InMemoryAuditTrail();
+        var adapter = new KernelAuditPackInstallAudit(trail, _signer, NullLogger<KernelAuditPackInstallAudit>.Instance);
+        adapter.AppendAuthorized(new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Activated, source.Key,
+            "1.1.2", decision.Request.At, null, null, "pack.install.activated", ActingPrincipal: decision.Request.Principal.Value), decision);
+        var rows = new List<AuditRecord>();
+        await foreach (var row in trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
+        Assert.Equal(correlation.ToString("D"), Assert.Single(rows).Payload.Payload.Body["correlation_id"]);
+    }
+
+    private sealed class DiagnosticActivation(IPackInstaller inner) : IPackInstaller
+    {
+        public PackInstallOutcome? Installed { get; private set; }
+        public PackActivationOutcome? Activated { get; private set; }
+        public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
+        public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
+        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => Installed = inner.Install(bytes, context);
+        public async Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default)
+        {
+            Activated = await inner.ActivateAsync(context, key, version, cancellationToken).ConfigureAwait(false);
+            return Activated with { Detail = "Activation committed; observer diagnostic" };
+        }
+        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => inner.Deactivate(context, key, version);
+        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => inner.Narrow(context, key, contentKey, patch, decision);
+    }
+
     [Fact]
     public async Task Selected_replacement_reports_draft_and_activation_separately()
     {
@@ -96,8 +186,8 @@ public sealed partial class AccessAdministrationPreloadTests
         public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
         public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
         public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Install(bytes, context);
-        public PackActivationOutcome Activate(PackInstallContext context, string key, string version) => new(false, key, version,
-            "pack.projection.refused", Refusal: new("pack.view-definition.malformed", "/contents/6/contentBase64"));
+        public Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => Task.FromResult(new PackActivationOutcome(false, key, version,
+            "pack.projection.refused", Refusal: new("pack.view-definition.malformed", "/contents/6/contentBase64")));
         public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => throw new NotSupportedException();
         public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
             System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => throw new NotSupportedException();

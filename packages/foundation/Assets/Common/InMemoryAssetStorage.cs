@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Harborline.Api.Foundation.Assets.Audit;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Versions;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Assets.Common;
 
@@ -14,19 +15,48 @@ namespace Harborline.Api.Foundation.Assets.Common;
 /// sync with the append-only version log by construction (plan D-VERSION-STORE-SHAPE).
 /// Consumers who want independent stores can construct independent storage instances.
 /// </remarks>
-public sealed class InMemoryAssetStorage : IDisposable
+public sealed class InMemoryAssetStorage : IDisposable, IPackProjectionParticipant
 {
     private readonly SemaphoreSlim _transactionGate = new(1, 1);
     private readonly AsyncLocal<int> _transactionDepth = new();
 
     /// <summary>Materialized current body + metadata, keyed by entity id.</summary>
-    public ConcurrentDictionary<EntityId, EntityRecord> Entities { get; } = new();
+    public ConcurrentDictionary<EntityId, EntityRecord> Entities { get; private set; } = new();
 
     /// <summary>Append-only version history, keyed by entity id.</summary>
-    public ConcurrentDictionary<EntityId, List<Versions.Version>> Versions { get; } = new();
+    public ConcurrentDictionary<EntityId, List<Versions.Version>> Versions { get; private set; } = new();
 
     /// <summary>Append-only audit log, keyed by entity id.</summary>
-    public ConcurrentDictionary<EntityId, List<AuditRecord>> Audit { get; } = new();
+    public ConcurrentDictionary<EntityId, List<AuditRecord>> Audit { get; private set; } = new();
+
+    internal PackProjectionTransaction? Projection { get; private set; }
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var entities = Entities;
+        var versions = Versions;
+        var audit = Audit;
+        var nextEntities = new ConcurrentDictionary<EntityId, EntityRecord>(entities.Select(pair =>
+            new KeyValuePair<EntityId, EntityRecord>(pair.Key, new EntityRecord
+            {
+                Id = pair.Value.Id, Schema = pair.Value.Schema, Tenant = pair.Value.Tenant,
+                CurrentVersion = pair.Value.CurrentVersion, BodyJson = pair.Value.BodyJson,
+                CreatedAt = pair.Value.CreatedAt, UpdatedAt = pair.Value.UpdatedAt,
+                DeletedAt = pair.Value.DeletedAt, CreationNonce = pair.Value.CreationNonce,
+                CreationIssuer = pair.Value.CreationIssuer, Binding = pair.Value.Binding,
+            })));
+        var nextVersions = new ConcurrentDictionary<EntityId, List<Versions.Version>>(
+            versions.Select(pair => new KeyValuePair<EntityId, List<Versions.Version>>(pair.Key, [.. pair.Value])));
+        var nextAudit = new ConcurrentDictionary<EntityId, List<AuditRecord>>(
+            audit.Select(pair => new KeyValuePair<EntityId, List<AuditRecord>>(pair.Key, [.. pair.Value])));
+        transaction.Finally(() => Projection = null);
+        Entities = nextEntities;
+        Versions = nextVersions;
+        Audit = nextAudit;
+        Projection = transaction;
+        return () => { Entities = entities; Versions = versions; Audit = audit; };
+    });
 
     /// <summary>Per-entity write lock for serialising version-log mutations.</summary>
     public ConcurrentDictionary<EntityId, object> EntityLocks { get; } = new();
@@ -43,6 +73,7 @@ public sealed class InMemoryAssetStorage : IDisposable
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(action);
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         if (_transactionDepth.Value != 0)
             return await action().ConfigureAwait(false);
 

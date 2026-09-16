@@ -11,8 +11,9 @@ using Harborline.Api.Foundation.Packs.Install;
 namespace Harborline.Api.Blocks.Workflow.Durable;
 
 /// <summary>The unavoidable authorize-stage façade for workflow-definition mutations.</summary>
-public sealed class AuthorizedWorkflowDefinitionLifecycle
+public sealed class AuthorizedWorkflowDefinitionLifecycle : IPackProjectionParticipant
 {
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(inner);
     private readonly IWorkflowDefinitionStore inner;
     private readonly DefinitionWriter writer;
     private readonly AuthorizationGate gate;

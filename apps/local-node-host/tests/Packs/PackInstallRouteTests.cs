@@ -92,8 +92,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         // projection — the AssetTypeDefinition→registry projection is covered by PackSeedProjectionRouteTests —
         // but the activate route now invokes it, so it must be present).
         var registryServices = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
-        var projector = new PackSeedProjector(
-            _store, registryServices.GetRequiredService<IEntityTypeRegistry>(), NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System);
+        var projector = PackProjectionTestFixture.Create(_store, registryServices.GetRequiredService<IEntityTypeRegistry>());
 
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
@@ -313,7 +312,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
                 key = "intake",
                 kind = "FormDefinition",
                 version = "1.0.0",
-                content = new { title = "Intake", assignee = "role:approver" },
+                content = PackProjectionTestFixture.FormContent("Intake"),
             },
         },
         dependencies = Array.Empty<object>(),

@@ -12,12 +12,27 @@ namespace Harborline.Api.Blocks.Assets.Registry.Services;
 /// structural (F2 invariant 1), and property-form resolution is mediated by tenant-owned rows
 /// (F2 invariant 2).
 /// </summary>
-public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
+public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry, IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<EntityTypeId, EntityTypeSeed> _seeds = new();
-    private readonly ConcurrentDictionary<EntityTypeId, byte> _retractedPackSeeds = new();
-    private readonly ConcurrentDictionary<(TenantId Tenant, EntityTypeId Id), EntityType> _typesByTenant = new();
+    private ConcurrentDictionary<EntityTypeId, EntityTypeSeed> _seeds = new();
+    private ConcurrentDictionary<EntityTypeId, byte> _retractedPackSeeds = new();
+    private ConcurrentDictionary<(TenantId Tenant, EntityTypeId Id), EntityType> _typesByTenant = new();
     private readonly IRegistryAuditLog _audit;
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var seeds = _seeds;
+        var retracted = _retractedPackSeeds;
+        var types = _typesByTenant;
+        var nextSeeds = new ConcurrentDictionary<EntityTypeId, EntityTypeSeed>(seeds);
+        var nextRetracted = new ConcurrentDictionary<EntityTypeId, byte>(retracted);
+        var nextTypes = new ConcurrentDictionary<(TenantId Tenant, EntityTypeId Id), EntityType>(types);
+        _seeds = nextSeeds;
+        _retractedPackSeeds = nextRetracted;
+        _typesByTenant = nextTypes;
+        return () => { _seeds = seeds; _retractedPackSeeds = retracted; _typesByTenant = types; };
+    });
 
     /// <summary>Creates a registry wired to the given audit log for mutation journaling.</summary>
     public InMemoryEntityTypeRegistry(IRegistryAuditLog audit)
@@ -28,6 +43,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     /// <inheritdoc />
     public void SeedType(EntityTypeSeed seed)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         ArgumentNullException.ThrowIfNull(seed);
         if (!seed.Provenance.IsSeed())
         {
@@ -49,6 +65,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     /// <inheritdoc />
     public bool RetractPackSeed(EntityTypeId id)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         if (!_seeds.TryGetValue(id, out var seed))
         {
             return false;
@@ -66,6 +83,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     /// <inheritdoc />
     public bool RestorePackSeed(EntityTypeId id)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         if (!_seeds.TryGetValue(id, out var seed))
         {
             return false;
@@ -82,16 +100,23 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
 
     /// <inheritdoc />
     public EntityTypeSeed? GetSeed(EntityTypeId id)
-        => _retractedPackSeeds.ContainsKey(id) ? null : _seeds.GetValueOrDefault(id);
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        return _retractedPackSeeds.ContainsKey(id) ? null : _seeds.GetValueOrDefault(id);
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<EntityTypeSeed> ListSeeds()
-        => _seeds.Where(kvp => !_retractedPackSeeds.ContainsKey(kvp.Key)).Select(kvp => kvp.Value).ToList();
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        return _seeds.Where(kvp => !_retractedPackSeeds.ContainsKey(kvp.Key)).Select(kvp => kvp.Value).ToList();
+    }
 
     /// <inheritdoc />
     public Task<EntityType> CreateTypeAsync(
         EntityType type, Instant at, string? actorRef = null, CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(type);
         RegistryTenantGuard.Require(type.TenantId);
 
@@ -128,6 +153,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
         string? actorRef = null,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         ArgumentNullException.ThrowIfNull(overrideDescriptor);
 
@@ -166,6 +192,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
         TenantId tenant, EntityTypeId seedId, Instant at, string? actorRef = null,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
 
         if (!_seeds.ContainsKey(seedId))
@@ -196,6 +223,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     /// <inheritdoc />
     public Task<EntityType?> GetTypeAsync(TenantId tenant, EntityTypeId id, CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         _typesByTenant.TryGetValue((tenant, id), out var type);
         if (type?.OverrideOf == id && _retractedPackSeeds.ContainsKey(id))
@@ -208,6 +236,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     /// <inheritdoc />
     public Task<IReadOnlyList<EntityType>> ListTypesAsync(TenantId tenant, CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
         IReadOnlyList<EntityType> result = _typesByTenant
             .Where(kvp => kvp.Key.Tenant.Equals(tenant))
@@ -221,6 +250,7 @@ public sealed class InMemoryEntityTypeRegistry : IEntityTypeRegistry
     public Task<FormBindingRef?> TryResolvePropertyFormAsync(
         TenantId tenant, EntityTypeId typeId, CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         RegistryTenantGuard.Require(tenant);
 
         // Effective binding: tenant override if present, else the shared seed. A private type owned

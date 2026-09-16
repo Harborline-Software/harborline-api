@@ -7,6 +7,11 @@ namespace Harborline.Api.Foundation.Packs.Install;
 
 internal static class PackInstallerTestExtensions
 {
+    // Legacy synchronous fixture convenience only. Production callers await ActivateAsync directly.
+    internal static PackActivationOutcome Activate(
+        this IPackInstaller installer, PackInstallContext context, string packKey, string version)
+        => installer.ActivateAsync(context, packKey, version).GetAwaiter().GetResult();
+
     internal static PackActivationOutcome Activate(
         this IPackInstaller installer,
         TenantId tenant,
