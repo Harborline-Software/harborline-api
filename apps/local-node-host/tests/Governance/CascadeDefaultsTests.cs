@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Admission;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Install.Audit;
@@ -67,7 +68,7 @@ public sealed class CascadeDefaultsTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.2.0", request.Version);
+        Assert.Equal("1.3.0", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
@@ -85,8 +86,10 @@ public sealed class CascadeDefaultsTests
         var store = new InMemoryPackInstallStore();
         var defaults = new ActiveCascadeDefaultsProjection();
         var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), store,
-            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: defaults),
-            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate());
+            new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator(), defaults: defaults,
+                catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports)),
+            new InMemoryPackInstallAudit(), TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
+                [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
         var context = new PackInstallContext(Tenant,
             new InMemoryPackTrustStore([new PackTrustRoot(TrustScope.OwnRoster, keys.PrincipalId, request.Epoch, TrustRootStatus.Current)]),
             PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), TimeSpan.FromDays(30), Principal: "test-operator");
@@ -123,7 +126,8 @@ public sealed class CascadeDefaultsTests
         var projector = new PackSeedProjector(store, provider.GetRequiredService<IEntityTypeRegistry>(), logger,
             forms: forms, schemas: provider.GetRequiredService<ISchemaRegistry>(), time: TimeProvider.System,
             authorizedForms: provider.GetRequiredService<AuthorizedFormDefinitionLifecycle>(), roleVocabulary: roles,
-            authorizationDefinitions: writer, defaults: defaults, viewDefinitions: views, renderPlans: new InMemoryRenderPlanCatalogue());
+            authorizationDefinitions: writer, defaults: defaults, viewDefinitions: views, renderPlans: new InMemoryRenderPlanCatalogue(),
+            catalogueFields: new CatalogueFieldSourceAdmission(CatalogueDetailRuntime.Supports), catalogueDetails: new CatalogueDetailTemplates());
         var summary = await projector.ProjectActivePacksAsync(Tenant);
         Assert.True(summary.Refusals.Count == 0, string.Join(";", logger.Errors));
         var bindings = await configuration.ListAsync(Tenant);
