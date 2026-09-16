@@ -326,6 +326,64 @@ public sealed class AdminNarrowMemberGrantTests
             delegated.Payload.Payload.Body["correlation_id"]);
     }
 
+    [Fact]
+    public async Task Scope_narrowing_preserves_role_and_removes_outside_authority_with_correlated_receipts()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var template = await ConferAsync(h, tenant, "scope-role-template", "records:read");
+        var holder = new ActorId("scoped-holder");
+        var original = template with { GrantId = GrantId.New(), Subject = holder, Scope = ScopeExpression.Parse("/records") };
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        await store.AppendAsync(tenant, original);
+        var actor = new AuthorizationWriteContext(holder, tenant, Now);
+        var allowed = actor.Request(AuthorizationOperation.Parse("records:read"), "record", "m6-t433-allowed-record-1");
+        var outside = actor.Request(AuthorizationOperation.Parse("records:read"), "record", "m6-t433-outside-record-1");
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(outside)).Verdict);
+        var successor = GrantId.New();
+
+        var result = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), ScopeExpression.Parse("/records/m6-t433-allowed-record-1"), successor,
+            FounderAuthority(setup.TenantId));
+
+        Assert.NotNull(result);
+        Assert.Equal(AdminNarrowMemberGrantStatus.Narrowed, result.Status);
+        Assert.Equal(successor.ToString(), result.NarrowedGrantId);
+        Assert.Equal(original.Role, (await store.FindAsync(tenant, successor))!.Role);
+        Assert.Equal(GrantStatus.Revoked, (await store.FindAsync(tenant, original.GrantId))!.Status);
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(outside)).Verdict);
+        var revoked = Assert.Single(await AuditAsync(h, tenant, AuditEventType.CapabilityRevoked),
+            row => row.Target?.RecordId == original.GrantId.ToString());
+        var delegated = Assert.Single(await AuditAsync(h, tenant, AuditEventType.CapabilityDelegated),
+            row => row.Target?.RecordId == original.GrantId.ToString());
+        Assert.Equal(delegated.AuditId, result.AuditId);
+        Assert.Equal(revoked.Payload.Payload.Body["correlation_id"], delegated.Payload.Payload.Body["correlation_id"]);
+        Assert.Equal(result.CorrelationId!.Value.ToString("D"), delegated.Payload.Payload.Body["correlation_id"]);
+    }
+
+    [Fact]
+    public async Task Scope_narrowing_denial_writes_no_grant_or_epoch()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var original = await ConferAsync(h, tenant, member, "records:read");
+        var count = await GrantCountAsync(h, member);
+        var epoch = await EpochAsync(h, tenant, member);
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => h.AdminTeam.NarrowMemberScopeAsync(
+            handle, setup.TenantId, original.GrantId.ToString(),
+            ScopeExpression.Parse("/records/m6-t433-allowed-record-1"), GrantId.New(),
+            new AuthorizationWriteContext(new ActorId(member), tenant, Now)));
+        Assert.Equal(count, await GrantCountAsync(h, member));
+        Assert.Equal(epoch, await EpochAsync(h, tenant, member));
+        Assert.Null((await h.ReadGrantRowAsync(original.GrantId.ToString())).RevokedAtUnixMs);
+    }
+
     // ── helpers (the production derivations; nothing here doubles a security type) ────────────────────
 
     /// <summary>

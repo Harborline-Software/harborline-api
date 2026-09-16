@@ -815,6 +815,12 @@ public sealed class AdminTeamAccessRoutesTests
             return Task.FromResult(Revoke);
         }
 
+        public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
+            string selectedSessionHandle, string tenantId, string grantId,
+            Harborline.Api.Foundation.IdentityAtlas.Permissions.ScopeExpression narrowedScope,
+            Harborline.Api.Blocks.AccessGrant.GrantId successorId, AuthorizationWriteContext authority,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         // Ticket 362 - the narrow route's recording leg.
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(
             string selectedSessionHandle,

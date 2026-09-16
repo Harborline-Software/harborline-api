@@ -1003,6 +1003,16 @@ public sealed class AdminTeamAccessAuthorityTests
         IAuthorizedGrantRevocationWriter inner,
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
+        public Task<GrantScopeNarrowing?> NarrowScopeAsync(
+            TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
+            GrantRevocation revocation, AuthorizationDecision admittedDecision,
+            CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
+                admittedDecision, cancellationToken);
+        }
+
         public Task<AccessGrant?> RevokeAsync(
             TenantId tenant,
             GrantId grant,

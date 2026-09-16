@@ -13,6 +13,12 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 /// <summary>Decision-bearing boundary for an admitted admin grant revocation.</summary>
 internal interface IAuthorizedGrantRevocationWriter
 {
+    /// <summary>Atomically narrows a grant's scope without changing its role or subject.</summary>
+    Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
+        GrantRevocation revocation, AuthorizationDecision admittedDecision,
+        CancellationToken cancellationToken = default);
+
     Task<AccessGrant?> RevokeAsync(
         TenantId tenant,
         GrantId grant,
@@ -50,6 +56,16 @@ internal sealed class AuthorizedGrantRevocationWriter(
 {
     private static readonly AuthorizationOperation MembersManage =
         AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
+
+    public Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
+        GrantRevocation revocation, AuthorizationDecision admittedDecision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(admittedDecision);
+        admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());
+        return grants.NarrowScopeAsync(tenant, current, narrowed, successor, revocation, cancellationToken);
+    }
 
     public Task<AccessGrant?> RevokeAsync(
         TenantId tenant,
