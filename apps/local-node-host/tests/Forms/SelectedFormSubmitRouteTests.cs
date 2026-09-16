@@ -24,6 +24,7 @@ public sealed partial class FormsRouteTests
             new PrincipalUserId("form-holder"), new CanonicalPartyReference("different-attribution-party"),
             "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
         string? instance = null;
+        string? auditId = null;
         for (var repeat = 0; repeat < 2; repeat++)
         {
             using var request = SelectedSubmit();
@@ -33,6 +34,10 @@ public sealed partial class FormsRouteTests
             var current = body.GetProperty("instanceId").GetString();
             if (instance is null) instance = current;
             Assert.Equal(instance, current);
+            var currentAudit = Assert.Single(response.Headers.GetValues("X-Harborline-Audit-Id"));
+            auditId ??= currentAudit;
+            Assert.Equal(auditId, currentAudit);
+            Assert.Equal(auditId, body.GetProperty("auditId").GetString());
         }
         Assert.StartsWith("forminst:forms/", instance);
     }

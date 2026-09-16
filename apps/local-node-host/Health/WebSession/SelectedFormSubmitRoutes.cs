@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.RuleEngine;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 
@@ -27,7 +28,7 @@ internal static class SelectedFormSubmitRoutes
 
     internal static void Map(IEndpointRouteBuilder app, IFormEngine engine,
         IFormCapabilityIssuer issuer, IFormCapabilityVerifier verifier, IFormSubmissionGate submissionGate,
-        IWebAntiforgeryPolicy antiforgery, TimeProvider time)
+        IWebAntiforgeryPolicy antiforgery, TimeProvider time, IAuditTrail? audit = null)
     {
         app.MapPost(SubmitRequest.RouteTemplate, async (string formId, JsonElement body, HttpContext http, CancellationToken ct) =>
         {
@@ -60,10 +61,20 @@ internal static class SelectedFormSubmitRoutes
                 using var candidate = JsonDocument.Parse(body.GetRawText());
                 var receipt = await engine.SaveWithReceiptAsync(form, candidate, token, authority, ct, key)
                     .ConfigureAwait(false);
+                var auditReceipt = audit is null ? null : await FormSubmissionAuditReceipt.ReadAsync(
+                    audit, form, principal.TenantId, authority.Principal, receipt, ct).ConfigureAwait(false);
+                if (auditReceipt is { } recorded)
+                {
+                    http.Response.Headers["X-Harborline-Audit-Id"] = recorded.AuditId.ToString("D");
+                    http.Response.Headers["X-Harborline-Audit-Correlation"] = recorded.CorrelationId.ToString("D");
+                }
+                var result = submissionGate is IFormSubmissionResultReader reader
+                    ? await reader.ReadResultAsync(form, principal.TenantId, receipt.InstanceId, ct).ConfigureAwait(false) : null;
                 return Results.Created($"/api/session/forms/{Uri.EscapeDataString(formId)}?instance={Uri.EscapeDataString(receipt.InstanceId.ToString())}",
                     new FormSubmitResponse(receipt.InstanceId.ToString(),
                         receipt.Skips.Count == 0 ? null : FormSubmitResponse.ProjectionSkipped,
-                        receipt.Skips.Count == 0 ? null : receipt.Skips.Select(s => new FormSubmitSkipDto(s.Reason, s.FieldPointer)).ToArray()));
+                        receipt.Skips.Count == 0 ? null : receipt.Skips.Select(s => new FormSubmitSkipDto(s.Reason, s.FieldPointer)).ToArray(),
+                        auditReceipt?.AuditId, auditReceipt?.CorrelationId, result));
             }
             catch (AuthorizationDeniedException denial)
             {

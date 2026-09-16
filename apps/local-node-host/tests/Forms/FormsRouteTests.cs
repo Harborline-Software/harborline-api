@@ -164,7 +164,8 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<IFormEngine>(),
             _app.Services.GetRequiredService<IFormCapabilityIssuer>(),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
-            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System);
+            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System,
+            _app.Services.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());
 
         await _app.StartAsync();
 

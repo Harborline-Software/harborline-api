@@ -12,6 +12,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -100,6 +101,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
     private readonly TimeProvider _timeProvider;
     private readonly IFormSubmissionGate? _submissionGate;
     private readonly IWebAntiforgeryPolicy? _antiforgery;
+    private readonly IAuditTrail? _audit;
     private readonly IRestrictingDefinitionKindValidator _restrictingKinds;
     private readonly ILogger<HostedFormsApiEndpoint> _logger;
 
@@ -118,7 +120,8 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         IRestrictingDefinitionKindValidator? restrictingKinds = null,
         IFormSubmissionGate? submissionGate = null,
         ICatalogue? catalogue = null,
-        IWebAntiforgeryPolicy? antiforgery = null)
+        IWebAntiforgeryPolicy? antiforgery = null,
+        IAuditTrail? audit = null)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(engine);
@@ -142,6 +145,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         _restrictingKinds = restrictingKinds ?? RestrictingDefinitionKindValidator.Shared;
         _submissionGate = submissionGate;
         _antiforgery = antiforgery;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -187,7 +191,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
             FormsRoutes.Map(desktopPlaneOnly, _engine, _issuer, _verifier, _activeTeam, roles, _timeProvider, _submissionGate);
             if (_submissionGate is not null && _antiforgery is not null)
                 SelectedFormSubmitRoutes.Map(app.MapSelectedSessionProductGroup(), _engine, _issuer, _verifier,
-                    _submissionGate, _antiforgery, _timeProvider);
+                    _submissionGate, _antiforgery, _timeProvider, _audit);
             // Authoring surface: save + load + list a FormDefinition (the tenant ADMIN authors it
             // in the Harborline App form builder). Real persistence over IFormDefinitionStore — production
             // slice 1 (2026-06-27).

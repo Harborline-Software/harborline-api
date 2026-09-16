@@ -643,7 +643,10 @@ public sealed record InternationalizedTextDto(
 public sealed record FormSubmitResponse(
     [property: JsonPropertyName("instanceId")] string InstanceId,
     [property: JsonPropertyName("projection"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Projection = null,
-    [property: JsonPropertyName("skips"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormSubmitSkipDto>? Skips = null)
+    [property: JsonPropertyName("skips"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FormSubmitSkipDto>? Skips = null,
+    [property: JsonPropertyName("auditId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AuditId = null,
+    [property: JsonPropertyName("correlationId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? CorrelationId = null,
+    [property: JsonPropertyName("result"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Result = null)
 {
     /// <summary>The submission committed; its projection is deferred to the reconcile sweep (202, F-ROUTE).</summary>
     public const string ProjectionPending = "pending";
