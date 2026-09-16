@@ -1,5 +1,27 @@
 # T433 producer measured host inventory
 
+## Read-only data-source review repair
+
+The complete direct Release host run at `a76ca9443f4953b9865db34b7767569683adfce1` passed **4,303 total / 4,282 passed / 0 failed / 21 skipped**, without retries, from 2026-09-16T10:43:34.8868452Z to 10:48:28.0272978Z (console test duration 4m50s). Full solution restore/build and contracts/capability-host prerequisites completed first. This is a measured host result, not a full-gate receipt.
+
+Candidate TRX: `artifacts/t433-action-contract/data-source-full-host-a76ca944.trx`, SHA-256 `a4a6775fc502bf15f894cd0cd86a411b4ba3199d046463ef0f5337cac13a3714`. Previous green exact-clone TRX: `artifacts/t433-action-contract/authority-reset-host-19649748.trx`, SHA-256 `82baf2b3d539198b39471bafe3fb36355e1119c7145a2025cb4b5b69c7cd3b6d`. Exact executed-row comparison proves **nine additions across three methods, zero removals**; all 21 skipped identities are byte-for-byte identical. Cumulatively this is 139 added rows across 71 methods versus central main. Failure, skip, known-flaky, retry and other-OS baseline policies remain unchanged.
+
+All nine additions belong to `Harborline.Api.LocalNodeHost.Tests.ViewDefinitions.HostViewRequestAdmissionTests`:
+
+| Method | Exact descriptorId argument | Added rows |
+| --- | --- | ---: |
+| Data_source_admission_refuses_mutations_non_lists_and_unknown_descriptors | authorization.grant.review.v1 | 1 |
+| Data_source_admission_refuses_mutations_non_lists_and_unknown_descriptors | authorization.holders.read.v1 | 1 |
+| Data_source_admission_refuses_mutations_non_lists_and_unknown_descriptors | records.read.v1 | 1 |
+| Data_source_admission_refuses_mutations_non_lists_and_unknown_descriptors | unknown | 1 |
+| Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors | authorization.grant.review.v1 | 1 |
+| Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors | authorization.holders.read.v1 | 1 |
+| Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors | records.read.v1 | 1 |
+| Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors | unknown | 1 |
+| Data_source_admits_and_compiles_registered_read_only_list_metadata | none | 1 |
+
+## Earlier producer integration measurement
+
 The quality-enabled exact-clone run at `bbfcc15ba35879dd460b86e6a8e510cba95ad953` measured **4,294 total / 4,273 passed / 0 failed / 21 skipped**, without retries, from 2026-09-16T09:30:34Z to 09:35:20Z. The wrapper completed with only the previous host-count baseline mismatch and no receipt. Updating this measured Windows tuple still requires a new committed-head full gate.
 
 Candidate TRX: `artifacts/t433-action-contract/pool-isolation-host-bbfcc15b.trx`, SHA-256 `4527b098e34808e03b561baca1da4c4bb4951c3a53d3fd2815e73ff0cf71103f`. Central comparison TRX: `review-resource-lifetime-exact-host.trx`, SHA-256 `a4abadc21cec5de79cbdc8e671379c3837edb3fb3427588e63471d8530a4bfe3`, measuring 4,164 / 4,143 / 0 / 21. Fully qualified method identity plus executed-row multiplicity yields **130 additions across 68 methods, zero removals**. All 21 skipped identities are unchanged. Long xUnit theory displays truncate two distinct argument cases to duplicate labels; row multiplicity, not unique display strings, is authoritative.
@@ -76,4 +98,3 @@ The additions comprise 103 producer/reconciliation cases, six explicit refusal-r
 | Harborline.Api.LocalNodeHost.Tests.ViewDefinitions.ViewRequestBindingAdmissionTests.Resolves_transport_and_enforcement_only_from_the_host_descriptor | 0 | 1 | +1 |
 | Harborline.Api.LocalNodeHost.Tests.ViewDefinitions.ViewRequestBindingAdmissionTests.Unknown_invocation_values_are_refused | 0 | 4 | +4 |
 | Harborline.Api.LocalNodeHost.Tests.ViewDefinitions.ViewRequestBindingAdmissionTests.Unsafe_host_header_descriptors_are_refused_before_activation | 0 | 5 | +5 |
-
