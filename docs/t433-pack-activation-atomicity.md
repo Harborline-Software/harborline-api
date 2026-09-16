@@ -8,7 +8,10 @@ the M8 configuration-generation model and does not introduce another projector o
 The installer validates caller authority first and captures the expected old active version.
 Under one pack-projection write lease it enlists every configured participant, clones
 process-local registry roots, and opens one SQLite transaction when durable stores participate.
-It checks the expected old version again, stages ownership/pointer/admission changes, and runs
+It checks the expected old version and the shared dependency/interface/provider-slot/collision
+guards again under that lease before staging any roots. The same guard implementation handles
+preliminary and authoritative reads; a different pack cannot commit against stale composition
+premises. Platform capability service checks remain outside the lease. It stages ownership/pointer/admission changes and runs
 the existing projector and retirements once against those unpublished roots.
 
 Any refusal, invalid/deferred supported definition, platform incompatibility, exception, or
@@ -75,6 +78,10 @@ retain their existing lifecycle semantics; replacement retirements run inside th
 - Throw after a staged retirement removal restores the original registry objects and pointer.
 - Paused real view admission plus concurrent aggregate catalogue reads: old or complete-new only.
 - Two competing replacements capture the same old version: one commits, one reports concurrent_change.
+- Different packs racing for one provider slot: one commits and the other refuses, with no losing
+  pointer, projection or admission row (both in-memory and encrypted SQLite).
 - Shared encrypted SQLite pack/config commit and rollback survive context/file reopen.
 - Forbidden auditor offers remain refused by existing authorization admission.
-- Relevant suite at this checkpoint: 342 passed, zero failed; full gate recorded separately.
+- Expanded relevant suite at this checkpoint: 545 passed, zero failed, including the prior
+  342-case pack suite, both cross-pack races, authorization/Defaults fixtures and exact call-site
+  inventories. Full-gate evidence is recorded separately.

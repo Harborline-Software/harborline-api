@@ -238,18 +238,11 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.ActivateNotInstalled, null, decision);
         }
 
-        // Ticket 176: bootstrap order is authored by a manifest dependency, not implied by a pack
-        // key. Keep the activation check here so direct installer callers and the HTTP route receive
-        // the same named refusal as hosted preload, while independently-authored fixtures remain free
-        // to activate unless they explicitly declare the platform dependency.
-        if (target.Dependencies.Any(dependency =>
-                string.Equals(dependency.Key, "harborline.platform", StringComparison.Ordinal))
-            && _store.GetActive(tenant, "harborline.platform") is null)
+        var dependencyRefusal = FindDeclaredPlatformDependencyRefusal(tenant, target, decision);
+        if (dependencyRefusal is not null)
         {
             return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
-                PackInstallCodes.ActivatePlatformPackRequired,
-                "the declared platform dependency 'harborline.platform' must be active before "
-                    + $"'{packKey}' can activate.", decision);
+                dependencyRefusal.Error!, dependencyRefusal.Detail, decision);
         }
 
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(target, _platform);
@@ -262,6 +255,36 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     + $"({first.Failure}).", decision);
         }
 
+        var compositionRefusal = FindActivationCompositionRefusal(tenant, target, ownershipResolutions, decision);
+        if (compositionRefusal is not null)
+            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                compositionRefusal.Error!, compositionRefusal.Detail, decision, compositionRefusal.Refusal);
+
+        return CommitActivation(tenant, packKey, version, now, actingPrincipal, ownershipResolutions,
+            expectedActiveVersion, decision);
+    }
+
+    private PackActivationOutcome? FindDeclaredPlatformDependencyRefusal(
+        TenantId tenant, InstalledPack target, AuthorizationDecision decision)
+    {
+        // Bootstrap order comes from the signed dependency, never an implicit pack-key convention.
+        return target.Dependencies.Any(dependency =>
+                string.Equals(dependency.Key, "harborline.platform", StringComparison.Ordinal))
+            && _store.GetActive(tenant, "harborline.platform") is null
+            ? new(false, target.PackKey, target.Version, PackInstallCodes.ActivatePlatformPackRequired,
+                "the declared platform dependency 'harborline.platform' must be active before "
+                    + $"'{target.PackKey}' can activate.", Decision: decision)
+            : null;
+    }
+
+    private PackActivationOutcome? FindActivationCompositionRefusal(
+        TenantId tenant, InstalledPack target, IReadOnlyDictionary<string, string>? ownershipResolutions,
+        AuthorizationDecision decision)
+    {
+        var dependencyRefusal = FindDeclaredPlatformDependencyRefusal(tenant, target, decision);
+        if (dependencyRefusal is not null) return dependencyRefusal;
+        var packKey = target.PackKey;
+        var version = target.Version;
         var active = _store.ListInstalled(tenant)
             .Where(pack => pack.Lifecycle == PackLifecycleState.Active)
             .ToList();
@@ -270,22 +293,22 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         if (unmetInterface is not null)
         {
             var requirement = $"{unmetInterface.PackKey}@{unmetInterface.InterfaceVersion}";
-            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+            return new(false, packKey, version,
                 PackInstallCodes.ActivateUnmetInterfaceRequirement,
                 $"interface requirement '{requirement}' declared by '{unmetInterface.ContentKey}' is not exposed by any active pack.",
-                decision,
-                new PackInstallRefusal(PackInstallCodes.ActivateUnmetInterfaceRequirement,
+                Decision: decision,
+                Refusal: new PackInstallRefusal(PackInstallCodes.ActivateUnmetInterfaceRequirement,
                     ContentPointer(target.SeedItems, unmetInterface.ContentKey)));
         }
 
         var unexposed = PackInterfaceRequirementCheck.FindUnexposed(target, active);
         if (unexposed is not null)
         {
-            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+            return new(false, packKey, version,
                 PackInstallCodes.ActivateUnexposedDefinition,
                 $"definition '{unexposed.ToContentKey}' in active pack '{unexposed.ToPackKey}' is not exposed.",
-                decision,
-                new PackInstallRefusal(PackInstallCodes.ActivateUnexposedDefinition,
+                Decision: decision,
+                Refusal: new PackInstallRefusal(PackInstallCodes.ActivateUnexposedDefinition,
                     ContentPointer(target.SeedItems, unexposed.FromContentKey)));
         }
 
@@ -303,10 +326,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 .FirstOrDefault();
             if (incumbent is not null)
             {
-                return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+                return new(false, packKey, version,
                     PackInstallCodes.ActivateProviderSlotOccupied,
                     $"category slot '{target.ProviderSlot}' is already held by the active provider "
-                        + $"pack '{incumbent}'; deactivate it before activating '{packKey}'.", decision);
+                        + $"pack '{incumbent}'; deactivate it before activating '{packKey}'.", Decision: decision);
             }
         }
 
@@ -327,15 +350,14 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         if (unresolved is not null)
         {
             var others = string.Join(", ", unresolved.ClaimingPackKeys.Where(k => !string.Equals(k, packKey, StringComparison.Ordinal)));
-            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
+            return new(false, packKey, version,
                 PackInstallCodes.ActivateUnresolvedCollision,
                 $"content key '{unresolved.ContentKey}' is also shipped by installed pack(s) "
                     + $"[{others}] and no owning pack has been chosen; record an owning-pack choice (or "
-                    + $"declare a dependency) before activating '{packKey}'.", decision);
+                    + $"declare a dependency) before activating '{packKey}'.", Decision: decision);
         }
 
-        return CommitActivation(tenant, packKey, version, now, actingPrincipal, ownershipResolutions,
-            expectedActiveVersion, decision);
+        return null;
     }
 
     private PackActivationOutcome CommitActivation(
@@ -350,15 +372,26 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             using (transaction = new PackProjectionTransaction())
             {
-                transaction.Enlist(_mutations);
-                transaction.Enlist(_projectionStore);
-                transaction.Enlist(_projector);
+                var target = _store.GetVersion(tenant, packKey, version);
                 if (!string.Equals(_store.GetActive(tenant, packKey)?.Version, expectedActiveVersion, StringComparison.Ordinal))
                 {
                     outcome = new(false, packKey, version, PackInstallCodes.ActivateConcurrentChange, Decision: decision);
                 }
+                else if (target is null)
+                {
+                    outcome = new(false, packKey, version, PackInstallCodes.ActivateNotInstalled, Decision: decision);
+                }
+                else if (FindActivationCompositionRefusal(tenant, target, ownershipResolutions, decision) is { } refusal)
+                {
+                    // Other packs can change these premises without changing this pack's old version.
+                    // The same guard is authoritative only while the writer excludes those changes.
+                    outcome = refusal;
+                }
                 else
                 {
+                    transaction.Enlist(_mutations);
+                    transaction.Enlist(_projectionStore);
+                    transaction.Enlist(_projector);
                     foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
                         _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
                     ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version, Admission(authority));
