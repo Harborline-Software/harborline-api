@@ -254,7 +254,7 @@ public static class RenderPlanCompiler
         }
         var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.Resolve(source) : null;
         return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
-            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            JsonSerializerOptions.Web);
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"

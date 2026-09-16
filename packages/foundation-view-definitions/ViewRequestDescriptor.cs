@@ -138,7 +138,7 @@ public static class ViewRequestBindingAdmission
         if (source == "input" && pointer == "" && sources.HasInputObject) return ViewRequestValueKind.Object;
         if (source == "file" && pointer == "" && sources.HasBinaryInput) return ViewRequestValueKind.Binary;
         // v1 deliberately permits only exact top-level fields, not arbitrary object traversal.
-        if (pointer is null || !pointer.StartsWith("/", StringComparison.Ordinal) || pointer.IndexOf('/', 1, StringComparison.Ordinal) >= 0) return null;
+        if (pointer is null || !pointer.StartsWith('/', StringComparison.Ordinal) || pointer.IndexOf('/', 1, StringComparison.Ordinal) >= 0) return null;
         var name = pointer[1..];
         for (var index = 0; index < name.Length; index++)
         {
