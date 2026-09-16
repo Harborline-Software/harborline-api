@@ -92,7 +92,7 @@ public sealed class AccessGrantContractTests
         Assert.Equal(
             ["AppendAsync", "ChangeValidityAsync", "FindAsync", "FindByPrincipalAsync",
                 "FindBySourceReferenceAsync", "FindVersionedAsync", "FindVersionedByPrincipalAsync",
-                "HandoverAdministratorAsync", "HasAdministratorGrantEverAsync", "RecordReviewAsync", "RevokeAsync", "SnapshotAsync"],
+                "HandoverAdministratorAsync", "HasAdministratorGrantEverAsync", "NarrowScopeAsync", "RecordReviewAsync", "RevokeAsync", "SnapshotAsync"],
             typeof(IGrantStore).GetMethods().Select(method => method.Name).Order(StringComparer.Ordinal));
         Assert.Equal(
             ["AssignedUsersAsync", "RolePermissionsAsync", "UserPermissionsAsync"],

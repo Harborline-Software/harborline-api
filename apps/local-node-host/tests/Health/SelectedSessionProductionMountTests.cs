@@ -38,6 +38,10 @@ public sealed class SelectedSessionProductionMountTests
     [
         ("POST", "/api/session/account-challenge"),
         ("POST", "/api/session/account-setup-accept"),
+        ("GET", "/api/session/admin/grants/holders"),
+        ("POST", "/api/session/admin/grants/narrow-scope"),
+        ("POST", "/api/session/admin/grants/review"),
+        ("POST", "/api/session/admin/grants/revoke"),
         ("GET", "/api/session/admin/invitations"),
         ("POST", "/api/session/admin/invitations"),
         ("GET", "/api/session/admin/members"),

@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Ship.Common;
@@ -56,6 +58,14 @@ public sealed class AuthorizationRefusalRenderingFenceTests
     {
         ["Harborline.Api.LocalNodeHost.Health.AuthorizationAdminRoutes"] =
             "Binding writes render and audit the writer decision through RequestAuthorization.RefusedAsync",
+        ["Harborline.Api.LocalNodeHost.Health.WebSession.SelectedFormSubmitRoutes"] =
+            "ticket 433: the selected form submission catches a carried engine denial and delegates only "
+            + "to RequestAuthorization.RefusedAsync / AuthorizationRefusalRenderer; exception prose and "
+            + "the unfiltered Decision are never serialized. Source and HTTP negative proofs pin this boundary",
+        ["Harborline.Api.LocalNodeHost.Health.WebSession.SelectedPackReplacementRoutes"] =
+            "ticket 433: the selected replacement catches an install/activation denial and stores only "
+            + "RequestAuthorization.RefusedAsync's rendered value in activation.refusal; exception prose "
+            + "and the unfiltered Decision never enter the receipt. Source and behavioral negative proofs pin this boundary",
         ["Harborline.Api.LocalNodeHost.FormsDevSeeder"] =
             "a development seeder: it logs and skips, and serves no request",
         ["Harborline.Api.LocalNodeHost.FormsShowcaseDevSeeder"] =
@@ -186,6 +196,43 @@ public sealed class AuthorizationRefusalRenderingFenceTests
         var offenders = Catchers.Value.Append(planted).Where(type => !AllowedCatchers.ContainsKey(type)).ToArray();
 
         Assert.Equal([planted], offenders);
+    }
+
+    [Theory]
+    [InlineData("SelectedFormSubmitRoutes.cs")]
+    [InlineData("SelectedPackReplacementRoutes.cs")]
+    public void Selected_route_catchers_only_pass_the_exception_to_the_shared_renderer(string filename)
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Harborline.Api.slnx"))) root = root.Parent;
+        Assert.NotNull(root);
+        var source = File.ReadAllText(Path.Combine(root.FullName, "apps", "local-node-host", "Health", "WebSession", filename));
+        Assert.True(OnlyRendererConsumesDenial(source));
+    }
+
+    [Theory]
+    [InlineData("denial.Message")]
+    [InlineData("denial.Decision")]
+    public void Selected_catcher_proof_rejects_planted_exception_serialization(string leaked)
+    {
+        Assert.False(OnlyRendererConsumesDenial($$"""
+            class Planted { void Handle() { try { Work(); } catch (AuthorizationDeniedException denial) {
+                RequestAuthorization.RefusedAsync(http, denial, ct); Results.Json({{leaked}});
+            } } }
+            """));
+    }
+
+    private static bool OnlyRendererConsumesDenial(string source)
+    {
+        var catches = CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes().OfType<CatchClauseSyntax>()
+            .Where(clause => clause.Declaration?.Type.ToString() == "AuthorizationDeniedException").ToArray();
+        if (catches.Length != 1) return false;
+        var clause = catches[0];
+        var references = clause.Block.DescendantNodes().OfType<IdentifierNameSyntax>()
+            .Where(identifier => identifier.Identifier.ValueText == clause.Declaration!.Identifier.ValueText).ToArray();
+        return references.Length == 1 && references[0].Parent is ArgumentSyntax argument &&
+            argument.Parent?.Parent is InvocationExpressionSyntax invocation &&
+            invocation.Expression.ToString() == "RequestAuthorization.RefusedAsync";
     }
 
     /// <summary>

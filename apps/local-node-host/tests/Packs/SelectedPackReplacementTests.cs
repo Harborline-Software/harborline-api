@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Install;
@@ -21,6 +22,46 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed partial class AccessAdministrationPreloadTests
 {
+    [Fact]
+    public async Task Selected_replacement_caught_denial_uses_renderer_without_exception_or_private_decision_on_wire()
+    {
+        await PreloadPlatformThenAccessAsync();
+        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var bytes = await ExportAsync(source with { Version = "1.1.2" });
+        var decision = await TestAuthorization.Gate(false).DecideAsync(TestAuthorization.Write(Tenant)
+            .Request(AuthorizationOperation.Parse("records:write"), "record", "private-pack-denial-record"));
+        var denied = new AuthorizationDeniedException(decision);
+        var http = ReplacementHttp(bytes);
+        var before = JsonSerializer.Serialize(_store.ListInstalled(Tenant));
+        var result = await SelectedPackReplacementRoutes.ReplaceAsync(http, source.Key,
+            new DenyingInstall(_installer, denied), _store, TrustingTheNodeKey(), PackRevocationList.Empty,
+            new ReplacementAntiforgery(), TimeProvider.System, null, CancellationToken.None);
+        Assert.Equal(403, ((IStatusCodeHttpResult)result).StatusCode);
+        var wire = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var rendered = await RequestAuthorization.RefusedAsync(http, denied, CancellationToken.None);
+        var expected = JsonSerializer.SerializeToElement(((IValueHttpResult)rendered).Value);
+        var refusal = wire.GetProperty("activation").GetProperty("refusal");
+        foreach (var field in new[] { "code", "permission", "title", "detail", "remediation" })
+            Assert.Equal(expected.GetProperty(field).GetRawText(), refusal.GetProperty(field).GetRawText());
+        Assert.DoesNotContain(denied.Message, wire.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private-pack-denial-record", wire.GetRawText(), StringComparison.Ordinal);
+        Assert.False(refusal.TryGetProperty("decision", out _));
+        Assert.False(refusal.TryGetProperty("resolution", out _));
+        Assert.False(wire.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
+        Assert.Equal(before, JsonSerializer.Serialize(_store.ListInstalled(Tenant)));
+    }
+
+    private sealed class DenyingInstall(IPackInstaller inner, AuthorizationDeniedException denied) : IPackInstaller
+    {
+        public PackInstallPreview Preview(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Preview(bytes, context);
+        public PackInstallPreview Check(ReadOnlySpan<byte> bytes, PackInstallContext context) => inner.Check(bytes, context);
+        public PackInstallOutcome Install(ReadOnlySpan<byte> bytes, PackInstallContext context) => throw denied;
+        public Task<PackActivationOutcome> ActivateAsync(PackInstallContext context, string key, string version, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Activation must not run after denial.");
+        public PackDeactivationOutcome Deactivate(PackInstallContext context, string key, string version) => throw new NotSupportedException();
+        public PackNarrowingOutcome Narrow(PackInstallContext context, string key, string contentKey,
+            System.Text.Json.Nodes.JsonNode patch, AuthorizationDecision decision) => throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task Selected_replacement_real_signed_probe_preserves_active_runtime_and_returns_native_pointer()
     {

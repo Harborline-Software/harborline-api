@@ -162,7 +162,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
 
         SelectedFormSubmitRoutes.Map(_app.MapSelectedSessionProductGroup(),
             _app.Services.GetRequiredService<IFormEngine>(),
-            _app.Services.GetRequiredService<IFormCapabilityIssuer>(),
+            new SelectedDenialIssuer(_app.Services.GetRequiredService<IFormCapabilityIssuer>(), () => _selectedSubmissionDenial),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
             new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System,
             _app.Services.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());

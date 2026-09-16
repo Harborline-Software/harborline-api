@@ -3,8 +3,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Forms.Engine.Capabilities;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Microsoft.AspNetCore.Http;
@@ -17,6 +20,40 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 public sealed partial class FormsRouteTests
 {
     private SelectedSessionRequestPrincipal? _selected;
+    private AuthorizationDeniedException? _selectedSubmissionDenial;
+
+    [Fact]
+    public async Task Selected_submit_caught_denial_uses_renderer_without_exception_or_private_decision_on_wire()
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var operation = AuthorizationOperation.Parse("forms:author");
+        var decision = await TestAuthorization.Gate(false).DecideAsync(TestAuthorization.Write(TenantA)
+            .Request(operation, AuthorizationGate.RecordKindFor(operation), "private-form-denial-record"));
+        _selectedSubmissionDenial = new AuthorizationDeniedException(decision);
+        using var request = SelectedSubmit();
+        using var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var wire = await response.Content.ReadAsStringAsync();
+        var rendered = await RequestAuthorization.RefusedAsync(
+            new DefaultHttpContext { RequestServices = _app.Services }, _selectedSubmissionDenial, CancellationToken.None);
+        var expected = JsonSerializer.SerializeToElement(((IValueHttpResult)rendered).Value);
+        using var actual = JsonDocument.Parse(wire);
+        foreach (var field in new[] { "code", "permission", "title", "detail", "remediation" })
+            Assert.Equal(expected.GetProperty(field).GetRawText(), actual.RootElement.GetProperty(field).GetRawText());
+        Assert.DoesNotContain(_selectedSubmissionDenial.Message, wire, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-form-denial-record", wire, StringComparison.Ordinal);
+        Assert.False(actual.RootElement.TryGetProperty("decision", out _));
+        Assert.False(actual.RootElement.TryGetProperty("resolution", out _));
+    }
+
+    private sealed class SelectedDenialIssuer(IFormCapabilityIssuer inner, Func<AuthorizationDeniedException?> denial) : IFormCapabilityIssuer
+    {
+        public Task<string> IssueAsync(TenantId tenant, ActorId subject, IReadOnlyList<string> roles,
+            IReadOnlyList<FormCapabilityAction> actions, DateTimeOffset expiresAt, CancellationToken ct = default) =>
+            denial() is { } refused ? Task.FromException<string>(refused) : inner.IssueAsync(tenant, subject, roles, actions, expiresAt, ct);
+    }
 
     [Fact]
     public async Task Selected_submit_uses_its_tenant_and_real_form_engine_idempotent_receipt()

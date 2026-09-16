@@ -10,11 +10,13 @@ readiness evidence.
 
 ## category-1-installation-identity-stores-and-records
 scan: apps/local-node-host/Data/Identity/**/*.cs excluding Migrations/
-owner-count: 69
+owner-count: 71
 - apps/local-node-host/Data/Identity/AccountCredentialRecoveryService.cs
 - apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs
 - apps/local-node-host/Data/Identity/AccountSetupInvitationIssuer.cs
 - apps/local-node-host/Data/Identity/AccountSetupInvitationStore.cs
+- apps/local-node-host/Data/Identity/AdminGrantActionReplay.cs
+- apps/local-node-host/Data/Identity/AdminGrantReviewAuthority.cs
 - apps/local-node-host/Data/Identity/AdminTeamAccessAuthority.cs
 - apps/local-node-host/Data/Identity/AdministratorAuthorityRecord.cs
 - apps/local-node-host/Data/Identity/AdministratorRecoveryCommand.cs
@@ -111,10 +113,11 @@ owner-count: 13
 
 ## category-4-hosted-web-endpoints
 scan: apps/local-node-host/Health/WebSession/**/*.cs, plus Health/SharedHostedWebApp.cs
-owner-count: 26
+owner-count: 31
 - apps/local-node-host/Health/SharedHostedWebApp.cs
 - apps/local-node-host/Health/WebSession/AccountChallengeRoutes.cs
 - apps/local-node-host/Health/WebSession/AccountSetupAcceptRoutes.cs
+- apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs
 - apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs
 - apps/local-node-host/Health/WebSession/AntiforgeryRoutes.cs
 - apps/local-node-host/Health/WebSession/ConnectDeviceRoutes.cs
@@ -123,11 +126,15 @@ owner-count: 26
 - apps/local-node-host/Health/WebSession/HostedLlmProxyApiEndpoint.cs
 - apps/local-node-host/Health/WebSession/HostedWebSessionApiEndpoint.cs
 - apps/local-node-host/Health/WebSession/INodeWebSessionAuthority.cs
+- apps/local-node-host/Health/WebSession/KernelAuditMetadataRoutes.cs
 - apps/local-node-host/Health/WebSession/LlmProxyRoutes.cs
 - apps/local-node-host/Health/WebSession/NavigationPermissionProjection.cs
 - apps/local-node-host/Health/WebSession/NodeWebSessionAuthority.cs
 - apps/local-node-host/Health/WebSession/NodeWebUser.cs
 - apps/local-node-host/Health/WebSession/RecoveryAcceptRoutes.cs
+- apps/local-node-host/Health/WebSession/SelectedFormSubmitRoutes.cs
+- apps/local-node-host/Health/WebSession/SelectedPackReplacementRoutes.cs
+- apps/local-node-host/Health/WebSession/SelectedRequestCorrelation.cs
 - apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs
 - apps/local-node-host/Health/WebSession/SelectedSessionTenantContext.cs
 - apps/local-node-host/Health/WebSession/SessionLogoutRoutes.cs
