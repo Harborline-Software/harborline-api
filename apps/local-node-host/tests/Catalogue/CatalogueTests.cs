@@ -19,7 +19,7 @@ public sealed class CatalogueTests
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
             "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        Assert.Equal("ef1308048dfc3553a912594ca3e9133222905581b64a315d709a743a3f24e1c4",
+        Assert.Equal("4ce1e9ae00a6d3589048f3bd1990232c03a39d21f9f38df04e1f1543a1e0ae6b",
             Convert.ToHexStringLower(SHA256.HashData(stream)));
     }
 
