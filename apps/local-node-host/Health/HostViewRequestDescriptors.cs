@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Harborline.Api.Foundation.ViewDefinitions;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -13,6 +14,8 @@ internal static class HostViewRequestDescriptors
     {
         [AssetRegistryRoutes.ReadEntityRequest.Id] = AssetRegistryRoutes.ReadEntityRequest,
         [AccessHoldersRead.ReadRequest.Id] = AccessHoldersRead.ReadRequest,
+        [AdminTeamAccessRoutes.RevokeGrantRequest.Id] = AdminTeamAccessRoutes.RevokeGrantRequest,
+        [AdminTeamAccessRoutes.NarrowScopeRequest.Id] = AdminTeamAccessRoutes.NarrowScopeRequest,
     };
 
     internal static CompiledViewRequest Resolve(JsonElement dispatch) =>

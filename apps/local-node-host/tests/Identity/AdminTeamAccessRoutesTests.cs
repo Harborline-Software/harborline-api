@@ -526,6 +526,53 @@ public sealed class AdminTeamAccessRoutesTests
         Assert.Null(response.Antiforgery);
     }
 
+    [Fact]
+    public async Task Scope_narrow_route_binds_selected_tenant_and_forwards_server_receipt()
+    {
+        var audit = Guid.NewGuid();
+        var correlation = Guid.NewGuid();
+        var successor = Guid.NewGuid().ToString("D");
+        var authority = new RecordingAuthority { Narrow = new(AdminNarrowMemberGrantStatus.Narrowed, successor)
+            { AuditId = audit, CorrelationId = correlation } };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.NarrowScopeBody(Guid.NewGuid().ToString("D"), "/records/example", successor));
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("tenant-1", authority.NarrowTenantId);
+        Assert.Equal("/records/example", authority.NarrowScope);
+        Assert.Equal(successor, authority.NarrowSuccessor);
+        Assert.Contains(audit.ToString("D"), response.Body, StringComparison.Ordinal);
+        Assert.Contains(correlation.ToString("D"), response.Body, StringComparison.Ordinal);
+        Assert.Equal("replacement-token", response.Antiforgery);
+    }
+
+    [Theory]
+    [InlineData(false, true, 401)]
+    [InlineData(true, false, 400)]
+    public async Task Grant_only_route_refuses_missing_session_or_antiforgery_before_authority(
+        bool selected, bool csrf, int status)
+    {
+        var authority = new RecordingAuthority { Revoke = new(AdminRevokeMemberStatus.Revoked) };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.GrantBody(Guid.NewGuid().ToString("D")),
+            selectedHandle: selected ? SelectedHandle : null, withPrincipal: selected,
+            antiforgery: new RecordingAntiforgeryPolicy { AcceptSelected = csrf });
+        Assert.Equal(status, response.StatusCode);
+        Assert.Null(authority.RevokeGrantId);
+    }
+
+    [Fact]
+    public async Task Grant_only_route_calls_only_grant_service_and_exposes_receipt()
+    {
+        var audit = Guid.NewGuid();
+        var authority = new RecordingAuthority { Revoke = new(AdminRevokeMemberStatus.Revoked) { AuditId = audit } };
+        var response = await InvokePostAsync(AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate, authority,
+            new AdminTeamAccessRoutes.GrantBody(Guid.NewGuid().ToString("D")));
+        Assert.Equal(200, response.StatusCode);
+        Assert.True(authority.GrantOnlyCalled);
+        Assert.Equal("tenant-1", authority.RevokeTenantId);
+        Assert.Contains(audit.ToString("D"), response.Body, StringComparison.Ordinal);
+    }
+
     // --- path invariants ----------------------------------------------------------------------
 
     [Fact]
@@ -538,6 +585,8 @@ public sealed class AdminTeamAccessRoutesTests
                      AdminTeamAccessRoutes.InvitationsPath,
                      AdminTeamAccessRoutes.RevokeMemberPath,
                      AdminTeamAccessRoutes.NarrowMemberPath,
+                     AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate,
+                     AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate,
                  })
         {
             Assert.DoesNotContain('{', path);
@@ -675,7 +724,13 @@ public sealed class AdminTeamAccessRoutesTests
         await using var responseBody = new MemoryStream();
         context.Response.Body = responseBody;
 
-        IResult result = path == AdminTeamAccessRoutes.InvitationsPath
+        IResult result = path == AdminTeamAccessRoutes.NarrowScopeRequest.RouteTemplate
+            ? await AdminTeamAccessRoutes.NarrowScopeAsync(authority, antiforgery,
+                (AdminTeamAccessRoutes.NarrowScopeBody)request, context, Now)
+            : path == AdminTeamAccessRoutes.RevokeGrantRequest.RouteTemplate
+            ? await AdminTeamAccessRoutes.RevokeGrantAsync(authority, antiforgery,
+                (AdminTeamAccessRoutes.GrantBody)request, context, Now)
+            : path == AdminTeamAccessRoutes.InvitationsPath
             ? await AdminTeamAccessRoutes.IssueInvitationAsync(
                 authority, antiforgery, (AdminTeamAccessRoutes.IssueInvitationRequest)request, context, Now)
             : path == AdminTeamAccessRoutes.RevokeMemberPath
@@ -817,13 +872,32 @@ public sealed class AdminTeamAccessRoutesTests
 
         public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
             string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            GrantOnlyCalled = true;
+            RevokeTenantId = tenantId;
+            RevokeGrantId = grantId;
+            if (Denial is not null) return Task.FromException<AdminRevokeMemberResult?>(Denial);
+            return Task.FromResult(Revoke);
+        }
+
+        public bool GrantOnlyCalled { get; private set; }
+        public string? NarrowScope { get; private set; }
+        public string? NarrowSuccessor { get; private set; }
 
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
             string selectedSessionHandle, string tenantId, string grantId,
             Harborline.Api.Foundation.IdentityAtlas.Permissions.ScopeExpression narrowedScope,
             Harborline.Api.Blocks.AccessGrant.GrantId successorId, AuthorizationWriteContext authority,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            NarrowTenantId = tenantId;
+            NarrowGrantId = grantId;
+            NarrowScope = narrowedScope.Value;
+            NarrowSuccessor = successorId.ToString();
+            if (Denial is not null) return Task.FromException<AdminNarrowMemberGrantResult?>(Denial);
+            return Task.FromResult(Narrow);
+        }
 
         // Ticket 362 - the narrow route's recording leg.
         public Task<AdminNarrowMemberGrantResult?> NarrowMemberGrantAsync(

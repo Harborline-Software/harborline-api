@@ -23,7 +23,7 @@ namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 /// handler's principal + cookie checks are defense in depth, never the sole gate. Non-admin callers
 /// receive an identical non-enumerating refusal.
 /// </remarks>
-internal static class AdminTeamAccessRoutes
+internal static partial class AdminTeamAccessRoutes
 {
     internal const string MembersPath = "/api/session/admin/members";
     internal const string InvitationsPath = "/api/session/admin/invitations";
@@ -111,6 +111,7 @@ internal static class AdminTeamAccessRoutes
             NarrowMemberPath,
             (NarrowMemberRequest? request, HttpContext context) =>
                 NarrowMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+        MapGrantActions(app, authority, antiforgery, timeProvider);
     }
 
     internal static async Task<IResult> ListMembersAsync(
