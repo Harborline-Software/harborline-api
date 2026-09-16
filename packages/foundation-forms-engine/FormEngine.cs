@@ -500,7 +500,10 @@ public sealed class FormEngine : IFormEngine
                 Tenant: token.Tenant,
                 ValidFrom: submittedAt,
                 ExplicitLocalPart: localPart,
-                Binding: binding);
+                Binding: binding,
+                // A lost equal-body create must take the same authenticated replay path as any
+                // other collision, never append a second Mint or project a different request.
+                RequireNew: hasIdempotencyKey);
 
             EntityId entityId;
             try

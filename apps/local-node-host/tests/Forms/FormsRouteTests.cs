@@ -82,6 +82,10 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
+        var formWriter = builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IAuthorizedFormEntityWriter));
+        builder.Services.Remove(formWriter);
+        builder.Services.AddSingleton<IAuthorizedFormEntityWriter>(services => new PausedFormEntityWriter(
+            (IAuthorizedFormEntityWriter)formWriter.ImplementationFactory!(services), () => _racingWrites));
 
         _app = builder.Build();
 

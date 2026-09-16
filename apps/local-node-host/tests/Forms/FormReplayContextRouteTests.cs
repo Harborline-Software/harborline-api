@@ -3,6 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Forms.Engine;
+using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -13,6 +16,98 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 public sealed partial class FormsRouteTests
 {
     private readonly ReplayProjectionProbe _replayProjections = new();
+    private ConcurrentCreateProbe? _racingWrites;
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task Concurrent_first_use_adopts_only_matching_context_without_second_mint(bool changeActor, bool changeCorrelation)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var probe = _racingWrites = new ConcurrentCreateProbe();
+        SetReplayPrincipal("original");
+        using var first = SelectedSubmit();
+        using var second = SelectedSubmit();
+        if (changeCorrelation)
+        {
+            second.Headers.Remove("X-Correlation-ID");
+            second.Headers.Add("X-Correlation-ID", "43300000-0000-4000-8000-000000000011");
+        }
+        Task<HttpResponseMessage>? firstTask = null;
+        Task<HttpResponseMessage>? secondTask = null;
+        try
+        {
+            firstTask = _client.SendAsync(first, timeout.Token);
+            await probe.Arrived[0].Task.WaitAsync(timeout.Token);
+            if (changeActor) SetReplayPrincipal("other-authorized-person");
+            secondTask = _client.SendAsync(second, timeout.Token);
+            await probe.Arrived[1].Task.WaitAsync(timeout.Token);
+            // Both engine pre-reads observed absence. Let one complete entity, Mint and projection
+            // before releasing the equal-cleartext-body loser at the actual authorized write seam.
+            probe.Release[0].TrySetResult();
+            using var accepted = await firstTask;
+            Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+            var receipt = await accepted.Content.ReadFromJsonAsync<JsonElement>();
+            var instance = EntityId.Parse(receipt.GetProperty("instanceId").GetString()!);
+            var before = await ReplayStateAsync(instance);
+            Assert.Equal(1, _replayProjections.Calls);
+            probe.Release[1].TrySetResult();
+            using var response = await secondTask;
+            var mintCount = (await ReplayMintsAsync()).Count;
+            var matching = !changeActor && !changeCorrelation;
+            var expectedStatus = matching ? HttpStatusCode.Created : HttpStatusCode.Conflict;
+            var expectedProjections = matching ? 2 : 1;
+            Assert.True(response.StatusCode == expectedStatus && mintCount == 1 && _replayProjections.Calls == expectedProjections,
+                $"Expected {expectedStatus}, one Mint and {expectedProjections} projection calls; actual status={response.StatusCode}, mints={mintCount}, projections={_replayProjections.Calls}");
+            if (!matching)
+            {
+                var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.Equal("forms.replay_context_mismatch", refusal.GetProperty("code").GetString());
+            }
+            Assert.Equal(before, await ReplayStateAsync(instance));
+        }
+        finally
+        {
+            foreach (var release in probe.Release) release.TrySetResult();
+            // No failed assertion leaves a paused request holding the fixture or a write boundary.
+            foreach (var task in new[] { firstTask, secondTask })
+                if (task is not null)
+                    try { (await task).Dispose(); } catch (OperationCanceledException) { }
+            _racingWrites = null;
+        }
+    }
+
+    [Fact]
+    public async Task Canceled_create_wait_leaves_no_entity_mint_or_projection_and_retry_can_claim_key()
+    {
+        var probe = _racingWrites = new ConcurrentCreateProbe();
+        SetReplayPrincipal("original");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var request = SelectedSubmit();
+        var pending = _client.SendAsync(request, cancellation.Token);
+        try
+        {
+            await probe.Arrived[0].Task.WaitAsync(cancellation.Token);
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+            await probe.Exited[0].Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Null(await _app.Services.GetRequiredService<IEntityStore>().GetAsync(probe.InstanceIds[0]));
+            Assert.Empty(await ReplayMintsAsync());
+            Assert.Equal(0, _replayProjections.Calls);
+        }
+        finally
+        {
+            foreach (var release in probe.Release) release.TrySetResult();
+            _racingWrites = null;
+        }
+        using var retry = SelectedSubmit();
+        using var accepted = await _client.SendAsync(retry);
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Single(await ReplayMintsAsync());
+        Assert.Equal(1, _replayProjections.Calls);
+    }
 
     [Theory]
     [InlineData(true, false, false, false)]
@@ -104,16 +199,54 @@ public sealed partial class FormsRouteTests
     {
         var entity = await _app.Services.GetRequiredService<IEntityStore>().GetAsync(instance);
         Assert.NotNull(entity);
-        var mints = new List<AuditRecord>();
-        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
-            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) mints.Add(row);
-        var mint = Assert.Single(mints);
+        var mint = Assert.Single(await ReplayMintsAsync());
         return JsonSerializer.Serialize(new
         {
             entity.Id, entity.CurrentVersion, entity.CreatedAt, entity.UpdatedAt, entity.Tenant,
             body = entity.Body.RootElement, entity.Binding, mint.AuditId, mint.Actor,
             mintPayload = mint.Payload.Payload.Body,
         });
+    }
+
+    private async Task<IReadOnlyList<AuditRecord>> ReplayMintsAsync()
+    {
+        var mints = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) mints.Add(row);
+        return mints;
+    }
+
+    private sealed class ConcurrentCreateProbe
+    {
+        internal readonly TaskCompletionSource[] Arrived =
+            [new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously)];
+        internal readonly TaskCompletionSource[] Release =
+            [new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously)];
+        internal readonly TaskCompletionSource[] Exited =
+            [new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously)];
+        internal readonly EntityId[] InstanceIds = new EntityId[2];
+        internal int Entrants;
+    }
+
+    private sealed class PausedFormEntityWriter(IAuthorizedFormEntityWriter inner, Func<ConcurrentCreateProbe?> control) : IAuthorizedFormEntityWriter
+    {
+        public async Task<EntityId> CreateAsync(FormDefinitionId form, SchemaId schema, JsonDocument body,
+            CreateOptions options, AuthorizationDecision decision, CancellationToken ct = default)
+        {
+            if (control() is not { } probe)
+                return await inner.CreateAsync(form, schema, body, options, decision, ct);
+            var slot = Interlocked.Increment(ref probe.Entrants) - 1;
+            try
+            {
+                probe.InstanceIds[slot] = new EntityId(options.Scheme, options.Authority,
+                    options.ExplicitLocalPart ?? throw new InvalidOperationException("This probe requires the engine's derived instance ID."));
+                probe.Arrived[slot].TrySetResult();
+                await probe.Release[slot].Task.WaitAsync(ct);
+                ct.ThrowIfCancellationRequested();
+                return await inner.CreateAsync(form, schema, body, options, decision, ct);
+            }
+            finally { probe.Exited[slot].TrySetResult(); }
+        }
     }
 
     private sealed class ReplayProjectionProbe : IFormSubmitProjectionRunner

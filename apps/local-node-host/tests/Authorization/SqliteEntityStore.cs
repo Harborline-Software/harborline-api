@@ -80,6 +80,8 @@ internal sealed class SqliteEntityStore : IEntityMutationStore, IDisposable
         var existing = await GetAsync(id, ct: ct);
         if (existing is not null)
         {
+            if (options.RequireNew)
+                throw new IdempotencyConflictException($"Entity '{id}' already exists; a new insertion was required.");
             if (existing.Body.RootElement.GetRawText() == json)
                 return id;
             throw new IdempotencyConflictException($"Entity '{id}' already exists with different content.");
