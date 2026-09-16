@@ -8,8 +8,11 @@ namespace Harborline.Api.Foundation.Forms;
 /// Read-only in-memory form-definition store. Its mutation state is owned and unwrapped only by
 /// <see cref="AuthorizedFormDefinitionLifecycle"/>; this facade retains an opaque handle.
 /// </summary>
-public sealed class InMemoryFormDefinitionStore : IFormDefinitionStore, IDisposable
+public sealed class InMemoryFormDefinitionStore : IFormDefinitionStore, IDisposable, IPackProjectionParticipant
 {
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction)
+        => AuthorizedFormDefinitionLifecycle.StageInMemory(handle, transaction);
     private readonly AuthorizedFormDefinitionLifecycle.InMemoryPersistenceHandle handle;
 
     /// <summary>Constructs a registry with the supplied lifecycle clock.</summary>

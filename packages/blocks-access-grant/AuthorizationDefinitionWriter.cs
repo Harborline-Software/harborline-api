@@ -3,13 +3,14 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Blocks.AccessGrant;
 
 /// <summary>
 /// The one authorization configuration write path, in ADR 0038 stage order.
 /// </summary>
-public sealed class AuthorizationDefinitionWriter
+public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
 {
     private readonly IAuthorizationConfigurationStore store;
     private readonly AuthorizationConfigurationStateReader states;
@@ -17,6 +18,8 @@ public sealed class AuthorizationDefinitionWriter
     private readonly AuthorizationCapabilityBindingAdmission bindingAdmission;
     private readonly AuthorizationGate gate;
     private readonly IGrantStore grants;
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(store);
 
     public AuthorizationDefinitionWriter(
         IAuthorizationConfigurationStore store,

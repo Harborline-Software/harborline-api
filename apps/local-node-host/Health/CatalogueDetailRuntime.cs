@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -19,13 +20,27 @@ public sealed record CatalogueDetailProjection(string DetailId, string DetailVer
 }
 
 /// <summary>Templates captured from successful authentic pack projection, not client declarations.</summary>
-public sealed class CatalogueDetailTemplates
+public sealed class CatalogueDetailTemplates : IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<(TenantId, string, string), Template> templates = new();
+    private ConcurrentDictionary<(TenantId, string, string), Template> templates = new();
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = templates;
+        var next = new ConcurrentDictionary<(TenantId, string, string), Template>(before);
+        templates = next;
+        return () => templates = before;
+    });
     internal sealed record Template(JsonElement Content, CatalogueFormSourceIdentity Identity, CatalogueFieldSourceBinding SeedBinding);
     internal void Store(JsonElement content, CatalogueFormSourceIdentity identity, CatalogueFieldSourceBinding seedBinding)
-        => templates[(identity.Tenant, identity.Id, identity.Version)] = new(content.Clone(), identity, seedBinding);
-    internal Template? Get(TenantId tenant, string id, string version) => templates.GetValueOrDefault((tenant, id, version));
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        templates[(identity.Tenant, identity.Id, identity.Version)] = new(content.Clone(), identity, seedBinding);
+    }
+    internal Template? Get(TenantId tenant, string id, string version)
+    {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
+        return templates.GetValueOrDefault((tenant, id, version));
+    }
 }
 
 /// <summary>Fresh read-only projections over the admitted template and exact one-field gate decisions.</summary>

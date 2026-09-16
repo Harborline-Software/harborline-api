@@ -1,16 +1,26 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.DataExchangeDefinitions;
 
 /// <summary>Thread-safe, in-memory reference implementation of <see cref="IDataExchangeDefinitionRegistry"/>.</summary>
-public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefinitionRegistry
+public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefinitionRegistry, IPackProjectionParticipant
 {
     private const string PinnedTupleConflict = "data_exchange_definition.pinned_tuple_conflict";
 
     private readonly IDataExchangeDefinitionDescriptorRegistry _descriptors;
     private readonly IDataExchangeDefinitionCanonicalizer _canonicalizer;
-    private readonly ConcurrentDictionary<(string Tenant, string Key, string Version), DataExchangeDefinition> _definitions = new();
+    private ConcurrentDictionary<(string Tenant, string Key, string Version), DataExchangeDefinition> _definitions = new();
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _definitions;
+        var next = new ConcurrentDictionary<(string Tenant, string Key, string Version), DataExchangeDefinition>(before);
+        _definitions = next;
+        return () => _definitions = before;
+    });
 
     /// <summary>Initializes the registry with engine-owned descriptor admission and pass-through canonicalization.</summary>
     /// <param name="descriptors">The host-supplied data-exchange descriptor registry.</param>
@@ -35,6 +45,7 @@ public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefini
         DataExchangeDefinition definition,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -66,6 +77,7 @@ public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefini
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -80,6 +92,7 @@ public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefini
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -93,6 +106,7 @@ public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefini
         string tenant,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         cancellationToken.ThrowIfCancellationRequested();
         var heads = _definitions.Values
@@ -110,6 +124,7 @@ public sealed class InMemoryDataExchangeDefinitionRegistry : IDataExchangeDefini
         string key,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         cancellationToken.ThrowIfCancellationRequested();

@@ -91,6 +91,7 @@ public sealed class PackProjectionTransaction : IDisposable
     private readonly HashSet<object> participants = new(ReferenceEqualityComparer.Instance);
     private readonly List<Action> rollback = [];
     private readonly List<Action> cleanup = [];
+    private readonly List<Func<Task>> reactions = [];
     private IPackProjectionDurableUnit? durable;
     private bool committed;
     private bool disposed;
@@ -128,6 +129,17 @@ public sealed class PackProjectionTransaction : IDisposable
 
     /// <summary>Resets a participant's private transaction handle on either outcome; reference assignments only.</summary>
     public void Finally(Action release) => cleanup.Add(release);
+
+    /// <summary>Defers observers until the committed projection is visible and the write lease is released.</summary>
+    public void AfterCommit(Func<Task> reaction) => reactions.Add(reaction);
+
+    /// <summary>Runs post-commit observers outside the activation lease.</summary>
+    public async Task ReactAsync()
+    {
+        if (!disposed) throw new InvalidOperationException("Release the projection lease before notifying observers.");
+        if (!committed) return;
+        foreach (var reaction in reactions) await reaction().ConfigureAwait(false);
+    }
 
     /// <summary>Commits durable state before exposing the prepared registry references.</summary>
     public void Commit()

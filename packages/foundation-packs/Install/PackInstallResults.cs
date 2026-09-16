@@ -86,6 +86,15 @@ public static class PackInstallCodes
     /// version).</summary>
     public const string ActivateNotInstalled = "pack.install.activate.not_installed";
 
+    /// <summary>One definition or retirement refused; the complete old projection remains active.</summary>
+    public const string ActivateProjectionRefused = "pack.install.activate.projection_refused";
+
+    /// <summary>Preparation or persistence failed before the projection could commit.</summary>
+    public const string ActivateProjectionFailed = "pack.install.activate.projection_failed";
+
+    /// <summary>The active version changed while this activation was being admitted.</summary>
+    public const string ActivateConcurrentChange = "pack.install.activate.concurrent_change";
+
     /// <summary>Activation refused: activating this category-provider would occupy a category slot an
     /// already-ACTIVE provider holds (activate-exclusive, ADR 0129 D4). Install stays additive (S-2); the
     /// operator deactivates the incumbent first, so no provider is silently swapped out.</summary>

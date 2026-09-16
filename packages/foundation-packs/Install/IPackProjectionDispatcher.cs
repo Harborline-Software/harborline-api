@@ -1,9 +1,14 @@
+using Harborline.Api.Foundation.Definitions;
+
 namespace Harborline.Api.Foundation.Packs.Install;
 
 /// <summary>Host-internal one-shot projection seam. The authority never crosses a public surface.</summary>
-public interface IPackProjectionDispatcher
+public interface IPackProjectionDispatcher : IPackProjectionParticipant
 {
     object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default);
+
+    void IPackProjectionParticipant.StageProjection(PackProjectionTransaction transaction) =>
+        throw new InvalidOperationException("The pack projector does not support atomic staging.");
 }
 
 /// <summary>

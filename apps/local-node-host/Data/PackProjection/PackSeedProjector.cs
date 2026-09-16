@@ -330,6 +330,33 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IPackPlatformCompatibility? _platform;
     private readonly TimeProvider _time;
     private static readonly ConcurrentDictionary<Guid, byte> ConsumedAuthorities = new();
+    private PackProjectionTransaction? _projectionTransaction;
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        transaction.Enlist(_types);
+        transaction.Enlist(_templates);
+        transaction.Enlist(_forms);
+        transaction.Enlist(_authorizedForms);
+        transaction.Enlist(_schemas);
+        transaction.Enlist(_workflows);
+        transaction.Enlist(_authorizedWorkflows);
+        transaction.Enlist(_taxonomies);
+        transaction.Enlist(_defaults);
+        transaction.Enlist(_reportDefinitions);
+        transaction.Enlist(_dataExchangeDefinitions);
+        transaction.Enlist(_scheduleDefinitions);
+        transaction.Enlist(_viewDefinitions);
+        transaction.Enlist(_renderPlans);
+        transaction.Enlist(_standingRules);
+        transaction.Enlist(_roleVocabulary);
+        transaction.Enlist(_authorizationDefinitions);
+        transaction.Enlist(_catalogueDetails);
+        transaction.Enlist(_terminology);
+        transaction.Finally(() => _projectionTransaction = null);
+        _projectionTransaction = transaction;
+        return static () => { };
+    });
 
     /// <summary>
     /// Constructs the projector over the pack install store + runtime registries. The form and schema stores
@@ -432,6 +459,26 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     public async Task<PackSeedProjectionSummary> ProjectActivePacksAsync(
         PackProjectionAuthority authority,
         CancellationToken cancellationToken = default)
+    {
+        PackProjectionTransaction? current;
+        using (PackProjectionActivationBarrier.Read(cancellationToken)) current = _projectionTransaction;
+        if (current is not null)
+            return await ProjectCoreAsync(authority, cancellationToken).ConfigureAwait(false);
+        PackSeedProjectionSummary result;
+        var transaction = new PackProjectionTransaction(cancellationToken);
+        using (transaction)
+        {
+            transaction.Enlist(this);
+            result = await ProjectCoreAsync(authority, cancellationToken).ConfigureAwait(false);
+            if (!result.ProjectionRefused && result.PlatformRefusals.Count == 0) transaction.Commit();
+        }
+        await transaction.ReactAsync().ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<PackSeedProjectionSummary> ProjectCoreAsync(
+        PackProjectionAuthority authority,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(authority);
         authority.EnsureUsable();
@@ -1294,25 +1341,18 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // G1 side-effect: rebuild the app-layer feature-graph content-edge-index off the fresh install
         // state, so a reader of GET /packs/graph gets a warm cache. Never fails a projection — the graph is
         // derived state and the read-model self-heals if this is skipped.
-        try
+        _projectionTransaction!.AfterCommit(() =>
         {
             _edgeIndex?.Rebuild(tenant);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(
-                ex, "PackSeedProjector: rebuilding the feature-graph content-edge-index for tenant {Tenant} "
-                + "failed — the graph read-model will rebuild it lazily on next read.",
-                tenant);
-        }
+            return Task.CompletedTask;
+        });
 
         // T-397: activation remains successful even when this lint finds an unreachable state. The
         // diagnostic reads the compiled, published workflow catalogue only after this pass is complete.
         if (_authorizedWorkflows is not null && _workflowLintReports is not null)
         {
-            await _workflowLintReports.RefreshAsync(
-                    _authorizedWorkflows, tenant, installed, cancellationToken)
-                .ConfigureAwait(false);
+            _projectionTransaction.AfterCommit(() => _workflowLintReports.RefreshAsync(
+                    _authorizedWorkflows, tenant, installed, CancellationToken.None));
         }
 
         // T-398: this whole-catalogue pass is deliberately diagnostic. It observes only the compiled
@@ -1323,10 +1363,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             && _roleVocabulary is not null
             && _viewReachabilityReports is not null)
         {
-            await _viewReachabilityReports.RefreshAsync(
+            _projectionTransaction.AfterCommit(() => _viewReachabilityReports.RefreshAsync(
                     tenant, installed, _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
-                    cancellationToken)
-                .ConfigureAwait(false);
+                    CancellationToken.None));
         }
 
         // Other content kinds and replacement retractions can refuse after Defaults parsing.

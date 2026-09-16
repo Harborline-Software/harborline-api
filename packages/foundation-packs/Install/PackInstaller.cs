@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Catalog.Templates;
 using Harborline.Api.Foundation.Packs.Install.Admission;
@@ -230,6 +231,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // The target must be installed — fetch it FIRST so the activation guards (provider-slot,
         // cross-pack collision) inspect its persisted manifest state BEFORE any pointer flip.
         var target = _store.GetVersion(tenant, packKey, version);
+        var expectedActiveVersion = _store.GetActive(tenant, packKey)?.Version;
         if (target is null)
         {
             return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
@@ -332,27 +334,70 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     + $"declare a dependency) before activating '{packKey}'.", decision);
         }
 
+        return CommitActivation(tenant, packKey, version, now, actingPrincipal, ownershipResolutions,
+            expectedActiveVersion, decision);
+    }
+
+    private PackActivationOutcome CommitActivation(
+        TenantId tenant, string packKey, string version, DateTimeOffset now, string actingPrincipal,
+        IReadOnlyDictionary<string, string>? ownershipResolutions, string? expectedActiveVersion,
+        AuthorizationDecision decision)
+    {
+        PackActivationOutcome outcome;
+        var authority = new PackProjectionAuthority(decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
+        PackProjectionTransaction? transaction = null;
         try
         {
-            foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
-                _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
-            var candidate = new PackProjectionAuthority(
-                decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
-            ProjectionStore().ActivateAndRecordProjectionAdmission(
-                tenant, packKey, version, Admission(candidate));
-            projectionAuthority = candidate;
+            using (transaction = new PackProjectionTransaction())
+            {
+                transaction.Enlist(_mutations);
+                transaction.Enlist(_projector);
+                if (!string.Equals(_store.GetActive(tenant, packKey)?.Version, expectedActiveVersion, StringComparison.Ordinal))
+                {
+                    outcome = new(false, packKey, version, PackInstallCodes.ActivateConcurrentChange, Decision: decision);
+                }
+                else
+                {
+                    foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
+                        _mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
+                    ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version, Admission(authority));
+                    var result = _projector?.Project(authority);
+                    if (Admitted(result))
+                    {
+                        if (_projector is not null) ProjectionStore().MarkProjectionCompleted(authority.Nonce);
+                        transaction.Commit();
+                        outcome = new(true, packKey, version, null, Projected: _projector is not null,
+                            ProjectionResult: result, Decision: decision);
+                    }
+                    else
+                    {
+                        outcome = new(false, packKey, version, PackInstallCodes.ActivateProjectionRefused,
+                            ProjectionResult: result, Decision: decision);
+                    }
+                }
+            }
         }
-        catch (PackTransitionStateException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
-                PackInstallCodes.ActivateNotInstalled, null, decision);
+            outcome = new(false, packKey, version,
+                exception is PackTransitionStateException ? PackInstallCodes.ActivateNotInstalled : PackInstallCodes.ActivateProjectionFailed,
+                Detail: exception.Message, Decision: decision);
         }
+        finally { authority.Retire(); }
 
-        _audit.AppendAuthorized(new PackInstallAuditEntry(
-            tenant, PackInstallAuditAction.Activated, packKey, version, now, null, null, "pack.install.activated",
+        // Audit and observers run only after the write lease and SQLite transaction have closed.
+        // A notification failure cannot turn a committed activation into a reported rollback.
+        _audit.AppendAuthorized(new PackInstallAuditEntry(tenant,
+            outcome.Activated ? PackInstallAuditAction.Activated : PackInstallAuditAction.Refused,
+            packKey, version, now, null, null, outcome.Error ?? "pack.install.activated",
             ActingPrincipal: actingPrincipal), decision);
-
-        return new PackActivationOutcome(true, packKey, version, null, Decision: decision);
+        if (outcome.Activated && transaction is not null)
+        {
+            try { transaction.ReactAsync().GetAwaiter().GetResult(); }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            { outcome = outcome with { Detail = exception.Message }; }
+        }
+        return outcome;
     }
 
     /// <inheritdoc />

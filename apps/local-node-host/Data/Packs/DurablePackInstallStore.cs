@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
@@ -46,7 +48,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Packs;
 /// writer-lock contention. This mirrors the <see cref="Admission.DurableAdmissionTokenStore"/> single-gate model.
 /// </para>
 /// </remarks>
-public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMutationStore, IPackProjectionAdmissionStore
+public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMutationStore, IPackProjectionAdmissionStore, IPackProjectionParticipant
 {
     private const int LifecycleActive = (int)PackLifecycleState.Active;
     private const int LifecycleSuperseded = (int)PackLifecycleState.Superseded;
@@ -56,6 +58,27 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
     private readonly object _gate = new();
     private readonly IDbContextFactory<NodeLocalPacksDbContext> _factory;
+
+    private PackProjectionSqliteUnit? projectionUnit;
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var unit = transaction.Durable(() => new PackProjectionSqliteUnit(_factory.CreateDbContext()));
+        transaction.Finally(() => projectionUnit = null);
+        projectionUnit = unit;
+        return static () => { };
+    });
+
+    private NodeLocalPacksDbContext CreateContext()
+    {
+        var context = _factory.CreateDbContext();
+        return projectionUnit is null ? context : projectionUnit.Join(context);
+    }
+
+    private static Task InTransactionAsync(NodeLocalPacksDbContext context, Func<Task> action) =>
+        context.Database.CurrentTransaction is null
+            ? HomeEpochFenceTransaction.RunAsync(context, action)
+            : action();
 
     /// <summary>Construct over the SQLCipher-keyed packs DbContext factory (registered by
     /// <c>AddSqlCipherLocalNodeDbContext</c>).</summary>
@@ -69,9 +92,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.InstalledVersions.AsNoTracking()
                 .FirstOrDefault(r => r.Tenant == t && r.PackKey == packKey && r.Lifecycle == LifecycleActive);
             return row is null ? null : Materialize(row);
@@ -84,9 +108,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.InstalledVersions.AsNoTracking()
                 .FirstOrDefault(r => r.Tenant == t && r.PackKey == packKey && r.Version == version);
             return row is null ? null : Materialize(row);
@@ -96,9 +121,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     /// <inheritdoc />
     public bool AnyInstalled()
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             return ctx.InstalledVersions.AsNoTracking().Any();
         }
     }
@@ -106,9 +132,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant)
     {
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var rows = ctx.InstalledVersions.AsNoTracking().Where(r => r.Tenant == t).ToList();
             // Match the in-memory store's stable ORDINAL order (SQLite's default collation is byte-wise but the
             // ordering is asserted here in-memory so it is provider-independent).
@@ -125,9 +152,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.Watermarks.AsNoTracking()
                 .FirstOrDefault(r => r.Tenant == t && r.PackKey == packKey);
             if (row is null)
@@ -146,9 +174,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packKey);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var rows = ctx.Overrides.AsNoTracking()
                 .Where(r => r.Tenant == t && r.PackKey == packKey)
                 .ToList();
@@ -166,9 +195,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentNullException.ThrowIfNull(tenantOverride);
         var t = tenant.Value;
         var json = tenantOverride.OverlayPatch.ToJsonString();
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.Overrides.Find(t, packKey, tenantOverride.ContentKey);
             if (row is null)
             {
@@ -199,9 +229,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         var payload = JsonSerializer.Serialize(pack, Json);
         var floorsJson = JsonSerializer.Serialize(transaction.Watermark.Floors, Json);
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             // S-7 ATOMIC apply: the new seed layer + advanced watermark + re-attached overrides commit
             // all-or-nothing inside ONE explicit transaction. A fault before Commit rolls the whole thing back
             // (the durable analogue of the in-memory single reference-swap).
@@ -275,9 +306,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         var t = tenant.Value;
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             StageActivation(ctx, t, packKey, version);
             ctx.SaveChanges();
         }
@@ -291,10 +323,11 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ValidateAdmissionCoordinates(admission, tenant, packKey, version);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
-            HomeEpochFenceTransaction.RunAsync(ctx, async () =>
+            using var ctx = CreateContext();
+            InTransactionAsync(ctx, async () =>
             {
                 StageActivation(ctx, t, packKey, version);
                 AddProjectionAdmission(ctx, admission);
@@ -310,9 +343,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         var t = tenant.Value;
 
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             StageDeactivation(ctx, t, packKey, version);
             ctx.SaveChanges();
         }
@@ -326,10 +360,11 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ValidateAdmissionCoordinates(admission, tenant, packKey, version);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
-            HomeEpochFenceTransaction.RunAsync(ctx, async () =>
+            using var ctx = CreateContext();
+            InTransactionAsync(ctx, async () =>
             {
                 StageDeactivation(ctx, t, packKey, version);
                 AddProjectionAdmission(ctx, admission);
@@ -340,9 +375,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
     IReadOnlyList<PackProjectionAdmission> IPackProjectionAdmissionStore.ListIncompleteProjectionAdmissions()
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             return ctx.ProjectionAdmissions.AsNoTracking()
                 .Where(row => !row.Projected)
                 .AsEnumerable()
@@ -364,9 +400,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
 
     void IPackProjectionAdmissionStore.MarkProjectionCompleted(Guid admissionId)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.ProjectionAdmissions.Find(admissionId)
                 ?? throw new InvalidOperationException("Pack projection admission evidence was not found.");
             row.Projected = true;
@@ -434,9 +471,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     public IReadOnlyDictionary<string, string> GetKeyOwnership(TenantId tenant)
     {
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var rows = ctx.KeyOwnership.AsNoTracking().Where(r => r.Tenant == t).ToList();
             return rows.ToDictionary(r => r.ContentKey, r => r.OwningPackKey, StringComparer.Ordinal);
         }
@@ -448,9 +486,10 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
         ArgumentException.ThrowIfNullOrWhiteSpace(contentKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(owningPackKey);
         var t = tenant.Value;
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         lock (_gate)
         {
-            using var ctx = _factory.CreateDbContext();
+            using var ctx = CreateContext();
             var row = ctx.KeyOwnership.Find(t, contentKey);
             if (row is null)
             {
