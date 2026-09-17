@@ -2,6 +2,7 @@ using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
+[Collection(PackProjectionBarrierCollection.Name)]
 public sealed class PackProjectionTransactionTests
 {
     [Fact]

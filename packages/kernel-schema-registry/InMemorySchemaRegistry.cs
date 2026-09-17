@@ -273,14 +273,17 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         string? tagFilter = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
-        foreach (var entry in _schemas.Values)
+        // A paused iterator must not keep activation waiting while its consumer processes a row.
+        // Materialize one stable projection before yielding control back to that consumer.
+        Schema[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = _schemas.Values.Select(entry => entry.Schema)
+                .Where(schema => tagFilter is null || schema.Tags.Contains(tagFilter))
+                .ToArray();
+        foreach (var schema in snapshot)
         {
             ct.ThrowIfCancellationRequested();
-            if (tagFilter is null || entry.Schema.Tags.Contains(tagFilter))
-            {
-                yield return entry.Schema;
-            }
+            yield return schema;
         }
 
         // Satisfy the async-iterator contract without adding real asynchrony —

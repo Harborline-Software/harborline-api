@@ -19,6 +19,79 @@ public sealed class AccountSetupInvitationIssuerTests
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 16, 20, 0, TimeSpan.Zero);
 
+    private static readonly RoleDefinition AdmittedRole = RoleDefinition.CreatePackageRole(
+        new RoleDefinitionId(Guid.Parse("7283f8a1-7172-49db-a1f3-01d1093fce22")),
+        "admitted-user", "Admitted user", "harborline.access-administration");
+
+    [Fact]
+    public async Task Empty_selected_role_is_persisted_audited_and_bound_to_the_command_fingerprint()
+    {
+        var vocabulary = new InMemoryRoleVocabulary([AdmittedRole, AccessGrantAuthorizationSeed.MemberDefinition]);
+        await using var fixture = await IssueFixture.CreateAsync(PermissionCompositions.Admin,
+            roles: vocabulary, authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty));
+        var request = new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "same-command",
+            AdmittedRole.Role.ToString());
+        var issued = await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request);
+        Assert.NotNull(issued);
+        Assert.Null(await fixture.Issuer.IssueAsync(fixture.SelectedHandle, request));
+        var member = await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+            request with { InitialRole = InvitationInitialRole.Default });
+        Assert.NotNull(member);
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        var rows = await identity.AccountSetupInvitations.ToArrayAsync();
+        Assert.Equal(2, rows.Select(row => row.CommandFingerprint).Distinct().Count());
+        var row = Assert.Single(rows, row => row.InvitationId == issued.InvitationId);
+        Assert.Equal(AdmittedRole.Role.ToString(), row.InitialRole);
+        Assert.Equal(InvitationInitialRole.Digest(AdmittedRole, PermissionAtomSet.Empty), row.InitialRoleDigest);
+        var consumed = await new AccountSetupInvitationStore(fixture.IdentityFactory).ConsumeAndReadAsync(
+            issued.RawCode, fixture.TenantId, WebSetupInvitationPurpose.AccountSetup, Now);
+        Assert.Equal(row.InitialRole, consumed!.InitialRole);
+        Assert.Equal(row.InitialRoleDigest, consumed.InitialRoleDigest);
+    }
+
+    [Theory]
+    [InlineData("tax.roles/missing", false)]
+    [InlineData("tax.roles/admitted-user", true)]
+    [InlineData("", false)]
+    public async Task Unknown_malformed_or_escalating_role_cannot_issue(string role, bool escalating)
+    {
+        await using var fixture = await IssueFixture.CreateAsync(PermissionCompositions.Admin,
+            roles: new InMemoryRoleVocabulary([AdmittedRole]),
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty,
+                escalating ? PermissionAtomSet.Of(PermissionAtom.Parse("records:write@/")) : PermissionAtomSet.Empty));
+        Assert.Null(await fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", role)));
+        await AssertNoInvitationsAsync(fixture.IdentityFactory);
+    }
+
+    [Fact]
+    public async Task Powerless_role_still_requires_members_manage()
+    {
+        await using var fixture = await IssueFixture.CreateAsync(PermissionCompositions.Member,
+            roles: new InMemoryRoleVocabulary([AdmittedRole]),
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Issuer.IssueAsync(fixture.SelectedHandle,
+            new AccountSetupInvitationIssueRequest(fixture.TenantId, [], "refused", AdmittedRole.Role.ToString())));
+        await AssertNoInvitationsAsync(fixture.IdentityFactory);
+    }
+
+    [Fact]
+    public async Task Selected_role_attenuation_is_a_gate_refusal_with_evidence()
+    {
+        await using var fixture = await IssueFixture.CreateAsync(PermissionCompositions.Admin,
+            roles: new InMemoryRoleVocabulary([AdmittedRole]),
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty,
+                PermissionAtomSet.Of(PermissionAtom.Parse("unheld:read@/"))));
+        var denied = await Assert.ThrowsAsync<AuthorizationDeniedException>(() => fixture.Issuer.IssueAsync(
+            fixture.SelectedHandle, new AccountSetupInvitationIssueRequest(fixture.TenantId,
+                ["records:read"], "role-escalation", AdmittedRole.Role.ToString())));
+        Assert.Equal("authorization.grant.attenuation_failed", denied.Decision.Evidence.GrantRefusal);
+        Assert.Equal("members:manage", denied.Decision.Request.Act.Operation.Value);
+        Assert.Contains(denied.Decision.Resolution.SelectMany(step => step.Inputs),
+            value => value == "grant-required:unheld:read@/");
+        await AssertNoInvitationsAsync(fixture.IdentityFactory);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -220,7 +293,9 @@ public sealed class AccountSetupInvitationIssuerTests
         public static async Task<IssueFixture> CreateAsync(
             PermissionSet inviterPermissions,
             AuthorizationRefusalAudit? refusalAudit = null,
-            bool ejectInviter = false)
+            bool ejectInviter = false,
+            IRoleVocabularyReader? roles = null,
+            IAuthorizationClosureReader? authorization = null)
         {
             var tenantId = "11111111-1111-1111-1111-111111111111";
             var identityPath = TempPath("identity");
@@ -331,7 +406,8 @@ public sealed class AccountSetupInvitationIssuerTests
                 // Ticket 293 slice 4 - the inviter's own CONFERRED install-root grant is what admits the issue,
                 // not a roster permission set: the gate ANDs RequiredPermissions against the atoms it derives.
                 InviterGate(inviterPermissions),
-                new FixedTimeProvider(Now), refusalAudit);
+                new FixedTimeProvider(Now), refusalAudit, roles,
+                authorization is null ? null : new RoleAtomReader(authorization));
             return new IssueFixture(
                 [identityPath, sessionPath, grantPath],
                 identityFactory,
@@ -425,5 +501,12 @@ public sealed class AccountSetupInvitationIssuerTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class RoleAtomReader(IAuthorizationClosureReader definitions) : IAuthorizationDefinitionAtomReader
+    {
+        public async ValueTask<IReadOnlyList<PermissionAtom>> AtomsForRoleAsync(
+            TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
+            (await definitions.RolePermissionsAsync(tenantId, role, ct)).Atoms.ToArray();
     }
 }

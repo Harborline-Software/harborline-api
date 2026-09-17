@@ -41,6 +41,16 @@ public sealed class SelectedSessionEffectivePermissionsTests
         Guid.Parse("33440000-0000-0000-0000-000000000001");
     private static readonly DateTimeOffset Now = new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
 
+    [Fact]
+    public async Task Resolved_empty_permissions_are_a_successful_response_for_an_installed_role()
+    {
+        var fixture = await SessionFixture.CreateAsync(PermissionCompositions.Member, PermissionSet.Empty,
+            new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]));
+        var result = await fixture.ReadAsync();
+        Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
+        Assert.Empty(result);
+    }
+
     [Fact(DisplayName =
         "293 s5: the response follows the CONFERRED GRANT, not the signed roster edge")]
     public async Task Response_Follows_The_Grant_Not_The_Roster_Edge()
@@ -234,7 +244,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
         }
 
         internal static async Task<SessionFixture> CreateAsync(
-            PermissionSet signedEdge, PermissionSet conferred)
+            PermissionSet signedEdge, PermissionSet conferred, IRoleVocabularyReader? roles = null)
         {
             var founder = KeyPair.Generate();
             var member = KeyPair.Generate();
@@ -263,7 +273,7 @@ public sealed class SelectedSessionEffectivePermissionsTests
                 new FixedTimeProvider(Now),
                 NullLogger<SelectedSessionPermissionResolver>.Instance,
                 TestAuthorization.ConferredGate(actor =>
-                    held.TryGetValue(actor.Value, out var set) ? set : PermissionSet.Empty));
+                    held.TryGetValue(actor.Value, out var set) ? set : PermissionSet.Empty), roles: roles);
 
             return new SessionFixture(
                 new SelectedSessionRequestPrincipal(

@@ -176,6 +176,15 @@ public interface IAdminTeamAccessAuthority
         AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Issues an invitation whose initial role is selected by the administrator.</summary>
+    Task<AdminIssuedInvitation?> IssueRoleInvitationAsync(
+        string selectedSessionHandle, string tenantId, IReadOnlyCollection<string> requestedPermissions,
+        string idempotencyKey, string? initialRole, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) => initialRole is null
+            ? IssueInvitationAsync(selectedSessionHandle, tenantId, requestedPermissions, idempotencyKey,
+                authority, cancellationToken)
+            : Task.FromResult<AdminIssuedInvitation?>(null);
+
     /// <summary>Revokes a grant-anchored web member's access by revoking the identified grant.</summary>
     /// <param name="successorPrincipalId">
     /// When present, the revocation is an Administrator handover (ledger L618): the successor's grant is
@@ -397,17 +406,24 @@ internal sealed partial class AdminTeamAccessAuthority(
     }
 
     /// <inheritdoc />
-    public async Task<AdminIssuedInvitation?> IssueInvitationAsync(
+    public Task<AdminIssuedInvitation?> IssueInvitationAsync(
         string selectedSessionHandle,
         string tenantId,
         IReadOnlyCollection<string> requestedPermissions,
         string idempotencyKey,
         AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) =>
+        IssueRoleInvitationAsync(selectedSessionHandle, tenantId, requestedPermissions, idempotencyKey,
+            null, authority, cancellationToken);
+
+    public async Task<AdminIssuedInvitation?> IssueRoleInvitationAsync(
+        string selectedSessionHandle, string tenantId, IReadOnlyCollection<string> requestedPermissions,
+        string idempotencyKey, string? initialRole, AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(selectedSessionHandle) ||
             !Guid.TryParse(tenantId, out var parsedTenant) ||
-            requestedPermissions is null || requestedPermissions.Count == 0 ||
+            requestedPermissions is null || (requestedPermissions.Count == 0 && initialRole is null) ||
             string.IsNullOrWhiteSpace(idempotencyKey))
         {
             return null;
@@ -420,7 +436,8 @@ internal sealed partial class AdminTeamAccessAuthority(
                 new AccountSetupInvitationIssueRequest(
                     parsedTenant.ToString("D"),
                     requestedPermissions,
-                    idempotencyKey),
+                    idempotencyKey,
+                    initialRole),
                 authority,
                 cancellationToken)
             .ConfigureAwait(false);

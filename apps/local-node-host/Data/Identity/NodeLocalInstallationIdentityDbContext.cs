@@ -331,6 +331,10 @@ public sealed class NodeLocalInstallationIdentityDbContext : DbContext
                 .HasColumnName("inviter_authorization_epoch");
             entity.Property(row => row.RequestedPermissionsJson)
                 .HasColumnName("requested_permissions_json").HasColumnType("TEXT");
+            entity.Property(row => row.InitialRole)
+                .HasColumnName("initial_role").HasMaxLength(256).HasDefaultValue("tax.roles/member");
+            entity.Property(row => row.InitialRoleDigest)
+                .HasColumnName("initial_role_digest").HasMaxLength(64);
             entity.Property(row => row.TokenDigest).HasColumnName("token_digest").HasMaxLength(64);
             entity.Property(row => row.Purpose)
                 .HasColumnName("purpose").HasConversion<string>().HasMaxLength(32);

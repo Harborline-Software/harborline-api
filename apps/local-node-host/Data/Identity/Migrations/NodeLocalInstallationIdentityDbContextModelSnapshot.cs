@@ -14,7 +14,7 @@ partial class NodeLocalInstallationIdentityDbContextModelSnapshot : ModelSnapsho
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260902140000_BootstrapClaimMarker";
+    public override string LastMigrationId => "20260916170000_InvitationInitialRole";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -189,6 +189,19 @@ partial class NodeLocalInstallationIdentityDbContextModelSnapshot : ModelSnapsho
                     .IsRequired()
                     .HasColumnType("TEXT")
                     .HasColumnName("requested_permissions_json");
+
+                b.Property<string>("InitialRole")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("tax.roles/member")
+                    .HasColumnName("initial_role");
+
+                b.Property<string>("InitialRoleDigest")
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasColumnName("initial_role_digest");
 
                 b.Property<long?>("RevokedAtUtc")
                     .HasColumnType("INTEGER")

@@ -20,6 +20,8 @@ public sealed record AuthorizationGateRequest(
     public Guid? CorrelationId { get; init; }
     /// <summary>A server-verified grant constraint failure; the gate retains it in its decision.</summary>
     public string? GrantRefusal { get; init; }
+    /// <summary>Server-read role atoms to attenuate against the actor's live grants at each atom's scope.</summary>
+    public PermissionAtomSet? RequiredGrantAtoms { get; init; }
 }
 
 /// <summary>Server-derived membership facts; only the gate turns them into a verdict.</summary>

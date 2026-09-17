@@ -1826,6 +1826,7 @@ public sealed class AuthorizationWriteStageTests
             Array.Empty<RecordStanding>(),
             Array.Empty<AuthorizationResolutionStep>(),
             Array.Empty<AuthorizationExcludedBinding>(),
+            null,
         ]);
     }
 

@@ -15,9 +15,9 @@ internal static class AccessReplacementFixture
 {
     internal const string SourcePath = "_shared/packs/access-administration/access-administration-pack.export.json";
     internal const string DirectoryPath = "_shared/conformance/packs/access-replacement";
-    internal const string ArtifactName = "access-administration-pack-1.1.2.export.json";
-    internal const string ProbeArtifactName = "access-administration-pack-1.1.2-atomicity-probe.0.export.json";
-    internal const string ProbeVersion = "1.1.2-atomicity-probe.0";
+    internal const string ArtifactName = "access-administration-pack-1.1.4.export.json";
+    internal const string ProbeArtifactName = "access-administration-pack-1.1.4-atomicity-probe.0.export.json";
+    internal const string ProbeVersion = "1.1.4-atomicity-probe.0";
     internal const string ProbeRefusalKey = "m6.late-refusal";
     internal static readonly DateTimeOffset IssuedAt = new(2026, 9, 15, 16, 33, 0, TimeSpan.Zero);
     internal static readonly Guid Nonce = new("fd3a5943-e24b-4fa5-9059-2ca967967820");
@@ -48,8 +48,8 @@ internal static class AccessReplacementFixture
         workflow["content"]!["version"] = "1.0.0";
         workflow["content"]!["postSubmitProjection"] = "access.scoped-grant-review";
         var holders = contents.Single(item => item!["key"]!.GetValue<string>() == "access.holders")!;
-        holders["version"] = "1.0.1";
-        holders["content"]!["version"] = "1.0.1";
+        holders["version"] = "1.0.3";
+        holders["content"]!["version"] = "1.0.3";
         var review = holders["content"]!["parameters"]!["actions"]!.AsArray()
             .Single(action => action!["operation"]!.GetValue<string>() == "access.grant.review")!;
         review["workflow"] = "access.scoped-grant-review";
@@ -62,7 +62,7 @@ internal static class AccessReplacementFixture
         var signer = new FixtureSigner(new Ed25519Signer(key), atomicityProbe
             ? new Guid("80b5ce08-310b-4b0d-803b-0e6fd4ab96a9") : Nonce);
         var request = new PackExportRequest(
-            source["key"]!.GetValue<string>(), atomicityProbe ? ProbeVersion : "1.1.2", source["name"]!.GetValue<string>(),
+            source["key"]!.GetValue<string>(), atomicityProbe ? ProbeVersion : "1.1.4", source["name"]!.GetValue<string>(),
             source["description"]!.GetValue<string>(), Enum.Parse<PackScopeTier>(source["scopeTier"]!.GetValue<string>()),
             contents.Select(item => new PackContentSource(item!["key"]!.GetValue<string>(),
                 Enum.Parse<PackContentKind>(item["kind"]!.GetValue<string>()), item["version"]!.GetValue<string>(),

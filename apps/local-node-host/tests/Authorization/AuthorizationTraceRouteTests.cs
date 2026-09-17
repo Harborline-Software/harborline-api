@@ -271,7 +271,7 @@ public sealed class AuthorizationTraceRouteTests
             foreach (var (key, value) in new Dictionary<string, string>
             {
                 ["DOTNET_ENVIRONMENT"] = "Production", ["ASPNETCORE_ENVIRONMENT"] = "Production",
-                ["ASPNETCORE_URLS"] = "http://127.0.0.1:7309", ["LocalNode__HealthPort"] = "7308",
+                ["ASPNETCORE_URLS"] = "http://127.0.0.1:0", ["LocalNode__HealthPort"] = "0",
                 ["LocalNode__RootSeedHex"] = new string('3', 64), ["LocalNode__WebClient__Enabled"] = "false",
                 ["LocalNode__MultiTeam__Enabled"] = "false", ["LocalNode__SchedulingDogfood__Enabled"] = "false",
                 ["Logging__EventLog__LogLevel__Default"] = "None"

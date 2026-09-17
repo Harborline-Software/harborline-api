@@ -8,6 +8,8 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Ship.Common;
+using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Roster;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -82,8 +84,7 @@ public interface IAccountSetupAcceptanceAuthority
 ///   <item>GATE 1 — read the valid, still-unconsumed invitation and its SIGNED inviter pins. Every
 ///     downstream coordinate is taken from these pins, never from the browser command.</item>
 ///   <item>GATE 2 — inviter mandate-attenuation re-verification: the inviter must STILL hold live
-///     live authorization closure (<see cref="IAuthorizationClosureReader.UserPermissionsAsync"/> = members:manage
-///     on the verified roster + active grants) AND be able to attenuate to the granted member role
+///     members:manage on the verified roster + active grants AND be able to attenuate to the granted role
 ///     through scoped closure coverage. This is the duty transferred to acceptance by
 ///     council-verdict-2026-07-22T1124Z — #2615's issuance service trusts the contract's inviter.</item>
 ///   <item>MINT the joiner installation account (element 1), the canonical Party → principal binding
@@ -107,29 +108,41 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
     internal const int MaximumUsernameConflictDisclosures = 3;
 
     private readonly AccountSetupInvitationStore _invitationStore;
-    private readonly IAuthorizationClosureReader _authorization;
+    private readonly IAuthorizationDefinitionAtomReader _roleDefinitions;
     private readonly IWebJoinerPartyBindingMinter _partyBindingMinter;
     private readonly IInvitationAcceptanceGrantWriter _grantWriter;
     private readonly IInvitationAcceptanceMembershipWriter _membershipWriter;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
+    private readonly AuthorizationGate _gate;
+    private readonly IRoleVocabularyReader _roles;
+    private readonly IVerifiedTenantRosterReader _rosterReader;
+    private readonly AuthorizationRefusalAudit? _refusalAudit;
 
     public AccountSetupAcceptanceService(
         AccountSetupInvitationStore invitationStore,
-        IAuthorizationClosureReader authorization,
+        IAuthorizationDefinitionAtomReader roleDefinitions,
         IWebJoinerPartyBindingMinter partyBindingMinter,
         IInvitationAcceptanceGrantWriter grantWriter,
         IInvitationAcceptanceMembershipWriter membershipWriter,
         IServiceScopeFactory scopeFactory,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        AuthorizationGate gate,
+        IRoleVocabularyReader roles,
+        IVerifiedTenantRosterReader rosterReader,
+        AuthorizationRefusalAudit? refusalAudit = null)
     {
         _invitationStore = invitationStore ?? throw new ArgumentNullException(nameof(invitationStore));
-        _authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
+        _roleDefinitions = roleDefinitions ?? throw new ArgumentNullException(nameof(roleDefinitions));
         _partyBindingMinter = partyBindingMinter ?? throw new ArgumentNullException(nameof(partyBindingMinter));
         _grantWriter = grantWriter ?? throw new ArgumentNullException(nameof(grantWriter));
         _membershipWriter = membershipWriter ?? throw new ArgumentNullException(nameof(membershipWriter));
         _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _gate = gate ?? throw new ArgumentNullException(nameof(gate));
+        _roles = roles ?? throw new ArgumentNullException(nameof(roles));
+        _rosterReader = rosterReader ?? throw new ArgumentNullException(nameof(rosterReader));
+        _refusalAudit = refusalAudit;
     }
 
     public async Task<AccountSetupAcceptResult> AcceptAsync(
@@ -160,20 +173,43 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
         }
 
         // ── GATE 2: inviter mandate-attenuation re-verification (ADR 0077 §2.1-0(b)). ──
-        // Resolve the inviter's live PBAC bundle. Legacy-only providers are mapped through the compatibility
-        // catalog so existing hosts remain source-compatible during the migration.
+        // Resolve the bound role definition; only the gate may compare its atoms to the inviter's grants.
         var inviterPrincipal = new PrincipalUserId(invitation.InviterPrincipalId);
         var inviterAuthorityPrincipal = new ActorId(invitation.InviterPrincipalId);
-        var memberRole = AccessGrantAuthorizationSeed.MemberRole;
-        var requestedPermissions = await _authorization.RolePermissionsAsync(tenant, memberRole, cancellationToken)
-            .ConfigureAwait(false);
-        var inviterPermissions = await _authorization.UserPermissionsAsync(
-                tenant, inviterAuthorityPrincipal, now, cancellationToken)
-            .ConfigureAwait(false);
-        if (!inviterPermissions.Covers(requestedPermissions))
+        var parsedRole = InvitationInitialRole.Parse(invitation.InitialRole);
+        if (parsedRole is null) return Refused(AccountSetupAcceptStatus.AuthorityRefused);
+        var memberRole = parsedRole.Value;
+        var roleDefinition = await _roles.ResolveAsync(memberRole, cancellationToken).ConfigureAwait(false);
+        if (roleDefinition is null) return Refused(AccountSetupAcceptStatus.AuthorityRefused);
+        var requestedPermissions = PermissionAtomSet.From(await _roleDefinitions.AtomsForRoleAsync(
+            tenant, memberRole, cancellationToken).ConfigureAwait(false));
+        if (invitation.InitialRoleDigest is { } digest
+            ? digest != InvitationInitialRole.Digest(roleDefinition, requestedPermissions)
+            : memberRole != AccessGrantAuthorizationSeed.MemberRole)
+            return Refused(AccountSetupAcceptStatus.AuthorityRefused);
+        // Role attenuation alone is vacuously true for a powerless membership anchor. Re-decide the
+        // inviter's actual mandate immediately before any account, Party, grant or membership mint.
+        MemberRoster roster;
+        try
+        {
+            roster = await _rosterReader.ReadAsync(tenant, cancellationToken).ConfigureAwait(false);
+        }
+        catch (VerifiedTenantRosterRefusedException)
         {
             return Refused(AccountSetupAcceptStatus.AuthorityRefused);
         }
+        var mandate = await _gate.DecideAsync(
+            new AuthorizationWriteContext(inviterAuthorityPrincipal, tenant, now).Request(
+                AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", invitation.InvitationId) with
+            {
+                RequiredGrantAtoms = requestedPermissions,
+                Roster = EffectiveMemberPermissions.Read(roster, invitation.InviterPartyId, inviterAuthorityPrincipal) with
+                { RequireMember = true, RequireGrantCoverage = true },
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (_refusalAudit is not null) await _refusalAudit.RecordAsync(mandate, cancellationToken).ConfigureAwait(false);
+        if (mandate.Verdict != AuthorizationVerdict.Allowed)
+            return Refused(AccountSetupAcceptStatus.AuthorityRefused);
 
         // ── MINT 1: the joiner installation account (non-singleton minter). ──
         AccountSetupAcceptResult? mintFailure;

@@ -76,6 +76,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
     private readonly ISelectedSessionAuthorizationEpochReader _epochReader;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SelectedSessionPermissionResolver> _logger;
+    private readonly IRoleVocabularyReader? _roles;
 
     public SelectedSessionPermissionResolver(
         IVerifiedTenantRosterReader rosterReader,
@@ -84,10 +85,12 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
         TimeProvider timeProvider,
         ILogger<SelectedSessionPermissionResolver> logger,
         AuthorizationGate gate,
-        AuthorizationRefusalAudit? refusalAudit = null)
+        AuthorizationRefusalAudit? refusalAudit = null,
+        IRoleVocabularyReader? roles = null)
     {
         _gate = gate;
         _refusalAudit = refusalAudit;
+        _roles = roles;
         _rosterReader = rosterReader ?? throw new ArgumentNullException(nameof(rosterReader));
         _grantStore = grantStore ?? throw new ArgumentNullException(nameof(grantStore));
         _epochReader = epochReader ?? throw new ArgumentNullException(nameof(epochReader));
@@ -136,6 +139,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             // attribution reference and is not an authorization key (see NodeGatePrincipal).
             var gatePrincipal = NodeGatePrincipal.Of(principal);
             var inputs = EffectiveMemberPermissions.Read(roster, gatePrincipal.Value, gatePrincipal);
+            if (inputs.Ejected) return null;
             var allowed = new List<string>();
             var authority = new AuthorizationWriteContext(gatePrincipal, principal.TenantId, evaluatedAt);
             var candidates = await _gate.InstallRootPermissionsAsync(
@@ -149,7 +153,12 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
                 if (_refusalAudit is not null) await _refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
                 if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);
             }
-            var permissions = allowed.Count == 0 ? null : PermissionSet.From(allowed);
+            // Empty is a valid authenticated state for an installed powerless admission role. Unknown
+            // vocabulary and denied nonempty closures remain unavailable, never an empty success.
+            var permissions = allowed.Count != 0 ? PermissionSet.From(allowed)
+                : candidates.Permissions.Count == 0 && _roles is not null &&
+                    await _roles.ResolveAsync(liveGrant.Role, cancellationToken).ConfigureAwait(false) is not null
+                    ? PermissionSet.Empty : null;
 
             // Close the read-side race: if a grant mutation landed while the roster was loading, do
             // not publish the pre-bump roster set into this request.
@@ -198,10 +207,14 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             .FindByPrincipalAsync(principal.TenantId, actor, cancellationToken)
             .ConfigureAwait(false);
         var now = _timeProvider.GetUtcNow();
-        return grants.SingleOrDefault(grant =>
+        var candidate = grants.SingleOrDefault(grant =>
             grant.Subject.Equals(actor) &&
             string.Equals(grant.GrantId.ToString(), pin.GrantId, StringComparison.Ordinal) &&
             grant.IsActiveAt(now));
+        if (candidate is null) return null;
+        var current = await _grantStore.FindVersionedAsync(principal.TenantId, candidate.GrantId, cancellationToken)
+            .ConfigureAwait(false);
+        return current?.OwnerVersion == pin.OwnerVersion && current.Grant.IsActiveAt(now) ? current.Grant : null;
     }
 }
 

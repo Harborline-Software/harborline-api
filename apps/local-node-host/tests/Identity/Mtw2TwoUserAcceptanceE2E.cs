@@ -988,7 +988,6 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 sessionFactory, selectedSessionStore, identityFactory, searchStore.Factory,
                 partyReader, rosterReader,
                 invitationStore, liveGate, time);
-            var granterAuthority = liveAuthorization;
             var partyBindingMinter = new RecordingPartyBindingMinter();
 
             var minterServices = new ServiceCollection();
@@ -998,8 +997,9 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             var minterProvider = minterServices.BuildServiceProvider();
 
             var acceptance = new AccountSetupAcceptanceService(
-                invitationStore, granterAuthority, partyBindingMinter, grantIssuance, coordinator,
-                minterProvider.GetRequiredService<IServiceScopeFactory>(), time);
+                invitationStore, authorizationStore, partyBindingMinter, grantIssuance, coordinator,
+                minterProvider.GetRequiredService<IServiceScopeFactory>(), time, liveGate,
+                new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]), rosterReader);
 
             // Tooth 2 — the REAL admin authority (its RevokeMemberGrantAsync is the revocation lever).
             var adminAudit = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();

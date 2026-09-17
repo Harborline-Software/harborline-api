@@ -70,6 +70,10 @@ public sealed class AccountSetupInvitationRecord
 
     public required string RequestedPermissionsJson { get; set; }
 
+    public string InitialRole { get; set; } = "tax.roles/member";
+
+    public string? InitialRoleDigest { get; set; }
+
     public required string TokenDigest { get; set; }
 
     public WebSetupInvitationPurpose Purpose { get; set; }

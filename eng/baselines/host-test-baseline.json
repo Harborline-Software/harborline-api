@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "59008e61b6813360dde7b9df57acffbee3cde542",
-  "recordedAt": "2026-09-17T09:33:36Z",
+  "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
+  "recordedAt": "2026-09-17T09:26:00Z",
   "totals": {
-    "total": 4309,
-    "passed": 4288,
+    "total": 4349,
+    "passed": 4328,
     "failed": 0,
     "notExecuted": 21
   },
@@ -102,18 +102,24 @@
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4308 -> 4309; passed 4287 -> 4288; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "One ordinary platform-independent case executes an authored and bound View through the packaged platform runtime in the local-node host, asserting the Access predicate is applied before the authored predicate. No existing identity, skip, failure or retry allowance changes.",
-    "detectedBy": "PR 169 verify-windows run 35204455519, job 105146731226, on 59008e61b6813360dde7b9df57acffbee3cde542. The exact-clone host suite completed exit 0 without retries and reported NEW: none; the committed 4308-case inventory was the only failing comparison.",
-    "arithmeticCrossCheck": "4308 + 1 = 4309; passed = total - notExecuted = 4309 - 21 = 4288."
+    "change": "total 4309 -> 4349; passed 4288 -> 4328; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "Forty cases from PR 168 (fix/m6-platform-form-title-seed merged with main at 7cd56fc2): invitation initial-role issuance, store and acceptance, admin team access routes, roster gate decisions, seeded health and browse views over the 1.4.0 platform pack with authentic localized titles, catalogue field-source contracts, schema enumeration snapshot before yield, and the isolated projection-barrier tests. No existing identity, skip, failure or flake changed.",
+    "detectedBy": "Controller Windows exact-clone run on the merge of origin/main into fix/m6-platform-form-title-seed at 7cd56fc27ee8059a53916b104dce79d107b858f3, 2026-09-17 09:00 to 09:26 EDT (eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json): every step ok, host-flake-retry ok with 0 rescued, newFailures empty; only host-baseline-match failed on counts (expected 4309/4288, observed 4349/4328, skipped 21).",
+    "arithmeticCrossCheck": "4309 + 40 = 4349; passed = total - notExecuted = 4349 - 21 = 4328.",
+    "previous": {
+      "total": 4309,
+      "passed": 4288,
+      "failed": 0,
+      "notExecuted": 21
+    }
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "59008e61b6813360dde7b9df57acffbee3cde542",
+    "apiCommit": "7cd56fc27ee8059a53916b104dce79d107b858f3",
     "platform": "native Windows",
     "configuration": "Release, complete direct host suite after full solution restore/build, contracts and capability-host toolchains installed",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Measured by PR 169 verify-windows run 35204455519, job 105146731226, completed 2026-09-17T09:33:36Z: total 4309, passed 4288, failed 0, skipped 21; console test duration 4m10s; no retries.",
+    "runs": "Measured by the controller Windows exact-clone run on 7cd56fc2, completed 2026-09-17T09:26Z: total 4349, passed 4328, failed 0, skipped 21; no retries.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final PR exact-clone gate must independently confirm this revision."
   },
   "verdictVocabulary": {

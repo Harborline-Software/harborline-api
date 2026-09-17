@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "repository": "harborline-api",
+  "gate": "destination-exact-clone",
+  "baselineProvenance": {
+    "host": {
+      "path": "eng/baselines/host-test-baseline.json",
+      "committedBlob": "63dfbb739c9c3b30d6f3075c6e73f1bb002ad98f",
+      "workingBlob": "63dfbb739c9c3b30d6f3075c6e73f1bb002ad98f",
+      "matchesCommitted": true
+    },
+    "capability": {
+      "path": "eng/baselines/hull-test-baseline.json",
+      "committedBlob": "9e6c7c871cd02589d7198f61077f7abfb14b0a92",
+      "workingBlob": "9e6c7c871cd02589d7198f61077f7abfb14b0a92",
+      "matchesCommitted": true
+    }
+  },
+  "status": "PASS",
+  "apiCommit": "ecb4ce173341c958d251b6ce8b4c675cad90b3b9",
+  "recordedAt": "2026-09-16T18:25:40Z",
+  "steps": [
+    {
+      "id": "clone-carries-no-artifacts",
+      "passed": true,
+      "artifactCount": 0,
+      "sample": []
+    },
+    {
+      "id": "platform-feed",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 43972,
+      "tail": "    \"Harborline.Foundation.Authorization\": \"Harborline.Foundation.Authorization.dll\",\n    \"Harborline.Foundation.Forms\": \"Harborline.Foundation.Forms.dll\",\n    \"Harborline.Foundation.Forms.Engine\": \"Harborline.Foundation.Forms.Engine.dll\",\n    \"Harborline.Foundation.MultiTenancy\": \"Harborline.Foundation.MultiTenancy.dll\",\n    \"Harborline.Foundation.RuleAuthoring\": \"Harborline.Foundation.RuleAuthoring.dll\",\n    \"Harborline.Foundation.RuleEngine\": \"Harborline.Foundation.RuleEngine.dll\",\n    \"Harborline.Foundation.Scheduling\": \"Harborline.Foundation.Scheduling.dll\",\n    \"Harborline.Foundation.Session\": \"Harborline.Foundation.Session.dll\",\n    \"Harborline.Kernel.SchemaValidation\": \"Harborline.Kernel.SchemaValidation.dll\",\n    \"Harborline.Kernel.WorkItems\": \"Harborline.Kernel.WorkItems.dll\",\n    \"Harborline.UIAdapters.Blazor\": \"Harborline.UIAdapters.Blazor.dll\"\n  }\n}\nplatform-feed: used public-clone at d0ea2e2a7374e07ba1d94e32c495391656623619 (local checkout rejected: missing)"
+    },
+    {
+      "id": "dotnet-restore",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 2639,
+      "tail": "  Restored <exact-clone>\\packages\\analyzers\\loc-unused\\Harborline.Analyzers.LocUnused.csproj (in 61 ms).\r\n  Restored <exact-clone>\\packages\\analyzers\\loc-comments\\Harborline.Analyzers.LocComments.csproj (in 61 ms).\r\n  Restored <exact-clone>\\packages\\foundation-governance\\Harborline.Foundation.Governance.csproj (in 20 ms).\r\n  Restored <exact-clone>\\packages\\foundation-password-hashing\\Harborline.Foundation.PasswordHashing.csproj (in 9 ms).\r\n  Restored <exact-clone>\\packages\\foundation-multitenancy\\Harborline.Foundation.MultiTenancy.csproj (in 2 ms).\r\n  Restored <exact-clone>\\packages\\kernel-sync\\Harborline.Kernel.Sync.csproj (in 22 ms).\r\n  Restored <exact-clone>\\packages\\foundation\\Harborline.Foundation.csproj (in 2 ms).\r\n  Restored <exact-clone>\\packages\\foundation-packs\\Harborline.Foundation.Packs.csproj (in 11 ms).\r\n  Restored <exact-clone>\\packages\\kernel-audit\\Harborline.Kernel.Audit.csproj (in 6 ms).\r\n  Restored <exact-clone>\\packages\\foundation-mission-space\\Harborline.Foundation.MissionSpace.csproj (in 10 ms).\r\n  Restored <exact-clone>\\packages\\kernel-crdt\\Harborline.Kernel.Crdt.csproj (in 10 ms).\r\n  Restored <exact-clone>\\packages\\foundation-wayfinder\\Harborline.Foundation.Wayfinder.csproj (in 9 ms).\r\n  Restored <exact-clone>\\packages\\blocks-reports\\Harborline.Blocks.Reports.csproj (in 39 ms).\r\n  Restored <exact-clone>\\packages\\kernel-buckets\\Harborline.Kernel.Buckets.csproj (in 10 ms)."
+    },
+    {
+      "id": "dotnet-build",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 22305,
+      "tail": "<exact-clone>\\apps\\local-node-host\\tests\\Entities\\RosterDualGenesisSupersessionTests.cs(86,13): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Identity\\NPrincipalAcceptanceE2E.cs(609,17): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Identity\\Mtw2TwoUserAcceptanceE2E.cs(1222,67): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Identity\\Mtw2TwoUserAcceptanceE2E.cs(1226,92): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Entities\\RosterCrdtConvergenceTests.cs(80,13): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Entities\\RecordWriteValidationJudgeTests.cs(563,57): warning CA1031: Modify 'Flatten' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Entities\\RecordWriteValidationJudgeTests.cs(543,63): warning CA1031: Modify 'Text' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Identity\\NodeServingPipelineAttributionTests.cs(326,13): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Search\\Vector\\GrantFreshnessMigrationTests.cs(31,64): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n<exact-clone>\\apps\\local-node-host\\tests\\Search\\SearchTestStore.cs(170,62): warning CA1031: Modify 'DisposeAsync' to catch a more specific allowed exception type, or rethrow the exception (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1031) [<exact-clone>\\apps\\local-node-host\\tests\\tests.csproj]\r\n    380 Warning(s)\r\n    0 Error(s)\r\n\r\nTime Elapsed 00:00:21.98"
+    },
+    {
+      "id": "capability-contracts-install",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 1930,
+      "tail": "Progress: resolved 205, reused 204, downloaded 0, added 199\nProgress: resolved 205, reused 204, downloaded 0, added 205, done\n\ndevDependencies:\n+ @microsoft/eslint-formatter-sarif 3.1.0\n+ @typescript/native <- typescript 7.0.2\n+ @vitest/coverage-v8 5.0.0\n+ ajv 8.20.0\n+ eslint 10.10.0\n+ typescript <- @typescript/typescript6 6.0.2\n+ typescript-eslint 8.69.0\n+ vitest 5.0.0\n\nDone in 1.8s using pnpm v11.1.3"
+    },
+    {
+      "id": "capability-contracts-build",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 398,
+      "tail": "$ tsc -p tsconfig.json"
+    },
+    {
+      "id": "capability-contracts-tests",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 1120,
+      "tail": "\n RUN  v5.0.0 <exact-clone>/packages/contracts\n\n\n Test Files  21 passed (21)\n      Tests  284 passed (284)\n   Start at  14:19:24\n   Duration  520ms (transform 67%, import 16%, tests 13%, worker 4%)\n\n$ vitest run"
+    },
+    {
+      "id": "capability-install",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 5659,
+      "tail": "\nadded 133 packages in 6s"
+    },
+    {
+      "id": "dotnet-host-tests",
+      "passed": true,
+      "verdictFrom": "baseline comparison, not exit code",
+      "exitCode": 0,
+      "durationMs": 257726,
+      "tail": "  Skipped MTW-00C red: R3-H logout completion gate (success waits for Completed; stale handle fails after commit) is missing [< 1 ms]\r\n[xUnit.net 00:01:00.78]     MTW-00C red: capability global-disable veto-only fence is missing [SKIP]\r\n[xUnit.net 00:01:00.78]     MTW-00C red: durable v1 mutation write-barrier (identity_migration_in_progress) is missing [SKIP]\r\n[xUnit.net 00:01:00.78]     MTW-00C red: selected-session extractor must reject a challenge-audience handle (web-cookie-audience-isolation) is missing [SKIP]\r\n[xUnit.net 00:01:00.78]     MTW-00C red: capability pack / per-tenant activation side-door fence is missing [SKIP]\r\n[xUnit.net 00:01:00.78]     MTW-00C red: recovery revoke-all-audiences before success is missing [SKIP]\r\n  Skipped MTW-00C red: capability global-disable veto-only fence is missing [< 1 ms]\r\n  Skipped MTW-00C red: durable v1 mutation write-barrier (identity_migration_in_progress) is missing [< 1 ms]\r\n  Skipped MTW-00C red: selected-session extractor must reject a challenge-audience handle (web-cookie-audience-isolation) is missing [< 1 ms]\r\n  Skipped MTW-00C red: capability pack / per-tenant activation side-door fence is missing [< 1 ms]\r\n  Skipped MTW-00C red: recovery revoke-all-audiences before success is missing [26 ms]\r\nResults File: <exact-clone>\\TestResults\\host\\host-tests.trx\r\n\r\nPassed!  - Failed:     0, Passed:  4327, Skipped:    21, Total:  4348, Duration: 4 m 14 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)"
+    },
+    {
+      "id": "analyzer-canary",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 12408,
+      "tail": "canary OK   Harborline.Blocks.AnalyzerCanary — fails on HARBORLINE_API_PROVNEUT_001 as required\ncanary OK   Harborline.Foundation.AnalyzerCanary — fails on HARBORLINE_API_PROVNEUT_001 as required\ncanary OK   Harborline.LocalNodeHost.AnalyzerCanary — fails on HARBORLINE_API_PROVNEUT_001 as required\ncanary OK   Harborline.LocalNodeHost.GenericAnalyzerCanary — fails on HARBORLINE_API_PROVNEUT_001 as required\nsuppression audit OK — 5 suppression(s) name HARBORLINE_API_PROVNEUT_001\nGREEN-CONTROL-RED — VSTHRD002, VSTHRD100 and CA1031 absent\nquality canary GREEN — VSTHRD002, VSTHRD100 and CA1031 present"
+    },
+    {
+      "id": "arch-canary",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 5084,
+      "tail": "  Stack Trace:\r\n     at Harborline.Api.LocalNodeHost.Tests.ArchTests.ApiTierDependencyArchTests.AssertNoViolations(String ruleName, IEnumerable`1 candidates) in <exact-clone>\\apps\\local-node-host\\tests\\ArchTests\\ApiTierDependencyArchTests.cs:line 232\r\n   at Harborline.Api.LocalNodeHost.Tests.ArchTests.ApiTierDependencyArchTests.R2_FoundationReferencesNoBlocksProjects() in <exact-clone>\\apps\\local-node-host\\tests\\ArchTests\\ApiTierDependencyArchTests.cs:line 111\r\n   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)\r\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)\r\nResults File: <exact-clone>\\artifacts\\quality\\arch-canary.58388\\arch-canary.trx\r\n\r\nFailed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 1 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)\r\nTest run for <exact-clone>\\apps\\local-node-host\\tests\\bin\\Release\\net11.0\\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)\r\nA total of 1 test files matched the specified pattern.\r\n\r\nPassed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 1 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)\r\narch canary GREEN — planted dependency edge detected and restored\n[xUnit.net 00:00:01.05]     R2: foundation references no blocks projects [FAIL]"
+    },
+    {
+      "id": "globalization-canary",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 2078,
+      "tail": "<exact-clone>\\packages\\federation-common\\EnvelopeSigning.cs(37,64): error CA1304: The behavior of 'string.ToLower()' could vary based on the current user's locale settings. Replace this call in 'EnvelopeSigning.GlobalizationCanary(string)' with a call to 'string.ToLower(CultureInfo)'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1304) [<exact-clone>\\packages\\federation-common\\Harborline.Federation.Common.csproj]\n<exact-clone>\\packages\\federation-common\\EnvelopeSigning.cs(37,64): error CA1304: The behavior of 'string.ToLower()' could vary based on the current user's locale settings. Replace this call in 'EnvelopeSigning.GlobalizationCanary(string)' with a call to 'string.ToLower(CultureInfo)'. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1304) [<exact-clone>\\packages\\federation-common\\Harborline.Federation.Common.csproj]\nglobalization canary OK — exactly 1 CA1304 error in EnvelopeSigning.cs"
+    },
+    {
+      "id": "boundary-check",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 84681,
+      "tail": "quality-baseline: warning: engine roslyn reported analyzer-error; the finding set may be incomplete (the resolved bound decides)\nquality-baseline: engine table:\nquality-baseline: engine roslyn status=analyzer-error detail=analyzer-error\nquality-baseline: resolved 2363 of 2363 looks like an engine failure, not a clean-up; run the tool by hand\nquality-baseline: engine table:\nquality-baseline: engine roslyn status=analyzer-error detail=analyzer-error\nquality-baseline: resolved 2363 of 2363 looks like an engine failure, not a clean-up; run the tool by hand\nquality-baseline: engine table:\nquality-baseline: engine roslyn status=ok detail=\nquality-baseline: engine eslint status=ok detail=\nquality-baseline: 0 new, 3 resolved (passing; re-pin is a follow-up PR)\nquality-baseline-gate: 10 checks passed\nquality-baseline-gate: detail (new finding red with rule/path; unchanged green; resolved-only green; analyzer-error with intact set warns and passes; hollow set refused by the bound; large resolved refused; small resolved green; committed baseline is the only source)\nHarborline API consumer-neutral boundary: PASS"
+    },
+    {
+      "id": "capability-typecheck",
+      "passed": true,
+      "verdictFrom": "exit code",
+      "exitCode": 0,
+      "durationMs": 496,
+      "tail": ""
+    },
+    {
+      "id": "capability-tests",
+      "passed": true,
+      "verdictFrom": "baseline comparison, not exit code",
+      "exitCode": 0,
+      "durationMs": 7167,
+      "tail": "\n RUN  v4.1.11 <exact-clone>/apps/capability-host\n\n\n Test Files  33 passed | 2 skipped (35)\n      Tests  493 passed | 18 skipped (511)\n   Start at  14:25:33\n   Duration  6.54s (transform 3.86s, setup 0ms, import 5.71s, tests 6.26s, environment 4ms)"
+    },
+    {
+      "id": "flake-registry-valid",
+      "passed": true,
+      "problems": [],
+      "registered": [
+        {
+          "test": "host-boot BLOCKER-1: the REAL IHost (worker + sync-status endpoint) starts â€” no DI cycle",
+          "owner": "C-008",
+          "firstSeen": "2026-09-05",
+          "expires": "2026-10-05"
+        },
+        {
+          "test": "Harborline.Api.LocalNodeHost.Tests.Identity.NPrincipalAcceptanceE2E.NPrincipalAcceptance(n: 5)",
+          "owner": "284",
+          "firstSeen": "2026-09-06",
+          "expires": "2026-10-06"
+        },
+        {
+          "test": "G-4 arch (behavioural): while a fenced JE post is inside its read-through-write window, a concurrent writer is BLOCKED (the BEGIN IMMEDIATE write lock is really held across the fence read)",
+          "owner": "284",
+          "firstSeen": "2026-09-06",
+          "expires": "2026-10-06"
+        },
+        {
+          "test": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests.ConcurrentFirstLaunchers_ObserveOneInstallIdentity",
+          "owner": "348",
+          "firstSeen": "2026-09-08",
+          "expires": "2026-10-08"
+        }
+      ],
+      "note": "Every knownFlaky row is exact, owned, dated and unexpired, and the registry is within its ratchet (eng/flake-registry.mjs)."
+    },
+    {
+      "id": "host-flake-retry",
+      "passed": true,
+      "verdictFrom": "informational; the verdict is host-baseline-match below",
+      "unexpectedFailures": [],
+      "retriedUnderKnownFlaky": [],
+      "retries": [],
+      "rescued": 0,
+      "note": "Attempts-to-green is the measurement this step exists to produce; a change in it is signal."
+    },
+    {
+      "id": "host-baseline-match",
+      "passed": true,
+      "baseline": "eng/baselines/host-test-baseline.json",
+      "expected": {
+        "total": 4348,
+        "passed": 4327,
+        "failed": 0,
+        "notExecuted": 21
+      },
+      "observed": {
+        "failed": 0,
+        "passed": 4327,
+        "skipped": 21,
+        "total": 4348
+      },
+      "newFailures": [],
+      "observedAfterFlakeRetry": {
+        "failed": 0,
+        "passed": 4327,
+        "skipped": 21,
+        "total": 4348
+      },
+      "rescuedByRetry": 0,
+      "note": "Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change."
+    },
+    {
+      "id": "capability-baseline-match",
+      "passed": true,
+      "expected": {
+        "total": 511,
+        "passed": 493,
+        "failed": 0,
+        "pending": 18
+      },
+      "observed": {
+        "failed": 0,
+        "passed": 493,
+        "skipped": 18,
+        "total": 511
+      },
+      "note": "Counts only, same as the host step. Failure IDENTITY is pinned by name in hull-test-baseline.json."
+    }
+  ]
+}

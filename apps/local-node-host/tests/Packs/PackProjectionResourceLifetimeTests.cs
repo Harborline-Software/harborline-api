@@ -5,6 +5,7 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -12,9 +13,77 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
+[Collection(PackProjectionBarrierCollection.Name)]
 public sealed class PackProjectionResourceLifetimeTests
 {
     private static readonly TenantId Tenant = new("projection-resource-lifetime");
+
+    [Fact]
+    public async Task Paused_schema_enumerator_allows_queued_activation_and_consumer_read_and_retains_snapshot()
+    {
+        var store = new InMemorySchemaRegistry(TimeProvider.System);
+        var first = await store.RegisterAsync("""{"type":"string"}""");
+        var second = await store.RegisterAsync("""{"type":"number"}""");
+        using var release = new ManualResetEventSlim();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task blocker;
+        using (ExecutionContext.SuppressFlow())
+            blocker = Task.Factory.StartNew(() =>
+            {
+                using var lease = PackProjectionActivationBarrier.Read(deadline.Token);
+                holding.SetResult();
+                release.Wait(deadline.Token);
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task? activation = null;
+        Task<Schema?>? consumer = null;
+        await using var iterator = store.ListAsync().GetAsyncEnumerator();
+        try
+        {
+            await holding.Task.WaitAsync(deadline.Token);
+            Assert.True(await iterator.MoveNextAsync());
+            var selected = iterator.Current.Id;
+            var seen = new List<SchemaId> { selected };
+            var writerStarted = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (ExecutionContext.SuppressFlow())
+                activation = Task.Factory.StartNew(async () =>
+                {
+                    writerStarted.SetResult(Thread.CurrentThread);
+                    using var transaction = new PackProjectionTransaction(deadline.Token);
+                    transaction.Enlist(store);
+                    await store.RegisterAsync("""{"type":"boolean"}""", ct: deadline.Token);
+                    transaction.Commit();
+                }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+            var writerThread = await writerStarted.Task.WaitAsync(deadline.Token);
+            Assert.True(SpinWait.SpinUntil(() =>
+                (writerThread.ThreadState & ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(5)));
+
+            using (ExecutionContext.SuppressFlow())
+                consumer = Task.Factory.StartNew(async () =>
+                {
+                    return await store.GetAsync(selected, deadline.Token);
+                }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+            Assert.Equal(selected, (await consumer.WaitAsync(deadline.Token))!.Id);
+            release.Set();
+
+            await activation.WaitAsync(deadline.Token);
+            while (await iterator.MoveNextAsync()) seen.Add(iterator.Current.Id);
+            Assert.Equal(new[] { first.Id, second.Id }.OrderBy(id => id.Value), seen.OrderBy(id => id.Value));
+            var current = new List<Schema>();
+            await foreach (var schema in store.ListAsync()) current.Add(schema);
+            Assert.Equal(3, current.Count);
+        }
+        finally
+        {
+            release.Set();
+            deadline.Cancel();
+            var actors = new List<Task> { blocker };
+            if (activation is not null) actors.Add(activation);
+            if (consumer is not null) actors.Add(consumer);
+            await Task.WhenAll(actors).ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
 
     [Theory]
     [InlineData("open")]
