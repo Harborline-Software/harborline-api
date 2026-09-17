@@ -40,6 +40,12 @@ test('nuget.config declares the built local feed beside nuget.org', () => {
   assert.match(config, /key="nuget.org" value="https:\/\/api.nuget.org\/v3\/index.json"/)
 })
 
+test('the local-node host consumes Views from the pinned package without a platform project reference', () => {
+  const project = readFileSync(path.join(root, 'apps/local-node-host/Harborline.LocalNodeHost.csproj'), 'utf8')
+  assert.match(project, /<PackageReference Include="Harborline\.Blocks\.EntityViews"\s*\/>/)
+  assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|blocks\.entity-views)/i)
+})
+
 test('nested and sibling layouts plan the same 24 packages and version without enclosing build targets', () => {
   // Dry-run the real builder, then evaluate its pack properties with real MSBuild (no restore).
   const directory = mkdtempSync(path.join(tmpdir(), 'platform-layout-'))

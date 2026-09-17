@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "d0ea2e2a7374e07ba1d94e32c495391656623619",
-  "recordedAt": "2026-09-13 (M4 Workshop projection parity)",
+  "commit": "3e62dd67447853587e49c8097e554745e0d89db8",
+  "recordedAt": "2026-09-17 (T-486 authored-and-bound Views package consumer)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."

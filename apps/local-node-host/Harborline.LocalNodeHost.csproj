@@ -210,6 +210,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- T-486: consume the platform-owned Views query and authoring contracts from the pinned
+         package feed. The legacy API definition package remains until R-0112 is separately ruled. -->
+    <PackageReference Include="Harborline.Blocks.EntityViews" />
     <!-- ADR 0114 / ADR 0113 SC-1: SQLite EF provider for the embedded local-node
          data plane, ENCRYPTED at rest via SQLCipher.
 
