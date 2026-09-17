@@ -494,6 +494,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangePlatformRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/DataExchangePlatformRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/DataExportRoutes.cs:$\"{RouteBase}/{{exportId:guid}}\"",
       "kind": "local-node-http",
       "method": "GET",
