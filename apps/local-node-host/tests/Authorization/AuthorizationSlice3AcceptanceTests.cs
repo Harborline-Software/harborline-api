@@ -349,7 +349,7 @@ public sealed class AuthorizationSlice3AcceptanceTests
         {
             var evidence = Assert.Single(capture.Evidence);
             Assert.False(evidence.Allowed);
-            Assert.Null(evidence.Roster); // Refused before roster or session lookup.
+            Assert.Equal(authority.Principal.Value, evidence.Roster!.PartyId);
             await capture.AssertAuditAsync(adminTenant);
         }
 
@@ -732,6 +732,8 @@ public sealed class AuthorizationSlice3AcceptanceTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(search.Factory);
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(
+            TestMemberAuthorizationRosterConstraintReader.Shared);
         services.AddNodeAuthorizationModel();
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
     }

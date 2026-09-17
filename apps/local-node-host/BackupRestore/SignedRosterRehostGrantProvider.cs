@@ -89,7 +89,20 @@ public sealed class SignedRosterRehostGrantProvider(
             if (inserted == 0) reason = "rehost.already_redeemed";
         }
         var request = new AuthorizationWriteContext(caller, tenant, now).Request(
-            AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId) with { GrantRefusal = reason };
+            AuthorizationOperation.Parse("members:admit"), "members", replacement.NodeId);
+        if (reason is not null)
+        {
+            await transaction.RollbackAsync(ct);
+            var refusal = new AuthorizationRefusal(
+                reason,
+                "The signed re-host grant was refused.",
+                "The signed re-host grant did not satisfy its verification contract.",
+                "Obtain a new signed re-host grant and retry.",
+                $"external-refusal:{reason}");
+            await audit.RecordPreDecisionRefusalAsync(
+                refusal, request.Act.Operation.Value, caller, tenant, now, ct).ConfigureAwait(false);
+            throw new RehostGrantRefusedException(reason);
+        }
         var decision = await gate.DecideAsync(request, ct);
         if (decision.Verdict == AuthorizationVerdict.Denied)
         {

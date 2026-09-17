@@ -161,7 +161,11 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Add(NodeCallerSessionToken.HeaderName, "Bearer " + DesktopToken);
     }
 
-    internal static void RegisterGate(IServiceCollection services) => services.AddNodeAuthorizationModel();
+    internal static void RegisterGate(IServiceCollection services)
+    {
+        TestAuthorization.AddMemberRosterConstraints(services);
+        services.AddNodeAuthorizationModel();
+    }
 
     public async Task DisposeAsync()
     {

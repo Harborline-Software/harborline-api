@@ -70,6 +70,20 @@ public sealed class AuthorizationRefusalAudit
             preDecisionRefusal: false, ct);
 
     /// <summary>
+    /// Records a refusal produced before the authorization gate made a decision, preserving that
+    /// distinction in the trace rather than inventing gate evidence.
+    /// </summary>
+    public ValueTask<Guid?> RecordPreDecisionRefusalAsync(
+        AuthorizationRefusal refusal,
+        string permission,
+        ActorId principal,
+        TenantId tenant,
+        DateTimeOffset at,
+        CancellationToken ct = default) =>
+        RecordCoreAsync(refusal, permission, principal, tenant, at, decision: null,
+            AuthorizationRefusedEventType, preDecisionRefusal: true, ct);
+
+    /// <summary>
     /// Ticket 151 (L1418) — records a STAGE-TWO refusal: the gate allowed the act, then the record body
     /// failed its activated schema, so the write never reached persistence. It is recorded in the
     /// pre-decision shape (<see cref="AuthorizationPreDecisionRefusal"/>, under the event type

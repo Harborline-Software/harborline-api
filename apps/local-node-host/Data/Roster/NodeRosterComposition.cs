@@ -11,6 +11,7 @@ using Harborline.Api.Kernel.Sync.Application;
 using Harborline.Api.Kernel.Sync.DependencyInjection;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
 using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.LocalNodeHost.Enrollment;
 
 namespace Harborline.Api.LocalNodeHost.Data.Roster;
@@ -62,9 +63,11 @@ public static class NodeRosterComposition
         // verifier, singleton + TryAdd so it composes idempotently with the comms/contacts registration.
         services.TryAddSingleton<IOperationVerifier, Ed25519Verifier>();
         services.TryAddSingleton<IVerifiedTenantRosterReader, VerifiedTenantRosterReader>();
+        services.TryAddSingleton<IAuthorizationRosterConstraintReader,
+            NodeAuthorizationRosterConstraintReader>();
 
-        // 293 s3c: the replicated path's authority is the local grant store, read through the one sanctioned
-        // AuthorizationGate install-root reading. A composition with no authorization gate
+        // 293 s3c: the replicated path's authority is the local grant store, read through the kernel's
+        // non-verdict install-root reader. A composition with no grant reader
         // answers the empty set, which is the same fail-closed floor an unregistered authority gave.
         services.TryAddSingleton<IRosterAuthority>(GrantStoreRosterAuthority.FromServices);
 

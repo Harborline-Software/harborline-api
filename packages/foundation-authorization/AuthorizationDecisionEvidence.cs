@@ -338,11 +338,11 @@ public sealed record AuthorizationDecisionEvidence
                 item.DefinitionId,
                 item.Atom.ToString(),
                 item.InForce,
-                allowed && index == decidingIndex && request.Roster?.Member != true))
+                allowed && index == decidingIndex))
             .ToImmutableArray();
-        var decidingBinding = allowed && request.Roster?.Member == true
-            ? $"roster:{request.Roster.PartyId}"
-            : (allowed, deciding, standings.Count) switch
+        // Roster state constrains the gate's derived atoms; it never supplies an authorization atom.
+        // Preserve it as evidence without replacing the grant or standing that actually decided the act.
+        var decidingBinding = (allowed, deciding, standings.Count) switch
         {
             (true, { } grant, _) => $"grant:{grant.GrantId}@{grant.GrantOwnerVersion}",
             (true, null, > 0) => $"standing:{standings[0].RuleId}@{standings[0].EvidenceVersion}",

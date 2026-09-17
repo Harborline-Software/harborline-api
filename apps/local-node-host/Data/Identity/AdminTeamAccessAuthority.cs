@@ -791,7 +791,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         // rather than handed a role that does nothing.
         var successorInputs = successorParty is null ? null : EffectiveMemberPermissions.Read(
             context.Roster, successorPrincipal.Value, successorPrincipal);
-        var successorDecision = successorInputs is null ? null : await _gate.DecideAsync(
+        var successorDecision = successorInputs is null ? null : await _gate.DecideProspectiveAdministratorAsync(
             new AuthorizationWriteContext(successorPrincipal, tenant, at)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
                 // Ticket 294 slice 2a — the flag is the whole question; the gate answers it. The caller no

@@ -100,17 +100,14 @@ public sealed class NodeRehostCompositionTests
             var session = new NodeRehostSession(identity, writes, writes, writes);
             if (reason is not null)
             {
-                var refusal = await Assert.ThrowsAsync<AuthorizationDeniedException>(() =>
+                var refusal = await Assert.ThrowsAsync<RehostGrantRefusedException>(() =>
                     restore.RestoreAsync(request, session).AsTask());
-                Assert.Equal(reason, refusal.Decision.Request.GrantRefusal);
-                Assert.Same(Assert.Single(calls), refusal.Decision.Request);
+                Assert.Equal(reason, refusal.Code);
+                Assert.Empty(calls);
                 Assert.Empty(writes.Calls); // Includes key recovery, seed store, holder read, promotion and epoch store.
                 Assert.Null(await writes.GetCurrentEpochAsync(request.TenantId));
                 Assert.Equal(0, await BurnCount());
                 Assert.Equal(1, await db.RosterRecords.CountAsync());
-                var body = await AuthorizationRefusalRenderer.RenderAsync(refusal.Decision, [], null);
-                Assert.Equal(reason, body.Code);
-                Assert.Equal(5, JsonSerializer.SerializeToElement(body).EnumerateObject().Count());
                 var auditRows = new List<AuditRecord>();
                 await foreach (var row in trail.QueryAsync(new AuditQuery(new TenantId(request.TenantId)))) auditRows.Add(row);
                 Assert.Equal(reason, Assert.Single(auditRows).Payload.Payload.Body["code"]);
@@ -122,11 +119,10 @@ public sealed class NodeRehostCompositionTests
             Assert.Equal(new[] { "recover", "seed", "holders", "promotion", "epoch" }, writes.Calls);
             Assert.Equal("abc"u8.ToArray(), Assert.Single(result.Documents).Snapshot);
             Assert.Equal(1, await BurnCount());
-            var replay = await Assert.ThrowsAsync<AuthorizationDeniedException>(() =>
+            var replay = await Assert.ThrowsAsync<RehostGrantRefusedException>(() =>
                 restore.RestoreAsync(request, session).AsTask());
-            Assert.Equal("rehost.already_redeemed", replay.Decision.Request.GrantRefusal);
-            Assert.Equal(2, calls.Count);
-            Assert.Same(calls[1], replay.Decision.Request);
+            Assert.Equal("rehost.already_redeemed", replay.Code);
+            Assert.Single(calls);
             Assert.Equal(5, writes.Calls.Count);
             Assert.Equal(1, await BurnCount());
 

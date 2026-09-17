@@ -10,7 +10,7 @@ readiness evidence.
 
 ## category-1-installation-identity-stores-and-records
 scan: apps/local-node-host/Data/Identity/**/*.cs excluding Migrations/
-owner-count: 72
+owner-count: 73
 - apps/local-node-host/Data/Identity/AccountCredentialRecoveryService.cs
 - apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs
 - apps/local-node-host/Data/Identity/AccountSetupInvitationIssuer.cs
@@ -47,6 +47,7 @@ owner-count: 72
 - apps/local-node-host/Data/Identity/LiveTenantMembershipAuthorityAdmission.cs
 - apps/local-node-host/Data/Identity/LiveWebMembershipGrantQuery.cs
 - apps/local-node-host/Data/Identity/NodeAdministratorAuthority.cs
+- apps/local-node-host/Data/Identity/NodeAuthorizationRosterConstraintReader.cs
 - apps/local-node-host/Data/Identity/NodeGatePrincipal.cs
 - apps/local-node-host/Data/Identity/NodeLocalInstallationIdentityDbContext.cs
 - apps/local-node-host/Data/Identity/NodeLocalWebSessionDbContext.cs

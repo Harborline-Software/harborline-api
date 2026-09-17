@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
-  "recordedAt": "2026-09-17T09:26:00Z",
+  "recordedAt": "2026-09-18T04:20:00Z",
   "totals": {
-    "total": 4365,
-    "passed": 4344,
+    "total": 4383,
+    "passed": 4362,
     "failed": 0,
     "notExecuted": 21
   },
@@ -99,21 +99,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4308,
-      "passed": 4287,
+      "total": 4365,
+      "passed": 4344,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4309 -> 4349; passed 4288 -> 4328; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "Forty cases from PR 168 (fix/m6-platform-form-title-seed merged with main at 7cd56fc2): invitation initial-role issuance, store and acceptance, admin team access routes, roster gate decisions, seeded health and browse views over the 1.4.0 platform pack with authentic localized titles, catalogue field-source contracts, schema enumeration snapshot before yield, and the isolated projection-barrier tests. No existing identity, skip, failure or flake changed.",
-    "detectedBy": "Controller Windows exact-clone run on the merge of origin/main into fix/m6-platform-form-title-seed at 7cd56fc27ee8059a53916b104dce79d107b858f3, 2026-09-17 09:00 to 09:26 EDT (eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json): every step ok, host-flake-retry ok with 0 rescued, newFailures empty; only host-baseline-match failed on counts (expected 4309/4288, observed 4349/4328, skipped 21).",
-    "arithmeticCrossCheck": "4309 + 40 = 4349; passed = total - notExecuted = 4349 - 21 = 4328.",
-    "previous": {
-      "total": 4309,
-      "passed": 4288,
-      "failed": 0,
-      "notExecuted": 21
-    }
+    "change": "total 4365 -> 4383; passed 4344 -> 4362; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-519, T-522 and T-530 add 18 ordinary host cases covering gate-owned roster derivation, strict form rule parsing and catalogue sensitivity, and scheduling admission on every draft/module. The complete Release host run at 1d21147c measured 4,383 total, 4,362 passed, zero failed and 21 skipped without retries. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS policies remain unchanged.",
+    "detectedBy": "Controller Windows Release host run on commit 1d21147c27020bafd92b0a75fbe9b13ec6f086fd using the exact gate host invocation after installing the capability-host toolchain: 4,383 total, 4,362 passed, zero failed and 21 skipped in 4m14s. The preceding clean-clone gate measured the same tuple with newFailures empty and zero flaky rescues; its only host refusal was the stale 4,365-case count inventory.",
+    "arithmeticCrossCheck": "4365 + 18 = 4383; passed = total - notExecuted = 4383 - 21 = 4362."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

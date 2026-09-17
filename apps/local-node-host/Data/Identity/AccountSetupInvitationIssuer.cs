@@ -106,6 +106,8 @@ internal sealed class AccountSetupInvitationIssuer(
         {
             return null;
         }
+        var requestedGrantAtoms = PermissionAtomSet.From(requested.Permissions.Select(permission =>
+            PermissionAtom.Parse($"{permission}@/")));
 
         var tenantId = parsedTenant.ToString("D");
         var now = authority.At;
@@ -162,11 +164,11 @@ internal sealed class AccountSetupInvitationIssuer(
             return null;
         }
 
-        var decision = await _gate.DecideAsync(
+        var decision = await _gate.DecideMembershipAdmissionAsync(
             authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
                 "members", request.IdempotencyKey) with
             {
-                RequiredGrantAtoms = rolePermissions,
+                RequiredGrantAtoms = rolePermissions?.Union(requestedGrantAtoms) ?? requestedGrantAtoms,
                 Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
                 {
                     RequireMember = true, RequireGrantCoverage = true,

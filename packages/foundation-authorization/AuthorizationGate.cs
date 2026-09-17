@@ -9,7 +9,8 @@ namespace Harborline.Api.Foundation.Authorization;
 public sealed class AuthorizationGate(
     IAuthorizationClosureSnapshotReader closure,
     IRecordStandingResolver standings,
-    IAuthorizationDefinitionAtomReader definitions)
+    IAuthorizationDefinitionAtomReader definitions,
+    IAuthorizationRosterConstraintReader rosterConstraints)
 {
     private static readonly ActivitySource Decisions = new("Harborline.AuthorizationGate");
 
@@ -19,6 +20,14 @@ public sealed class AuthorizationGate(
             ["records"] = "record",
             ["ledger"] = "journal-entry",
         };
+
+    internal AuthorizationGate(
+        IAuthorizationClosureSnapshotReader closure,
+        IRecordStandingResolver standings,
+        IAuthorizationDefinitionAtomReader definitions)
+        : this(closure, standings, definitions, TestMemberAuthorizationRosterConstraintReader.Shared)
+    {
+    }
 
     /// <summary>
     /// The install-root grant derivation the roster inputs used to carry: the principal's atoms whose scope
@@ -38,11 +47,82 @@ public sealed class AuthorizationGate(
 
     public async ValueTask<AuthorizationDecision> DecideAsync(
         AuthorizationGateRequest request,
+        CancellationToken ct = default) =>
+        await DecideCoreAsync(
+            request, prospectiveAdministrator: false, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Decides membership admission, where the acting principal must have a verified live roster edge in
+    /// addition to grant coverage. The dedicated entry point prevents caller-supplied roster switches from
+    /// weakening or manufacturing this constraint.
+    /// </summary>
+    public async ValueTask<AuthorizationDecision> DecideMembershipAdmissionAsync(
+        AuthorizationGateRequest request,
         CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Act.Operation.Value != TeamRolePermissions.MembersManage
+            || request.Target.RecordKind != "members")
+        {
+            throw new ArgumentException(
+                "Membership admission authority is valid only for members management acts.",
+                nameof(request));
+        }
+        return await DecideCoreAsync(
+            request, prospectiveAdministrator: false, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Decides the one transition where a verified non-member is about to receive Administrator.
+    /// The dedicated entry point prevents a request flag from manufacturing prospective authority.
+    /// </summary>
+    public async ValueTask<AuthorizationDecision> DecideProspectiveAdministratorAsync(
+        AuthorizationGateRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Act.Operation.Value != TeamRolePermissions.MembersManage
+            || request.Target.RecordKind != "members"
+            || request.Target.RecordId != "handover")
+            throw new ArgumentException(
+                "Prospective Administrator authority is valid only for the members handover act.",
+                nameof(request));
+        return await DecideCoreAsync(
+            request, prospectiveAdministrator: true, ct).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AuthorizationDecision> DecideCoreAsync(
+        AuthorizationGateRequest request,
+        bool prospectiveAdministrator,
+        CancellationToken ct)
     {
         using var activity = Decisions.StartActivity("decide");
         Validate(request);
         ct.ThrowIfCancellationRequested();
+
+        var derivedRoster = await rosterConstraints
+            .ReadAsync(request.Principal, request.Tenant, request.At, ct)
+            .ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        derivedRoster ??= new AuthorizationRosterInputs(
+            request.Principal.Value, Member: false, Ejected: true) { RegistryMember = false };
+        var requireRosterMember = !prospectiveAdministrator
+            && request.Act.Operation.Value == TeamRolePermissions.MembersManage
+            && request.Target.RecordKind == "members";
+        request = request with
+        {
+            // Caller-supplied roster facts and policy switches are never consulted. The gate records
+            // the verified facts and its own fixed constraints on the immutable decision request.
+            Roster = derivedRoster with
+            {
+                ProspectiveAdministratorGrant = prospectiveAdministrator,
+                RequireMember = requireRosterMember,
+                RequireGrantCoverage = requireRosterMember,
+                RequiredPermissions = PermissionSet.Empty,
+            },
+            // A caller cannot manufacture a kernel denial code. Only the attenuation read below may set it.
+            GrantRefusal = null,
+        };
 
         var resolution = new List<AuthorizationResolutionStep>(4)
         {
@@ -56,6 +136,17 @@ public sealed class AuthorizationGate(
         ct.ThrowIfCancellationRequested();
         var derivations = snapshot.Derivations.ToImmutableArray();
         var effectiveRecordRoles = derivations.Select(item => item.Role).ToImmutableHashSet();
+        if (requireRosterMember && effectiveRecordRoles.Contains(RoleReference.Administrator))
+        {
+            // An install-wide Administrator grant is the established non-roster administration path.
+            // The gate derives this exception from its own closure; a caller cannot request it by
+            // clearing RequireMember on the legacy roster observation.
+            requireRosterMember = false;
+            request = request with
+            {
+                Roster = request.Roster! with { RequireMember = false },
+            };
+        }
         resolution.Add(new AuthorizationResolutionStep(
             AuthorizationResolutionStage.EffectiveRecordRoles,
             derivations.Select(DescribeDerivation).Order(StringComparer.Ordinal).ToArray(),
@@ -86,8 +177,8 @@ public sealed class AuthorizationGate(
         if (request.Roster is { } roster)
         {
             var grantAllowed = atomCoverageAllowed;
-            // Ticket 294 slice 2a — the prospective-Administrator rule. When the caller declares that the
-            // Administrator role is ABOUT to be conferred on this subject, the decision is made against the
+            // Ticket 294 slice 2a — the prospective-Administrator rule. When the dedicated gate entry point
+            // declares that the Administrator role is ABOUT to be conferred, the decision is made against the
             // atoms that role confers ONLY where the subject holds no roster edge. Where a roster edge
             // exists it is the authority the signed plane already published, so the decision is made
             // against the subject's OWN conferred grants and the prospective atoms are not added — a
@@ -99,7 +190,7 @@ public sealed class AuthorizationGate(
             {
                 atoms = [];
             }
-            else if (roster is { ProspectiveAdministratorGrant: true, Member: false })
+            else if (prospectiveAdministrator && !roster.Member)
             {
                 atoms = atoms
                     .Concat(PermissionSet.From(TeamRolePermissions.ForRole(TeamRole.Admin))

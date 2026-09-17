@@ -58,8 +58,8 @@ public sealed class RosterGrantEquivalenceTests
         _ = await AppendAsync(grants, "replicated", "/", At.AddMinutes(-1), At.AddMinutes(1));
         var gate = provider.GetRequiredService<AuthorizationGate>();
 
-        var local = await DecideAsync(gate, new ActorId("local"), new AuthorizationRosterInputs("local", true, false));
-        var replicated = await DecideAsync(gate, new ActorId("replicated"), new AuthorizationRosterInputs("replicated", true, false));
+        var local = await DecideAsync(gate, new ActorId("local"));
+        var replicated = await DecideAsync(gate, new ActorId("replicated"));
 
         Assert.Equal(local.Verdict, replicated.Verdict);
         Assert.Equal(AuthorizationVerdict.Allowed, local.Verdict);
@@ -71,6 +71,8 @@ public sealed class RosterGrantEquivalenceTests
         services.AddLogging();
         services.AddTestKernelClock();
         services.AddSingleton(store.Factory);
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(
+            TestMemberAuthorizationRosterConstraintReader.Shared);
         AuthorizationAdminRouteTests.RegisterGate(services);
         return services.BuildServiceProvider();
     }
@@ -91,8 +93,7 @@ public sealed class RosterGrantEquivalenceTests
     }
 
     private static ValueTask<AuthorizationDecision> DecideAsync(
-        AuthorizationGate gate, ActorId principal, AuthorizationRosterInputs roster) =>
+        AuthorizationGate gate, ActorId principal) =>
         gate.DecideAsync(new AuthorizationWriteContext(principal, Tenant, At)
-            .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "fixture") with
-            { Roster = roster with { RequireMember = true, RequireGrantCoverage = true } });
+            .Request(AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead), "record", "fixture"));
 }

@@ -66,6 +66,7 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
 
         // The REAL seed over the REAL gate: the desktop operator's node-operator grant comes from here.
         var grantServices = new ServiceCollection();
+        TestAuthorization.AddMemberRosterConstraints(grantServices);
         grantServices.AddAccessGrantModule();
         _grants = grantServices.BuildServiceProvider();
         await new AuthorizationSeedHostedService(

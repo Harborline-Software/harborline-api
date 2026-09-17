@@ -112,7 +112,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 new WebSelectedSessionStore(fixture.SessionFactory), fixture.IdentityFactory,
                 fixture.GrantFactory, new FixedPartyReader("party-admin"), new FixedRosterReader(fixture.Roster),
                 new RecoveryInvitationStore(fixture.IdentityFactory),
-                IssueFixture.InviterGate(PermissionCompositions.Admin),
+                IssueFixture.InviterGate(PermissionCompositions.Admin, fixture.Roster),
                 capture.Audit);
             Func<Task<RecoveryInvitationIssueResult?>> issue = () => issuer.IssueAsync(fixture.SelectedHandle,
                 new RecoveryInvitationIssueRequest(fixture.TenantId, "ADMIN", "roster-evidence"),
@@ -127,9 +127,10 @@ public sealed class AccountSetupInvitationIssuerTests
             if (allowed) Assert.NotNull(await issue());
             else await Assert.ThrowsAsync<AuthorizationDeniedException>(issue);
         }
-        Assert.Equal(2, capture.Evidence.Count);
-        Assert.True(Assert.Single(capture.Evidence, item => item.Roster is null).Allowed);
-        var evidence = capture.AssertSingle(allowed);
+        Assert.Equal(allowed ? 2 : 1, capture.Evidence.Count);
+        Assert.All(capture.Evidence, item => Assert.NotNull(item.Roster));
+        var evidence = capture.Evidence[^1];
+        Assert.Equal(allowed, evidence.Allowed);
         Assert.Equal(allowed, evidence.Roster!.Member);
         Assert.Equal(!allowed, evidence.Roster.Ejected);
         Assert.Equal("party-admin", evidence.Roster.PartyId);
@@ -286,9 +287,12 @@ public sealed class AccountSetupInvitationIssuerTests
         public AccountSetupInvitationIssuer Issuer { get; }
 
         /// <summary>The gate the admin principal's conferred install-root grant answers through.</summary>
-        public static AuthorizationGate InviterGate(PermissionSet inviterPermissions) =>
+        public static AuthorizationGate InviterGate(
+            PermissionSet inviterPermissions,
+            MemberRoster roster) =>
             TestAuthorization.ConferredGate(principal =>
-                principal.Value == "principal-admin" ? inviterPermissions : PermissionSet.Empty);
+                    principal.Value == "principal-admin" ? inviterPermissions : PermissionSet.Empty,
+                EffectiveMemberPermissions.Read(roster, "party-admin", new ActorId("principal-admin")));
 
         public static async Task<IssueFixture> CreateAsync(
             PermissionSet inviterPermissions,
@@ -405,7 +409,7 @@ public sealed class AccountSetupInvitationIssuerTests
                 store,
                 // Ticket 293 slice 4 - the inviter's own CONFERRED install-root grant is what admits the issue,
                 // not a roster permission set: the gate ANDs RequiredPermissions against the atoms it derives.
-                InviterGate(inviterPermissions),
+                InviterGate(inviterPermissions, roster),
                 new FixedTimeProvider(Now), refusalAudit, roles,
                 authorization is null ? null : new RoleAtomReader(authorization));
             return new IssueFixture(

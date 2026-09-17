@@ -103,6 +103,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
     private readonly IWebAntiforgeryPolicy? _antiforgery;
     private readonly IAuditTrail? _audit;
     private readonly IRestrictingDefinitionKindValidator _restrictingKinds;
+    private readonly IFormFieldTypeCatalogue _fieldTypes;
     private readonly ILogger<HostedFormsApiEndpoint> _logger;
 
     /// <summary>Constructs the hosted dynamic-forms API endpoint.</summary>
@@ -121,7 +122,8 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         IFormSubmissionGate? submissionGate = null,
         ICatalogue? catalogue = null,
         IWebAntiforgeryPolicy? antiforgery = null,
-        IAuditTrail? audit = null)
+        IAuditTrail? audit = null,
+        IFormFieldTypeCatalogue? fieldTypes = null)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(engine);
@@ -143,6 +145,7 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         _currentUser = currentUser;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _restrictingKinds = restrictingKinds ?? RestrictingDefinitionKindValidator.Shared;
+        _fieldTypes = fieldTypes ?? FormFieldTypeCatalogue.Shared;
         _submissionGate = submissionGate;
         _antiforgery = antiforgery;
         _audit = audit;
@@ -196,7 +199,8 @@ public sealed class HostedFormsApiEndpoint : IHostedService
             // in the Harborline App form builder). Real persistence over IFormDefinitionStore — production
             // slice 1 (2026-06-27).
             FormDefinitionRoutes.Map(
-                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider, _restrictingKinds, _catalogue);
+                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider,
+                _restrictingKinds, _catalogue, _fieldTypes);
         });
 
         // CA1873, as on the catalogue endpoint: guard the registration message so the arguments are

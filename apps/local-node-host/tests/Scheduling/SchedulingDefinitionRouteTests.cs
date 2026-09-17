@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -49,6 +50,7 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
     private MutablePrincipal _principal = null!;
     private NodeEfPartyRepository _parties = null!;
     private readonly MutableTimeProvider _clock = new(DateTimeOffset.Parse("2026-07-13T12:00:00Z"));
+    private readonly SchedulingDraftValidator _validator = new(["admitted.capacity"]);
 
     public async Task InitializeAsync()
     {
@@ -94,7 +96,7 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         });
         SchedulingDefinitionRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
-            store, new SchedulingDraftValidator(), _parties, _activeTeam, _principal,
+            store, _validator, _parties, _activeTeam, _principal,
             _app.Services.GetRequiredService<IBookingService>(),
             _app.Services.GetRequiredService<ICalendarEventStore>(),
             _app.Services.GetRequiredService<ICalendarStore>(),
@@ -347,6 +349,44 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
             (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Empty(await DraftsAsync());
         Assert.Empty(await AuditsAsync());
+    }
+
+    [Fact]
+    public async Task Draft_save_runs_full_validation_and_does_not_persist_an_invalid_definition()
+    {
+        _principal.Grant(Permission.SchedulingAuthor);
+        var invalid = Definition("Invalid");
+        var body = JsonNode.Parse(invalid.GetRawText())!.AsObject();
+        body.Remove("timezone");
+
+        var response = await SaveAsync("invalid-definition", 0,
+            JsonDocument.Parse(body.ToJsonString()).RootElement.Clone());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("scheduling.draft.validation_refused", refusal.GetProperty("code").GetString());
+        Assert.Contains(refusal.GetProperty("issues").EnumerateArray(), issue =>
+            issue.GetProperty("path").GetString() == "timezone");
+        Assert.Empty(await DraftsAsync());
+        Assert.Empty(await AuditsAsync());
+    }
+
+    [Fact]
+    public async Task Draft_save_checks_every_named_module_and_refuses_an_unknown_later_entry()
+    {
+        _principal.Grant(Permission.SchedulingAuthor);
+        var body = JsonNode.Parse(Definition("Modules").GetRawText())!.AsObject();
+        body["modules"] = new JsonArray("admitted.capacity", "unknown.routing");
+
+        var response = await SaveAsync("invalid-module", 0,
+            JsonDocument.Parse(body.ToJsonString()).RootElement.Clone());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var issue = Assert.Single(refusal.GetProperty("issues").EnumerateArray(), item =>
+            item.GetProperty("code").GetString() == "scheduling.validation.module_unsupported");
+        Assert.Equal("modules.1", issue.GetProperty("path").GetString());
+        Assert.Empty(await DraftsAsync());
     }
 
     [Fact]
