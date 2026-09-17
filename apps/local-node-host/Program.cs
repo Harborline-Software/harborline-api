@@ -80,6 +80,7 @@ using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Data.Docs;
 using Harborline.Api.LocalNodeHost.Data.Drafts;
+using Harborline.Api.LocalNodeHost.Data.DataExchange;
 using Harborline.Api.LocalNodeHost.Data.Payroll;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Governance;
@@ -1511,6 +1512,7 @@ builder.Services.AddInMemoryReportDefinitions();
 // stays unwired here.
 builder.Services.AddSingleton<IDataExchangeDefinitionDescriptorRegistry, HostDataExchangeKindDescriptorRegistry>();
 builder.Services.AddInMemoryDataExchangeDefinitions();
+builder.Services.AddPlatformDataExchange();
 builder.Services.AddSingleton<IScheduleDefinitionDescriptorRegistry, HostScheduleKindDescriptorRegistry>();
 builder.Services.AddInMemoryScheduleDefinitions();
 // Ticket 074: the descriptor's IEntityTypeRegistry dependency resolves lazily; AddNodeAssetRegistry

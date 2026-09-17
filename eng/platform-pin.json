@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "3e62dd67447853587e49c8097e554745e0d89db8",
-  "recordedAt": "2026-09-17 (T-486 authored-and-bound Views package consumer)",
+  "commit": "67538f480c634545b15782a2ac326a801d08aa6a",
+  "recordedAt": "2026-09-17 (T-492 Data Exchange consumer slice)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -22,6 +22,7 @@
     "Harborline.Contracts": "Harborline.Contracts.dll",
     "Harborline.Foundation": "Harborline.Foundation.dll",
     "Harborline.Foundation.Authorization": "Harborline.Foundation.Authorization.dll",
+    "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
     "Harborline.Foundation.Forms.Engine": "Harborline.Foundation.Forms.Engine.dll",
     "Harborline.Foundation.MultiTenancy": "Harborline.Foundation.MultiTenancy.dll",
