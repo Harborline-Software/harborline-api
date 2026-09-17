@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	437
+# reviewed-aggregate-debt-ceiling	433
+# 2026-09-17 (T-576) ratchet 437 -> 433	shared report-run admission resolves the tenant once per request.
 # 2026-09-13 (395 s1) reviewed ratchet 436 -> 437	POST /packs/check's tenant IS the authorization subject: the seventh token is the same kind as the six already there. Admission depends on that tenant's installed set, trust store and revocation state, exactly as preview.
 # 2026-09-09 (294 s2b) ratchet	canonical roster-principal routing removed three legacy static-authority tokens
 Feed/ChannelFeedRoutes.cs	2	0
@@ -85,7 +86,7 @@ Health/PaymentWriteRoutes.cs	10	0
 Health/PayrollRoutes.cs	16	0
 Health/RecurringInvoiceRoutes.cs	12	0
 Health/ReportDefinitionRoutes.cs	5	0
-Health/ReportsRoutes.cs	8	0
+Health/ReportsRoutes.cs	4	0
 Health/SchedulingDefinitionRoutes.cs	2	0
 Health/SharedHostedWebApp.cs	2	0
 Health/SpatialFrameRoutes.cs	4	0

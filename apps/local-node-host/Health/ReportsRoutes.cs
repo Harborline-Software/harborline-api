@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.Reports;
@@ -19,6 +20,7 @@ using Harborline.Api.Blocks.Reports.Exceptions;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 
@@ -89,8 +91,9 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <c>HttpContext.Features</c>, so two signed-in members no longer share one recorded
 /// provenance principal. It falls back to the single-operator identity only when no principal
 /// is bound (the bootstrap/desktop path). The derivation is unchanged; only its input is. The
-/// security boundary remains the node's loopback listener, not the principal — this is
-/// ATTRIBUTION, not authorization.
+/// authorization decision is <c>reports:run</c> on the install record (T-576), made before
+/// chart access or runner execution. RequestedBy remains attribution and is derived only after
+/// admission. The loopback listener is a transport control, never authorization.
 /// </para>
 /// </remarks>
 public static class ReportsRoutes
@@ -133,31 +136,54 @@ public static class ReportsRoutes
         var reports = app.MapGroup(ReportsRouteBase);
 
         reports.MapPost("/trial-balance", (TrialBalanceParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<TrialBalanceParameters, TrialBalanceResult>(
-                ReportKind.TrialBalance, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<TrialBalanceParameters, TrialBalanceResult>(
+                ReportKind.TrialBalance, p, p.ChartId, runner, factory, activeTeam, http, ct));
 
         reports.MapPost("/ar-aging-summary", (ArAgingSummaryParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<ArAgingSummaryParameters, ArAgingSummaryResult>(
-                ReportKind.ArAgingSummary, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<ArAgingSummaryParameters, ArAgingSummaryResult>(
+                ReportKind.ArAgingSummary, p, p.ChartId, runner, factory, activeTeam, http, ct));
 
         reports.MapPost("/ap-aging-summary", (ApAgingSummaryParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<ApAgingSummaryParameters, ApAgingSummaryResult>(
-                ReportKind.ApAgingSummary, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<ApAgingSummaryParameters, ApAgingSummaryResult>(
+                ReportKind.ApAgingSummary, p, p.ChartId, runner, factory, activeTeam, http, ct));
 
         reports.MapPost("/balance-sheet", (BalanceSheetParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<BalanceSheetParameters, BalanceSheetResult>(
-                ReportKind.BalanceSheet, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<BalanceSheetParameters, BalanceSheetResult>(
+                ReportKind.BalanceSheet, p, p.ChartId, runner, factory, activeTeam, http, ct));
 
         reports.MapPost("/profit-and-loss", (ProfitAndLossParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<ProfitAndLossParameters, ProfitAndLossResult>(
-                ReportKind.ProfitAndLoss, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<ProfitAndLossParameters, ProfitAndLossResult>(
+                ReportKind.ProfitAndLoss, p, p.ChartId, runner, factory, activeTeam, http, ct));
 
         reports.MapPost("/profit-and-loss-by-property", (ProfitAndLossByPropertyParameters p, HttpContext http, CancellationToken ct) =>
-            RunAsync<ProfitAndLossByPropertyParameters, ProfitAndLossByPropertyResult>(
-                ReportKind.ProfitAndLossByProperty, p, p.ChartId, runner, factory, NodeTenant.Resolve(activeTeam), NodeCallerParty.Resolve(http).Value, ct));
+            AdmitAndRunAsync<ProfitAndLossByPropertyParameters, ProfitAndLossByPropertyResult>(
+                ReportKind.ProfitAndLossByProperty, p, p.ChartId, runner, factory, activeTeam, http, ct));
     }
 
     // ── Shared run pipeline ─────────────────────────────────────────────────────
+    private static async Task<IResult> AdmitAndRunAsync<TParams, TResult>(
+        ReportKind kind,
+        TParams parameters,
+        ChartOfAccountsId requestedChartId,
+        IReportRunner runner,
+        IDbContextFactory<LocalNodeDbContext> factory,
+        IActiveTeamAccessor activeTeam,
+        HttpContext http,
+        CancellationToken ct)
+        where TParams : class
+        where TResult : class
+    {
+        var tenant = NodeTenant.Resolve(activeTeam);
+        var time = http.RequestServices.GetService<TimeProvider>();
+        if (time is null) return RequestAuthorization.Denied(Permission.ReportsRun);
+        var authority = RequestAuthorization.Authority(http, tenant, time);
+        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.ReportsRun, RouteRecord.TheInstall, ct)
+            .ConfigureAwait(false) is { } refused) return refused;
+
+        return await RunAsync<TParams, TResult>(kind, parameters, requestedChartId, runner, factory,
+            tenant, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
+    }
+
     private static async Task<IResult> RunAsync<TParams, TResult>(
         ReportKind kind,
         TParams parameters,
@@ -242,8 +268,8 @@ public static class ReportsRoutes
 
     /// <summary>
     /// Deterministic provenance principal from the single-operator id. Provenance only — it flows
-    /// into <see cref="ReportExecutionContext.RequestedBy"/> ("who ran it"). The security boundary
-    /// is the loopback listener, not the principal. Mirrors the Bridge's
+    /// into <see cref="ReportExecutionContext.RequestedBy"/> ("who ran it") after the install's
+    /// reports:run decision admits the request (T-576). Mirrors the Bridge's
     /// <c>ReportsCartridgeEndpoints.DerivePrincipalId</c> (SHA-256 of the user id).
     /// </summary>
     private static PrincipalId DeriveProvenancePrincipal(string userId)

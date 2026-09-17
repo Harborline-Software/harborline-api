@@ -5,8 +5,8 @@
   "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
   "recordedAt": "2026-09-17T09:26:00Z",
   "totals": {
-    "total": 4351,
-    "passed": 4330,
+    "total": 4365,
+    "passed": 4344,
     "failed": 0,
     "notExecuted": 21
   },
@@ -42,7 +42,8 @@
     "Ticket 360 (2026-09-13): re-pinned 3868 -> 3869 from the verify-windows run on 9aa421d1. One test more, one pass more, failed 0 and NEW none -- a count move, not a defect. Windows permits no failures and that stays true; this file's totals are the only thing that moved.",
     "Ticket 397 and 402 (2026-09-13): re-pinned 3869 -> 3876 across two measured runs. The first (6dfe801b) observed 3874 after 397's five lint tests; this branch was pinned there and its own verify-windows then observed 3876 at 86d014ce, which is 402 s1's two further tests. Both runs reported failed 0 and newFailures empty. The intermediate 3874 was deliberately pinned rather than jumping straight to a computed 3876: a number no run has produced is a guess, and this repository has been bitten by derived counts before -- a build log's 438 CA1031 lines standing for 192 findings. The gate supplied the second measurement, which is what it is for.",
     "Ticket 395 (2026-09-14): re-pinned 3898 -> 3909 across two measured runs. The branch was pinned at 3901 mid-flight and that number was stale within the hour -- a re-pin is only true of the tree that was measured, so it belongs on the last commit before landing, not the first.",
-    "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Windows moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change."
+    "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Windows moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
+    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Windows moves by +14 total and +14 passed. The PR gate is the measurement of record."
   ],
   "permittedFailures": [],
   "knownFlaky": [
