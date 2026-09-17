@@ -28,11 +28,11 @@ test('builder accepts the full manifest and refuses a second producer before pac
     rmSync(directory, {recursive: true, force: true})
   }
 })
-test('the checked-in platform pin parses and names a 40-hex commit and 24 producers', () => {
+test('the checked-in platform pin parses and names a 40-hex commit and 25 producers', () => {
   const pin = readPin()
   assert.match(pin.commit, /^[a-f0-9]{40}$/)
   assert.equal(pin.repository, 'Harborline-Software/harborline-platform')
-  assert.equal(Object.keys(pin.producers).length, 24)
+  assert.equal(Object.keys(pin.producers).length, 25)
 })
 test('nuget.config declares the built local feed beside nuget.org', () => {
   assertFeed()
@@ -46,7 +46,13 @@ test('the local-node host consumes Views from the pinned package without a platf
   assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|blocks\.entity-views)/i)
 })
 
-test('nested and sibling layouts plan the same 24 packages and version without enclosing build targets', () => {
+test('the local-node host consumes Data Exchange from the pinned package without a platform project reference', () => {
+  const project = readFileSync(path.join(root, 'apps/local-node-host/Harborline.LocalNodeHost.csproj'), 'utf8')
+  assert.match(project, /<PackageReference Include="Harborline\.Foundation\.DataExchange"\s*\/>/)
+  assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|foundation\.data-exchange)/i)
+})
+
+test('nested and sibling layouts plan the same 25 packages and version without enclosing build targets', () => {
   // Dry-run the real builder, then evaluate its pack properties with real MSBuild (no restore).
   const directory = mkdtempSync(path.join(tmpdir(), 'platform-layout-'))
   const api = path.join(directory, 'api')
@@ -101,7 +107,7 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     assert.equal(plans[1].packedVersion, plans[0].packedVersion)
     for (const [index, platform] of [sibling, nested].entries()) {
       const plan = plans[index]
-      assert.equal(plan.commands.length, 24)
+      assert.equal(plan.commands.length, 25)
       assert.deepEqual(plan.commands.map(args => path.basename(args[1], '.csproj')).sort(), Object.keys(pin.producers).sort())
       for (const args of plan.commands) assert.ok(args.includes(`-p:HarborlinePackedVersion=${plan.packedVersion}`))
       const [, project, ...args] = plan.commands[0]

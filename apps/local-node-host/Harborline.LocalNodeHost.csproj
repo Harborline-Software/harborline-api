@@ -50,6 +50,7 @@
     <Compile Include="..\..\packages\shared\HarborlineOperationalEnvironment.cs"
              Link="OperationalEnvironment\HarborlineOperationalEnvironment.cs" />
     <ProjectReference Include="../../src/Harborline.Api.Contracts/Harborline.Api.Contracts.csproj" />
+    <PackageReference Include="Harborline.Foundation.DataExchange" />
   </ItemGroup>
 
   <ItemGroup>

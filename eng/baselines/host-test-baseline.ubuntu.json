@@ -6,8 +6,8 @@
   "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 3840,
-    "passed": 3816,
+    "total": 3842,
+    "passed": 3818,
     "failed": 4,
     "notExecuted": 19
   },
@@ -23,7 +23,8 @@
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
     "Every permitted environmental row traces to LinuxLibsecretKeystore, a declared Wave-2 stub that throws PlatformNotSupportedException.",
-    "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green."
+    "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green.",
+    "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Ubuntu moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change."
   ],
   "permittedFailures": [
     {
