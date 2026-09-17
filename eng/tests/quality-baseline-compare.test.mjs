@@ -37,3 +37,24 @@ test('an unavailable base artifact falls back to the committed baseline and says
     rmSync(directory, {recursive: true, force: true})
   }
 })
+
+const rewroteTheWholeFile = 'diff --git a/src/Existing.cs b/src/Existing.cs\n--- a/src/Existing.cs\n+++ b/src/Existing.cs\n@@ -1,200 +1,240 @@\n-// old\n+// new\n'
+
+test('a rewritten neighbourhood does not turn its own untouched findings into new ones', () => {
+  // The 121 shape: fingerprint, anchor and line all move because the surrounding code was rewritten,
+  // and movedLine refuses a line inside the hunk. The diagnostics themselves never changed.
+  const head = [finding('head-a', 'CA1873', 'src/Existing.cs', 128), finding('head-b', 'CA1873', 'src/Existing.cs', 204)]
+  const base = [finding('base-a', 'CA1873', 'src/Existing.cs', 96), finding('base-b', 'CA1873', 'src/Existing.cs', 150)]
+  const result = compareFindings(head, base, rewroteTheWholeFile)
+  assert.deepEqual(result.newFindings, [])
+  assert.deepEqual(result.resolved, [])
+  assert.deepEqual(result.matches.map(match => match.method), ['identity', 'identity'])
+})
+
+test('an added diagnostic of a rule already in the file is still new', () => {
+  const head = [finding('head-a', 'CA1873', 'src/Existing.cs', 128), finding('head-b', 'CA1873', 'src/Existing.cs', 204)]
+  const base = [finding('base-a', 'CA1873', 'src/Existing.cs', 96)]
+  const result = compareFindings(head, base, rewroteTheWholeFile)
+  assert.equal(result.newFindings.length, 1)
+  assert.deepEqual(result.resolved, [])
+})
