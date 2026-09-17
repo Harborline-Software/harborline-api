@@ -6,8 +6,8 @@
   "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 4061,
-    "passed": 4035,
+    "total": 4063,
+    "passed": 4037,
     "failed": 4,
     "notExecuted": 22
   },
@@ -25,7 +25,8 @@
     "The four environmental rows are OS gaps, not defects: each names the platform facility macOS lacks. The two NPrincipal rows are a DEFECT and need a follow-up ticket; they are not an OS gap.",
     "Ticket 360 (2026-09-13): the two behavioural NPrincipalAcceptance rows are REMOVED, not re-dated. They were never an OS gap: InstallationFounderBootstrapCeremony built only the DesktopOsSession claim issuer, which declines when Environment.UserInteractive is false -- every Windows service and every launchd daemon -- so a headless node could not issue a founder bootstrap claim at all and the attach returned Unavailable. The ceremony now falls back to the SelfHostedFileSystemOwner issuer that BootstrapClaimRedemption.IsAccepted already admitted. A permitted behavioural failure is a defect nobody has to fix; that is why this one survived weeks and also kept winbox out of the gate. Environmental rows name a facility the platform lacks; behavioural rows do not belong in this list.",
     "Ticket 360 (2026-09-13), superseding the entry above: the two NPrincipalAcceptance rows RETURN, with a narrower and measured reason. The previous entry removed them on the premise that the headless-bootstrap fix resolved both. It resolved one. The TRX 360 slice 1 landed retention for -- used here for the first time -- shows macOS failing with no_response while Windows failed with Unavailable: two defects, not one. The headless fix is real and proven; the macOS no_response is not fixed and is out of scope for 360. These rows are permitted ONLY on macOS: Windows now permits nothing, which is strictly narrower than the list this ticket inherited.",
-    "Ticket 435 (2026-09-15): the two W4 rows are GONE from permittedFailures because they now pass. LocalNodeLanTransport asked for X509KeyStorageFlags.EphemeralKeySet unconditionally and macOS has never supported it, so the node leaf could not load and the LAN listener never bound. Choosing the flags per platform fixed both. verify-macos on PR 139 (run 34914670228) reported them as burn-down rows -- the gate refuses a baseline that permits a test which no longer fails, which is how this was measured rather than assumed. Four permitted failures remain: the Windows Event Log sink (a real macOS gap), the keystore ownership assertion (ticket 434), and the two NPrincipal rows (ticket 360)."
+    "Ticket 435 (2026-09-15): the two W4 rows are GONE from permittedFailures because they now pass. LocalNodeLanTransport asked for X509KeyStorageFlags.EphemeralKeySet unconditionally and macOS has never supported it, so the node leaf could not load and the LAN listener never bound. Choosing the flags per platform fixed both. verify-macos on PR 139 (run 34914670228) reported them as burn-down rows -- the gate refuses a baseline that permits a test which no longer fails, which is how this was measured rather than assumed. Four permitted failures remain: the Windows Event Log sink (a real macOS gap), the keystore ownership assertion (ticket 434), and the two NPrincipal rows (ticket 360).",
+    "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so macOS moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change."
   ],
   "permittedFailures": [
     {
