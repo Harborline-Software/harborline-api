@@ -579,7 +579,34 @@ public sealed class FormEngine : IFormEngine
         }
     }
 
+    /// <summary>
+    /// The Mint audit record is appended AFTER the entity create commits, so a same-key concurrent
+    /// submit that lost the create race can observe the winner's entity before the winner's audit
+    /// row exists. That window is not a context mismatch: the loser waits, bounded, for the audit
+    /// to land and only then judges actor, correlation and payload. A row that IS present and
+    /// disagrees refuses immediately; a row still absent at the deadline refuses too, because a
+    /// committed entity without its original audit cannot authorize any replay/projection.
+    /// </summary>
+    private static readonly TimeSpan ReplayAuditWait = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReplayAuditPoll = TimeSpan.FromMilliseconds(25);
+
     private async ValueTask ValidateReplayContextAsync(EntityId instance, DateTimeOffset submittedAt,
+        AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var found = await FindReplayAuditAsync(instance, submittedAt, authority, fingerprint, ct).ConfigureAwait(false);
+            if (found == ReplayAudit.Matches) return;
+            if (found == ReplayAudit.Mismatch || waited.Elapsed >= ReplayAuditWait)
+                throw new FormSubmissionReplayConflictException();
+            await Task.Delay(ReplayAuditPoll, ct).ConfigureAwait(false);
+        }
+    }
+
+    private enum ReplayAudit { Missing, Matches, Mismatch }
+
+    private async ValueTask<ReplayAudit> FindReplayAuditAsync(EntityId instance, DateTimeOffset submittedAt,
         AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
     {
         await foreach (var row in _authorizedAudit.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(authority.Tenant,
@@ -594,11 +621,10 @@ public sealed class FormEngine : IFormEngine
                 ? null : original.ToString();
             if (row.Actor == authority.Principal && hasCorrelation &&
                 originalCorrelation == authority.CorrelationId?.ToString("D") && body.TryGetValue("request_fingerprint", out var hash) &&
-                hash?.ToString() == fingerprint) return;
-            throw new FormSubmissionReplayConflictException();
+                hash?.ToString() == fingerprint) return ReplayAudit.Matches;
+            return ReplayAudit.Mismatch;
         }
-        // A committed entity without its original audit cannot authorize any replay/projection.
-        throw new FormSubmissionReplayConflictException();
+        return ReplayAudit.Missing;
     }
 
     // Audit correspondence is an independent description of the admitted form act. These helpers
