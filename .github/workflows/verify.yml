@@ -8,8 +8,9 @@
 name: verify
 
 on:
-  push:
-    branches: [main]
+  # T-577: no push-to-main run. The merge group already proved the exact commit that lands, so a
+  # push run would be the third full measurement of one tree. Required contexts still run on
+  # pull_request because the queue admits a PR only after its required checks pass on the PR itself.
   pull_request:
   merge_group:
   schedule:
@@ -28,7 +29,8 @@ jobs:
   verify:
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
-      (github.event_name == 'push' ||
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     # Ticket 421 step two: the shared lane reads nothing host-specific, so it takes whichever
@@ -303,7 +305,7 @@ jobs:
         # Ticket 436: no gate step reads this any more -- the comparison is against the committed
         # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
         # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
-        if: always() && github.event_name == 'push'
+        if: always() && github.event_name == 'merge_group'
         uses: actions/upload-artifact@v7
         with:
           name: quality-findings-${{ github.sha }}

@@ -25,7 +25,7 @@ on:
   pull_request:
   merge_group:
   push:
-    branches: [main]
+    # T-577: no push-to-main run; the merge group already proved the landing commit.
     tags: ["v*-preview.*", "v*-alpha.*", "v*-beta.*", "v*-rc.*"]
   workflow_dispatch:
     inputs:
@@ -130,7 +130,9 @@ jobs:
   # A bare `dotnet test` is NOT the gate: the baseline-aware runner is eng/run-exact-clone.mjs,
   # which takes its verdict from baseline comparison rather than exit code and retries named flakes.
   build-and-test:
-    if: vars.ACTIONS_ENABLED == 'true'
+    # T-577: not a required context, so it runs where the result is used: the merge group, a
+    # release tag and a manual dispatch. The three required jobs above keep their pull_request runs.
+    if: vars.ACTIONS_ENABLED == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
