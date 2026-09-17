@@ -39,8 +39,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// principal from a per-install operator literal held in a route-local field, so all six report kinds
 /// recorded the SAME principal for every member. A member whose report provenance principal is a
 /// constant has not been correctly identified — an ATTRIBUTION failure, which CIC's 2026-07-29 ruling
-/// places inside MTW-2 (permissions remain MTW-3; nothing here enforces anything, and the route's
-/// security boundary remains the node's loopback listener).
+/// places inside MTW-2. T-576 now admits these requests through reports:run before deriving provenance.
 /// </para>
 /// <para>
 /// <b>What "the recorded provenance" is on THIS surface.</b> Unlike the financial write surfaces, a
@@ -94,6 +93,7 @@ public sealed class NodeReportsRouteActingMemberProvenanceTests : IAsyncLifetime
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        builder.Services.AddTestAuthorizationGate();
 
         _dir = Path.Combine(Path.GetTempPath(), "harborline-reports-provenance-3381-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);

@@ -50,12 +50,12 @@ public sealed class AuditorSingleCapabilityTests
         return data;
     }
 
-    [Fact(DisplayName = "Catalogue: 28 offered atoms after adding catalogue:read; only audit:read offers Auditor")]
+    [Fact(DisplayName = "Catalogue: 29 offered atoms after adding reports:run; only audit:read offers Auditor")]
     public async Task Exactly_one_effective_definition_names_the_auditor()
     {
         await using var h = await Harness.CreateAsync();
 
-        Assert.Equal(28, PermissionVocabulary.Operations.Count);
+        Assert.Equal(29, PermissionVocabulary.Operations.Count);
         Assert.DoesNotContain(PermissionVocabulary.Operations, operation => operation.Value.StartsWith("stories:", StringComparison.Ordinal));
         var rows = await h.Catalogue.ListAsync(Tenant);
 

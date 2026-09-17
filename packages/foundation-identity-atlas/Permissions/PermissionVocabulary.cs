@@ -24,6 +24,7 @@ public static class PermissionVocabulary
         Permission.PackagesAuthor,
         Permission.PackagesOperate,
         Permission.FormsAuthor,
+        Permission.ReportsRun,
         Permission.CatalogueRead,
         Permission.SchedulingRead,
         Permission.SchedulingAuthor,
@@ -43,6 +44,8 @@ public static class PermissionVocabulary
     // the set cannot name an operation that has no definition.
     private static readonly HashSet<string> InstallWide = new(StringComparer.Ordinal)
     {
+        // T-576: report cartridges project the install's chart, not a persisted report-run record.
+        Permission.ReportsRun,
         Permission.WorkshopUnlock,
 
         // Ticket 205 slice 3 — the pack family. Both operations are held over the INSTALL, not over one
