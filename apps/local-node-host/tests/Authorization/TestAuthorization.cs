@@ -5,9 +5,13 @@ using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Blocks.Workflow.Durable;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Enrollment;
+using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Authorization;
@@ -18,6 +22,17 @@ internal static class TestAuthorization
         new(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
 
     internal static AuthorizationGate AllowGate() => Gate(true);
+
+    internal static void AddMemberRosterConstraints(IServiceCollection services) =>
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(
+            TestMemberAuthorizationRosterConstraintReader.Shared);
+
+    internal static void AddLiveNodeRosterConstraints(IServiceCollection services) =>
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(sp =>
+            new LiveNodeRosterConstraintReader(
+                sp.GetRequiredService<NodeTeamRoster>(),
+                sp.GetRequiredService<IOperationSigner>(),
+                sp.GetService<ITeamRegistry>()));
 
     internal static RoleGateAdmission RoleGate() =>
         new(new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]));
@@ -87,9 +102,47 @@ internal static class TestAuthorization
     internal static AuthorizationGate Gate(
         Func<AuthorizationGateRequest, bool> allow,
         Action<AuthorizationGateRequest>? observed = null)
+        => Gate(allow, TestMemberAuthorizationRosterConstraintReader.Shared, observed);
+
+    internal static AuthorizationGate Gate(
+        Func<AuthorizationGateRequest, bool> allow,
+        IAuthorizationRosterConstraintReader roster,
+        Action<AuthorizationGateRequest>? observed = null)
     {
         var source = new ConfigurableAuthorizationSource(allow, observed);
-        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
+        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source, roster);
+    }
+
+    internal static AuthorizationGate GateWithRoster(
+        bool allowed,
+        AuthorizationRosterInputs? roster)
+        => GateWithRoster(_ => allowed, roster);
+
+    internal static AuthorizationGate GateWithRoster(
+        bool allowed,
+        AuthorizationRosterInputs? roster,
+        RoleReference derivedRole)
+    {
+        var source = new ConfigurableAuthorizationSource(_ => allowed, observed: null, derivedRole);
+        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source,
+            new StaticRosterConstraintReader(roster));
+    }
+
+    internal static AuthorizationGate GateWithRoster(
+        Func<AuthorizationGateRequest, bool> allow,
+        AuthorizationRosterInputs? roster,
+        Action<AuthorizationGateRequest>? observed = null)
+        => GateWithRoster(allow, roster, RoleReference.Administrator, observed);
+
+    internal static AuthorizationGate GateWithRoster(
+        Func<AuthorizationGateRequest, bool> allow,
+        AuthorizationRosterInputs? roster,
+        RoleReference derivedRole,
+        Action<AuthorizationGateRequest>? observed = null)
+    {
+        var source = new ConfigurableAuthorizationSource(allow, observed, derivedRole);
+        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source,
+            new StaticRosterConstraintReader(roster));
     }
 
     /// <summary>
@@ -100,11 +153,16 @@ internal static class TestAuthorization
     /// hand the gate that set. <paramref name="conferred"/> stands in for the closure the admission's own
     /// conferral writes: the atoms are the principal's permissions at the install root.
     /// </summary>
-    internal static AuthorizationGate ConferredGate(Func<ActorId, PermissionSet> conferred)
+    internal static AuthorizationGate ConferredGate(
+        Func<ActorId, PermissionSet> conferred,
+        AuthorizationRosterInputs? roster = null)
     {
         ArgumentNullException.ThrowIfNull(conferred);
         var source = new ConferredGrantAuthorizationSource(conferred);
-        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
+        return roster is null
+            ? new AuthorizationGate(source, new EmptyRecordStandingResolver(), source)
+            : new AuthorizationGate(source, new EmptyRecordStandingResolver(), source,
+                new StaticRosterConstraintReader(roster));
     }
 
     internal static AuthorizationWriteContext FormWrite(
@@ -188,7 +246,8 @@ internal static class TestAuthorization
 
     private sealed class ConfigurableAuthorizationSource(
         Func<AuthorizationGateRequest, bool> allow,
-        Action<AuthorizationGateRequest>? observed) :
+        Action<AuthorizationGateRequest>? observed,
+        RoleReference? derivedRole = null) :
         IAuthorizationClosureSnapshotReader,
         IAuthorizationDefinitionAtomReader
     {
@@ -208,7 +267,7 @@ internal static class TestAuthorization
                 [
                     new AuthorizationAtomDerivation(
                         request.Act,
-                        RoleReference.Administrator,
+                        derivedRole ?? RoleReference.Administrator,
                         "test-grant",
                         1,
                         "test-definition",
@@ -227,11 +286,56 @@ internal static class TestAuthorization
         {
             ct.ThrowIfCancellationRequested();
             _ = tenantId;
-            _ = role;
-            IReadOnlyList<PermissionAtom> atoms = allowed && requested is { } atom
+            IReadOnlyList<PermissionAtom> atoms = allowed
+                && role == (derivedRole ?? RoleReference.Administrator)
+                && requested is { } atom
                 ? [atom]
                 : Array.Empty<PermissionAtom>();
             return ValueTask.FromResult(atoms);
+        }
+    }
+
+    private sealed class StaticRosterConstraintReader(AuthorizationRosterInputs? roster)
+        : IAuthorizationRosterConstraintReader
+    {
+        public ValueTask<AuthorizationRosterInputs?> ReadAsync(
+            ActorId principal,
+            TenantId tenant,
+            DateTimeOffset at,
+            CancellationToken cancellationToken = default) => ValueTask.FromResult(roster);
+    }
+
+    private sealed class LiveNodeRosterConstraintReader(
+        NodeTeamRoster roster,
+        IOperationSigner signer,
+        ITeamRegistry? memberships) : IAuthorizationRosterConstraintReader
+    {
+        public async ValueTask<AuthorizationRosterInputs?> ReadAsync(
+            ActorId principal,
+            TenantId tenant,
+            DateTimeOffset at,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = tenant;
+            _ = at;
+            var current = roster.Current;
+            var partyId = current.Members
+                    .FirstOrDefault(member => member.PublicKey.Equals(signer.IssuerId))?.PartyId
+                ?? current.EnumerateAdmissions()
+                    .FirstOrDefault(member => member.PublicKey.Equals(signer.IssuerId))?.PartyId;
+            if (partyId is null) return null;
+            var registryMember = false;
+            if (memberships is not null && Guid.TryParse(tenant.Value, out var teamId))
+            {
+                registryMember = (await memberships.GetMembershipsAsync(principal, cancellationToken)
+                        .ConfigureAwait(false))
+                    .Any(membership => membership.TeamId == teamId);
+            }
+            return EffectiveMemberPermissions.Read(current, partyId, principal) with
+            {
+                RegistryMember = registryMember,
+            };
         }
     }
 }

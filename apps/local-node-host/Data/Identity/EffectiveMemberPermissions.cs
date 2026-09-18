@@ -19,7 +19,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Identity;
 internal static class EffectiveMemberPermissions
 {
     internal static AuthorizationRosterInputs Read(MemberRoster roster, string partyId, ActorId principal) =>
-        new(partyId, roster.Contains(partyId), IsEjected(roster, partyId, principal));
+        new(partyId,
+            roster.Contains(partyId) || roster.Contains(principal.Value),
+            IsEjected(roster, partyId, principal));
 
     // During the identity migration, either existing key can carry the signed removal. Check the
     // principal the gate reads as well as the canonical party, before accepting any live edge or grant.
@@ -33,23 +35,23 @@ internal static class EffectiveMemberPermissions
 /// <summary>
 /// The production <see cref="IRosterAuthority"/> (ticket 293 slice 3c). No permission set rides the wire, so the
 /// replicated path's admitter, revoker, no-escalation and never-brick gates read a party's authority from the
-/// local grant store through <see cref="AuthorizationGate"/>. No verdict is computed here: every act is still
-/// decided by <c>AuthorizationGate.DecideAsync</c>.
+/// local grant store through the kernel's install-root fact reader. No verdict is computed here: every act is
+/// still decided by <see cref="AuthorizationGate.DecideAsync(AuthorizationGateRequest, CancellationToken)"/>.
 /// </summary>
 /// <remarks>
-/// A composition with no authorization gate (a minimal DI test) answers the empty set, which is the fail-closed floor
+/// A composition with no install-root reader (a minimal DI test) answers the empty set, which is the fail-closed floor
 /// the interface documents - only the genesis chain root holds authority. The synchronous
 /// <see cref="IRosterAuthority.PermissionsFor"/> contract, called from inside the synchronous rebuild, forces the
 /// same single bridge <c>ActiveTeamAuthorizationContext</c> already uses; the rebuild reads each party once.
 /// </remarks>
-internal sealed class GrantStoreRosterAuthority(AuthorizationGate? gate) : IRosterAuthority
+internal sealed class GrantStoreRosterAuthority(IAuthorizationInstallRootReader? grants) : IRosterAuthority
 {
     /// <summary>
-    /// The composition seam: the authorization gate is resolved HERE. Absent (a minimal DI test) - the
+    /// The composition seam: the kernel's non-verdict grant reader is resolved HERE. Absent (a minimal DI test) - the
     /// fail-closed floor.
     /// </summary>
     internal static IRosterAuthority FromServices(IServiceProvider services) =>
-        new GrantStoreRosterAuthority(services.GetService<AuthorizationGate>());
+        new GrantStoreRosterAuthority(services.GetService<IAuthorizationInstallRootReader>());
 
     // NO clock. The instant is the caller's - the rebuild's / the decision's At (ticket 216: only the host
     // composition root introduces wall time, and a grant read at a LATER instant than the act it feeds can flip
@@ -57,14 +59,14 @@ internal sealed class GrantStoreRosterAuthority(AuthorizationGate? gate) : IRost
     public PermissionSet PermissionsFor(string teamId, string partyId, DateTimeOffset at)
     {
         // One tenant-key form: the canonical "D" Guid. A team id that is not one is not a roster-backed team.
-        if (gate is null
+        if (grants is null
             || string.IsNullOrWhiteSpace(partyId)
             || !Guid.TryParse(teamId, out var team))
         {
             return PermissionSet.Empty;
         }
 
-        var pending = gate.InstallRootPermissionsAsync(
+        var pending = grants.ReadAsync(
             new ActorId(partyId), new TenantId(team.ToString("D")), at, CancellationToken.None);
         return pending.IsCompletedSuccessfully ? pending.Result : pending.AsTask().GetAwaiter().GetResult();
     }

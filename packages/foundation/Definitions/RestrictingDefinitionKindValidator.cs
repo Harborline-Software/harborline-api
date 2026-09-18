@@ -3,6 +3,12 @@ namespace Harborline.Api.Foundation.Definitions;
 /// <summary>The restricting definition vocabularies governed by ADR 0038.</summary>
 public enum RestrictingDefinitionKindFamily
 {
+    /// <summary>A rule expression tier.</summary>
+    RuleTier,
+
+    /// <summary>A rule evaluation scope.</summary>
+    RuleScope,
+
     /// <summary>A rule action kind.</summary>
     RuleAction,
 
@@ -69,6 +75,10 @@ public sealed class RestrictingDefinitionKindValidator : IRestrictingDefinitionK
     private static readonly IReadOnlyDictionary<RestrictingDefinitionKindFamily, HashSet<string>> Known =
         new Dictionary<RestrictingDefinitionKindFamily, HashSet<string>>
         {
+            [RestrictingDefinitionKindFamily.RuleTier] = Set(
+                "JsonSchema", "JsonLogic", "PowerFx", "0", "1", "2"),
+            [RestrictingDefinitionKindFamily.RuleScope] = Set(
+                "Field", "Section", "Schema", "Row", "Table", "0", "1", "2", "3", "4"),
             [RestrictingDefinitionKindFamily.RuleAction] = Set(
                 "Visibility", "Required", "ReadOnly", "Validate", "Compute", "Presentation", "Options",
                 "0", "1", "2", "3", "4", "5", "6"),
@@ -98,6 +108,8 @@ public sealed class RestrictingDefinitionKindValidator : IRestrictingDefinitionK
 
         var familyLabel = family switch
         {
+            RestrictingDefinitionKindFamily.RuleTier => "rule tier",
+            RestrictingDefinitionKindFamily.RuleScope => "rule scope",
             RestrictingDefinitionKindFamily.RuleAction => "rule action",
             RestrictingDefinitionKindFamily.Policy => "policy",
             RestrictingDefinitionKindFamily.Retention => "retention",

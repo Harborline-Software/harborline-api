@@ -96,6 +96,10 @@ public static class SchedulingDefinitionRoutes
             if (source is null)
                 return Results.NotFound(new { code = "scheduling.draft.revision_not_found" });
             var head = await store.GetAsync(tenant, definitionId, ct).ConfigureAwait(false);
+            var restoreIssues = validator.Validate(source.Definition);
+            if (restoreIssues.Count != 0)
+                return Results.UnprocessableEntity(new
+                    { code = "scheduling.draft.validation_refused", issues = restoreIssues });
             try
             {
                 var saved = await store.SaveAsync(tenant, definitionId, source.Definition,
@@ -116,6 +120,14 @@ public static class SchedulingDefinitionRoutes
             if (await RequestAuthorization.RefusalAsync(
                     http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct) is { } denied)
                 return denied;
+            var issues = validator.Validate(request.Definition);
+            if (issues.Count != 0)
+            {
+                if (request.Definition.ValueKind != JsonValueKind.Object)
+                    return Results.BadRequest(new { code = "scheduling.draft.object_required" });
+                return Results.UnprocessableEntity(new
+                    { code = "scheduling.draft.validation_refused", issues });
+            }
             try
             {
                 var saved = await store.SaveAsync(Tenant().Value, definitionId,

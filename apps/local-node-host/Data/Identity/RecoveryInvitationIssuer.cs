@@ -126,7 +126,7 @@ internal sealed class RecoveryInvitationIssuer(
             return null;
         }
 
-        var decision = await _gate.DecideAsync(
+        var decision = await _gate.DecideMembershipAdmissionAsync(
             authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
                 "members", request.IdempotencyKey) with
             {

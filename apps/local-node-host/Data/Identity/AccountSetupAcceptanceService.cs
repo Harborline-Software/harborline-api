@@ -198,7 +198,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
         {
             return Refused(AccountSetupAcceptStatus.AuthorityRefused);
         }
-        var mandate = await _gate.DecideAsync(
+        var mandate = await _gate.DecideMembershipAdmissionAsync(
             new AuthorizationWriteContext(inviterAuthorityPrincipal, tenant, now).Request(
                 AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", invitation.InvitationId) with
             {

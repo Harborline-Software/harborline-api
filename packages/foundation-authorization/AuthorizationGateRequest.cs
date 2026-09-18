@@ -15,10 +15,17 @@ public sealed record AuthorizationGateRequest(
     AuthorizationTarget Target,
     DateTimeOffset At)
 {
+    /// <summary>
+    /// Legacy caller observation retained for source compatibility. The gate ignores this value and
+    /// replaces it with facts read from <see cref="IAuthorizationRosterConstraintReader"/>.
+    /// </summary>
     public AuthorizationRosterInputs? Roster { get; init; }
     /// <summary>Validated audit association only; never consulted by authorization policy.</summary>
     public Guid? CorrelationId { get; init; }
-    /// <summary>A server-verified grant constraint failure; the gate retains it in its decision.</summary>
+    /// <summary>
+    /// Legacy caller assertion retained for source compatibility. The gate ignores it; only a refusal
+    /// produced while evaluating live grant attenuation can appear in the decision.
+    /// </summary>
     public string? GrantRefusal { get; init; }
     /// <summary>Server-read role atoms to attenuate against the actor's live grants at each atom's scope.</summary>
     public PermissionAtomSet? RequiredGrantAtoms { get; init; }

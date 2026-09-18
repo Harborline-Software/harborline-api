@@ -315,6 +315,7 @@ public sealed class WebPlaneAuthorizationFenceTests
 
             // The pack routes resolve at the gate now, so the outer container carries the production
             // authorization module — the same registration Program.cs makes.
+            TestAuthorization.AddMemberRosterConstraints(outer);
             outer.AddAccessGrantModule();
 
             var outerProvider = outer.BuildServiceProvider();

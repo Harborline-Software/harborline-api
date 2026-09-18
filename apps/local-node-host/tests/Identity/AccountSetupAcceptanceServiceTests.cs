@@ -515,6 +515,8 @@ public sealed class AccountSetupAcceptanceServiceTests
             var authorizationSource = authorization ?? new FixedAuthorizationClosure(inviterRoles.Contains(ShipRole.Captain));
             var held = await authorizationSource.UserPermissionsAsync(new TenantId(tenantId),
                 new ActorId("inviter-principal-1"), Now);
+            var rosterReader = new AcceptanceInviterRoster(
+                tenantId, inviterMember ? inviterPartyId : "different-founder", Now);
             var service = new AccountSetupAcceptanceService(
                 invitationStore,
                 new InvitationTestRoleAtoms(authorizationSource),
@@ -522,17 +524,18 @@ public sealed class AccountSetupAcceptanceServiceTests
                 grantWriter,
                 membershipWriter,
                 minterProvider.GetRequiredService<IServiceScopeFactory>(),
-                time, TestAuthorization.Gate(request =>
+                time, TestAuthorization.GateWithRoster(request =>
                 {
                     gateRead?.Invoke(request);
                     return request.RequiredGrantAtoms is not null
                         ? mandateAllowed ?? inviterRoles.Contains(ShipRole.Captain)
                         : held.Covers(request.Act);
-                }),
+                }, new AuthorizationRosterInputs(inviterPartyId, inviterMember, Ejected: false),
+                    AccessGrantAuthorizationSeed.MemberRole),
                 new InMemoryRoleVocabulary(installedRole is null
                     ? [AccessGrantAuthorizationSeed.MemberDefinition]
                     : [AccessGrantAuthorizationSeed.MemberDefinition, installedRole]),
-                new AcceptanceInviterRoster(tenantId, inviterMember ? inviterPartyId : "different-founder", Now));
+                rosterReader);
 
             return new AcceptanceFixture(
                 directory, identityFactory, searchStore, minterProvider, service, rawCode, tenantId,

@@ -184,6 +184,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
         await active.SetActiveAsync(FirstTeam, CancellationToken.None);
 
         var services = new ServiceCollection();
+        TestAuthorization.AddMemberRosterConstraints(services);
         services.AddAccessGrantModule();
         var provider = services.BuildServiceProvider();
 

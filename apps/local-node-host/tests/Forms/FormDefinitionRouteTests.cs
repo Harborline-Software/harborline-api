@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -62,6 +63,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     private MutableActiveTeamAccessor _activeTeam = null!;
     private MutableAuthorizationContext _authorization = null!;
     private AuthorizedFormDefinitionLifecycle _definitions = null!;
+    private MutableFieldTypeCatalogue _fieldTypes = null!;
 
     public async Task InitializeAsync()
     {
@@ -97,12 +99,14 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         // routes under test + the runtime render/submit routes (so a saved definition
         // can be proven to enforce its synthesised schema on a real submit).
         _definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
+        _fieldTypes = new MutableFieldTypeCatalogue();
         FormDefinitionRoutes.Map(
             _app,
             _definitions,
             _app.Services.GetRequiredService<ISchemaRegistry>(),
             _activeTeam,
-            TimeProvider.System);
+            TimeProvider.System,
+            fieldTypes: _fieldTypes);
 
         FormsRoutes.Map(
             _app,
@@ -162,6 +166,95 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     };
 
     private static object Text(string en) => new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = en } };
+
+    [Theory]
+    [InlineData("tier")]
+    [InlineData("scope")]
+    [InlineData("action")]
+    public async Task Malformed_rule_discriminators_are_refused_before_definition_admission(string discriminator)
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        var overlay = body["overlay"]!.AsObject();
+        overlay["rules"] = new JsonArray(new JsonObject
+        {
+            ["id"] = "restricting-rule",
+            ["tier"] = discriminator == "tier" ? "JsonLogik" : "JsonLogic",
+            ["scope"] = discriminator == "scope" ? "Scheam" : "Schema",
+            ["scopeTarget"] = "",
+            ["expression"] = "{\"==\":[1,1]}",
+            ["action"] = discriminator == "action" ? "Validte" : "Validate",
+        });
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/invalid-{discriminator}", body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(RestrictingDefinitionKindValidator.KindUnknownCode, refusal.GetProperty("code").GetString());
+        Assert.Contains(discriminator == "tier" ? "JsonLogik" : discriminator == "scope" ? "Scheam" : "Validte",
+            refusal.GetProperty("detail").GetProperty("unknownKind").GetString());
+        Assert.Null(await _definitions.GetCurrentPublishedAsync(
+            new DefinitionAddress(new TenantId(TeamA.Value.ToString("D")), $"invalid-{discriminator}")));
+    }
+
+    [Fact]
+    public async Task Misspelled_pii_sensitivity_is_refused_before_definition_admission()
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = "Sensitve";
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/invalid-pii", body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("form_definition.pii_sensitivity_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("Sensitve", refusal.GetProperty("detail").GetProperty("offendingValue").GetString());
+        Assert.Null(await _definitions.GetCurrentPublishedAsync(
+            new DefinitionAddress(new TenantId(TeamA.Value.ToString("D")), "invalid-pii")));
+    }
+
+    [Fact]
+    public async Task Missing_pii_sensitivity_uses_the_field_type_catalogue_default()
+    {
+        _fieldTypes.Defaults["text"] = PiiSensitivity.Sensitive;
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!.AsObject().Remove("piiSensitivity");
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/catalogue-pii", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/catalogue-pii");
+        Assert.Equal("Sensitive", loaded.GetProperty("overlay").GetProperty("fields")
+            .GetProperty("name").GetProperty("piiSensitivity").GetString());
+    }
+
+    [Fact]
+    public async Task Explicit_pii_sensitivity_is_resolved_case_insensitively()
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!["piiSensitivity"] = "sEnSiTiVe";
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/case-insensitive-pii", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var loaded = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/case-insensitive-pii");
+        Assert.Equal("Sensitive", loaded.GetProperty("overlay").GetProperty("fields")
+            .GetProperty("name").GetProperty("piiSensitivity").GetString());
+    }
+
+    [Fact]
+    public async Task Missing_pii_sensitivity_for_unknown_field_type_is_refused()
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["name"]!.AsObject().Remove("piiSensitivity");
+        body["fieldsMeta"]!["name"]!["type"] = "unregistered-secret";
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/unknown-field-type", body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("form_definition.field_type_unknown", refusal.GetProperty("code").GetString());
+        Assert.Equal("unregistered-secret", refusal.GetProperty("detail").GetProperty("offendingValue").GetString());
+    }
 
     [Fact(DisplayName = "save→load: a PUT-saved definition reloads with overlay + grid layout intact")]
     public async Task Save_Then_Load_RoundTrips()
@@ -2241,5 +2334,18 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         public Task SetActiveAsync(TeamId teamId, CancellationToken ct) => Task.CompletedTask;
         public event EventHandler<ActiveTeamChangedEventArgs>? ActiveChanged;
         private void _keep() => ActiveChanged?.Invoke(this, new ActiveTeamChangedEventArgs(null, null));
+    }
+
+    private sealed class MutableFieldTypeCatalogue : IFormFieldTypeCatalogue
+    {
+        internal Dictionary<string, PiiSensitivity> Defaults { get; } =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["text"] = PiiSensitivity.None,
+                ["select"] = PiiSensitivity.None,
+            };
+
+        public bool TryResolvePiiDefault(string fieldType, out PiiSensitivity sensitivity) =>
+            Defaults.TryGetValue(fieldType, out sensitivity);
     }
 }

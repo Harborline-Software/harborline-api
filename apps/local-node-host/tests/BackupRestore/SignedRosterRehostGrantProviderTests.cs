@@ -105,11 +105,11 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
     [InlineData("expired", "expired")]
     [InlineData("not_yet_valid", "not_yet_valid")]
     [InlineData("issuer_unadmitted", "issuer_unadmitted")]
-    public async Task EachInvalidGrantReachesGateWithDistinctReason(string change, string reason)
+    public async Task EachInvalidGrantIsASeparateSignedEnvelopeRefusal(string change, string reason)
     {
         await Refuses(await Grant(change), reason);
-        Assert.Equal(1, gateCalls);
-        Assert.Equal("rehost." + reason, observed!.GrantRefusal);
+        Assert.Equal(0, gateCalls);
+        Assert.Null(observed);
     }
 
     [Theory]
@@ -134,7 +134,7 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
         {
             try { await Redeem(raced); return "allowed"; }
-            catch (AuthorizationDeniedException ex) { return ex.Decision.Request.GrantRefusal; }
+            catch (RehostGrantRefusedException ex) { return ex.Code; }
         })));
         Assert.Equal(new[] { "allowed", "rehost.already_redeemed" }, results.Order().ToArray());
     }
@@ -164,18 +164,15 @@ public sealed class SignedRosterRehostGrantProviderTests : IAsyncLifetime
         Assert.Equal("rehost.invalid_roster", audit.Payload.Payload.Body["code"]);
         var trace = await new AuthorizationTraceReader(trail, TestAuthorization.AllowGate())
             .ReadAsync(new TenantId(Tenant), Caller, audit.AuditId, At);
-        Assert.Equal(AuthorizationTraceAvailability.Available, trace.Availability);
-        Assert.Equal(4, trace.Steps.Count);
-        Assert.Contains("grant-refusal:rehost.invalid_roster", trace.Steps[3].Facts);
-        Assert.Same(observed, ex.Decision.Request);
+        Assert.Equal(AuthorizationTraceAvailability.PreDecisionRefusal, trace.Availability);
+        Assert.Empty(trace.Steps);
+        Assert.Null(observed);
     }
 
-    private async Task<AuthorizationDeniedException> Refuses(RosterSignedRehostGrant grant, string reason)
+    private async Task<RehostGrantRefusedException> Refuses(RosterSignedRehostGrant grant, string reason)
     {
-        var ex = await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Redeem(grant));
-        Assert.Equal("rehost." + reason, ex.Decision.Request.GrantRefusal);
-        var rendered = await AuthorizationRefusalRenderer.RenderAsync(ex.Decision, [], null);
-        Assert.Equal("rehost." + reason, rendered.Code);
+        var ex = await Assert.ThrowsAsync<RehostGrantRefusedException>(() => Redeem(grant));
+        Assert.Equal("rehost." + reason, ex.Code);
         return ex;
     }
 

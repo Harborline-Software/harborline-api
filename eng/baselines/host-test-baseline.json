@@ -3,12 +3,12 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
-  "recordedAt": "2026-09-17T09:26:00Z",
+  "recordedAt": "2026-09-18T04:20:00Z",
   "totals": {
-    "total": 4372,
-    "passed": 4350,
+    "total": 4383,
+    "passed": 4362,
     "failed": 0,
-    "notExecuted": 22
+    "notExecuted": 21
   },
   "policy": [
     "T-486 packaged Views consumer: PR 169 verify-windows run 35204455519 measured 4309 total, 4288 passed, zero failed and 21 skipped in 4m10s, without retries. The one added case executes an authored and bound packaged View through the local-node host and proves the Access predicate precedes the authored predicate. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head quality-enabled gate must confirm the tuple.",
@@ -44,7 +44,8 @@
     "Ticket 395 (2026-09-14): re-pinned 3898 -> 3909 across two measured runs. The branch was pinned at 3901 mid-flight and that number was stale within the hour -- a re-pin is only true of the tree that was measured, so it belongs on the last commit before landing, not the first.",
     "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Windows moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
     "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Windows moves by +14 total and +14 passed. The PR gate is the measurement of record.",
-    "T-576 Windows re-measure: the +14 repin was taken from test discovery; the Windows gate host measures 4372 total, 4350 passed, 0 failed, 22 not executed on main 7b49027f (full host suite, 5 m 4 s, 2026-09-17). Pinned to the measurement."
+    "T-576 Windows re-measure: the +14 repin was taken from test discovery; the Windows gate host measures 4372 total, 4350 passed, 0 failed, 22 not executed on main 7b49027f (full host suite, 5 m 4 s, 2026-09-17). Pinned to the measurement.",
+    "T-519, T-522 and T-530 integration with the T-576 baseline correction: the quality-enabled all-lane gate on 4d4c9810 measured 4383 total, 4362 passed, 0 failed and 21 not executed in 12 m 4 s. Relative to corrected main, these admission changes add 11 executions, make one previously skipped capability-linked case execute, and add 12 passes. No failure, permitted-failure or retry allowance changed. The merged-head gate must confirm this measured tuple."
   ],
   "permittedFailures": [],
   "knownFlaky": [
@@ -100,21 +101,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4308,
-      "passed": 4287,
+      "total": 4365,
+      "passed": 4344,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4309 -> 4349; passed 4288 -> 4328; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "Forty cases from PR 168 (fix/m6-platform-form-title-seed merged with main at 7cd56fc2): invitation initial-role issuance, store and acceptance, admin team access routes, roster gate decisions, seeded health and browse views over the 1.4.0 platform pack with authentic localized titles, catalogue field-source contracts, schema enumeration snapshot before yield, and the isolated projection-barrier tests. No existing identity, skip, failure or flake changed.",
-    "detectedBy": "Controller Windows exact-clone run on the merge of origin/main into fix/m6-platform-form-title-seed at 7cd56fc27ee8059a53916b104dce79d107b858f3, 2026-09-17 09:00 to 09:26 EDT (eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json): every step ok, host-flake-retry ok with 0 rescued, newFailures empty; only host-baseline-match failed on counts (expected 4309/4288, observed 4349/4328, skipped 21).",
-    "arithmeticCrossCheck": "4309 + 40 = 4349; passed = total - notExecuted = 4349 - 21 = 4328.",
-    "previous": {
-      "total": 4309,
-      "passed": 4288,
-      "failed": 0,
-      "notExecuted": 21
-    }
+    "change": "total 4365 -> 4383; passed 4344 -> 4362; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-519, T-522 and T-530 add 18 ordinary host cases covering gate-owned roster derivation, strict form rule parsing and catalogue sensitivity, and scheduling admission on every draft/module. The complete Release host run at 1d21147c measured 4,383 total, 4,362 passed, zero failed and 21 skipped without retries. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS policies remain unchanged.",
+    "detectedBy": "Controller Windows Release host run on commit 1d21147c27020bafd92b0a75fbe9b13ec6f086fd using the exact gate host invocation after installing the capability-host toolchain: 4,383 total, 4,362 passed, zero failed and 21 skipped in 4m14s. The preceding clean-clone gate measured the same tuple with newFailures empty and zero flaky rescues; its only host refusal was the stale 4,365-case count inventory.",
+    "arithmeticCrossCheck": "4365 + 18 = 4383; passed = total - notExecuted = 4383 - 21 = 4362."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
