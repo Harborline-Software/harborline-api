@@ -233,7 +233,7 @@ owner-count: 95
 - apps/local-node-host/Health/PayrollRoutes.cs	16	0
 - apps/local-node-host/Health/RecurringInvoiceRoutes.cs	12	0
 - apps/local-node-host/Health/ReportDefinitionRoutes.cs	5	0
-- apps/local-node-host/Health/ReportsRoutes.cs	8	0
+- apps/local-node-host/Health/ReportsRoutes.cs	4	0
 - apps/local-node-host/Health/SchedulingDefinitionRoutes.cs	2	0
 - apps/local-node-host/Health/SharedHostedWebApp.cs	2	0
 - apps/local-node-host/Health/SpatialFrameRoutes.cs	4	0
