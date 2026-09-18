@@ -15,7 +15,7 @@ public sealed class FormFieldTypeCatalogue : IFormFieldTypeCatalogue
     /// <summary>The shared immutable built-in catalogue.</summary>
     public static FormFieldTypeCatalogue Shared { get; } = new();
 
-    private static readonly IReadOnlyDictionary<string, PiiSensitivity> Defaults =
+    private static readonly Dictionary<string, PiiSensitivity> Defaults =
         new Dictionary<string, PiiSensitivity>(StringComparer.OrdinalIgnoreCase)
         {
             ["text"] = PiiSensitivity.None,

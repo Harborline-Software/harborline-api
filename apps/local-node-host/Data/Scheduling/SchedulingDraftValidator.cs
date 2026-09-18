@@ -7,7 +7,7 @@ public sealed class SchedulingDraftValidator
 {
     public const string DraftSchema = "harborline.scheduling-definition-draft/v0";
 
-    private readonly IReadOnlySet<string> _admittedModules;
+    private readonly HashSet<string> _admittedModules;
 
     public SchedulingDraftValidator(IEnumerable<string>? admittedModules = null) =>
         _admittedModules = new HashSet<string>(admittedModules ?? [], StringComparer.Ordinal);

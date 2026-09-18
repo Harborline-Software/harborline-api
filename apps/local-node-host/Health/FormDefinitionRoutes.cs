@@ -919,7 +919,7 @@ internal static class FormDefinitionPublishAdmission
         }
     }
 
-    private static IPolicyAdmissionValidator BuildClassificationAdmission()
+    private static PolicyAdmissionValidator BuildClassificationAdmission()
     {
         var registry = new InMemoryPolicyRegistry();
         return new PolicyAdmissionValidator(new AspectResolver(registry), registry);

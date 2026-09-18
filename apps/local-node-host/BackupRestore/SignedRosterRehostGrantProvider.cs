@@ -108,7 +108,8 @@ public sealed class SignedRosterRehostGrantProvider(
         {
             await transaction.RollbackAsync(ct);
             var refusal = await AuthorizationRefusalRenderer.RenderAsync(decision, [], null, ct);
-            await audit.RecordAsync(refusal, request.Act.Operation.Value, caller, tenant, now, decision, ct);
+            await audit.RecordAsync(refusal, request.Act.Operation.Value, caller, tenant, now, decision, ct)
+                .ConfigureAwait(false);
             decision.RequireAllowed();
         }
         await transaction.CommitAsync(ct);
