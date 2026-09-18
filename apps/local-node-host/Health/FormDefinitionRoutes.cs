@@ -851,7 +851,7 @@ public static class FormDefinitionRoutes
 /// </summary>
 internal static class FormDefinitionPublishAdmission
 {
-    private static readonly IPolicyAdmissionValidator ClassificationAdmission = BuildClassificationAdmission();
+    private static readonly PolicyAdmissionValidator ClassificationAdmission = BuildClassificationAdmission();
 
     /// <summary>
     /// The builder client's placeholder-label FAMILY (ticket 157 / L1543, patterns.md §20:
