@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc",
-  "recordedAt": "2026-09-19T20:01:30Z",
+  "sourcePin": "72ed61cedd71fd965db62626d4eb310c39ae32e0",
+  "recordedAt": "2026-09-19T21:41:39Z",
   "totals": {
-    "total": 4403,
-    "passed": 4382,
+    "total": 4407,
+    "passed": 4386,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-536 safety-floor clamp: the four added cases in PackReattachSafetyFloorClampTests (lower integer, missing key, removed safetyFloors object, present string) move the Windows tuple from 4403/4382/0/21 (main after T-644, PR 180) to 4407/4386/0/21 at 72ed61cedd71fd965db62626d4eb310c39ae32e0; the string case fails on the prior clamp and passes now, the other three pass on both. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. The committed-head exact-clone gate on this branch must confirm the tuple.",
     "T-642 s1 command envelope: the destination exact-clone Windows gate at 7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc measured 4389 total, 4368 passed, zero failed and 21 skipped in 5m53s, without retries. Six added cases cover the command-envelope boundary and nothing else: two multi-command refusals, one single-command dispatch, one empty envelope, one caller-authentication precedence, and one multi-command refusal on the second SharedHostedWebApp pipeline. Every other gate step passed, including both canary sets, the boundary check and both capability lanes; the sole refusal was the stale 4383-case count inventory. Note the skip count reads 21 here and 22 in an ordinary working-tree run, because the clone installs the capability-host toolchain and TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan therefore executes; that is the behaviour this file already records, not a policy change. The definition contract window is deliberately absent from this slice: the corpus defines a contract window as a version range (DES-0006 line 591; DES-0014 C10 accepts a definition inside but of a newer minor) and the temporal implementation is unwound under T-648 and T-649. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-486 packaged Views consumer: PR 169 verify-windows run 35204455519 measured 4309 total, 4288 passed, zero failed and 21 skipped in 4m10s, without retries. The one added case executes an authored and bound packaged View through the local-node host and proves the Access predicate precedes the authored predicate. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head quality-enabled gate must confirm the tuple.",
     "PR 167 CodeRabbit repairs: complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b measured 4308 total, 4287 passed, zero failed and 21 skipped in 8m10s, without retries. Exact comparison to the prior green gate proves only five added cases across four methods, zero removals and all 21 skip identities unchanged. docs/t433-producer-host-inventory.md records each new identity and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh quality-enabled committed-head gate must confirm the tuple.",
