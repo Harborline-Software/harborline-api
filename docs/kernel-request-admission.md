@@ -21,7 +21,7 @@ admission against the dispatched body.
 
 ## Definition windows
 
-The six definition-plane routes in the form, scheduling, and workflow
+The five definition-write routes in the form, scheduling, and workflow
 definition route maps consume the same pinned `DefinitionWriteBoundary` through
 `NodeDefinitionWrites`. Authorization and capability declarations are unchanged;
 authorization runs before window admission. The host parses the declaration and
@@ -52,7 +52,6 @@ against its production route map; no row relies on a helper-only test.
 | `POST /forms/definitions/{formId}/restore` | Optional top-level request declaration; source, published head, and any newer draft also apply | Yes |
 | `PUT /scheduling/definitions/{definitionId}/draft` | `definition.contractWindow`; current head also applies | Yes |
 | `POST /scheduling/definitions/{definitionId}/restore` | Optional top-level request declaration; source and current head also apply | Yes |
-| `POST /scheduling/definitions/validate` | `definition.contractWindow` | Yes |
 | `PUT /workflows/definitions/{key}` | Top-level declaration; current published definition also applies | Yes |
 
 Stored declarations prevent a replacement or restore from bypassing a closed
@@ -73,13 +72,15 @@ one this document exists to hold: a POST in a file named for definitions is not
 evidence of a definition write, and counting them that way is what produced the
 original nine-route denominator.
 
-Three scheduling routes live in the definition route map but are instance-plane
-acts, not definition writes. They carry no window, accept no declaration, and
-cannot be refused for one. A closed authoring window freezes a definition; it
-must not stop callers operating the definition it froze.
+Four scheduling routes live in the definition route map and carry no window.
+Three are instance-plane acts rather than definition writes: they accept no
+declaration and cannot be refused for one. A closed authoring window freezes a
+definition; it must not stop callers operating the definition it froze. The
+fourth, validation, is definition-plane but is not a write.
 
 | Route | Applicability |
 |---|---|
+| `POST /scheduling/definitions/validate` | not applicable: definition-plane, but reports on a definition rather than writing one |
 | `POST /scheduling/appointments` | not applicable: books against a definition, does not write one |
 | `POST /scheduling/events` | not applicable: creates an instance record |
 | `POST /scheduling/resources/availability` | not applicable: sets operational availability |
@@ -87,15 +88,18 @@ must not stop callers operating the definition it froze.
 ## Implementation choices for owner review
 
 The original brief carried a nine-route denominator produced by counting every
-write route in files named for definitions. Three of those are instance-plane
-acts and have been trimmed; the denominator is six. Restore requests accept an
-optional top-level declaration. Validation uses its full route path as
-`definitionId` in the refusal; other requests use the addressed definition ID.
+write route in files named for definitions. Four of those carry no window: three
+instance-plane acts and validation. The denominator is five, and every one of the
+five is a definition write. Restore requests accept an optional top-level
+declaration; every route uses the addressed definition ID as `definitionId` in the
+refusal, since no windowed route lacks one.
 
-`POST /scheduling/definitions/validate` is definition-plane but is not a write.
-It keeps its window pending an owner ruling. The argument for trimming it is
-that validation is preparation for a write rather than a write, so it should
-stay reachable while the window is shut.
+`POST /scheduling/definitions/validate` is the one definition-plane route that
+carries no window. It reports on a definition rather than writing one, and you
+validate in order to prepare for a window, so a shut window must not put
+validation out of reach. Owner ruling, 2026-09-19. A definition carrying a
+`contractWindow` can therefore be validated at any instant, and a malformed one
+is no longer rejected by this route because the declaration is never parsed here.
 
 For forms, the published head and a newer draft both govern writes; a draft older
 than the published head no longer governs. Both restore routes check the selected

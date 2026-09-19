@@ -167,8 +167,7 @@ public static class SchedulingDefinitionRoutes
             if (await RequestAuthorization.RefusalAsync(
                     http, Tenant(), Permission.SchedulingAuthor, RouteRecord.TheInstall, ct) is { } denied)
                 return denied;
-            var observedAt = timeProvider.GetUtcNow();
-            return await NodeDefinitionWrites.ExecuteAsync(RouteBase + "/validate", request.Definition, observedAt, WriteAsync).ConfigureAwait(false);
+            return await WriteAsync().ConfigureAwait(false);
 
             ValueTask<IResult> WriteAsync()
             {

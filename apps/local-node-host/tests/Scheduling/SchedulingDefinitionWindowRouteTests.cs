@@ -16,7 +16,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Scheduling;
 
 public sealed partial class SchedulingDefinitionRouteTests
 {
-    private static readonly string[] WindowRoutes = ["draft", "restore", "validate"];
+    private static readonly string[] WindowRoutes = ["draft", "restore"];
     private static readonly string[] InstanceRoutes = ["appointment", "event", "availability"];
     private const string WindowDefinitionId = "windowed-schedule";
 
@@ -41,10 +41,7 @@ public sealed partial class SchedulingDefinitionRouteTests
         if (minute is >= 0 and < 60 or 999)
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            if (route == "validate")
-                Assert.Equal(before, await WindowStoreSnapshotAsync());
-            else
-                Assert.NotEqual(before, await WindowStoreSnapshotAsync());
+            Assert.NotEqual(before, await WindowStoreSnapshotAsync());
         }
         else
         {
@@ -185,6 +182,22 @@ public sealed partial class SchedulingDefinitionRouteTests
         // Booking may still be refused on its own terms (lead time, availability); it may not be refused
         // 422 for a closed definition window, which is the only 422 this route can produce.
         Assert.NotEqual(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Scheduling_validate_ignores_a_window_and_writes_nothing()
+    {
+        // Validation is definition-plane but it is not a write. You validate in order to prepare for a
+        // window, so a shut window must not put validation out of reach. Owner ruling, 2026-09-19.
+        var request = await PrepareWindowScheduleAsync("validate");
+        WindowTarget(request.Body)["contractWindow"] = DefinitionWindowAssertions.Window();
+        _clock.Now = DefinitionWindowAssertions.ClosesAt.AddHours(1);
+        var before = await WindowStoreSnapshotAsync();
+
+        using var response = await SendWindowScheduleAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(before, await WindowStoreSnapshotAsync());
     }
 
     private async Task<WindowScheduleRequest> PrepareWindowScheduleAsync(string route)
