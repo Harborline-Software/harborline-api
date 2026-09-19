@@ -502,6 +502,30 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:EffectiveRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "EffectiveRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:ActivateRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ActivateRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:PrepareRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "PrepareRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/DataExportRoutes.cs:$\"{RouteBase}/{{exportId:guid}}\"",
       "kind": "local-node-http",
       "method": "GET",

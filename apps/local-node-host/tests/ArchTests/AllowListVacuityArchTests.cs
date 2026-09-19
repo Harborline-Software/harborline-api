@@ -156,6 +156,9 @@ public sealed class AllowListVacuityArchTests
             "the IL opcode table the disassembler reads (OpCode carries a Name), not an allow-list",
         ["RawMutationPortSymbolInventoryTests.MultiByteOpCodes"] =
             "the IL opcode table the disassembler reads (OpCode carries a Name), not an allow-list",
+        ["AdmissionGateReachabilityArchTests.UncomposedPlatformGates"] =
+            "the composition probe asserts exact equality between these reasoned platform-gate allowances "
+            + "and the live unreachable-gate discovery in both directions, so a vacuous row is already red there",
         ["AdministratorAuthorityBoundaryArchTests.ExcludedSegments"] =
             "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
         ["MemberPermissionsSingleWriterFenceTests.ExcludedSegments"] =

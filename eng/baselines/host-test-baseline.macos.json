@@ -6,8 +6,8 @@
   "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 4077,
-    "passed": 4051,
+    "total": 4091,
+    "passed": 4065,
     "failed": 4,
     "notExecuted": 22
   },
@@ -27,7 +27,8 @@
     "Ticket 360 (2026-09-13), superseding the entry above: the two NPrincipalAcceptance rows RETURN, with a narrower and measured reason. The previous entry removed them on the premise that the headless-bootstrap fix resolved both. It resolved one. The TRX 360 slice 1 landed retention for -- used here for the first time -- shows macOS failing with no_response while Windows failed with Unavailable: two defects, not one. The headless fix is real and proven; the macOS no_response is not fixed and is out of scope for 360. These rows are permitted ONLY on macOS: Windows now permits nothing, which is strictly narrower than the list this ticket inherited.",
     "Ticket 435 (2026-09-15): the two W4 rows are GONE from permittedFailures because they now pass. LocalNodeLanTransport asked for X509KeyStorageFlags.EphemeralKeySet unconditionally and macOS has never supported it, so the node leaf could not load and the LAN listener never bound. Choosing the flags per platform fixed both. verify-macos on PR 139 (run 34914670228) reported them as burn-down rows -- the gate refuses a baseline that permits a test which no longer fails, which is how this was measured rather than assumed. Four permitted failures remain: the Windows Event Log sink (a real macOS gap), the keystore ownership assertion (ticket 434), and the two NPrincipal rows (ticket 360).",
     "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so macOS moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
-    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; macOS moves by +14 total and +14 passed. The PR gate is the measurement of record."
+    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; macOS moves by +14 total and +14 passed. The PR gate is the measurement of record.",
+    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch before pinning (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change."
   ],
   "permittedFailures": [
     {

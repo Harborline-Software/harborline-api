@@ -53,7 +53,9 @@ public sealed class RouteAudienceGraphTests
         // Ticket 433 adds selected role vocabulary and kernel audit metadata in every profile;
         // the four grant routes, selected form submission and pack replacement require the web session host.
         // Ticket 492 adds the desktop-only Data Exchange runtime-contract read in every profile.
-        int[] expectedClassifiedCounts = [227, 250, 251, 238, 261, 262];
+        // T-644 adds the three selected-session configuration-generation routes (effective read,
+        // prepare, activate) in every profile.
+        int[] expectedClassifiedCounts = [230, 253, 254, 241, 264, 265];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)

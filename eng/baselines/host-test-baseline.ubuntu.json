@@ -6,8 +6,8 @@
   "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 3856,
-    "passed": 3832,
+    "total": 3870,
+    "passed": 3846,
     "failed": 4,
     "notExecuted": 19
   },
@@ -25,7 +25,8 @@
     "Every permitted environmental row traces to LinuxLibsecretKeystore, a declared Wave-2 stub that throws PlatformNotSupportedException.",
     "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green.",
     "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Ubuntu moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
-    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Ubuntu moves by +14 total and +14 passed. The PR gate is the measurement of record."
+    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Ubuntu moves by +14 total and +14 passed. The PR gate is the measurement of record.",
+    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch before pinning (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change."
   ],
   "permittedFailures": [
     {

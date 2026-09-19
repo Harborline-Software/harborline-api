@@ -1485,6 +1485,14 @@ builder.Services.AddSingleton<IPackInstaller>(sp => new PackInstaller(
     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.PackProjection.IPackSeedProjector>(),
     sp.GetRequiredService<IPackPlatformCompatibility>()));
+// T-644: the api half of atomic activation shares the durable pack store's SQLite unit, so ownership
+// selections, the effective pointer, the Access decision reference and the evidence intent commit together.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget(
+    sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
+    DurablePackStore(sp),
+    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+    sp.GetRequiredService<IPackInstallAudit>(),
+    sp.GetRequiredService<IPackPlatformCompatibility>()));
 builder.Services.AddPackComposerInstall();
 
 // Ticket 208 fix 1: the node's pack TRUST SURFACE is composed once and shared. Both the install routes

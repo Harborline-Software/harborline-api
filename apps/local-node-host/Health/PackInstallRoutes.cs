@@ -244,16 +244,18 @@ internal static class PackInstallRoutes
 
             // Ticket 151 cluster: the pointer flip carries the same server-derived acting principal
             // the install path does (never a client-asserted value) — the principal this request was
-            // decided about, not the node's signing key id (ticket 379).
+            // decided about, not the node's signing key id (ticket 379). T-644 / ADR 0081: the act's
+            // admitted instant is the one the authority was resolved at, observed exactly once above.
             var context = new PackInstallContext(
-                tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
+                tenant, trustStore, revocation, authority.At, RevocationMaxAge,
                 Principal: authority.Principal.Value,
                 OwnershipResolutions: (request.Resolutions ?? Array.Empty<CollisionResolutionDto>())
                     .Where(r => !string.IsNullOrWhiteSpace(r.ContentKey) && !string.IsNullOrWhiteSpace(r.OwningPackKey))
                     .ToDictionary(r => r.ContentKey, r => r.OwningPackKey, StringComparer.Ordinal));
+            // T-644 retired the post-commit-diagnostics warning that stood here: the installer projects
+            // inside the same transaction that flips the pointer, so a committed activation has no
+            // post-commit projection to report and nothing to warn about.
             var outcome = await installer.ActivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
-            if (outcome.Activated && outcome.Detail is not null)
-                logger.LogWarning("Pack activation committed with post-commit diagnostics: {Detail}", outcome.Detail);
             logger.LogInformation(
                 "Pack ACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → activated={Activated} [{Error}].",
                 tenant, request.PackKey, request.Version, outcome.Activated, outcome.Error);

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "f90829c0e2c825754aa795d2a104df2af27bd4d1",
-  "recordedAt": "2026-09-19 (T-642 kernel request and definition-window refusal consumption)",
+  "commit": "519e899603ac15b481874d4e8c12e44d92c9307e",
+  "recordedAt": "2026-09-19 (T-644 configuration activation consumer; platform PR 68, T-460 producer contracts; supersedes the T-642 s1 pin at f90829c, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -14,6 +14,7 @@
     "Harborline.Blocks.Calendar": "Harborline.Blocks.Calendar.dll",
     "Harborline.Blocks.EntityViews": "Harborline.Blocks.EntityViews.dll",
     "Harborline.Blocks.InspectionReview": "Harborline.Blocks.InspectionReview.dll",
+    "Harborline.Blocks.LayoutRuntime": "Harborline.Blocks.LayoutRuntime.dll",
     "Harborline.Blocks.RelativeChains": "Harborline.Blocks.RelativeChains.dll",
     "Harborline.Blocks.Reports": "Harborline.Blocks.Reports.dll",
     "Harborline.Blocks.Scheduling": "Harborline.Blocks.Scheduling.dll",
@@ -30,6 +31,7 @@
     "Harborline.Foundation.RuleEngine": "Harborline.Foundation.RuleEngine.dll",
     "Harborline.Foundation.Scheduling": "Harborline.Foundation.Scheduling.dll",
     "Harborline.Foundation.Session": "Harborline.Foundation.Session.dll",
+    "Harborline.Kernel.Core": "Harborline.Kernel.Core.dll",
     "Harborline.Kernel.SchemaValidation": "Harborline.Kernel.SchemaValidation.dll",
     "Harborline.Kernel.WorkItems": "Harborline.Kernel.WorkItems.dll",
     "Harborline.UIAdapters.Blazor": "Harborline.UIAdapters.Blazor.dll"

@@ -62,6 +62,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
     private readonly Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? _platform;
     private readonly IWebAntiforgeryPolicy? _antiforgery;
     private readonly AuthorizedActAudit? _acceptedAudit;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? _configuration;
 
     /// <summary>Constructs the hosted install endpoint. <paramref name="platform"/> is the running
     /// build's compatibility facts — optional for back-compat embedders; when present the installed-pack
@@ -81,11 +82,13 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         ILogger<HostedPackInstallApiEndpoint> logger,
         Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? platform = null,
         IWebAntiforgeryPolicy? antiforgery = null,
-        AuthorizedActAudit? acceptedAudit = null)
+        AuthorizedActAudit? acceptedAudit = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null)
     {
         _platform = platform;
         _antiforgery = antiforgery;
         _acceptedAudit = acceptedAudit;
+        _configuration = configuration;
         _sharedApp = sharedApp ?? throw new ArgumentNullException(nameof(sharedApp));
         _installer = installer ?? throw new ArgumentNullException(nameof(installer));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -114,6 +117,11 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         _sharedApp.MapApiRoutes(app => PackInstallRoutes.Map(
             app, _installer, _store, _trustStore, _revocation, _activeTeam, _gate, _time, _logger,
             authorizingPrincipal, _projector, _platform));
+
+        // T-644: the atomic activation of one prepared configuration generation, beside the per-pack routes.
+        if (_configuration is not null)
+            _sharedApp.MapApiRoutes(app => ConfigurationActivationRoutes.Map(
+                app, _configuration, _activeTeam, _gate, _time, _logger));
 
         if (_antiforgery is not null)
             _sharedApp.MapApiRoutes(app => SelectedPackReplacementRoutes.Map(

@@ -154,6 +154,7 @@ public sealed class PlatformViewsPackageConsumptionTests
             string tenant,
             string principal,
             string recordType,
+            DateTimeOffset at,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(ViewFilter.Equal("assignee", principal));
     }
