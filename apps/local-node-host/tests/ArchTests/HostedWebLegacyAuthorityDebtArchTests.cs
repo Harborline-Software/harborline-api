@@ -98,7 +98,9 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // its tenant IS the authorization subject. The seventh token is the same kind as the six already there;
         // admission depends on that tenant's installed set, trust store and revocation state, exactly as preview.
         // T-576 shares the report-run admission and tenant resolution, reducing its tokens 8 -> 4.
-        Assert.Equal(433, ledger.ReviewedAggregateDebtCeiling);
+        // T-644 adds the configuration-generation activation family (433 -> 435) at the minimum 2/0 shape:
+        // one tenant resolution point per file, and that tenant is the authorization subject of the act.
+        Assert.Equal(435, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));

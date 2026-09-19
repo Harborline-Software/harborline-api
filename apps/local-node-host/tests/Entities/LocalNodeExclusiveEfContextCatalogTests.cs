@@ -99,11 +99,12 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260908150000_RosterReceiveAttestation",
         "20260908160000_RosterDropSignedPermissions",
         "20260916170000_InvitationInitialRole",
+        "20260919090000_AddConfigurationGenerations",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_54_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_55_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

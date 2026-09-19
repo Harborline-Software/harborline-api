@@ -48,9 +48,21 @@ public sealed class AdmissionGateReachabilityArchTests
         Assert.Equal([typeof(PlantedDeadGate)], UnreachableFixedGates(provider, [typeof(PlantedDeadGate)]));
     }
 
+    /// <summary>
+    /// Gates a pinned platform package ships that the host has not composed yet. Each names the platform
+    /// change that shipped it; the host adopts the gate, or retires the row, in the consumer lane that owns it.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> UncomposedPlatformGates = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Harborline.Blocks.EntityViews.AccessViewOpenGate"] =
+            "platform PR 67 (Access filtering and trace contracts): the host composes no platform AccessProvider yet; "
+            + "the packaged Views consumer (T-486) supplies its own IViewOpenGate at its call site.",
+    };
+
     private static Type[] UnreachableFixedGates(IServiceProvider provider, IEnumerable<Type> candidates) =>
         candidates
             .Where(type => type is { IsClass: true, IsAbstract: false, IsSealed: true })
+            .Where(type => !UncomposedPlatformGates.ContainsKey(type.FullName!))
             .Where(type => type.Name.EndsWith("Gate", StringComparison.Ordinal)
                 || type.Name.EndsWith("Authorizer", StringComparison.Ordinal))
             .Where(type => GateInterfaces(type).Length > 0)

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
@@ -40,10 +41,12 @@ internal static class ConfigurationActivationRoutes
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
         var selectedSession = app.MapSelectedSessionProductGroup();
+        // ADR 0160 R3 ledger: this family resolves the tenant at one point per file, per request.
+        TenantId Tenant() => NodeTenant.Resolve(activeTeam);
 
         selectedSession.MapGet(EffectiveRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
@@ -63,7 +66,7 @@ internal static class ConfigurationActivationRoutes
             if (request is null || string.IsNullOrWhiteSpace(request.ExpectedBaselineDigest)
                 || request.ActivePackageKeys is null || request.ActivePackageKeys.Count == 0)
                 return Results.BadRequest(new { error = "expectedBaselineDigest and activePackageKeys are required." });
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
@@ -90,7 +93,7 @@ internal static class ConfigurationActivationRoutes
                 || string.IsNullOrWhiteSpace(request.CandidateDigest) || request.EvidenceIntent is null
                 || string.IsNullOrWhiteSpace(request.EvidenceIntent.Id) || string.IsNullOrWhiteSpace(request.EvidenceIntent.Reason))
                 return Results.BadRequest(new { error = "expectedBaselineDigest, candidateDigest and evidenceIntent {id, reason} are required." });
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
