@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
-  "recordedAt": "2026-09-18T04:20:00Z",
+  "sourcePin": "7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc",
+  "recordedAt": "2026-09-19T20:01:30Z",
   "totals": {
-    "total": 4383,
-    "passed": 4362,
+    "total": 4389,
+    "passed": 4368,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-642 s1 command envelope: the destination exact-clone Windows gate at 7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc measured 4389 total, 4368 passed, zero failed and 21 skipped in 5m53s, without retries. Six added cases cover the command-envelope boundary and nothing else: two multi-command refusals, one single-command dispatch, one empty envelope, one caller-authentication precedence, and one multi-command refusal on the second SharedHostedWebApp pipeline. Every other gate step passed, including both canary sets, the boundary check and both capability lanes; the sole refusal was the stale 4383-case count inventory. Note the skip count reads 21 here and 22 in an ordinary working-tree run, because the clone installs the capability-host toolchain and TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan therefore executes; that is the behaviour this file already records, not a policy change. The definition contract window is deliberately absent from this slice: the corpus defines a contract window as a version range (DES-0006 line 591; DES-0014 C10 accepts a definition inside but of a newer minor) and the temporal implementation is unwound under T-648 and T-649. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-486 packaged Views consumer: PR 169 verify-windows run 35204455519 measured 4309 total, 4288 passed, zero failed and 21 skipped in 4m10s, without retries. The one added case executes an authored and bound packaged View through the local-node host and proves the Access predicate precedes the authored predicate. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head quality-enabled gate must confirm the tuple.",
     "PR 167 CodeRabbit repairs: complete direct Release host run at 88db2856b2b0bd898c796db40bb8dace5a10fc6b measured 4308 total, 4287 passed, zero failed and 21 skipped in 8m10s, without retries. Exact comparison to the prior green gate proves only five added cases across four methods, zero removals and all 21 skip identities unchanged. docs/t433-producer-host-inventory.md records each new identity and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh quality-enabled committed-head gate must confirm the tuple.",
     "PR 167 independent review: the complete direct Release host run at a76ca9443f4953b9865db34b7767569683adfce1 measured 4303 total, 4282 passed, zero failed and 21 skipped without retries. Comparison with the prior green exact-clone TRX proves exactly nine added data-source admission/compiler cases across three methods, zero removals and identical skip identities. docs/t433-producer-host-inventory.md records all nine identities and both TRX hashes. Only measured Windows count/provenance changes; failure, skip, known-flaky and retry policies and other-OS baselines remain unchanged. A fresh committed-head quality-enabled full gate must confirm the tuple.",
@@ -101,24 +102,24 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4365,
-      "passed": 4344,
+      "total": 4383,
+      "passed": 4362,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4365 -> 4383; passed 4344 -> 4362; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-519, T-522 and T-530 add 18 ordinary host cases covering gate-owned roster derivation, strict form rule parsing and catalogue sensitivity, and scheduling admission on every draft/module. The complete Release host run at 1d21147c measured 4,383 total, 4,362 passed, zero failed and 21 skipped without retries. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS policies remain unchanged.",
-    "detectedBy": "Controller Windows Release host run on commit 1d21147c27020bafd92b0a75fbe9b13ec6f086fd using the exact gate host invocation after installing the capability-host toolchain: 4,383 total, 4,362 passed, zero failed and 21 skipped in 4m14s. The preceding clean-clone gate measured the same tuple with newFailures empty and zero flaky rescues; its only host refusal was the stale 4,365-case count inventory.",
-    "arithmeticCrossCheck": "4365 + 18 = 4383; passed = total - notExecuted = 4383 - 21 = 4362."
+    "change": "total 4383 -> 4389; passed 4362 -> 4368; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-642 s1 consumes the kernel's command-envelope refusal and adds exactly six host cases for it. No route gained a definition contract window in this slice.",
+    "detectedBy": "The destination exact-clone gate on 7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc, native Windows, whose host step reported 4389 total, 4368 passed, 0 failed and 21 skipped in 5m53s with no flaky rescues and no new failures; its only failing step was host-baseline-match against the previous 4383-case tuple.",
+    "arithmeticCrossCheck": "4383 + 6 = 4389; passed = total - notExecuted = 4389 - 21 = 4368"
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "7cd56fc27ee8059a53916b104dce79d107b858f3",
+    "apiCommit": "7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc",
     "platform": "native Windows",
-    "configuration": "Release, complete direct host suite after full solution restore/build, contracts and capability-host toolchains installed",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Measured by the controller Windows exact-clone run on 7cd56fc2, completed 2026-09-17T09:26Z: total 4349, passed 4328, failed 0, skipped 21; no retries.",
-    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files. The final PR exact-clone gate must independently confirm this revision."
+    "runs": "One gate run completed 2026-09-19T20:01:30Z; no retries. Host step green, host-baseline-match red on the stale count only.",
+    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
     "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",
