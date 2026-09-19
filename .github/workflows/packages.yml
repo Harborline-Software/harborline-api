@@ -5,7 +5,7 @@ name: packages
 #
 # T-633: the three required contexts here (protocol-lane-conformance, operator-cli-headless,
 # pack-consume) carry no condition. GitHub counts a job skipped by its own `if` as a SUCCESSFUL
-# required check, so while every job was guarded by `vars.ACTIONS_ENABLED == 'true'` deleting one
+# required check, so while every job was guarded by `vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true'` deleting one
 # repository variable turned every required context green without running anything, and the merge
 # queue admitted whatever was in front of it. The variable was in fact unset from 2026-08-24 (free
 # plan, private repositories, minutes exhausted) until the repositories went public on 2026-09-07.
@@ -126,7 +126,7 @@ jobs:
   build-and-test:
     # T-577: not a required context, so it runs where the result is used: the merge group, a
     # release tag and a manual dispatch. The three required jobs above keep their pull_request runs.
-    if: vars.ACTIONS_ENABLED == 'true' && github.event_name != 'pull_request'
+    if: vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -243,7 +243,7 @@ jobs:
   publish:
     needs: [build-and-test, pack-consume]
     if: >-
-      vars.ACTIONS_ENABLED == 'true'
+      vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true'
       && (startsWith(github.ref, 'refs/tags/') || inputs.publish == true)
     runs-on: ubuntu-latest
     steps:

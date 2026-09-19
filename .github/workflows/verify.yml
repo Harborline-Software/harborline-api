@@ -8,7 +8,7 @@
 #
 # T-633: `verify` is the required context, and it is an aggregator with no condition. GitHub counts
 # a job skipped by its own `if` as a SUCCESSFUL required check, so a required job that carries
-# `vars.ACTIONS_ENABLED == 'true'` turns green the moment the variable is deleted. The lanes keep
+# `vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true'` turns green the moment the variable is deleted. The lanes keep
 # the switch (they cost self-hosted machine time); the context cannot be skipped and is green only
 # when every lane it stands for ran and passed.
 name: verify
@@ -34,7 +34,7 @@ permissions:
 jobs:
   verify-shared:
     if: >-
-      vars.ACTIONS_ENABLED == 'true' &&
+      vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true' &&
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
@@ -186,7 +186,7 @@ jobs:
     # host suite needs a job of its own or a shared lane that landed on Windows would silently stop
     # running it. Its baseline permits six failures where the Windows one permits zero -- four of
     # those are T-425 and T-426, not facilities macOS lacks.
-    if: vars.ACTIONS_ENABLED == 'true'
+    if: vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true'
     runs-on: [self-hosted, macOS]
     timeout-minutes: 90
     env:
@@ -249,7 +249,7 @@ jobs:
     # Deliberately gone from this job: the quality-baseline fetch (its step no longer runs here, and
     # the fetch can wait 600s for an artifact nothing would read) and the Rust toolchain install (the
     # clone gate builds no Rust; contracts-rust is a shared step).
-    if: vars.ACTIONS_ENABLED == 'true'
+    if: vars.ACTIONS_ENABLED_DELETED_T633_PROOF == 'true'
     runs-on: [self-hosted, Windows]
     timeout-minutes: 90
     defaults:
