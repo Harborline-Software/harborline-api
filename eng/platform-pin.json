@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "67538f480c634545b15782a2ac326a801d08aa6a",
-  "recordedAt": "2026-09-17 (T-492 Data Exchange consumer slice)",
+  "commit": "f90829c0e2c825754aa795d2a104df2af27bd4d1",
+  "recordedAt": "2026-09-19 (T-642 kernel request and definition-window refusal consumption)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
