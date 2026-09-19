@@ -33,6 +33,7 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
     private SharedHostedWebApp _listener = null!;
     private HttpClient _client = null!;
     private int _dispatchedWrites;
+    private bool _authorizationHolds = true;
 
     public async Task InitializeAsync()
     {
@@ -50,6 +51,11 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<ICapabilityAuthorityRegistry>(CapabilityAuthorityRegistry.Canonical);
         builder.Services.AddSingleton<IWorkflowAdmissionValidator, WorkflowAdmissionValidator>();
         builder.Services.AddTestAuthorizationGate();
+        // Registered after the allow-all gate so this is the AuthorizationGate the lifecycle
+        // resolves, letting one fixture answer both verdicts for the same act.
+        builder.Services.AddSingleton(
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
+                (string _) => _authorizationHolds));
         builder.Services.AddEntityStoreWorkflowDefinitionStore(_ => entities);
         _app = builder.Build();
         _listener = new SharedHostedWebApp(
@@ -189,6 +195,36 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
         body["contractWindow"] = JsonNode.Parse(window);
         using var response = await _client.PutAsJsonAsync(Path, body);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // Pinned to the same code the form and scheduling families assert, so the three stay
+        // comparable: a malformed window is one refusal identity, not three.
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("definition.invalid-contract-window", refusal.GetProperty("code").GetString());
+        using var stored = await _client.GetAsync(Path);
+        Assert.Equal(HttpStatusCode.NotFound, stored.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Window_does_not_change_authorization_denial(bool malformed)
+    {
+        // Parity with the form and scheduling families, which both pin this. Authorization is
+        // decided before the window is read, so a denial keeps its own status and body whether or
+        // not a window is present, and a window never converts a denial into a window refusal.
+        _authorizationHolds = false;
+        using var baseline = await _client.PutAsJsonAsync(Path, Body());
+        Assert.Equal(HttpStatusCode.Forbidden, baseline.StatusCode);
+        var body = Body(withWindow: true);
+        if (malformed)
+            body["contractWindow"] = null;
+        _clock.UtcNow = ClosesAt;
+
+        using var response = await _client.PutAsJsonAsync(Path, body);
+
+        Assert.Equal(baseline.StatusCode, response.StatusCode);
+        Assert.NotEqual(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(await baseline.Content.ReadAsStringAsync(), await response.Content.ReadAsStringAsync());
+        _authorizationHolds = true;
         using var stored = await _client.GetAsync(Path);
         Assert.Equal(HttpStatusCode.NotFound, stored.StatusCode);
     }

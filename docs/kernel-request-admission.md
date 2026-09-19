@@ -64,9 +64,14 @@ retains the source declaration. Unwindowed requests keep their existing behavior
 
 | Family | Applicability |
 |---|---|
-| DataExchange | not applicable: no write route |
-| Report | not applicable: no write route |
-| View | not applicable: no write route |
+| DataExchange | not applicable: its definition route map declares no POST, PUT, PATCH or DELETE |
+| Report | not applicable: its definition route map declares no write route. The six POSTs in `ReportsRoutes` run a report and do not author one |
+| View | not applicable: its definition route map declares no POST, PUT, PATCH or DELETE |
+
+Read that as no definition-write route, not as no POST. The distinction is the
+one this document exists to hold: a POST in a file named for definitions is not
+evidence of a definition write, and counting them that way is what produced the
+original nine-route denominator.
 
 Three scheduling routes live in the definition route map but are instance-plane
 acts, not definition writes. They carry no window, accept no declaration, and
