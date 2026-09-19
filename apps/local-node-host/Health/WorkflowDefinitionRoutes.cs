@@ -164,79 +164,94 @@ public static class WorkflowDefinitionRoutes
             // The next version: bump the patch of the current published revision, else 1.0.0.
             var current = await store.GetCurrentPublishedAsync(
                 new DefinitionAddress(tenant, key), ct).ConfigureAwait(false);
-            var version = current is null ? "1.0.0" : BumpPatch(current.Version);
 
-            // Normalize the sole authored input with the server-owned key + tenant + minted version +
-            //     published status, so the persisted (and reloaded) definition matches what the server
-            //     minted — the client cannot forge the id/tenant/version.
-            JsonElement authored;
-            try
-            {
-                var node = JsonNode.Parse(body.GetRawText())!.AsObject();
-                node["key"] = key;
-                node["tenant"] = tenant.Value;
-                node["version"] = version;
-                node["status"] = WorkflowDefinitionStatus.Published.ToString();
-                using var doc = JsonDocument.Parse(node.ToJsonString());
-                authored = doc.RootElement.Clone();
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                return Results.BadRequest(new { error = $"malformed workflow definition: {ex.Message}" });
-            }
+            // The stored declaration still governs a replacement that omits or widens its window.
+            // Admission wraps interpretation and persistence; the host only maps the kernel refusal.
+            var observedAt = timeProvider.GetUtcNow();
+            return current is null
+                ? await AdmitIncomingAsync().ConfigureAwait(false)
+                : await NodeDefinitionWrites.ExecuteAsync(
+                    key, current.Authored, observedAt, AdmitIncomingAsync).ConfigureAwait(false);
 
-            // Register maps this exact wire inside the lifecycle, admits that model, then persists this wire.
-            try
+            ValueTask<IResult> AdmitIncomingAsync() =>
+                NodeDefinitionWrites.ExecuteAsync(key, body, observedAt, WriteAsync);
+
+            async ValueTask<IResult> WriteAsync()
             {
-                await store.RegisterAndPublishAsync(authored, decision, ct).ConfigureAwait(false);
-            }
-            catch (AuthorizationDeniedException denial)
-            {
-                // The persist stage re-checks that the carried authority still describes THIS act; a
-                // mismatch is a refusal, and it is rendered exactly like the one above.
-                return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
-            }
-            catch (GateReferenceShapeException ex)
-            {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
-            }
-            catch (WorkflowGateLaneException ex)
-            {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
-            }
-            catch (ArgumentException ex)
-            {
-                return Results.BadRequest(new { error = ex.Message });
-            }
-            catch (WorkflowAdmissionException ex)
-            {
-                // Surface the stable, locale-independent code (client localizes off the CODE) — the fleet's
-                // "validation errors are codes, not English literals" rule.
-                var first = ex.Result.Violations.Count > 0 ? ex.Result.Violations[0] : default;
-                return Results.UnprocessableEntity(new { error = ex.Message, code = first.Code, locator = first.Locator });
-            }
-            catch (RoleGateAdmissionException ex)
-            {
-                return Results.UnprocessableEntity(new
+                var version = current is null ? "1.0.0" : BumpPatch(current.Version);
+
+                // Normalize the sole authored input with the server-owned key + tenant + minted version +
+                //     published status, so the persisted (and reloaded) definition matches what the server
+                //     minted — the client cannot forge the id/tenant/version.
+                JsonElement authored;
+                try
                 {
-                    error = ex.Message,
-                    code = ex.Code,
-                    definition = ex.Finding.DefinitionId,
-                    gate = ex.Finding.Gate,
-                    role = ex.Finding.Subject,
-                    rule = ex.Finding.Rule,
-                });
-            }
-            catch (DefinitionProvenanceException ex)
-            {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code });
-            }
-            catch (WorkflowDefinitionConflictException)
-            {
-                return Results.Conflict(new { error = $"A revision of '{key}' at version {version} already exists." });
-            }
+                    var node = JsonNode.Parse(body.GetRawText())!.AsObject();
+                    node["key"] = key;
+                    node["tenant"] = tenant.Value;
+                    node["version"] = version;
+                    node["status"] = WorkflowDefinitionStatus.Published.ToString();
+                    using var doc = JsonDocument.Parse(node.ToJsonString());
+                    authored = doc.RootElement.Clone();
+                }
+                catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+                {
+                    return Results.BadRequest(new { error = $"malformed workflow definition: {ex.Message}" });
+                }
 
-            return Results.Ok(new SaveWorkflowDefinitionResponse(key, version));
+                // Register maps this exact wire inside the lifecycle, admits that model, then persists this wire.
+                try
+                {
+                    await store.RegisterAndPublishAsync(authored, decision, ct).ConfigureAwait(false);
+                }
+                catch (AuthorizationDeniedException denial)
+                {
+                    // The persist stage re-checks that the carried authority still describes THIS act; a
+                    // mismatch is a refusal, and it is rendered exactly like the one above.
+                    return await RequestAuthorization.RefusedAsync(http, denial, ct).ConfigureAwait(false);
+                }
+                catch (GateReferenceShapeException ex)
+                {
+                    return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
+                }
+                catch (WorkflowGateLaneException ex)
+                {
+                    return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+                catch (WorkflowAdmissionException ex)
+                {
+                    // Surface the stable, locale-independent code (client localizes off the CODE) — the fleet's
+                    // "validation errors are codes, not English literals" rule.
+                    var first = ex.Result.Violations.Count > 0 ? ex.Result.Violations[0] : default;
+                    return Results.UnprocessableEntity(new { error = ex.Message, code = first.Code, locator = first.Locator });
+                }
+                catch (RoleGateAdmissionException ex)
+                {
+                    return Results.UnprocessableEntity(new
+                    {
+                        error = ex.Message,
+                        code = ex.Code,
+                        definition = ex.Finding.DefinitionId,
+                        gate = ex.Finding.Gate,
+                        role = ex.Finding.Subject,
+                        rule = ex.Finding.Rule,
+                    });
+                }
+                catch (DefinitionProvenanceException ex)
+                {
+                    return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code });
+                }
+                catch (WorkflowDefinitionConflictException)
+                {
+                    return Results.Conflict(new { error = $"A revision of '{key}' at version {version} already exists." });
+                }
+
+                return Results.Ok(new SaveWorkflowDefinitionResponse(key, version));
+            }
         });
     }
 
