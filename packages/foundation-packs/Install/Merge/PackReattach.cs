@@ -143,7 +143,8 @@ public static class PackReattachPlanner
     /// <summary>
     /// Raise-strictness clamp for catalog safety floors (F1/S-4): for every floor the new SEED declares,
     /// the merged result must be ≥ the seed's floor. A merged floor below the seed's (the overlay tried to
-    /// lower it) is clamped back up and surfaced as a <see cref="PackReattachConflictKind.FloorClamped"/>.
+    /// lower it), a missing floor, or a present NON-INTEGER member (which extraction would otherwise
+    /// ignore) is clamped back up and surfaced as a <see cref="PackReattachConflictKind.FloorClamped"/>.
     /// </summary>
     private static void ClampSafetyFloors(
         string contentKey, JsonNode baseNew, JsonNode merged, List<PackReattachConflict> conflicts)
@@ -170,12 +171,15 @@ public static class PackReattachPlanner
 
         foreach (var (floorKey, seedStrictness) in seedFloors)
         {
-            var mergedIsBelow = mergedFloors[floorKey] is JsonValue mv
+            // Raise-only means the merged member must be an INTEGER at or above the seed floor. A lower
+            // integer, a missing key and a present malformed member (a string, a fraction, an object —
+            // which the extractor would otherwise drop, silently losing the floor; DES-0018 F10 / T-536)
+            // all clamp back to the seed and are surfaced.
+            var holds = mergedFloors[floorKey] is JsonValue mv
                 && mv.TryGetValue(out int mergedStrictness)
-                && mergedStrictness < seedStrictness;
-            var missing = !mergedFloors.ContainsKey(floorKey);
+                && mergedStrictness >= seedStrictness;
 
-            if (mergedIsBelow || missing)
+            if (!holds)
             {
                 var attempted = mergedFloors[floorKey]?.ToJsonString() ?? "null";
                 mergedFloors[floorKey] = seedStrictness; // clamp up to the seed floor (raise-only)
