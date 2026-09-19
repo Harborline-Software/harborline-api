@@ -378,6 +378,46 @@ public sealed class SharedHostedWebAppCallerAuthTests
         }
     }
 
+    [Fact(DisplayName = "L007: a multi-command envelope is refused 400 on the service-provider pipeline")]
+    public async Task MultiCommandEnvelope_IsRefused_OnTheServiceProviderPipeline()
+    {
+        // L007 claims EVERY multi-command batch request receives 400, and that generality is proof by
+        // placement: NodeCommandRequests.Use is middleware registered in BOTH SharedHostedWebApp
+        // pipelines. The workflow test covers the WebApplication-constructor pipeline only. This covers
+        // the service-provider-constructor one, on an unrelated family's route whose stub handler knows
+        // nothing about commands. Dropping either registration now fails a test instead of passing
+        // silently, and the single-command leg proves the boundary counts rather than blanket-refusing.
+        var (app, client) = await StartAsync(Token);
+        try
+        {
+            using var batch = new HttpRequestMessage(HttpMethod.Post, FinancialWritePath)
+            {
+                Content = JsonContent.Create(new { commands = new[] { new { }, new { } } }),
+            };
+            batch.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var refused = await client.SendAsync(batch);
+
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+            var refusal = await refused.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("kernel.multi-command-batch", refusal.GetProperty("code").GetString());
+            Assert.Equal(2, refusal.GetProperty("commandCount").GetInt32());
+
+            using var one = new HttpRequestMessage(HttpMethod.Post, FinancialWritePath)
+            {
+                Content = JsonContent.Create(new { commands = new[] { new { } } }),
+            };
+            one.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var admitted = await client.SendAsync(one);
+            Assert.Equal(HttpStatusCode.OK, admitted.StatusCode);
+        }
+        finally
+        {
+            client.Dispose();
+            await app.StopAsync(CancellationToken.None);
+            await app.DisposeAsync();
+        }
+    }
+
     [Fact(DisplayName = "F1 gap closed: financial WRITE route is ACCEPTED (not 401) WITH the token")]
     public async Task FinancialWrite_WithToken_NotRejected()
     {
