@@ -51,6 +51,7 @@
              Link="OperationalEnvironment\HarborlineOperationalEnvironment.cs" />
     <ProjectReference Include="../../src/Harborline.Api.Contracts/Harborline.Api.Contracts.csproj" />
     <PackageReference Include="Harborline.Foundation.DataExchange" />
+    <PackageReference Include="Harborline.Kernel.WorkItems" />
     <PackageReference Include="Harborline.Blocks.BuilderDefinitions" />
   </ItemGroup>
 

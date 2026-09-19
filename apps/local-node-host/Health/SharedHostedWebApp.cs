@@ -262,6 +262,8 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         // nor positive desktop attribution is refused before its handler.
         UnclassifiedRouteAudienceGuard.Use(_app, _logger);
 
+        NodeCommandRequests.Use(_app);
+
         // ADR 0101 route-wide mutation contract: every POST/PUT/PATCH/DELETE under
         // /api/local-node honors Idempotency-Key, including newly added route families.
         // Install this after caller-auth so rejected callers cannot populate the replay store.
@@ -334,6 +336,7 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
             webAuthority,
             _logger);
         UnclassifiedRouteAudienceGuard.Use(_app, _logger);
+        NodeCommandRequests.Use(_app);
         NodeMutationIdempotency.UseOnce(_app, timeProvider);
 
         // Ticket 380 slice 1: a gate denial a handler met as an exception (a family that authorizes again
