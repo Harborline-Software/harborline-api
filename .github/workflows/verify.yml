@@ -165,7 +165,10 @@ jobs:
     # T-633: the required context. Deliberately unconditional (`always()`), so neither the kill
     # switch nor a fork head nor a failed dependency can leave it skipped-and-therefore-green. It
     # passes only when every job in `needs` reports success; a skipped lane fails it.
-    needs: [verify-shared]
+    # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
+    # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
+    # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
+    needs: [verify-shared, verify-macos, verify-windows]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -177,9 +180,8 @@ jobs:
           echo "$NEEDS"
           jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
 
-  # Windows datapoint: verify.sh has no Windows-only steps, only a Windows-specific host baseline, and
-  # the Windows-only defect class (File.Move semantics, path separators) has shown up the other way
-  # round. So this is a nightly, non-required run against main, never a PR or merge-queue check.
+  # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
+  # lane, and since T-578 each is on the landing's critical path through the `verify` aggregator.
   verify-macos:
     # The macOS half of the host lane. Before ticket 421 this ran inside `verify` only because that
     # job happened to be pinned to a Mac; now the shared lane floats across runners, so the macOS
@@ -244,7 +246,7 @@ jobs:
     #
     # The shared steps now run once, in `verify`; this job keeps the part that is genuinely its own.
     # Both host suites still run, in parallel, against their own baselines -- Windows permits zero
-    # failures where macOS permits six -- and neither host is on the other's critical path.
+    # failures where macOS permits six -- and neither host waits for the other.
     #
     # Deliberately gone from this job: the quality-baseline fetch (its step no longer runs here, and
     # the fetch can wait 600s for an artifact nothing would read) and the Rust toolchain install (the
