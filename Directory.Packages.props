@@ -10,6 +10,7 @@
     <PackageVersion Include="Harborline.Blocks.EntityViews" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.MultiTenancy" Version="$(HarborlinePackedVersion)"  Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.DataExchange" Version="$(HarborlinePackedVersion)" Justification="platform"/>
+    <PackageVersion Include="Harborline.Blocks.BuilderDefinitions" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <!-- ADR 0164 D6 — git-tag-derived versioning. Build-time only, never a consumer dependency. -->
     <PackageVersion Include="MinVer" Version="8.0.0" Justification="R-0061"/>
     <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="11.0.0-preview.7.26381.103" Justification="R-0053"/>
