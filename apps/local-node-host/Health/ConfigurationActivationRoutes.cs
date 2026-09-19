@@ -83,7 +83,9 @@ internal static class ConfigurationActivationRoutes
                 return Results.NotFound(new { code = exception.Message, target = "effective" });
             }
             var dto = ToDto(prepared, candidateDigest: null);
-            logger.LogInformation("Configuration PREPARE (tenant {Tenant}) → {Status} candidate={Candidate}", tenant, dto.Status, dto.CandidateDigest);
+            // CA1873: the params array is built before the level is consulted; the guard is the remediation.
+            if (logger.IsEnabled(LogLevel.Information))
+                logger.LogInformation("Configuration PREPARE (tenant {Tenant}) → {Status} candidate={Candidate}", tenant, dto.Status, dto.CandidateDigest);
             return dto.Status == "refused" ? Results.UnprocessableEntity(dto) : Results.Ok(dto);
         });
 
@@ -143,7 +145,9 @@ internal static class ConfigurationActivationRoutes
                 outcome.Decision.Request.Prepared.Candidate.Digest, outcome.Decision.Request.Prepared.Baseline.Digest,
                 outcome.EffectiveGeneration.Digest,
                 outcome.Decision.Refusal is null ? [] : [ToDto(outcome.Decision.Refusal)], Detail: bindings);
-            logger.LogInformation("Configuration ACTIVATE (tenant {Tenant}) → {Status} effective={Effective}", tenant, result.Status, result.EffectiveDigest);
+            // CA1873, as on PREPARE: guard so the params array is not built when Information is off.
+            if (logger.IsEnabled(LogLevel.Information))
+                logger.LogInformation("Configuration ACTIVATE (tenant {Tenant}) → {Status} effective={Effective}", tenant, result.Status, result.EffectiveDigest);
             return result.Status == "effective" ? Results.Ok(result) : Results.UnprocessableEntity(result);
         });
     }

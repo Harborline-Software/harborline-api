@@ -65,8 +65,11 @@ public sealed class _20260919090000_AddConfigurationGenerations : Migration
         migrationBuilder.CreateIndex(
             name: "IX_configuration_evidence_outbox_tenant_published_at",
             table: "configuration_evidence_outbox",
-            columns: new[] { "tenant", "published_at" });
+            columns: OutboxIndexColumns);
     }
+
+    // CA1861: a constant array argument is a fresh allocation per call; the rule asks for a static field.
+    private static readonly string[] OutboxIndexColumns = ["tenant", "published_at"];
 
     /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)

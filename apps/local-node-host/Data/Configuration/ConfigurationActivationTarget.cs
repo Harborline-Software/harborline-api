@@ -232,7 +232,8 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
                 _packs.RecordKeyOwnership(tenant, owner.DefinitionKey, owner.PackageKey);
             CrashPoint?.Invoke("ownership-written");
             var candidateJson = Canonical(request.Prepared.Candidate);
-            var pointer = context.EffectiveGenerations.Find(tenant.Value);
+            // VSTHRD103: an async method awaits the async read rather than the blocking Find.
+            var pointer = await context.EffectiveGenerations.FindAsync([tenant.Value], cancellationToken).ConfigureAwait(false);
             if (pointer is null)
             {
                 context.EffectiveGenerations.Add(new ConfigurationEffectiveGenerationRow
