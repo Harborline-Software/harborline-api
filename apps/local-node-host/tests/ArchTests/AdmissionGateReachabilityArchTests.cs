@@ -30,7 +30,11 @@ public sealed class AdmissionGateReachabilityArchTests
                         Assert.Same(
                             admission,
                             resolved.GetRequiredService<AuthorizedWorkflowDefinitionLifecycle>().RoleGateAdmission);
-                        Assert.Empty(UnreachableFixedGates(resolved, ProductionTypes()));
+                        // Exact in both directions: every unreachable gate is a named, reasoned platform
+                        // allowance, and every allowance names a gate that is genuinely unreachable.
+                        Assert.Equal(
+                            UncomposedPlatformGates.Keys.Order(StringComparer.Ordinal),
+                            UnreachableFixedGates(resolved, ProductionTypes()).Select(type => type.FullName!));
                         throw new CompositionProbeCompleteException();
                     },
                     installFootprintRootOverride: dataDirectory));
@@ -51,6 +55,7 @@ public sealed class AdmissionGateReachabilityArchTests
     /// <summary>
     /// Gates a pinned platform package ships that the host has not composed yet. Each names the platform
     /// change that shipped it; the host adopts the gate, or retires the row, in the consumer lane that owns it.
+    /// The composition probe asserts exact equality with live discovery in both directions.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> UncomposedPlatformGates = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -62,7 +67,6 @@ public sealed class AdmissionGateReachabilityArchTests
     private static Type[] UnreachableFixedGates(IServiceProvider provider, IEnumerable<Type> candidates) =>
         candidates
             .Where(type => type is { IsClass: true, IsAbstract: false, IsSealed: true })
-            .Where(type => !UncomposedPlatformGates.ContainsKey(type.FullName!))
             .Where(type => type.Name.EndsWith("Gate", StringComparison.Ordinal)
                 || type.Name.EndsWith("Authorizer", StringComparison.Ordinal))
             .Where(type => GateInterfaces(type).Length > 0)

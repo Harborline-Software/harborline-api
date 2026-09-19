@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "7cd56fc27ee8059a53916b104dce79d107b858f3",
-  "recordedAt": "2026-09-18T04:20:00Z",
+  "recordedAt": "2026-09-19T21:00:00Z",
   "totals": {
-    "total": 4383,
-    "passed": 4362,
+    "total": 4397,
+    "passed": 4376,
     "failed": 0,
     "notExecuted": 21
   },
@@ -45,7 +45,8 @@
     "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Windows moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
     "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Windows moves by +14 total and +14 passed. The PR gate is the measurement of record.",
     "T-576 Windows re-measure: the +14 repin was taken from test discovery; the Windows gate host measures 4372 total, 4350 passed, 0 failed, 22 not executed on main 7b49027f (full host suite, 5 m 4 s, 2026-09-17). Pinned to the measurement.",
-    "T-519, T-522 and T-530 integration with the T-576 baseline correction: the quality-enabled all-lane gate on 4d4c9810 measured 4383 total, 4362 passed, 0 failed and 21 not executed in 12 m 4 s. Relative to corrected main, these admission changes add 11 executions, make one previously skipped capability-linked case execute, and add 12 passes. No failure, permitted-failure or retry allowance changed. The merged-head gate must confirm this measured tuple."
+    "T-519, T-522 and T-530 integration with the T-576 baseline correction: the quality-enabled all-lane gate on 4d4c9810 measured 4383 total, 4362 passed, 0 failed and 21 not executed in 12 m 4 s. Relative to corrected main, these admission changes add 11 executions, make one previously skipped capability-linked case execute, and add 12 passes. No failure, permitted-failure or retry allowance changed. The merged-head gate must confirm this measured tuple.",
+    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch before pinning (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change."
   ],
   "permittedFailures": [],
   "knownFlaky": [
