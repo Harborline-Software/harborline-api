@@ -34,7 +34,7 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Scheduling;
 
 /// <summary>HTTP-contract coverage for the production scheduling draft route map.</summary>
-public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
+public sealed partial class SchedulingDefinitionRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-00000000aa01"));
     private static readonly TeamId TeamB = new(Guid.Parse("bbbb0000-0000-0000-0000-00000000bb02"));

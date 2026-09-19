@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -104,10 +105,19 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         await _app.DisposeAsync();
     }
 
-    [Fact(DisplayName = "214 s2: a refused save answers the rendered 403, not the exception's text")]
-    public async Task A_refused_save_answers_the_rendered_refusal()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_refused_save_answers_the_rendered_refusal(bool withWindow)
     {
-        var response = await _client.PutAsJsonAsync($"{Base}/{Key}", Body());
+        var request = JsonSerializer.SerializeToNode(Body())!.AsObject();
+        if (withWindow)
+            request["contractWindow"] = new JsonObject
+            {
+                ["opensAt"] = "2000-01-01T00:00:00Z",
+                ["closesAt"] = "2000-01-02T00:00:00Z",
+            };
+        var response = await _client.PutAsJsonAsync($"{Base}/{Key}", request);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

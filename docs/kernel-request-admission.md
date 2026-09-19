@@ -19,9 +19,13 @@ dispatches its body once. An empty envelope returns 204 without dispatching.
 Existing unwrapped route bodies keep their shape. Idempotency runs after envelope
 admission against the dispatched body.
 
-## Workflow definition window
+## Definition windows
 
-`PUT /api/local-node/workflows/definitions/{key}` accepts an optional declaration:
+The six definition-plane routes in the form, scheduling, and workflow
+definition route maps consume the same pinned `DefinitionWriteBoundary` through
+`NodeDefinitionWrites`. Authorization and capability declarations are unchanged;
+authorization runs before window admission. The host parses the declaration and
+serializes the kernel refusal without implementing its time policy.
 
 ```json
 {
@@ -32,36 +36,100 @@ admission against the dispatched body.
 }
 ```
 
-The declaration accompanies the ordinary workflow definition fields. The route
-authorizes the write, reads the current published definition, and calls the
-kernel before interpreting or persisting the incoming definition. Both the
-stored and incoming windows apply. Omitting or widening the incoming window
-cannot bypass the stored window. Definitions without a declared window retain
-their existing authoring behavior.
+A declaration is optional. The kernel admits the opening instant and refuses the
+closing instant. Its 422 response carries exactly `code`, `statusCode`,
+`definitionId`, `opensAt`, `closesAt`, and `observedAt`, with
+`code: "kernel.definition-contract-window"`. Malformed declarations, including
+explicit `null`, return 400 with `code: "definition.invalid-contract-window"`.
+The host supplies the observation instant from its `TimeProvider`.
 
-The host supplies the route key as the definition identity and samples its
-`TimeProvider` for the observation instant. The kernel admits the opening instant
-and refuses the closing instant. Its 422 response carries `code`, `statusCode`,
-`definitionId`, `opensAt`, `closesAt`, and `observedAt`. Malformed declarations
-return 400 with `code: "definition.invalid-contract-window"`.
+The following paths are relative to `/api/local-node`. Each row has HTTP tests
+against its production route map; no row relies on a helper-only test.
 
-The envelope shape, optional window declaration, and initial scope to workflow
-authoring are implementation choices because the brief supplied no wire contract
-or definition-family selection. They are not recorded as an owner's design verdict.
+| Route | Declaration and governing stored windows | Wired and tested |
+|---|---|---|
+| `PUT /forms/definitions/{formId}` | Top-level declaration; published head and any newer draft also apply | Yes |
+| `POST /forms/definitions/{formId}/restore` | Optional top-level request declaration; source, published head, and any newer draft also apply | Yes |
+| `PUT /scheduling/definitions/{definitionId}/draft` | `definition.contractWindow`; current head also applies | Yes |
+| `POST /scheduling/definitions/{definitionId}/restore` | Optional top-level request declaration; source and current head also apply | Yes |
+| `POST /scheduling/definitions/validate` | `definition.contractWindow` | Yes |
+| `PUT /workflows/definitions/{key}` | Top-level declaration; current published definition also applies | Yes |
+
+Stored declarations prevent a replacement or restore from bypassing a closed
+window by omitting or widening its incoming declaration. Form declarations survive
+JSON persistence, authoring reads, and restoration into a new draft. Scheduling
+and workflow definitions retain their declarations in their existing JSON bodies.
+A restore request's own declaration bounds that operation; the restored definition
+retains the source declaration. Unwindowed requests keep their existing behavior.
+
+| Family | Applicability |
+|---|---|
+| DataExchange | not applicable: no write route |
+| Report | not applicable: no write route |
+| View | not applicable: no write route |
+
+Three scheduling routes live in the definition route map but are instance-plane
+acts, not definition writes. They carry no window, accept no declaration, and
+cannot be refused for one. A closed authoring window freezes a definition; it
+must not stop callers operating the definition it froze.
+
+| Route | Applicability |
+|---|---|
+| `POST /scheduling/appointments` | not applicable: books against a definition, does not write one |
+| `POST /scheduling/events` | not applicable: creates an instance record |
+| `POST /scheduling/resources/availability` | not applicable: sets operational availability |
+
+## Implementation choices for owner review
+
+The original brief carried a nine-route denominator produced by counting every
+write route in files named for definitions. Three of those are instance-plane
+acts and have been trimmed; the denominator is six. Restore requests accept an
+optional top-level declaration. Validation uses its full route path as
+`definitionId` in the refusal; other requests use the addressed definition ID.
+
+`POST /scheduling/definitions/validate` is definition-plane but is not a write.
+It keeps its window pending an owner ruling. The argument for trimming it is
+that validation is preparation for a write rather than a write, so it should
+stay reachable while the window is shut.
+
+For forms, the published head and a newer draft both govern writes; a draft older
+than the published head no longer governs. Both restore routes check the selected
+historical source in addition to current definitions. These are implementation
+choices to close bypasses, not approvals or design verdicts in an owner's name.
 
 ## Focused verification
 
-`KernelRefusalRouteTests` drives the production shared listener and workflow
-routes over HTTP. It covers command count and dispatch, authentication ordering,
-before/open/inside/close/after writes, malformed windows, member interpretation,
-and replacement attempts that omit or widen a stored window. The existing
-`WorkflowDefinitionRouteTests` and `WorkflowDefinitionRefusalRouteTests` cover
-unwindowed authoring and authorization refusals. Run these classes with a
-`dotnet test --filter` expression; no full gate is needed for this focused run.
+The focused route run covers `KernelRefusalRouteTests`,
+`FormDefinitionRouteTests`, `SchedulingDefinitionRouteTests`,
+`WorkflowDefinitionRouteTests`, and `WorkflowDefinitionRefusalRouteTests`.
+The new form and scheduling cases live in partial class files named
+`FormDefinitionWindowRouteTests.cs` and `SchedulingDefinitionWindowRouteTests.cs`.
 
-The focused run passed 27 route tests (17 new and 10 existing), 21 shared-listener
-and idempotency regressions, and 6 tests in `eng/tests/platform-feed.test.mjs`.
-The listener regressions ran with `Logging__EventLog__LogLevel__Default=None`
-because the sandbox account cannot write to the Windows Event Log. Restore used
-the local feed and package caches; vulnerability auditing was disabled for that
-offline restore only. No full gate was run.
+The run passed **244 tests, 0 failed, 0 skipped**, including **109 added cases**:
+
+| Test class | Passed | Added cases |
+|---|---:|---:|
+| FormDefinitionRouteTests | 104 | 29 |
+| SchedulingDefinitionRouteTests | 112 | 79 |
+| KernelRefusalRouteTests | 17 | 0 (refusal-shape assertions strengthened) |
+| WorkflowDefinitionRouteTests | 7 | 0 |
+| WorkflowDefinitionRefusalRouteTests | 4 | 1 |
+
+Every route is exercised before, at opening, inside, at closing, and after its
+window. Tests assert the same six-field kernel refusal, malformed-window behavior,
+authorization precedence, and absence of definition/calendar/availability writes
+on refusal. Scheduling snapshots include revision audit rows. Stored-window tests
+cover omission, widening, and restoring an older source. Existing tests cover
+unwindowed behavior, permissions, tenancy, conflicts, and ordinary route validation.
+
+Run only these classes:
+
+```powershell
+$env:Logging__EventLog__LogLevel__Default = 'None'
+dotnet test apps/local-node-host/tests/tests.csproj --no-restore --filter 'FullyQualifiedName~KernelRefusalRouteTests|FullyQualifiedName~FormDefinitionRouteTests|FullyQualifiedName~SchedulingDefinitionRouteTests|FullyQualifiedName~WorkflowDefinitionRouteTests|FullyQualifiedName~WorkflowDefinitionRefusalRouteTests'
+```
+
+The test run uses the existing restored package cache. Event Log output is disabled
+because the sandbox account cannot write the Windows Event Log. No full gate or
+pull request is part of this work. No control ticket, design record, or ledger row
+is changed.

@@ -197,6 +197,8 @@ public sealed class KernelRefusalRouteTests : IAsyncLifetime
     {
         var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("kernel.definition-contract-window", refusal.GetProperty("code").GetString());
+        Assert.Equal(6, refusal.EnumerateObject().Count());
+        Assert.Equal(422, refusal.GetProperty("statusCode").GetInt32());
         Assert.Equal(Key, refusal.GetProperty("definitionId").GetString());
         Assert.Equal(OpensAt, refusal.GetProperty("opensAt").GetDateTimeOffset());
         Assert.Equal(ClosesAt, refusal.GetProperty("closesAt").GetDateTimeOffset());

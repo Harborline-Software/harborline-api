@@ -15,7 +15,20 @@ internal static class NodeDefinitionWrites
         DateTimeOffset observedAt,
         Func<ValueTask<IResult>> write)
     {
-        if (!definition.TryGetProperty("contractWindow", out var declared))
+        if (definition.ValueKind != JsonValueKind.Object
+            || !definition.TryGetProperty("contractWindow", out var declared))
+            return await write().ConfigureAwait(false);
+
+        return await ExecuteDeclaredAsync(definitionId, declared, observedAt, write).ConfigureAwait(false);
+    }
+
+    internal static async ValueTask<IResult> ExecuteDeclaredAsync(
+        string definitionId,
+        JsonElement declared,
+        DateTimeOffset observedAt,
+        Func<ValueTask<IResult>> write)
+    {
+        if (declared.ValueKind == JsonValueKind.Undefined)
             return await write().ConfigureAwait(false);
 
         DefinitionContractWindow window;

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Harborline.Api.Foundation.Assets.Common;
@@ -159,6 +160,10 @@ public sealed record FormDefinition
     /// <summary>Explicit catalogue-field sourcing; absence preserves legacy general-form behavior.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CatalogueFieldSource? CatalogueFieldSource { get; init; }
+
+    /// <summary>Optional authored write window, interpreted by the platform admission boundary.</summary>
+    [JsonPropertyName("contractWindow"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonElement ContractWindow { get; init; }
 
     /// <summary>Legacy lineage projection over <see cref="DefinitionEnvelope{TIdentity,TVersion,TTenant,TProvenance}.Provenance"/>.</summary>
     public FormDefinitionLineage? Lineage

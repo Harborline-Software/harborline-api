@@ -17,6 +17,8 @@ internal static class FormDefinitionFreezer
                 Requires = definition.Envelope.Requires.ToImmutableArray(),
             },
             Overlay = Freeze(definition.Overlay),
+            ContractWindow = definition.ContractWindow.ValueKind == System.Text.Json.JsonValueKind.Undefined
+                ? default : definition.ContractWindow.Clone(),
             CatalogueFieldSource = definition.CatalogueFieldSource is { } source
                 ? source with { Fields = source.Fields.ToImmutableArray() }
                 : null,

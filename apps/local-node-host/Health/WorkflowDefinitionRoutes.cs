@@ -167,14 +167,13 @@ public static class WorkflowDefinitionRoutes
 
             // The stored declaration still governs a replacement that omits or widens its window.
             // Admission wraps interpretation and persistence; the host only maps the kernel refusal.
-            var observedAt = timeProvider.GetUtcNow();
             return current is null
                 ? await AdmitIncomingAsync().ConfigureAwait(false)
                 : await NodeDefinitionWrites.ExecuteAsync(
-                    key, current.Authored, observedAt, AdmitIncomingAsync).ConfigureAwait(false);
+                    key, current.Authored, at, AdmitIncomingAsync).ConfigureAwait(false);
 
             ValueTask<IResult> AdmitIncomingAsync() =>
-                NodeDefinitionWrites.ExecuteAsync(key, body, observedAt, WriteAsync);
+                NodeDefinitionWrites.ExecuteAsync(key, body, at, WriteAsync);
 
             async ValueTask<IResult> WriteAsync()
             {

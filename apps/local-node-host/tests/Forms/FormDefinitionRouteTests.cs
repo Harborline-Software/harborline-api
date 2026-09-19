@@ -49,7 +49,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// mints the next version. Uses the in-memory entity store the route contract is
 /// agnostic to (the durable node-EF forms store is the follow-up).
 /// </remarks>
-public sealed class FormDefinitionRouteTests : IAsyncLifetime
+public sealed partial class FormDefinitionRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-00000000fc01"));
     private static readonly TeamId TeamB = new(Guid.Parse("bbbb0000-0000-0000-0000-00000000fc02"));
@@ -58,6 +58,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     private const string RuntimeBase = "/api/local-node/forms";
     private const string FormId = "tenant-intake.v1";
 
+    private readonly WindowClock _windowClock = new();
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
@@ -105,7 +106,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             _definitions,
             _app.Services.GetRequiredService<ISchemaRegistry>(),
             _activeTeam,
-            TimeProvider.System,
+            _windowClock,
             fieldTypes: _fieldTypes);
 
         FormsRoutes.Map(

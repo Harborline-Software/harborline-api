@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -246,228 +246,248 @@ public static class FormDefinitionRoutes
                 now);
             var decision = await store.DecideAsync(id.Value, authority, ct).ConfigureAwait(false);
 
-            SaveFormDefinitionRequest? request;
+            JsonElement body;
             try
             {
-                using var document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct).ConfigureAwait(false);
-                var source = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
-                var catalogueAdmission = http.RequestServices.GetService<CatalogueFieldSourceAdmission>()
-                    ?? new CatalogueFieldSourceAdmission();
-                if (catalogueAdmission.ValidateSupport(source) is { } refusal)
-                    return Results.UnprocessableEntity(new { code = refusal });
-                request = document.RootElement.Deserialize<SaveFormDefinitionRequest>(JsonOptions);
-            }
-            catch (CatalogueFieldSourceException ex)
-            {
-                return Results.BadRequest(new { code = ex.Code });
+                body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body, cancellationToken: ct)
+                    .ConfigureAwait(false);
             }
             catch (JsonException)
             {
                 return Results.BadRequest(new { code = "form_definition.malformed_request_body" });
             }
 
-            if (request is null || request.Overlay is null || request.Overlay.Fields is null || request.Overlay.Sections is null)
-            {
-                return Results.BadRequest(new { code = "form_definition.overlay_required" });
-            }
+            return await AdmitCurrentAsync(store, tenant, id, now,
+                () => NodeDefinitionWrites.ExecuteAsync(formId, body, now, WriteAsync), ct)
+                .ConfigureAwait(false);
 
-            // L1145 / ADR 0038: validate the raw discriminator BEFORE schema registration or any
-            // definition-store write. BuildDefinition historically lowered an unknown action to
-            // Visibility, silently replacing a restriction with a permitting presentation rule.
-            foreach (var rule in request.Overlay.Rules ?? Array.Empty<RuleDto>())
+            async ValueTask<IResult> WriteAsync()
             {
-                foreach (var (family, value) in new[]
+                SaveFormDefinitionRequest? request;
+                try
                 {
-                    (RestrictingDefinitionKindFamily.RuleTier, rule.Tier),
-                    (RestrictingDefinitionKindFamily.RuleScope, rule.Scope),
-                    (RestrictingDefinitionKindFamily.RuleAction, rule.Action),
-                })
+                    var source = CatalogueFieldSourceAdmission.ParseContent(body);
+                    var catalogueAdmission = http.RequestServices.GetService<CatalogueFieldSourceAdmission>()
+                        ?? new CatalogueFieldSourceAdmission();
+                    if (catalogueAdmission.ValidateSupport(source) is { } refusal)
+                        return Results.UnprocessableEntity(new { code = refusal });
+                    request = body.Deserialize<SaveFormDefinitionRequest>(JsonOptions);
+                }
+                catch (CatalogueFieldSourceException ex)
                 {
-                    var refusal = restrictingKinds.Validate(
-                        family, formId, value, nestedDefinitionId: rule.Id);
-                    if (refusal is not null)
+                    return Results.BadRequest(new { code = ex.Code });
+                }
+                catch (JsonException)
+                {
+                    return Results.BadRequest(new { code = "form_definition.malformed_request_body" });
+                }
+
+                if (request is null || request.Overlay is null || request.Overlay.Fields is null || request.Overlay.Sections is null)
+                {
+                    return Results.BadRequest(new { code = "form_definition.overlay_required" });
+                }
+
+                // L1145 / ADR 0038: validate the raw discriminator BEFORE schema registration or any
+                // definition-store write. BuildDefinition historically lowered an unknown action to
+                // Visibility, silently replacing a restriction with a permitting presentation rule.
+                foreach (var rule in request.Overlay.Rules ?? Array.Empty<RuleDto>())
+                {
+                    foreach (var (family, value) in new[]
                     {
-                        return Results.UnprocessableEntity(new
+                        (RestrictingDefinitionKindFamily.RuleTier, rule.Tier),
+                        (RestrictingDefinitionKindFamily.RuleScope, rule.Scope),
+                        (RestrictingDefinitionKindFamily.RuleAction, rule.Action),
+                    })
+                    {
+                        var refusal = restrictingKinds.Validate(
+                            family, formId, value, nestedDefinitionId: rule.Id);
+                        if (refusal is not null)
                         {
-                            code = refusal.Code,
-                            detail = new
+                            return Results.UnprocessableEntity(new
                             {
-                                target = rule.Id,
-                                definition = refusal.DefinitionId,
-                                unknownKind = refusal.UnknownKind,
-                            },
-                        });
+                                code = refusal.Code,
+                                detail = new
+                                {
+                                    target = rule.Id,
+                                    definition = refusal.DefinitionId,
+                                    unknownKind = refusal.UnknownKind,
+                                },
+                            });
+                        }
                     }
                 }
-            }
 
-            try
-            {
-                _ = ResolvePiiSensitivities(request.Overlay, request.FieldsMeta, fieldTypes);
-            }
-            catch (FormFieldProtectionAdmissionException ex)
-            {
-                return Results.UnprocessableEntity(new
+                try
                 {
-                    code = ex.Code,
-                    detail = new { field = ex.Field, offendingValue = ex.OffendingValue },
-                });
-            }
-
-            // Ticket 156 (L1539): a DRAFT save may be partial — a half-finished definition
-            // (even zero sections) saves freely as Draft. A PUBLISH keeps the floor.
-            var isDraft = request.Draft == true;
-            if (!isDraft && request.Overlay.Sections.Count == 0)
-            {
-                return Results.BadRequest(new { code = "form_definition.overlay_section_required" });
-            }
-
-            var owner = ActingOwner(http);
-
-            // The next version: bump the patch of the HIGHEST existing revision (published OR
-            // draft), else 1.0.0. Minting off the current PUBLISHED head only (as this did before)
-            // 409-bricked the form after a restore: a restored revision lands as a DRAFT at
-            // publishedHead+1, so the very next PUT skipped that draft, re-minted the SAME version,
-            // and RegisterAsync conflicted — permanently, since PUT is the only publish path and
-            // there is no publish-draft route (deep review of #1686, Finding 1). Max-of-all matches
-            // the restore route (they now share MintNextVersionAsync) + the preview store, so a
-            // restore→save always advances PAST the restored draft.
-            var version = await MintNextVersionAsync(store, tenant, id, ct).ConfigureAwait(false);
-
-            // (1) Synthesise the JSON Schema from the field authoring metadata + register it
-            //     (content-addressed in the kernel schema registry — the authoritative schema body).
-            //     F-20: malformed validation-constraint config (unknown code, bad/missing param,
-            //     min>max, uncompilable pattern, type-mismatched constraint) is rejected HERE,
-            //     fail-closed, with a stable localizable code — before anything persists.
-            string schemaJson;
-            try
-            {
-                schemaJson = BuilderSchemaSynthesizer.Synthesize(request, id);
-            }
-            catch (FormDefinitionValidationException ex)
-            {
-                // Finding 4 (#1686 deep review): carry the offending node id as a structured
-                // `target` so the client anchors the inline error off it instead of regex-scraping
-                // the English message. Populated for the local synthesizer's constraint rejections
-                // (ValidateConstraints knows the field); null for the governance validators whose
-                // structured-target pass is a separate follow-up — the client keeps its regex
-                // fallback for those.
-                return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
-            }
-            catch (ArgumentException ex)
-            {
-                // Ticket 094: the exception MESSAGE never reaches the wire (it is whatever the
-                // throwing code happened to write). ParamName is a chosen, stable identifier.
-                return Results.BadRequest(new
-                {
-                    code = "form_definition.authoring_metadata_invalid",
-                    detail = new { parameter = ex.ParamName },
-                });
-            }
-
-            SchemaId schemaRef;
-            try
-            {
-                var schema = await schemaRegistry.RegisterAsync(schemaJson, ct: ct).ConfigureAwait(false);
-                schemaRef = schema.Id;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                return Results.BadRequest(new { code = "form_definition.schema_synthesis_rejected" });
-            }
-
-            // (2) Build the definition record from the overlay DTO + the synthesised schema ref.
-            FormDefinition definition;
-            try
-            {
-                definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now,
-                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes);
-            }
-            catch (GateReferenceShapeException ex)
-            {
-                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
-            }
-            catch (ArgumentException ex)
-            {
-                return Results.BadRequest(new
-                {
-                    code = "form_definition.overlay_invalid",
-                    detail = new { parameter = ex.ParamName },
-                });
-            }
-
-            // (3) Register (+ publish, unless a draft save) — immutable per (id, version); a
-            //     re-save mints the next patch. A draft (ticket 156) registers WITHOUT the
-            //     publish gates: it is invisible to the form engine until a later PUT publishes
-            //     it, at which point every gate below runs in full.
-            try
-            {
-                if (isDraft)
-                {
-                    // A draft skips rule compilation (WIP rules are the point of a draft) and the
-                    // authoring label gates, but NOT classification admission: drafts persist AND
-                    // sync to peers, so residency/regime-relevant classification content must
-                    // refuse fail-closed here too (ADR 0038).
-                    FormDefinitionPublishAdmission.ValidateClassificationOrThrow(definition);
+                    _ = ResolvePiiSensitivities(request.Overlay, request.FieldsMeta, fieldTypes);
                 }
-                else
+                catch (FormFieldProtectionAdmissionException ex)
                 {
-                    // Authoring-time label gates (ticket 157): ROUTE-only — pack projection
-                    // deliberately does not inherit them, so previously-valid signed pack
-                    // content keeps (re)publishing on upgrade.
-                    FormDefinitionPublishAdmission.ValidateAuthoringLabelsOrThrow(definition);
-
-                    // Shared publish admission: F3 rule compilation rejects any Tier-2 expression or page
-                    // guard the node cannot compile; SPINE-2 classification admission checks every field's
-                    // resolved classification (form→section→container→field, monotonic-union) against
-                    // known kinds, required effects, residency, regimes, and sensitive async-check inputs.
-                    // Pack projection calls this SAME seam so signed content cannot bypass authoring safety.
-                    FormDefinitionPublishAdmission.ValidateOrThrow(definition);
-                }
-
-                if (isDraft)
-                    await store.RegisterAsync(definition, decision, ct).ConfigureAwait(false);
-                else
-                    await store.RegisterAndPublishAsync(definition, decision, ct).ConfigureAwait(false);
-            }
-            catch (FormDefinitionConflictException)
-            {
-                return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = version.ToString() } });
-            }
-            catch (FormDefinitionValidationException ex)
-            {
-                // Surface the stable, locale-independent code (ADR 0055 Rev 7 item-tree
-                // bounds) alongside the English message so the client localizes off the
-                // CODE — the fleet's "validation errors are codes, not English literals"
-                // rule. Null for the pre-Rev-7 message-only invariants.
-                // Finding 4 (#1686 deep review): carry the offending node id as a structured
-                // `target` so the client anchors the inline error off it instead of regex-scraping
-                // the English message. Populated for the local synthesizer's constraint rejections
-                // (ValidateConstraints knows the field); null for the governance validators whose
-                // structured-target pass is a separate follow-up — the client keeps its regex
-                // fallback for those.
-                return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
-            }
-            catch (RoleGateAdmissionException ex)
-            {
-                return Results.UnprocessableEntity(new
-                {
-                    code = ex.Code,
-                    detail = new
+                    return Results.UnprocessableEntity(new
                     {
-                        definition = ex.Finding.DefinitionId,
-                        gate = ex.Finding.Gate,
-                        role = ex.Finding.Subject,
-                        rule = ex.Finding.Rule,
-                    },
-                });
-            }
-            catch (DefinitionProvenanceException ex)
-            {
-                return Results.UnprocessableEntity(new { code = ex.Code });
-            }
+                        code = ex.Code,
+                        detail = new { field = ex.Field, offendingValue = ex.OffendingValue },
+                    });
+                }
 
-            return Results.Ok(new SaveFormDefinitionResponse(formId, version.ToString()));
+                // Ticket 156 (L1539): a DRAFT save may be partial — a half-finished definition
+                // (even zero sections) saves freely as Draft. A PUBLISH keeps the floor.
+                var isDraft = request.Draft == true;
+                if (!isDraft && request.Overlay.Sections.Count == 0)
+                {
+                    return Results.BadRequest(new { code = "form_definition.overlay_section_required" });
+                }
+
+                var owner = ActingOwner(http);
+
+                // The next version: bump the patch of the HIGHEST existing revision (published OR
+                // draft), else 1.0.0. Minting off the current PUBLISHED head only (as this did before)
+                // 409-bricked the form after a restore: a restored revision lands as a DRAFT at
+                // publishedHead+1, so the very next PUT skipped that draft, re-minted the SAME version,
+                // and RegisterAsync conflicted — permanently, since PUT is the only publish path and
+                // there is no publish-draft route (deep review of #1686, Finding 1). Max-of-all matches
+                // the restore route (they now share MintNextVersionAsync) + the preview store, so a
+                // restore→save always advances PAST the restored draft.
+                var version = await MintNextVersionAsync(store, tenant, id, ct).ConfigureAwait(false);
+
+                // (1) Synthesise the JSON Schema from the field authoring metadata + register it
+                //     (content-addressed in the kernel schema registry — the authoritative schema body).
+                //     F-20: malformed validation-constraint config (unknown code, bad/missing param,
+                //     min>max, uncompilable pattern, type-mismatched constraint) is rejected HERE,
+                //     fail-closed, with a stable localizable code — before anything persists.
+                string schemaJson;
+                try
+                {
+                    schemaJson = BuilderSchemaSynthesizer.Synthesize(request, id);
+                }
+                catch (FormDefinitionValidationException ex)
+                {
+                    // Finding 4 (#1686 deep review): carry the offending node id as a structured
+                    // `target` so the client anchors the inline error off it instead of regex-scraping
+                    // the English message. Populated for the local synthesizer's constraint rejections
+                    // (ValidateConstraints knows the field); null for the governance validators whose
+                    // structured-target pass is a separate follow-up — the client keeps its regex
+                    // fallback for those.
+                    return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
+                }
+                catch (ArgumentException ex)
+                {
+                    // Ticket 094: the exception MESSAGE never reaches the wire (it is whatever the
+                    // throwing code happened to write). ParamName is a chosen, stable identifier.
+                    return Results.BadRequest(new
+                    {
+                        code = "form_definition.authoring_metadata_invalid",
+                        detail = new { parameter = ex.ParamName },
+                    });
+                }
+
+                SchemaId schemaRef;
+                try
+                {
+                    var schema = await schemaRegistry.RegisterAsync(schemaJson, ct: ct).ConfigureAwait(false);
+                    schemaRef = schema.Id;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    return Results.BadRequest(new { code = "form_definition.schema_synthesis_rejected" });
+                }
+
+                // (2) Build the definition record from the overlay DTO + the synthesised schema ref.
+                FormDefinition definition;
+                try
+                {
+                    definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now,
+                        request.CatalogueFieldSource, request.FieldsMeta, fieldTypes) with
+                    {
+                        ContractWindow = body.TryGetProperty("contractWindow", out var window) ? window.Clone() : default,
+                    };
+                }
+                catch (GateReferenceShapeException ex)
+                {
+                    return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+                }
+                catch (ArgumentException ex)
+                {
+                    return Results.BadRequest(new
+                    {
+                        code = "form_definition.overlay_invalid",
+                        detail = new { parameter = ex.ParamName },
+                    });
+                }
+
+                // (3) Register (+ publish, unless a draft save) — immutable per (id, version); a
+                //     re-save mints the next patch. A draft (ticket 156) registers WITHOUT the
+                //     publish gates: it is invisible to the form engine until a later PUT publishes
+                //     it, at which point every gate below runs in full.
+                try
+                {
+                    if (isDraft)
+                    {
+                        // A draft skips rule compilation (WIP rules are the point of a draft) and the
+                        // authoring label gates, but NOT classification admission: drafts persist AND
+                        // sync to peers, so residency/regime-relevant classification content must
+                        // refuse fail-closed here too (ADR 0038).
+                        FormDefinitionPublishAdmission.ValidateClassificationOrThrow(definition);
+                    }
+                    else
+                    {
+                        // Authoring-time label gates (ticket 157): ROUTE-only — pack projection
+                        // deliberately does not inherit them, so previously-valid signed pack
+                        // content keeps (re)publishing on upgrade.
+                        FormDefinitionPublishAdmission.ValidateAuthoringLabelsOrThrow(definition);
+
+                        // Shared publish admission: F3 rule compilation rejects any Tier-2 expression or page
+                        // guard the node cannot compile; SPINE-2 classification admission checks every field's
+                        // resolved classification (form→section→container→field, monotonic-union) against
+                        // known kinds, required effects, residency, regimes, and sensitive async-check inputs.
+                        // Pack projection calls this SAME seam so signed content cannot bypass authoring safety.
+                        FormDefinitionPublishAdmission.ValidateOrThrow(definition);
+                    }
+
+                    if (isDraft)
+                        await store.RegisterAsync(definition, decision, ct).ConfigureAwait(false);
+                    else
+                        await store.RegisterAndPublishAsync(definition, decision, ct).ConfigureAwait(false);
+                }
+                catch (FormDefinitionConflictException)
+                {
+                    return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = version.ToString() } });
+                }
+                catch (FormDefinitionValidationException ex)
+                {
+                    // Surface the stable, locale-independent code (ADR 0055 Rev 7 item-tree
+                    // bounds) alongside the English message so the client localizes off the
+                    // CODE — the fleet's "validation errors are codes, not English literals"
+                    // rule. Null for the pre-Rev-7 message-only invariants.
+                    // Finding 4 (#1686 deep review): carry the offending node id as a structured
+                    // `target` so the client anchors the inline error off it instead of regex-scraping
+                    // the English message. Populated for the local synthesizer's constraint rejections
+                    // (ValidateConstraints knows the field); null for the governance validators whose
+                    // structured-target pass is a separate follow-up — the client keeps its regex
+                    // fallback for those.
+                    return Results.UnprocessableEntity(new { code = ex.Code ?? FormDefinitionCodes.ValidationRefused, detail = new { target = ex.Target } });
+                }
+                catch (RoleGateAdmissionException ex)
+                {
+                    return Results.UnprocessableEntity(new
+                    {
+                        code = ex.Code,
+                        detail = new
+                        {
+                            definition = ex.Finding.DefinitionId,
+                            gate = ex.Finding.Gate,
+                            role = ex.Finding.Subject,
+                            rule = ex.Finding.Rule,
+                        },
+                    });
+                }
+                catch (DefinitionProvenanceException ex)
+                {
+                    return Results.UnprocessableEntity(new { code = ex.Code });
+                }
+
+                return Results.Ok(new SaveFormDefinitionResponse(formId, version.ToString()));
+            }
         });
 
         // GET /api/local-node/forms/definitions/{formId}/versions — the form's version HISTORY
@@ -583,36 +603,60 @@ public static class FormDefinitionRoutes
                 return Results.NotFound(new { code = "form_definition.revision_not_found", detail = new { formId, version = request.Version } });
             }
 
-            // Mint the next patch off the HIGHEST existing revision (published OR draft), so a
-            // restored draft never collides with a later revision. Shares MintNextVersionAsync with
-            // the PUT save so the two mint IDENTICALLY — closing the divergence class the #1686 deep
-            // review flagged (restore minted max-of-all while PUT minted published-head).
-            var newVersion = await MintNextVersionAsync(store, tenant, id, ct).ConfigureAwait(false);
+            return await AdmitCurrentAsync(store, tenant, id, now,
+                () => NodeDefinitionWrites.ExecuteDeclaredAsync(formId, source.ContractWindow, now,
+                    () => NodeDefinitionWrites.ExecuteDeclaredAsync(formId, request.ContractWindow, now, WriteAsync)), ct)
+                .ConfigureAwait(false);
 
-            var restored = source with
+            async ValueTask<IResult> WriteAsync()
             {
-                Version = newVersion,
-                Status = FormDefinitionStatus.Draft,
-                Owner = owner,
-                Lineage = new FormDefinitionLineage(id, sourceVersion),
-                CreatedAt = now,
-                UpdatedAt = now,
-            };
+                // Mint the next patch off the HIGHEST existing revision (published OR draft), so a
+                // restored draft never collides with a later revision. Shares MintNextVersionAsync with
+                // the PUT save so the two mint IDENTICALLY — closing the divergence class the #1686 deep
+                // review flagged (restore minted max-of-all while PUT minted published-head).
+                var newVersion = await MintNextVersionAsync(store, tenant, id, ct).ConfigureAwait(false);
 
-            try
-            {
-                // RegisterAsync only — a restored revision lands as a DRAFT (never auto-published).
-                // The lineage parent (the source revision) exists, so the store's parent-must-exist
-                // validation passes.
-                await store.RegisterAsync(restored, decision, ct).ConfigureAwait(false);
+                var restored = source with
+                {
+                    Version = newVersion,
+                    Status = FormDefinitionStatus.Draft,
+                    Owner = owner,
+                    Lineage = new FormDefinitionLineage(id, sourceVersion),
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                };
+
+                try
+                {
+                    // RegisterAsync only — a restored revision lands as a DRAFT (never auto-published).
+                    // The lineage parent (the source revision) exists, so the store's parent-must-exist
+                    // validation passes.
+                    await store.RegisterAsync(restored, decision, ct).ConfigureAwait(false);
+                }
+                catch (FormDefinitionConflictException)
+                {
+                    return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = newVersion.ToString() } });
+                }
+
+                return Results.Ok(new SaveFormDefinitionResponse(formId, newVersion.ToString()));
             }
-            catch (FormDefinitionConflictException)
-            {
-                return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = newVersion.ToString() } });
-            }
-
-            return Results.Ok(new SaveFormDefinitionResponse(formId, newVersion.ToString()));
         });
+    }
+
+    // Both the published head and latest draft can govern authoring; a restore must not
+    // bypass either by choosing an older, unwindowed source revision.
+    private static async ValueTask<IResult> AdmitCurrentAsync(
+        AuthorizedFormDefinitionLifecycle store, TenantId tenant, FormDefinitionId id,
+        DateTimeOffset observedAt, Func<ValueTask<IResult>> write, CancellationToken ct)
+    {
+        var published = await store.GetCurrentPublishedAsync(new DefinitionAddress(tenant, id.Value), ct)
+            .ConfigureAwait(false);
+        var draft = await LatestDraftAsync(store, tenant, id, ct).ConfigureAwait(false);
+        if (published is not null && draft is not null && draft.Version.CompareTo(published.Version) <= 0)
+            draft = null;
+        return await NodeDefinitionWrites.ExecuteDeclaredAsync(id.Value, published?.ContractWindow ?? default,
+            observedAt, () => NodeDefinitionWrites.ExecuteDeclaredAsync(id.Value, draft?.ContractWindow ?? default,
+                observedAt, write)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1459,7 +1503,8 @@ public sealed record SaveFormDefinitionRequest(
     [property: JsonPropertyName("overlay")] OverlayDto Overlay,
     [property: JsonPropertyName("fieldsMeta")] IReadOnlyDictionary<string, FieldMetaDto>? FieldsMeta,
     [property: JsonPropertyName("draft"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Draft = null,
-    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null);
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null,
+    [property: JsonPropertyName("contractWindow"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] JsonElement ContractWindow = default);
 
 /// <summary>Per-field schema-synthesis metadata the overlay intentionally omits
 /// (type / required / validations / enum values live below the overlay, on the
@@ -1528,7 +1573,8 @@ public sealed record FormDefinitionDto(
     // NEWER draft when one exists (see FormDefinitionSummaryDto).
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("latestDraftVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LatestDraftVersion = null,
-    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null)
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null,
+    [property: JsonPropertyName("contractWindow"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] JsonElement ContractWindow = default)
 {
     public static FormDefinitionDto From(FormDefinition def, string? latestDraftVersion = null) => new(
         def.Id.Value,
@@ -1537,7 +1583,8 @@ public sealed record FormDefinitionDto(
         def.Envelope.CascadeLayer.ToString(),
         def.Status.ToString(),
         latestDraftVersion,
-        def.CatalogueFieldSource);
+        def.CatalogueFieldSource,
+        def.ContractWindow);
 }
 
 /// <summary>One revision in a form's version history (GET .../versions) — F-22, item 7.
@@ -1573,7 +1620,8 @@ public sealed record FormVersionSummaryDto(
 /// <summary>The restore request body (POST .../restore) — the version to restore as a new
 /// draft. Mirrors the Harborline App <c>restoreVersion</c> call.</summary>
 public sealed record RestoreVersionRequest(
-    [property: JsonPropertyName("version")] string Version);
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("contractWindow"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] JsonElement ContractWindow = default);
 
 /// <summary>The Harborline overlay on the wire (authoring side).</summary>
 public sealed record OverlayDto(
