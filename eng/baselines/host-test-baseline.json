@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "72ed61cedd71fd965db62626d4eb310c39ae32e0",
-  "recordedAt": "2026-09-19T21:41:39Z",
+  "sourcePin": "b1b62e3b72a2d9b8e183341c824506f3edf8bee0",
+  "recordedAt": "2026-09-20T01:23:00Z",
   "totals": {
-    "total": 4407,
-    "passed": 4386,
+    "total": 4411,
+    "passed": 4390,
     "failed": 0,
     "notExecuted": 21
   },
@@ -48,7 +48,8 @@
     "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Windows moves by +14 total and +14 passed. The PR gate is the measurement of record.",
     "T-576 Windows re-measure: the +14 repin was taken from test discovery; the Windows gate host measures 4372 total, 4350 passed, 0 failed, 22 not executed on main 7b49027f (full host suite, 5 m 4 s, 2026-09-17). Pinned to the measurement.",
     "T-519, T-522 and T-530 integration with the T-576 baseline correction: the quality-enabled all-lane gate on 4d4c9810 measured 4383 total, 4362 passed, 0 failed and 21 not executed in 12 m 4 s. Relative to corrected main, these admission changes add 11 executions, make one previously skipped capability-linked case execute, and add 12 passes. No failure, permitted-failure or retry allowance changed. The merged-head gate must confirm this measured tuple.",
-    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch alone (host-lane gate receipt on 1efe27b6); merged over T-642 s1 (4389) the expectation is 4403/4382/0/21, confirmed by the host-lane gate on the merged tree before landing (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change."
+    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch alone (host-lane gate receipt on 1efe27b6); merged over T-642 s1 (4389) the expectation is 4403/4382/0/21, confirmed by the host-lane gate on the merged tree before landing (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change.",
+    "T-524 availability runtime and booking consumer: PR adds four host cases - one CalendarRouteTests case fencing the gate on the availability read (an unauthenticated free/busy read, and a malformed window from the same caller, are both 403) and three SchedulingDefinitionRouteTests cases fencing the booking contract (attribution to the authenticated requester and two requesters recorded distinctly, the NO_REQUESTER refusal writing nothing, and the two-concurrent-bookings contention probe yielding exactly one success) - so every host moves by +4 total and +4 passed. The quality-enabled all-lane Windows gate on b1b62e3b measured 4411 total, 4390 passed, 0 failed and 21 not executed; pinned to that measurement. Failure, permitted-failure, skip, known-flaky and retry policies are unchanged. Three existing calendar fixtures compose the real AuthorizationGate and one existing appointment case is re-graded to the runtime rule (supply containment on the visible interval, occupancy on the buffered footprint, DES-0033 open question 8); neither changes a count."
   ],
   "permittedFailures": [],
   "knownFlaky": [
