@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 // Compares quality finding sets without treating a line-only move as a new diagnostic.
 import {existsSync, readFileSync} from 'node:fs'
-import path from 'node:path'
-import {fileURLToPath} from 'node:url'
 
 const emptySnippet = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 const document = file => JSON.parse(readFileSync(file, 'utf8')).findings ?? []
@@ -74,7 +72,7 @@ export const compareFindings = (head, base, diff = '') => {
 // see eng/quality-baseline-landing.sh for the measurement that retired it.
 export const loadBaseline = committed => ({findings: document(committed), source: 'committed baseline'})
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/quality-baseline-compare.mjs')) {
   const [candidate, baseline, diff = ''] = process.argv.slice(2)
   if (!candidate || !baseline) throw new Error('usage: quality-baseline-compare.mjs <candidate> <baseline> [diff]')
   const result = compareFindings(document(candidate), document(baseline), diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '')
