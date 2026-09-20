@@ -94,11 +94,10 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
             parties: null!,
             activeTeam,
             new FixedCurrentUser(),
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System);
 
         await _app.StartAsync(CancellationToken.None);

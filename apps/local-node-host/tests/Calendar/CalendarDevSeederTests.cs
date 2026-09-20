@@ -11,9 +11,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Harborline.Api.Blocks.Calendar.DependencyInjection;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.DependencyInjection;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -234,7 +234,7 @@ public sealed class CalendarDevSeederTests
                 app.Services.GetRequiredService<ICalendarParticipantCalendarQuery>(),
                 app.Services.GetRequiredService<ICalendarEventStore>(),
                 app.Services.GetRequiredService<ICalendarEventExpansionService>(),
-                app.Services.GetRequiredService<IFreeBusyService>(),
+                app.Services.GetRequiredService<IAvailabilityRuntime>(),
                 activeTeam);
 
             await app.StartAsync();

@@ -1407,7 +1407,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             SchedulingDefinitionRoutes.Map(
                 routes.MapDeviceReachableProductDataGroup(),
                 schedulingStore, new SchedulingDraftValidator(), null!, activeTeam,
-                new SurfaceCurrentUser(), null!, null!, null!, null!, null!, TimeProvider.System);
+                new SurfaceCurrentUser(), null!, null!, null!, null!, TimeProvider.System);
         });
         await app.StartAsync(CancellationToken.None);
 

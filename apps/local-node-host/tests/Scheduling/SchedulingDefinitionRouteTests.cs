@@ -13,8 +13,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.People.Foundation.Data;
-using Harborline.Api.Blocks.Calendar.Services;
-using Harborline.Api.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Assets.Common;
@@ -97,11 +97,10 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         SchedulingDefinitionRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             store, _validator, _parties, _activeTeam, _principal,
-            _app.Services.GetRequiredService<IBookingService>(),
+            _app.Services.GetRequiredService<IServiceScopeFactory>(),
             _app.Services.GetRequiredService<ICalendarEventStore>(),
             _app.Services.GetRequiredService<ICalendarStore>(),
-            _app.Services.GetRequiredService<IResourceAvailabilityStore>(),
-            _app.Services.GetRequiredService<IFreeBusyService>(), _clock);
+            _app.Services.GetRequiredService<IResourceAvailabilityStore>(), _clock);
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();

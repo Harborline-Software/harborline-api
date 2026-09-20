@@ -195,14 +195,11 @@
     <ProjectReference Include="../../packages/foundation-data-exchange-definitions/Harborline.Foundation.DataExchangeDefinitions.csproj" />
     <ProjectReference Include="../../packages/foundation-view-definitions/Harborline.Foundation.ViewDefinitions.csproj" />
     <ProjectReference Include="../../packages/foundation-schedule-definitions/Harborline.Foundation.ScheduleDefinitions.csproj" />
-    <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24, inc-0). blocks-calendar carries
-         the temporal core + free/busy + availability over foundation-scheduling (the shipped RRULE
-         expander) + foundation-assets-common (TenantId / ParticipantRef). The node authors a
-         node-exclusive NodeLocalCalendarDbContext + NodeEf stores over local-node.db (Pattern B) and
-         overrides the block's in-memory default. blocks-calendar is a pure-domain block (no EF, no
-         kernel CRDT writer), so this adds no new kernel CRDT-writer TypeRef — the SC4-T9(b) Layer-1 IL
-         scan stays green. -->
-    <ProjectReference Include="..\..\packages\blocks-calendar\Harborline.Blocks.Calendar.csproj" />
+    <!-- Calendar (T-524, ADR 0096 ruling 3): the availability runtime and the booking contract are
+         consumed from the platform package; the api copy at packages/blocks-calendar is retired. The
+         node authors a node-exclusive NodeLocalCalendarDbContext + NodeEf stores over local-node.db
+         (Pattern B) and overrides the block's in-memory defaults. -->
+    <PackageReference Include="Harborline.Blocks.Calendar" />
     <!-- WEB-CLIENT profile (DOGFOOD.md gap #1): reuse the ADR-0099 session STORE + TTL substrate
          and the ADR-0097 Argon2id password hasher for the node's browser roster login, rather than
          reinventing session/crypto. Only the store half of foundation-session is used (bearer

@@ -135,7 +135,7 @@
     <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24): the durable-store + route tests
          construct CalendarEvent / ResourceAvailability / ParticipantRef directly + reference the block's
          query/free-busy services. -->
-    <ProjectReference Include="..\..\..\packages\blocks-calendar\Harborline.Blocks.Calendar.csproj" />
+    <PackageReference Include="Harborline.Blocks.Calendar" />
   </ItemGroup>
 
   <!-- Issue 2089: use the same digest gate and RID-specific output staging as the production host. -->

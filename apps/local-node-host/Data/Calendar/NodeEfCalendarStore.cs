@@ -2,8 +2,8 @@ using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
 
 namespace Harborline.Api.LocalNodeHost.Data.Calendar;

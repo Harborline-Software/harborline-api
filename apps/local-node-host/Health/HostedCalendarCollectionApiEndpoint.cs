@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 
 namespace Harborline.Api.LocalNodeHost.Health;

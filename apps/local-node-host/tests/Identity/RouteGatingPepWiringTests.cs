@@ -95,11 +95,10 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
             parties: null!,
             activeTeam,
             currentUser,
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System));
         await _app.StartAsync(CancellationToken.None);
         _client = new HttpClient { BaseAddress = new Uri(_app.SelectedUrl!) };

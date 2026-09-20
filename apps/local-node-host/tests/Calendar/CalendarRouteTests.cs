@@ -9,9 +9,9 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-using Harborline.Api.Blocks.Calendar.DependencyInjection;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.DependencyInjection;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -92,7 +92,7 @@ public sealed class CalendarRouteTests : IAsyncLifetime
             _app.Services.GetRequiredService<ICalendarParticipantCalendarQuery>(),
             _app.Services.GetRequiredService<ICalendarEventStore>(),
             _app.Services.GetRequiredService<ICalendarEventExpansionService>(),
-            _app.Services.GetRequiredService<IFreeBusyService>(),
+            _app.Services.GetRequiredService<IAvailabilityRuntime>(),
             _activeTeam);
 
         await _app.StartAsync();
