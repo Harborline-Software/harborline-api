@@ -191,7 +191,8 @@ public static class CalendarRoutes
             // a refused caller learns nothing about either.
             var tenantId = NodeTenant.Resolve(activeTeam);
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenantId, Permission.SchedulingRead, RouteRecord.TheInstall, ct) is { } denied)
+                    http, tenantId, Permission.SchedulingRead, RouteRecord.TheInstall, ct)
+                    .ConfigureAwait(false) is { } denied)
                 return denied;
 
             if (!TryParseResource(resource, out var resourceRef, out var resourceError))
