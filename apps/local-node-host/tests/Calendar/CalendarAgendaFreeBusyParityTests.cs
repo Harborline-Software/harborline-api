@@ -47,6 +47,9 @@ public sealed class CalendarAgendaFreeBusyParityTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.
+        builder.Services.AddTestKernelClock();
+        builder.Services.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.AllowAll());
         builder.Services.AddBlocksCalendar();
 
         var app = builder.Build();
@@ -139,6 +142,9 @@ public sealed class CalendarAgendaFreeBusyParityTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.
+        builder.Services.AddTestKernelClock();
+        builder.Services.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.AllowAll());
         builder.Services.AddBlocksCalendar();
 
         var app = builder.Build();

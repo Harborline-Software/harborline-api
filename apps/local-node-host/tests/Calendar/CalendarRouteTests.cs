@@ -13,9 +13,11 @@ using Harborline.Blocks.Calendar.DependencyInjection;
 using Harborline.Blocks.Calendar.Models;
 using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -50,12 +52,20 @@ public sealed class CalendarRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
+    private readonly HashSet<string> _held = new(StringComparer.Ordinal) { Permission.SchedulingRead };
 
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+
+        // T-524: the free/busy read is a gated availability read, so the fixture composes the same real
+        // AuthorizationGate the production PEP resolves. _held is what the caller holds; a test that
+        // empties it is an unauthenticated caller.
+        builder.Services.AddTestKernelClock();
+        builder.Services.AddSingleton(
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(_held.Contains));
 
         // The calendar block (in-memory stores + the query / expansion / free-busy services).
         builder.Services.AddBlocksCalendar();
@@ -211,6 +221,30 @@ public sealed class CalendarRouteTests : IAsyncLifetime
     {
         var doc = await _client.GetFromJsonAsync<JsonElement>(Q($"{Base}/free-busy", "asset:room-7"));
         Assert.Equal(0, doc.GetProperty("freeSlots").GetArrayLength());
+    }
+
+    [Fact(DisplayName = "free-busy: an unauthenticated availability read is refused before the window is read")]
+    public async Task FreeBusy_Unauthenticated_IsRefused()
+    {
+        _held.Clear();
+        try
+        {
+            // The window and the resource are both well-formed: the only reason this can fail is the gate.
+            var resp = await _client.GetAsync(Q($"{Base}/free-busy", "party:party-dr-smith"));
+            Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("authorization.permission_required", body.GetProperty("code").GetString());
+            Assert.Equal(Permission.SchedulingRead, body.GetProperty("permission").GetString());
+
+            // A malformed window is refused the same way — the gate runs before anything is parsed, so a
+            // refused caller cannot tell a bad window from a good one.
+            var malformed = await _client.GetAsync($"{Base}/free-busy?resource=party:party-dr-smith");
+            Assert.Equal(HttpStatusCode.Forbidden, malformed.StatusCode);
+        }
+        finally
+        {
+            _held.Add(Permission.SchedulingRead);
+        }
     }
 
     // ── server-side tenant + cross-tenant isolation ────────────────────────────────────────────────
