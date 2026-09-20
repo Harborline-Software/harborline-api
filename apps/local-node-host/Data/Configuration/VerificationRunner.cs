@@ -89,13 +89,23 @@ public sealed class VerificationRunner
     private readonly ConfigurationActivationTarget _target;
     private readonly DurablePackInstallStore _packs;
     private readonly TimeProvider _time;
+    private readonly Func<DateTimeOffset, TimeProvider> _fixtureClock;
 
-    /// <summary>Composes the runner over the host's candidate reader and its durable pack store.</summary>
-    public VerificationRunner(ConfigurationActivationTarget target, DurablePackInstallStore packs, TimeProvider time)
+    /// <summary>Composes the runner over the host's candidate reader, its durable pack store and its clocks.</summary>
+    /// <param name="time">The host clock, which stamps only when the run started and completed.</param>
+    /// <param name="fixtureClock">
+    /// Makes the clock a case runs at, from the instant its fixture declared. The runner does not
+    /// define one: ticket 216 puts every clock in the host composition root, and a fixture's virtual
+    /// instant is still a clock, so the root supplies this factory rather than the runner deriving
+    /// its own <see cref="TimeProvider"/>.
+    /// </param>
+    public VerificationRunner(ConfigurationActivationTarget target, DurablePackInstallStore packs,
+        TimeProvider time, Func<DateTimeOffset, TimeProvider> fixtureClock)
     {
         _target = target ?? throw new ArgumentNullException(nameof(target));
         _packs = packs ?? throw new ArgumentNullException(nameof(packs));
         _time = time ?? throw new ArgumentNullException(nameof(time));
+        _fixtureClock = fixtureClock ?? throw new ArgumentNullException(nameof(fixtureClock));
     }
 
     /// <summary>Every engine that produced an observation, including the catalogue that defined them.</summary>
@@ -235,7 +245,7 @@ public sealed class VerificationRunner
         // Authority allowed the act; whether it is ACCEPTED is now the candidate's own rules' answer.
         // A closed save gate is refused under the engine's own released code rather than a second
         // vocabulary invented here, because the engine already named that fault.
-        var record = candidate.Evaluate(recordType, values, fixture, out var blocked);
+        var record = candidate.Evaluate(recordType, values, _fixtureClock(fixture.Instant), out var blocked);
         return blocked is { } fault
             ? new Observed(false, fault.Code, fault.Pointer, "allowed", record, [])
             : new Observed(true, string.Empty, string.Empty, "allowed", record, ["records.created"]);

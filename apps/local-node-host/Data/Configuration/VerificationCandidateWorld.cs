@@ -123,59 +123,62 @@ internal sealed class VerificationCandidateWorld
     internal async ValueTask<VerificationAuthorityWorld> OpenAsync(VerificationFixture fixture,
         CancellationToken cancellationToken)
     {
-        // The world is composed installer-first: the definition writer's OWN authority is a
-        // composition detail of building the world, so it is answered by a gate that admits the
-        // candidate's declarations and nothing else. No observation is ever taken from it — every
-        // decision a case reads comes from the real gate constructed below, over this world's
-        // closure. Registering it before the module means the module's TryAdd leaves it in place.
-        var installerAuthority = new CandidateInstallerAuthority();
+        // Nothing here constructs a gate or reads a closure: the module composes the REAL gate over
+        // its own real readers, and the only thing registered ahead of it is the roster fact the
+        // fixture declares. Ticket 199's fence says production may not mint an authorization closure
+        // of its own, and a verification world has no business being the one exception.
         var services = new ServiceCollection();
-        var roster = new VerificationRosterConstraintReader();
-        services.AddSingleton<IAuthorizationRosterConstraintReader>(roster);
-        services.AddSingleton(new AuthorizationGate(installerAuthority, new EmptyRecordStandingResolver(),
-            installerAuthority, roster));
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(new VerificationRosterConstraintReader());
         var provider = services.AddAccessGrantModule().BuildServiceProvider();
         try
         {
+            // The world is bootstrapped the way an install bootstraps: the released founding
+            // definitions, through the seed's own path, into a world whose grant history is empty.
+            // That is what makes grant:permissions below a real decision rather than an assertion.
+            // It confers nothing on the fixture's actor: the seed offers records:write to the member
+            // and node-operator roles, and the actor holds a grant for neither.
+            await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
+                .InstallAsync(_tenant, fixture.Instant, AuthorizationSeedProfile.Production, cancellationToken)
+                .ConfigureAwait(false);
+
             var vocabulary = provider.GetRequiredService<IRoleVocabularyStore>();
             foreach (var role in _roles) await vocabulary.InstallAsync(role, cancellationToken).ConfigureAwait(false);
 
+            var grants = provider.GetRequiredService<IGrantStore>();
+            var issued = fixture.Instant.AddTicks(-1);
+
+            // Installing the candidate's declarations is composition, and the principal that performs
+            // it is NOT the fixture's actor: it holds this world's Administrator grant, the actor
+            // holds only what the fixture declared, and the two never meet. The definition writer
+            // then decides grant:permissions through the same real gate every case is measured by,
+            // so even composition is an admitted act rather than an asserted one.
+            var composer = new ActorId("verification:candidate-authority");
+            await grants.AppendAsync(_tenant, Grant(composer, RoleReference.Administrator,
+                ScopeExpression.Parse("/"), issued), "verification:composition", cancellationToken)
+                .ConfigureAwait(false);
+
             // The candidate's capability bindings, through the ordinary admitted write stages: a
             // pack's offered roles are the publisher ceiling and are bounded by every rule
-            // AuthorizationDefinitionAdmission holds, exactly as they are at install. The platform
-            // seed is deliberately NOT installed — a verification world holds the candidate's
-            // authority, not the install's, or a run would pass on authority the candidate never
-            // declared.
+            // AuthorizationDefinitionAdmission holds, exactly as they are at install.
             var writer = provider.GetRequiredService<AuthorizationDefinitionWriter>();
-            var installer = new AuthorizationWriteContext(
-                new ActorId("verification:candidate-authority"), _tenant, fixture.Instant);
+            var installer = new AuthorizationWriteContext(composer, _tenant, fixture.Instant);
             foreach (var binding in _bindings)
                 await writer.WriteAsync(new InstallAuthorizationDefinition(binding), installer, cancellationToken)
                     .ConfigureAwait(false);
 
             // The fixture's declared authority, and only it. An actor with an empty grants list is an
             // actor that holds nothing, which is a declared input rather than an oversight.
-            var grants = provider.GetRequiredService<IGrantStore>();
             var actor = new ActorId(fixture.Actor);
-            var issued = fixture.Instant.AddTicks(-1);
             foreach (var grant in fixture.Grants)
-                await grants.AppendAsync(_tenant, new AccessGrant(GrantId.New(), _tenant, actor,
-                    Role(grant.RoleKey), ScopeExpression.Parse(Scope(grant.Scope)), GrantResidency.Cache,
-                    new GrantValidity(issued), GranterKind.Person, new ActorId("verification:fixture"), issued,
-                    new GrantProvenance(GrantSourceKind.Manual, new GrantReason(GrantReasonCodes.Manual),
-                        new ActorId("verification:fixture")), issued),
+                await grants.AppendAsync(_tenant,
+                    Grant(actor, Role(grant.RoleKey), ScopeExpression.Parse(Scope(grant.Scope)), issued),
                     // One source reference per declared grant: the store treats a repeated reference as
                     // an attempt to replace immutable evidence, and a fixture may declare two roles.
                     $"{fixture.FixtureId}:{grant.RoleKey}@{grant.Scope}", cancellationToken).ConfigureAwait(false);
 
-            // The REAL gate over this world's closure and definitions — constructed over the same
-            // readers the host composes it from, never a stand-in that answers uniformly.
-            var gate = new AuthorizationGate(
-                provider.GetRequiredService<IAuthorizationClosureSnapshotReader>(),
-                provider.GetRequiredService<IRecordStandingResolver>(),
-                provider.GetRequiredService<IAuthorizationDefinitionAtomReader>(),
-                provider.GetRequiredService<IAuthorizationRosterConstraintReader>());
-            return new VerificationAuthorityWorld(provider, gate, _tenant);
+            // The REAL gate the module composed over its own readers, resolved rather than built.
+            return new VerificationAuthorityWorld(
+                provider, provider.GetRequiredService<AuthorizationGate>(), _tenant);
         }
         catch
         {
@@ -233,14 +236,18 @@ internal sealed class VerificationCandidateWorld
     /// the runner does not author a second vocabulary for a fault the engine already names, and the
     /// pointer addresses the cell the engine named.
     /// </param>
-    internal JsonObject Evaluate(string recordType, JsonObject values, VerificationFixture fixture,
+    /// <param name="clock">
+    /// The fixture's virtual instant, as a clock. Every <c>date.*</c> the candidate's rules read
+    /// resolves here. The runner never makes one: ticket 216 puts every clock in the host
+    /// composition root, and this one arrives from there through the runner's own factory.
+    /// </param>
+    internal JsonObject Evaluate(string recordType, JsonObject values, TimeProvider clock,
         out VerificationRuleBlock? blocked)
     {
         var record = values.DeepClone().AsObject();
         blocked = null;
         if (Form(recordType) is not { Overlay.Rules.Count: > 0 } form) return record;
-        var graph = new FormRuleGraph(RuleCompiler.Compile([.. form.Overlay.Rules]),
-            clock: new VerificationClock(fixture.Instant));
+        var graph = new FormRuleGraph(RuleCompiler.Compile([.. form.Overlay.Rules]), clock: clock);
         var result = graph.EvaluateInstance(RuleInstance.FromJson(record.DeepClone().AsObject()));
         foreach (var (key, computed) in result.Values)
         {
@@ -280,6 +287,14 @@ internal sealed class VerificationCandidateWorld
         return _forms.FirstOrDefault(entry =>
             entry.Key.EndsWith('/' + recordType, StringComparison.Ordinal)).Value;
     }
+
+    // One declared holding, as the released grant shape: a manual grant by a named granter, valid
+    // from just before the fixture's instant so it is in force for the act and not a moment earlier.
+    private AccessGrant Grant(ActorId holder, RoleReference role, ScopeExpression scope,
+        DateTimeOffset issued) => new(GrantId.New(), _tenant, holder, role, scope, GrantResidency.Cache,
+        new GrantValidity(issued), GranterKind.Person, new ActorId("verification:fixture"), issued,
+        new GrantProvenance(GrantSourceKind.Manual, new GrantReason(GrantReasonCodes.Manual),
+            new ActorId("verification:fixture")), issued);
 
     private static bool Intersects(IReadOnlySet<string> held, IReadOnlyList<string>? required) =>
         required is { Count: > 0 } && required.Any(held.Contains);
@@ -333,21 +348,6 @@ internal sealed class VerificationCandidateWorld
         }
     }
 
-    /// <summary>The fixture's virtual clock. Every <c>date.*</c> the candidate's rules read resolves here.</summary>
-    private sealed class VerificationClock(DateTimeOffset instant) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => instant;
-    }
-
-    /// <summary>
-    /// The authority for BUILDING one verification world, and for nothing else. Admitting the
-    /// candidate's own declarations into an empty in-memory world is composition, not an act inside
-    /// the world: there is no principal in a fresh world who could hold <c>grant:permissions</c>,
-    /// and seeding one would put authority into the world that the candidate never declared. So
-    /// this answers the writer's own authorize stage and the real gate the case is measured by is a
-    /// different object over this world's actual closure — it cannot see this one and never
-    /// consults it.
-    /// </summary>
     /// <summary>
     /// The roster facts of the declared world. A fixture states its acting persona and the authority
     /// that persona holds, and the gate's fail-closed floor for a composition with no roster is an
@@ -364,37 +364,6 @@ internal sealed class VerificationCandidateWorld
             ValueTask.FromResult<AuthorizationRosterInputs?>(
                 new(principal.Value, Member: true, Ejected: false) { RegistryMember = true });
     }
-
-    private sealed class CandidateInstallerAuthority
-        : IAuthorizationClosureSnapshotReader, IAuthorizationDefinitionAtomReader
-    {
-        // The act last put to this source. One world is composed on one thread before any case runs,
-        // so there is exactly one act in flight; nothing observable is read back from here.
-        private PermissionAtom? _requested;
-
-        public ValueTask<AuthorizationClosureSnapshot> ReadAsync(AuthorizationGateRequest request,
-            CancellationToken ct = default)
-        {
-            ArgumentNullException.ThrowIfNull(request);
-            ct.ThrowIfCancellationRequested();
-            _requested = request.Act;
-            return ValueTask.FromResult(new AuthorizationClosureSnapshot(
-            [
-                new AuthorizationAtomDerivation(request.Act, RoleReference.Administrator,
-                    "verification:composition", 1, "verification:composition", request.Target.Scope,
-                    request.At.AddTicks(-1), null),
-            ]));
-        }
-
-        public ValueTask<IReadOnlyList<PermissionAtom>> AtomsForRoleAsync(TenantId tenantId,
-            RoleReference role, CancellationToken ct = default)
-        {
-            ct.ThrowIfCancellationRequested();
-            IReadOnlyList<PermissionAtom> atoms =
-                role == RoleReference.Administrator && _requested is { } atom ? [atom] : [];
-            return ValueTask.FromResult(atoms);
-        }
-    }
 }
 
 /// <summary>Why the released save gate closed: the engine's own code, and the cell it named.</summary>
@@ -404,7 +373,7 @@ internal sealed record VerificationRuleBlock(string Code, string Pointer);
 internal sealed class VerificationAuthorityWorld(ServiceProvider provider, AuthorizationGate gate, TenantId tenant)
     : IAsyncDisposable
 {
-    /// <summary>The real gate over this world's closure, definitions and grants.</summary>
+    /// <summary>The real gate the access-grant module composed over this world's own readers.</summary>
     internal AuthorizationGate Gate { get; } = gate;
 
     /// <summary>The tenant every decision in this world is scoped to.</summary>
