@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Merge;
 using Harborline.Api.Foundation.Packs.Model;
@@ -37,14 +39,18 @@ public static class PackNavigationRoutes
         IEndpointRouteBuilder app,
         IPackInstallStore store,
         IActiveTeamAccessor activeTeam,
+        AuthorizationGate gate,
+        TimeProvider time,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(gate);
+        ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
 
-        app.MapGet(NavigationRoute, (HttpContext http) =>
+        app.MapGet(NavigationRoute, async (HttpContext http, CancellationToken ct) =>
         {
             http.Response.Headers.CacheControl = "no-store";
             var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
@@ -67,8 +73,55 @@ public static class PackNavigationRoutes
 
             return Results.Ok(new PackNavigationResponseDto(
                 Configured: result.Pack is not null,
-                Pack: result.Pack));
+                Pack: await ConfigurationNavigationAudience
+                    .ScopeAsync(result.Pack, http, tenant, gate, time, ct)
+                    .ConfigureAwait(false)));
         });
+    }
+
+    /// <summary>
+    /// T-657 — the configuration workspace is projected only to the audience of the routes behind it.
+    /// </summary>
+    /// <remarks>
+    /// The configuration activation routes (<see cref="ConfigurationActivationRoutes"/>) are mapped on the
+    /// selected-session-product audience and each resolves <c>packages:operate</c> install-wide at its point
+    /// of use. This navigation route is mapped on the wider device-reachable audience, so the entry is
+    /// scoped here rather than by the route family it rides on: a LAN device caller, and any caller the gate
+    /// does not admit for that operation, is not shown a destination the server would refuse. Menu
+    /// visibility remains courtesy UX — the routes re-decide the same operation on every call, and this
+    /// filter can only hide the entry, never open one.
+    /// </remarks>
+    internal static class ConfigurationNavigationAudience
+    {
+        /// <summary>The workspace the platform pack contributes for the governed configuration loop.</summary>
+        internal const string WorkspaceId = "configuration";
+
+        /// <summary>The navigation item id both app shells mount the activation surface on.</summary>
+        internal const string ItemId = "configuration.activation";
+
+        /// <summary>The operation the entry's audience requires, install-wide: <c>packages:operate</c>.</summary>
+        internal static AuthorizationOperation Operation => PackOperation.Operate;
+
+        internal static async ValueTask<PackNavigationPackDto?> ScopeAsync(
+            PackNavigationPackDto? pack,
+            HttpContext http,
+            TenantId tenant,
+            AuthorizationGate gate,
+            TimeProvider time,
+            CancellationToken ct)
+        {
+            if (pack is null || !pack.SeedWorkspaces.Any(workspace => workspace.Id == WorkspaceId))
+                return pack;
+            if (SelectedSessionProductRouteFence.IsInAudience(http)
+                && await PackRouteAuthorization.RefusalAsync(
+                    gate, PackRouteAuthorization.Authority(http, tenant, time), Operation, null, ct)
+                    .ConfigureAwait(false) is null)
+                return pack;
+            return pack with
+            {
+                SeedWorkspaces = [.. pack.SeedWorkspaces.Where(workspace => workspace.Id != WorkspaceId)],
+            };
+        }
     }
 
     internal static class Codes

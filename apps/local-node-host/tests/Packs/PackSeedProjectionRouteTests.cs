@@ -164,6 +164,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             _app.MapDeviceReachableProductDataGroup(),
             _packStore,
             _activeTeam,
+            authz,
+            TimeProvider.System,
             NullLogger.Instance);
         AssetRegistryRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),

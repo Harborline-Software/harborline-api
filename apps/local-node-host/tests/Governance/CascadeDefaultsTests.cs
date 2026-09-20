@@ -68,7 +68,7 @@ public sealed class CascadeDefaultsTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.4.0", request.Version);
+        Assert.Equal("1.5.0", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
@@ -81,7 +81,10 @@ public sealed class CascadeDefaultsTests
         Assert.Null(declaration.Field);
         Assert.True(declaration.Values.TrackChanges);
         Assert.Equal(39, request.Contents.Count(item => item.Kind == PackContentKind.ViewDefinition));
-        Assert.Single(request.Contents, item => item.Kind == PackContentKind.NavWorkspaceConfig);
+        Assert.Equal(
+            new[] { "platform.configuration", "platform.workshop" },
+            request.Contents.Where(item => item.Kind == PackContentKind.NavWorkspaceConfig)
+                .Select(item => item.Key).Order(StringComparer.Ordinal).ToArray());
 
         var store = new InMemoryPackInstallStore();
         var defaults = new ActiveCascadeDefaultsProjection();

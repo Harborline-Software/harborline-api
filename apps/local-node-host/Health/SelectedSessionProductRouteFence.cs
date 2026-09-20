@@ -40,10 +40,7 @@ internal static class SelectedSessionProductRouteFence
             return Results.NotFound();
         }
 
-        var features = context.HttpContext.Features;
-        if (features.Get<DesktopPlaneRequestFeature>() is not null ||
-            features.Get<SelectedSessionRequestPrincipal>() is not null ||
-            features.Get<SingleHostTrustedRequestFeature>() is not null)
+        if (IsInAudience(context.HttpContext))
         {
             return await next(context).ConfigureAwait(false);
         }
@@ -51,6 +48,20 @@ internal static class SelectedSessionProductRouteFence
         return Results.Json(
             new { code = UnavailableCode },
             statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="http"/> is in this audience. The fence itself asks this to admit a request;
+    /// a wider-audience route asks it to scope one entry of its projection to this narrower audience, so
+    /// that entry never reaches a caller the routes behind it would refuse (T-657).
+    /// </summary>
+    internal static bool IsInAudience(HttpContext http)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        var features = http.Features;
+        return features.Get<DesktopPlaneRequestFeature>() is not null ||
+               features.Get<SelectedSessionRequestPrincipal>() is not null ||
+               features.Get<SingleHostTrustedRequestFeature>() is not null;
     }
 }
 

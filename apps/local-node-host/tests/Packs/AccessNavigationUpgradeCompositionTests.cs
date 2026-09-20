@@ -139,7 +139,8 @@ public sealed class AccessNavigationUpgradeCompositionTests
     private static async Task<JsonDocument> NavigationAsync(IServiceProvider services)
     {
         await using var app = WebApplication.CreateBuilder().Build();
-        PackNavigationRoutes.Map(app, services.GetRequiredService<IPackInstallStore>(), new ActiveTenant(services), NullLogger.Instance);
+        PackNavigationRoutes.Map(app, services.GetRequiredService<IPackInstallStore>(), new ActiveTenant(services),
+            TestPackGate.AllowAll(), TimeProvider.System, NullLogger.Instance);
         var endpoint = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>().Single(endpoint => endpoint.RoutePattern.RawText == PackNavigationRoutes.NavigationRoute);
         using var body = new MemoryStream();

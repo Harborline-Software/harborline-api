@@ -143,6 +143,8 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
             app.MapDeviceReachableProductDataGroup(),
             _store,
             _activeTeam,
+            _gate,
+            _time,
             _logger));
 
         _logger.LogInformation(

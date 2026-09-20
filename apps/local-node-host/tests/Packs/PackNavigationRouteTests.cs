@@ -264,7 +264,52 @@ public sealed class PackNavigationRouteTests
         Assert.Equal("pack.nav.bounds_exceeded", json.RootElement.GetProperty("code").GetString());
     }
 
-    private static async Task<HttpResponseMessage> GetAsync(FakeStore store, TenantId? selectedTenant = null)
+    /// <summary>
+    /// T-657 — the configuration entry's AUDIENCE is the selected-session-product audience of the
+    /// configuration activation routes, and its PERMISSION is <c>packages:operate</c>, resolved install-wide
+    /// (no record target). A caller in that audience holding it is shown the entry; the same caller without
+    /// the permission, and a LAN-device caller outside the audience, are not. Every other workspace is
+    /// unaffected, because this scopes one entry, not the projection.
+    /// </summary>
+    [Theory(DisplayName = "The configuration entry is projected only to the selected-session-product audience holding packages:operate install-wide")]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    public async Task Configuration_entry_audience_is_selected_session_product_holding_packages_operate(
+        bool inAudience, bool holdsPackagesOperate, bool projected)
+    {
+        Assert.Equal("packages:operate", PackNavigationRoutes.ConfigurationNavigationAudience.Operation.Value);
+        var store = new FakeStore(Pack("harborline.platform", PackLifecycleState.Active,
+            Nav("platform.workshop", Workspace("workshop", "workshop.workspace", "forms")),
+            Nav("platform.configuration", Workspace(
+                PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId,
+                "configuration.workspace",
+                PackNavigationRoutes.ConfigurationNavigationAudience.ItemId))));
+
+        using var response = await GetAsync(store,
+            gate: holdsPackagesOperate ? TestPackGate.AllowAll() : TestPackGate.Denying(),
+            inAudience: inAudience);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(json.RootElement.GetProperty("configured").GetBoolean());
+        var workspaces = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces")
+            .EnumerateArray().Select(workspace => workspace.GetProperty("id").GetString()).ToArray();
+        Assert.Contains("workshop", workspaces);
+        Assert.Equal(projected, workspaces.Contains(PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId));
+        if (!projected) return;
+        var items = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray()
+            .Single(workspace => workspace.GetProperty("id").GetString() == PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId)
+            .GetProperty("groups").EnumerateArray().SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+            .Select(item => item.GetString()).ToArray();
+        Assert.Equal(PackNavigationRoutes.ConfigurationNavigationAudience.ItemId, Assert.Single(items));
+    }
+
+    private static async Task<HttpResponseMessage> GetAsync(
+        FakeStore store,
+        TenantId? selectedTenant = null,
+        AuthorizationGate? gate = null,
+        bool inAudience = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_NAVIGATION_TEST_URL") ?? "http://127.0.0.1:0");
@@ -282,13 +327,18 @@ public sealed class PackNavigationRouteTests
             team, "Navigation Test", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         app.Use(async (http, next) =>
         {
-            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            // A LAN device caller reaches this route's own (wider) audience but not the configuration
+            // entry's; the desktop plane reaches both.
+            if (inAudience) http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            else http.Features.Set(LanListenerRequestFeature.Instance);
             await next(http);
         });
         PackNavigationRoutes.Map(
             app.MapDeviceReachableProductDataGroup(),
             store,
             activeTeam,
+            gate ?? TestPackGate.AllowAll(),
+            TimeProvider.System,
             NullLogger.Instance);
 
         await app.StartAsync();
