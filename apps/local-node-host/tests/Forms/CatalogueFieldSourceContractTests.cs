@@ -66,7 +66,7 @@ public sealed class CatalogueFieldSourceContractTests
         Assert.Equal(CatalogueFieldSourceContract.Fields, frozen.CatalogueFieldSource.Fields);
         var dto = JsonSerializer.SerializeToNode(FormDefinitionDto.From(frozen))!;
         Assert.True(JsonNode.DeepEquals(content["catalogueFieldSource"], dto["catalogueFieldSource"]));
-        var exported = PackFormDefinitionContent.ToContent(frozen, schema);
+        var exported = await PackFormDefinitionContent.ToContentAsync(frozen, schema);
         Assert.True(JsonNode.DeepEquals(content["catalogueFieldSource"], exported["catalogueFieldSource"]));
         Assert.True(PackFormDefinitionContent.TryParse(exported, out var imported, out error), error);
         Assert.Equal(request.CatalogueFieldSource!.Fields, imported.CatalogueFieldSource!.Fields);
@@ -86,7 +86,7 @@ public sealed class CatalogueFieldSourceContractTests
             new SemanticVersion(1, 0, 0), new TenantId("test"), IdentityRef.System, schema.Id,
             request.Overlay, DateTimeOffset.UnixEpoch);
 
-        var exported = PackFormDefinitionContent.ToContent(FormDefinitionFreezer.Freeze(definition), schema);
+        var exported = await PackFormDefinitionContent.ToContentAsync(FormDefinitionFreezer.Freeze(definition), schema);
 
         Assert.Equal("textarea", exported["overlay"]!["fields"]!["title"]!["controlHint"]!.GetValue<string>());
         Assert.Equal("radio", exported["fieldsMeta"]!["title"]!["type"]!.GetValue<string>());

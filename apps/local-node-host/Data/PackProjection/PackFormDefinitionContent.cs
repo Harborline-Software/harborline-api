@@ -25,7 +25,7 @@ internal static class PackFormDefinitionContent
     private const string MoneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
     private static readonly PlatformTenantId ProjectionTenant = new("pack-projection");
     private static readonly PackLiteralDomain LiteralDomain = new();
-    private static readonly ValueDomainRuntime FieldDomains = new(LiteralDomain, LiteralDomain, TimeProvider.System);
+    private static readonly ValueDomainRuntime FieldDomains = new(LiteralDomain, LiteralDomain, new UnavailableClock());
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -139,7 +139,10 @@ internal static class PackFormDefinitionContent
     /// <see cref="SaveFormDefinitionRequest"/> the install projector consumes. This avoids silently
     /// weakening required fields, options, or validation constraints during an authoring round-trip.
     /// </summary>
-    public static JsonNode ToContent(FormDefinition definition, Schema schema)
+    public static async ValueTask<JsonNode> ToContentAsync(
+        FormDefinition definition,
+        Schema schema,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(schema);
@@ -150,10 +153,12 @@ internal static class PackFormDefinitionContent
         }
 
         var overlay = OverlayDto.From(definition.Overlay);
-        var fieldsMeta = overlay.Fields.ToDictionary(
-            entry => entry.Key,
-            entry => ToFieldMeta(entry.Key, entry.Value, schemaRoot),
-            StringComparer.Ordinal);
+        var fieldsMeta = new Dictionary<string, FieldMetaDto>(StringComparer.Ordinal);
+        foreach (var entry in overlay.Fields)
+        {
+            fieldsMeta.Add(entry.Key,
+                await ToFieldMetaAsync(entry.Key, entry.Value, schemaRoot, cancellationToken).ConfigureAwait(false));
+        }
         var request = new SaveFormDefinitionRequest(overlay, fieldsMeta, CatalogueFieldSource: definition.CatalogueFieldSource);
         var content = JsonSerializer.SerializeToNode(request, JsonOptions) as JsonObject
             ?? throw new JsonException("form definition did not serialize to a JSON object");
@@ -166,7 +171,11 @@ internal static class PackFormDefinitionContent
         return content;
     }
 
-    private static FieldMetaDto ToFieldMeta(string key, FieldOverlayDto overlay, JsonObject schemaRoot)
+    private static async ValueTask<FieldMetaDto> ToFieldMetaAsync(
+        string key,
+        FieldOverlayDto overlay,
+        JsonObject schemaRoot,
+        CancellationToken cancellationToken)
     {
         var located = FindProperty(schemaRoot, key)
             ?? throw new JsonException($"form schema has no property for overlay field '{key}'");
@@ -177,7 +186,7 @@ internal static class PackFormDefinitionContent
         // ControlHint is legacy authoring data. The runtime owns editor selection, so a
         // present authored hint is deliberately ignored rather than admitted as authority.
         var type = options is { Count: > 0 }
-            ? ResolveDomainControlType(options)
+            ? await ResolveDomainControlTypeAsync(options, cancellationToken).ConfigureAwait(false)
             : InferControlType(fieldSchema);
         var validations = new List<FieldValidationDto>();
         AddNumericKeyword(fieldSchema, validations, "minLength",
@@ -223,14 +232,22 @@ internal static class PackFormDefinitionContent
         };
     }
 
-    private static string ResolveDomainControlType(IReadOnlyList<string> values)
+    private static async ValueTask<string> ResolveDomainControlTypeAsync(
+        IReadOnlyList<string> values,
+        CancellationToken cancellationToken)
     {
-        var resolved = FieldDomains.ResolveAsync(
-                new ValueDomainDefinition(LiteralValues: values),
-                new FieldDomainScope(ProjectionTenant, "pack-projection"),
-                "/fieldsMeta")
-            .AsTask().GetAwaiter().GetResult();
+        var resolved = await FieldDomains.ResolveAsync(
+            new ValueDomainDefinition(LiteralValues: values),
+            new FieldDomainScope(ProjectionTenant, "pack-projection"),
+            "/fieldsMeta",
+            cancellationToken).ConfigureAwait(false);
         return resolved.Editor == FieldEditorKind.RadioGroup ? "radio" : "select";
+    }
+
+    private sealed class UnavailableClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow()
+            => throw new InvalidOperationException("literal value-domain projection does not read a clock");
     }
 
     private sealed class PackLiteralDomain : IFieldDomainSource, IFieldDomainSnapshot, IFieldDomainReadAuthority
