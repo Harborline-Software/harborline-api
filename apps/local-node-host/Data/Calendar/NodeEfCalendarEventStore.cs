@@ -87,13 +87,18 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
-        // The compare-and-set. The INSERT arm fires only for a resource with no epoch row yet, which
-        // is epoch zero; otherwise the conflict arm advances the row only on an exact match. Either
-        // way "one row affected" means this claim owns the transition and nobody else took it first.
-        var advanced = await ctx.Database.ExecuteSqlInterpolatedAsync(
+        // The compare-and-set, one statement. The row is selected for insert when the resource has no
+        // epoch row yet and the claim expected zero (the absent row IS zero), or whenever a row does
+        // exist — in which case the conflict arm advances it only on an exact match. A claim that
+        // expects a non-zero epoch for a resource with no row selects nothing and loses, as it must.
+        // "One row affected" therefore means this claim owns the transition and nobody took it first.
+        var advanced = await ctx.Database.ExecuteSqlAsync(
             $"""
              INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch)
-             SELECT {tenant}, {key}, 1 WHERE {expectedEpoch} = 0
+             SELECT {tenant}, {key}, 1
+               WHERE {expectedEpoch} = 0
+                  OR EXISTS (SELECT 1 FROM calendar_capacity_epochs
+                             WHERE tenant_id = {tenant} AND resource = {key})
              ON CONFLICT(tenant_id, resource) DO UPDATE
                SET epoch = calendar_capacity_epochs.epoch + 1
                WHERE calendar_capacity_epochs.epoch = {expectedEpoch}
@@ -205,7 +210,7 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
         foreach (var key in Occupied(calendarEvent).Select(EpochKey).Distinct(StringComparer.Ordinal))
         {
             if (string.Equals(key, except, StringComparison.Ordinal)) continue;
-            await ctx.Database.ExecuteSqlInterpolatedAsync(
+            await ctx.Database.ExecuteSqlAsync(
                 $"""
                  INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch) VALUES ({tenant}, {key}, 1)
                  ON CONFLICT(tenant_id, resource) DO UPDATE SET epoch = calendar_capacity_epochs.epoch + 1

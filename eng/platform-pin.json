@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "4bbba70f064958dda3cddcf3712760f5d7f710c4",
+  "commit": "80f1b2554cf39c04da0a71e8b2fd3ef85f741558",
   "recordedAt": "2026-09-19 (T-524 availability runtime and booking consumer; platform main at PR 75, carrying PR 72 T-626 IAvailabilityRuntime and PR 74 T-568 requester-from-IPartyContext; supersedes the T-644 pin at 519e8996, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
