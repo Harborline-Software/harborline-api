@@ -43,6 +43,9 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     private const string FormsEditWithSupplier = """{"formId":"invoice","sections":[{"id":"header","fields":["purchaseOrderNumber","supplier"]}]}""";
     private const string Rationale = "Capture the purchase order number on invoices.";
     private const string PackageKey = "acme.invoice-purchase-order";
+    // T-667: the author states the transport content kind; the node never derives one from the key.
+    private const string RecordsKind = "AssetTypeDefinition";
+    private const string FormsKind = "FormDefinition";
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-000000000461"));
     private static readonly DateTimeOffset Frozen = new(2026, 9, 20, 9, 0, 0, TimeSpan.Zero);
 
@@ -107,7 +110,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         Assert.Equal("Proposed change", started.GetProperty("detail").GetProperty("status").GetString());
         Assert.Equal(baseline, started.GetProperty("baselineDigest").GetString());
 
-        var first = await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        var first = await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         var second = await AutosaveAsync("proposal-1", "forms/invoice", FormsEdit);
         await SaveVersionAsync("proposal-1", Rationale);
 
@@ -126,7 +129,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     public async Task Autosave_survives_a_reread_and_a_saved_version_is_an_immutable_authored_checkpoint()
     {
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync("proposal-1", "forms/invoice", FormsEdit);
 
         // Autosave is durable: a fresh read of the proposed change carries both edits.
@@ -181,7 +184,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     public async Task Release_signs_the_exact_saved_candidate_and_a_later_edit_invalidates_the_check()
     {
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync("proposal-1", "forms/invoice", FormsEdit);
         var saved = await SaveVersionAsync("proposal-1", Rationale);
         var savedDigest = saved.GetProperty("savedVersion").GetProperty("digest").GetString()!;
@@ -234,7 +237,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     {
         var baseline = await EffectiveDigestAsync();
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await SaveVersionAsync("proposal-1", Rationale);
 
         using (var unchecked1 = await ReleaseAsync("proposal-1", 1))
@@ -268,7 +271,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     public async Task The_released_digest_shown_to_the_author_is_the_digest_offered_for_activation()
     {
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync("proposal-1", "forms/invoice", FormsEdit);
         await SaveVersionAsync("proposal-1", Rationale);
         await CheckAsync("proposal-1", "receipt-1");
@@ -302,7 +305,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     public async Task Every_step_carries_the_released_proposed_change_saved_version_and_released_package_vocabulary()
     {
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync("proposal-1", "forms/invoice", FormsEdit);
         Assert.Equal("Proposed change", (await ReadAsync("proposal-1")).GetProperty("detail").GetProperty("status").GetString());
         Assert.Equal("Saved version", (await SaveVersionAsync("proposal-1", Rationale)).GetProperty("detail").GetProperty("status").GetString());
@@ -321,7 +324,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     {
         var baseline = await EffectiveDigestAsync();
         await StartAsync("proposal-1");
-        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit);
+        await AutosaveAsync("proposal-1", "records/invoice", RecordsEdit, RecordsKind);
         await SaveVersionAsync("proposal-1", Rationale);
         await CheckAsync("proposal-1", "receipt-1");
         using var released = await ReleaseAsync("proposal-1", 1);
@@ -337,7 +340,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         using (var missing = await _client.GetAsync(Route("nope", null)))
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         using (var edit = await _client.PutAsJsonAsync(Route("nope", "edits"),
-            new { definitionKey = "records/invoice", packageKey = "acme.finance", bodyJson = RecordsEdit }))
+            new { definitionKey = "records/invoice", packageKey = "acme.finance", bodyJson = RecordsEdit, contentKind = RecordsKind }))
             Assert.Equal(HttpStatusCode.NotFound, edit.StatusCode);
         await StartAsync("proposal-1");
         using var duplicate = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId = "proposal-1" });
@@ -351,7 +354,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     {
         await StartAsync("proposal-1");
         using var response = await _client.PutAsJsonAsync(Route("proposal-1", "edits"),
-            new { definitionKey = "records/invoice", packageKey = "acme.finance", bodyJson = "not json" });
+            new { definitionKey = "records/invoice", packageKey = "acme.finance", bodyJson = "not json", contentKind = RecordsKind });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("configuration-proposal-body-invalid",
             (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
@@ -375,10 +378,11 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
 
-    private async Task<JsonElement> AutosaveAsync(string proposalId, string definitionKey, string bodyJson)
+    private async Task<JsonElement> AutosaveAsync(string proposalId, string definitionKey, string bodyJson,
+        string contentKind = FormsKind)
     {
         using var response = await _client.PutAsJsonAsync(Route(proposalId, "edits"),
-            new { definitionKey, packageKey = "acme.finance", bodyJson });
+            new { definitionKey, packageKey = "acme.finance", bodyJson, contentKind });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }

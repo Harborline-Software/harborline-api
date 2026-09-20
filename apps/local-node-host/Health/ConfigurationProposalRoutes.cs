@@ -52,8 +52,12 @@ internal static class ConfigurationProposalRoutes
     /// <summary>Route: the Released packages offered for activation, by their own artifact digest.</summary>
     public const string ReleasesRoute = "/api/local-node/configuration/releases";
 
+    /// <summary>Route: install and activate one offered Released package, by its own artifact digest.</summary>
+    public const string InstallReleaseRoute = "/api/local-node/configuration/releases/{digest}/install";
+
     public static void Map(IEndpointRouteBuilder app, ConfigurationProposalStore store,
-        IActiveTeamAccessor activeTeam, AuthorizationGate gate, TimeProvider time, ILogger logger)
+        IActiveTeamAccessor activeTeam, AuthorizationGate gate, TimeProvider time, ILogger logger,
+        ReleasedPackInstaller? releases = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -109,15 +113,16 @@ internal static class ConfigurationProposalRoutes
             AutosaveEditDto request, CancellationToken ct) =>
         {
             if (request is null || string.IsNullOrWhiteSpace(request.DefinitionKey)
-                || string.IsNullOrWhiteSpace(request.PackageKey) || string.IsNullOrWhiteSpace(request.BodyJson))
-                return Results.BadRequest(new { error = "definitionKey, packageKey and bodyJson are required." });
+                || string.IsNullOrWhiteSpace(request.PackageKey) || string.IsNullOrWhiteSpace(request.BodyJson)
+                || string.IsNullOrWhiteSpace(request.ContentKind))
+                return Results.BadRequest(new { error = "definitionKey, packageKey, bodyJson and contentKind are required." });
             var tenant = Tenant();
             var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Author, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
             try
             {
                 var proposed = store.Autosave(tenant, proposalId,
-                    new(request.DefinitionKey, request.PackageKey, request.BodyJson), authority.At);
+                    new(request.DefinitionKey, request.PackageKey, request.BodyJson, request.ContentKind), authority.At);
                 return Results.Ok(Dto(store, tenant, proposed));
             }
             catch (ArgumentException exception)
@@ -207,6 +212,35 @@ internal static class ConfigurationProposalRoutes
             // Every digest here is re-derived from the stored bytes, so this offer names the artifact.
             return Results.Ok(store.Offered(tenant, proposalId).Select(Offer).ToArray());
         });
+
+        // T-667: the missing half of ADR 0097 decision 6. Release produced a provider-neutral document
+        // and the installer consumes a signed pack file; this converts one into the other and installs
+        // it, so what the author released is what POST /configuration/prepare can then resolve over.
+        // Installing is OPERATE, as releasing is: it is the same act's other end, not a new ceiling.
+        if (releases is not null)
+            selectedSession.MapPost(InstallReleaseRoute, async (HttpContext http, string digest,
+                InstallReleaseRequestDto? request, CancellationToken ct) =>
+            {
+                if (string.IsNullOrWhiteSpace(digest))
+                    return Results.BadRequest(new { error = "digest is required." });
+                var tenant = Tenant();
+                var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Operate, ct).ConfigureAwait(false);
+                if (refusal is not null) return refusal;
+                // Optional, and empty for the ordinary case. A release under the same pack key is that
+                // pack's upgrade and contests nothing; a release that takes another pack's definitions
+                // needs an owner named, and that choice is the caller's, as on the pack activate route.
+                var ownership = (request?.Ownership ?? [])
+                    .Where(owner => !string.IsNullOrWhiteSpace(owner.DefinitionKey) && !string.IsNullOrWhiteSpace(owner.PackageKey))
+                    .ToDictionary(owner => owner.DefinitionKey, owner => owner.PackageKey, StringComparer.Ordinal);
+                var outcome = await releases.InstallAsync(tenant, digest, authority, ownership, ct).ConfigureAwait(false);
+                var dto = new InstalledReleaseDto(outcome.Installed ? "installed" : "refused", tenant.Value,
+                    outcome.ReleasedDigest, outcome.PackKey, outcome.Version,
+                    [.. outcome.Refusals.Select(item => new ConfigurationRefusalDto(item.Code, item.Target, item.Message))]);
+                if (logger.IsEnabled(LogLevel.Information))
+                    logger.LogInformation("Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Pack}@{Version}",
+                        tenant, digest, dto.Status, dto.PackKey, dto.Version);
+                return outcome.Installed ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
+            });
     }
 
     private static IResult Unprocessable(ArgumentException exception, string target) =>
@@ -232,7 +266,7 @@ internal static class ConfigurationProposalRoutes
         var status = result is null ? version is null ? "proposed" : "saved" : result.Released is null ? "saved" : "released";
         return new(status, tenant.Value, proposed.State.ProposalId, proposed.State.BaselineDigest,
             effective.Digest, ConfigurationProposal.WorkingDigest(proposed.State),
-            proposed.State.Edits.Select(edit => new ProposedEditDto(edit.DefinitionKey, edit.PackageKey)).ToArray(),
+            proposed.State.Edits.Select(edit => new ProposedEditDto(edit.DefinitionKey, edit.PackageKey, edit.ContentKind)).ToArray(),
             proposed.SavedVersionCount,
             version is null ? null : new SavedVersionDto(version.Ordinal, version.Digest, version.Author,
                 version.Rationale, version.SavedAt),
@@ -247,8 +281,12 @@ internal static class ConfigurationProposalRoutes
 /// <summary>Start a Proposed change from the effective generation.</summary>
 public sealed record StartProposedChangeDto(string ProposalId);
 
-/// <summary>Autosave one edited definition. The body is stored verbatim and never repaired.</summary>
-public sealed record AutosaveEditDto(string DefinitionKey, string PackageKey, string BodyJson);
+/// <summary>
+/// Autosave one edited definition. The body is stored verbatim and never repaired, and the author
+/// states the transport content kind the definition is (T-667): the node never derives a kind from a
+/// definition key, so a kind it does not define is refused by name rather than guessed at install.
+/// </summary>
+public sealed record AutosaveEditDto(string DefinitionKey, string PackageKey, string BodyJson, string ContentKind);
 
 /// <summary>Freeze a Saved version. The author is server-derived; only the rationale is supplied.</summary>
 public sealed record SaveVersionDto(string Rationale);
@@ -259,14 +297,28 @@ public sealed record RecordCheckDto(string ReceiptId);
 /// <summary>Release one Saved version as a signed Released package.</summary>
 public sealed record ReleaseDto(int Ordinal, string PackageKey, string Revision);
 
-/// <summary>One edited definition, by public identity; bodies are not echoed to a list surface.</summary>
-public sealed record ProposedEditDto(string DefinitionKey, string PackageKey);
+/// <summary>One edited definition, by public identity and stated content kind; bodies are not echoed.</summary>
+public sealed record ProposedEditDto(string DefinitionKey, string PackageKey, string ContentKind);
 
 /// <summary>An immutable checkpoint with its authorship and rationale.</summary>
 public sealed record SavedVersionDto(int Ordinal, string Digest, string Author, string Rationale, DateTimeOffset SavedAt);
 
 /// <summary>A recorded check and whether it still describes the state now being edited.</summary>
 public sealed record CheckDto(string ReceiptId, string CheckedDigest, bool IsCurrent);
+
+/// <summary>Install one offered Released package, with the owning-pack choice for contested definitions.</summary>
+/// <param name="Ownership">Which package owns each definition the released package also claims.</param>
+public sealed record InstallReleaseRequestDto(IReadOnlyList<ConfigurationOwnershipDto>? Ownership);
+
+/// <summary>An installed Released package: the artifact digest and the pack identity it installed under.</summary>
+/// <param name="Status">"installed" or "refused".</param>
+/// <param name="TenantKey">The tenant the release belongs to.</param>
+/// <param name="Digest">The Released package's own artifact digest.</param>
+/// <param name="PackKey">The pack key it installed under; empty when nothing installed.</param>
+/// <param name="Version">The pack version it installed under; empty when nothing installed.</param>
+/// <param name="Refusals">Why nothing was installed; empty on success.</param>
+public sealed record InstalledReleaseDto(string Status, string TenantKey, string Digest, string PackKey,
+    string Version, IReadOnlyList<ConfigurationRefusalDto> Refusals);
 
 /// <summary>A Released package offered for activation. The digest is the artifact's own bytes.</summary>
 public sealed record ReleasedPackageDto(string Digest, string PackageKey, string Revision, string ProposalId,

@@ -1518,6 +1518,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:InstallReleaseRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "InstallReleaseRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:ProposalsRoute",
       "kind": "local-node-http",
       "method": "POST",

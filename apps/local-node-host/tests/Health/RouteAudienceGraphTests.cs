@@ -57,7 +57,9 @@ public sealed class RouteAudienceGraphTests
         // prepare, activate) in every profile.
         // T-461 adds the seven selected-session proposed-change routes (start, read, autosave,
         // save version, record check, release, and the released-package offer) in every profile.
-        int[] expectedClassifiedCounts = [238, 261, 262, 249, 272, 273];
+        // T-667 adds the one selected-session released-package install route, beside the offer it
+        // installs, in every profile.
+        int[] expectedClassifiedCounts = [239, 262, 263, 250, 273, 274];
 
         Assert.Equal(6, profiles.Length);
         // T-585 item 3, the other direction. The forward half below refuses an executable route with no
