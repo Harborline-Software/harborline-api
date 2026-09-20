@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 
@@ -29,11 +28,10 @@ public static class SchedulingDefinitionRoutes
     public const string EventRoute = "/api/local-node/scheduling/events";
     public const string ResourceAvailabilityRoute = "/api/local-node/scheduling/resources/availability";
 
-    // ponytail: one in-process lock per (tenant, resource) makes the platform's capacity check and the
-    // event write one fenced unit on this node, so the second overlapping booking reads the first's
-    // write and is refused (T-524, DES-0025 booking-eng-24). The ceiling is one host process; a
-    // multi-node deployment fences through the CP reservation coordinator the block's README names.
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> BookingFences = new(StringComparer.Ordinal);
+    // T-659 removed the in-process booking fence that stood here. The platform producer now rechecks
+    // capacity and commits under one epoch-conditional write (DES-0025 booking-eng-24, ADR 0095
+    // ruling 8), so the invariant is held where it is owned rather than by a lock whose ceiling was
+    // one host process. The route just calls Book and maps the outcome.
 
     /// <param name="scopes">
     /// The host container's scope factory: the platform's <see cref="IBookingService"/> is scoped and
@@ -236,21 +234,11 @@ public static class SchedulingDefinitionRoutes
             // from the request-bound party seam and refuses NO_REQUESTER before any read (T-568, L535).
             await using var scope = scopes.CreateAsyncScope();
             var bookingService = scope.ServiceProvider.GetRequiredService<IBookingService>();
-            var fence = BookingFences.GetOrAdd($"{tenant.Value}|{resource}", static _ => new SemaphoreSlim(1, 1));
-            await fence.WaitAsync(ct).ConfigureAwait(false);
-            BookingOutcome outcome;
-            try
-            {
-                outcome = await bookingService.Book(
-                    tenant, resource, request.Title.Trim(), request.StartUtc,
-                    endUtc, ParticipantRef.Party(request.SubjectId),
-                    padding: padding, ct: ct)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                fence.Release();
-            }
+            var outcome = await bookingService.Book(
+                tenant, resource, request.Title.Trim(), request.StartUtc,
+                endUtc, ParticipantRef.Party(request.SubjectId),
+                padding: padding, ct: ct)
+                .ConfigureAwait(false);
             if (outcome.Success)
                 return Results.Ok(new { eventId = outcome.Event!.Id.Value, status = "booked" });
             return outcome.RejectionReason == BookingOutcome.NoRequester

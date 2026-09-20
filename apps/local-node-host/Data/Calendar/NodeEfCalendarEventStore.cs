@@ -45,33 +45,71 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
     public async Task SaveAsync(CalendarEvent calendarEvent, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(calendarEvent);
-        var snapshot = CalendarEventSnapshot.FromEntity(calendarEvent);
-        var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-        var tenant = calendarEvent.TenantId.Value;
-        var id = calendarEvent.Id.Value.ToString();
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await UpsertAsync(ctx, calendarEvent, ct).ConfigureAwait(false);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        // The write changes this event's resources' occupancy, so their epochs move with it: a claim
+        // that read capacity before this save must re-read rather than commit against it (T-659).
+        await BumpEpochsAsync(ctx, calendarEvent, ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<long> GetCapacityEpochAsync(TenantId tenantId, ParticipantRef resource, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        var tenant = tenantId.Value;
+        var key = EpochKey(resource);
 
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-
-        // Insert-or-replace on the composite (tenant, id) key — matching the in-memory store's
-        // upsert semantics (a re-save replaces the master + its occurrence edits).
-        var existing = await ctx.CalendarEvents
-            .FirstOrDefaultAsync(r => r.TenantId == tenant && r.Id == id, ct)
+        var row = await ctx.CalendarCapacityEpochs.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.TenantId == tenant && r.Resource == key, ct)
             .ConfigureAwait(false);
-        if (existing is null)
+        return row?.Epoch ?? 0;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The compare and the write are ONE step: a single conditional upsert moves the epoch only while
+    /// it still equals <paramref name="expectedEpoch"/>, and the event row is written in the same
+    /// transaction. SQLite applies that statement atomically against every writer of the database
+    /// file, so the fence does not depend on a lock held by this host process (T-659).
+    /// </remarks>
+    public async Task<bool> SaveIfCapacityUnchangedAsync(
+        CalendarEvent calendarEvent, ParticipantRef resource, long expectedEpoch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(calendarEvent);
+        ArgumentNullException.ThrowIfNull(resource);
+        var tenant = calendarEvent.TenantId.Value;
+        var key = EpochKey(resource);
+
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        // The compare-and-set. The INSERT arm fires only for a resource with no epoch row yet, which
+        // is epoch zero; otherwise the conflict arm advances the row only on an exact match. Either
+        // way "one row affected" means this claim owns the transition and nobody else took it first.
+        var advanced = await ctx.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch)
+             SELECT {tenant}, {key}, 1 WHERE {expectedEpoch} = 0
+             ON CONFLICT(tenant_id, resource) DO UPDATE
+               SET epoch = calendar_capacity_epochs.epoch + 1
+               WHERE calendar_capacity_epochs.epoch = {expectedEpoch}
+             """, ct).ConfigureAwait(false);
+        if (advanced != 1)
         {
-            ctx.CalendarEvents.Add(new NodeCalendarEventRow
-            {
-                TenantId = tenant,
-                Id = id,
-                SnapshotJson = json,
-            });
-        }
-        else
-        {
-            existing.SnapshotJson = json;
+            await tx.RollbackAsync(ct).ConfigureAwait(false);
+            return false;
         }
 
+        await UpsertAsync(ctx, calendarEvent, ct).ConfigureAwait(false);
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        // Any OTHER resource on the claim (a participant beside the claimed one) moves too.
+        await BumpEpochsAsync(ctx, calendarEvent, ct, except: key).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return true;
     }
 
     /// <inheritdoc />
@@ -114,17 +152,75 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
         var idValue = id.Value.ToString();
 
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         var row = await ctx.CalendarEvents
             .FirstOrDefaultAsync(r => r.TenantId == tenant && r.Id == idValue, ct)
             .ConfigureAwait(false);
         if (row is null)
         {
+            await tx.RollbackAsync(ct).ConfigureAwait(false);
             return false;
         }
+        var released = Deserialize(row.SnapshotJson).ToEntity();
         ctx.CalendarEvents.Remove(row);
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        // A release frees capacity, so it moves the epoch exactly as a claim does.
+        await BumpEpochsAsync(ctx, released, ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
         return true;
     }
+
+    /// <summary>
+    /// Insert-or-replace the series master on the composite (tenant, id) key — the in-memory store's
+    /// upsert semantics (a re-save replaces the master + its occurrence edits).
+    /// </summary>
+    private static async Task UpsertAsync(NodeLocalCalendarDbContext ctx, CalendarEvent calendarEvent, CancellationToken ct)
+    {
+        var tenant = calendarEvent.TenantId.Value;
+        var id = calendarEvent.Id.Value.ToString();
+        var json = JsonSerializer.Serialize(CalendarEventSnapshot.FromEntity(calendarEvent), JsonOptions);
+
+        var existing = await ctx.CalendarEvents
+            .FirstOrDefaultAsync(r => r.TenantId == tenant && r.Id == id, ct)
+            .ConfigureAwait(false);
+        if (existing is null)
+        {
+            ctx.CalendarEvents.Add(new NodeCalendarEventRow { TenantId = tenant, Id = id, SnapshotJson = json });
+        }
+        else
+        {
+            existing.SnapshotJson = json;
+        }
+    }
+
+    /// <summary>
+    /// Move the epoch of every resource the event occupies — the headline resource and every
+    /// participant, which is the set the free/busy occupancy gather treats as "on the event" —
+    /// skipping <paramref name="except"/>, whose epoch a conditional commit has already advanced.
+    /// </summary>
+    private static async Task BumpEpochsAsync(
+        NodeLocalCalendarDbContext ctx, CalendarEvent calendarEvent, CancellationToken ct, string? except = null)
+    {
+        var tenant = calendarEvent.TenantId.Value;
+        foreach (var key in Occupied(calendarEvent).Select(EpochKey).Distinct(StringComparer.Ordinal))
+        {
+            if (string.Equals(key, except, StringComparison.Ordinal)) continue;
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch) VALUES ({tenant}, {key}, 1)
+                 ON CONFLICT(tenant_id, resource) DO UPDATE SET epoch = calendar_capacity_epochs.epoch + 1
+                 """, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static IEnumerable<ParticipantRef> Occupied(CalendarEvent calendarEvent)
+    {
+        if (calendarEvent.ResourceRef is { } headline) yield return headline;
+        foreach (var participation in calendarEvent.Participations)
+            if (participation.Participant != calendarEvent.ResourceRef) yield return participation.Participant;
+    }
+
+    private static string EpochKey(ParticipantRef resource) => $"{resource.Kind}:{resource.Value}";
 
     private static CalendarEventSnapshot Deserialize(string json)
         => JsonSerializer.Deserialize<CalendarEventSnapshot>(json, JsonOptions)
