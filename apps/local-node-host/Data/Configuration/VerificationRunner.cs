@@ -262,12 +262,13 @@ public sealed class VerificationRunner
             _ => "null",
         };
 
-        internal string Pointer(VerificationPredicate predicate, string? target) => predicate.PredicateId switch
-        {
-            "record.field" or "record.number" => target ?? "/record",
-            "authorization.decision" => "/authorization/decision",
-            _ => "/outcome/" + predicate.PredicateId.Split('.')[1],
-        };
+        // Where a disagreement was seen, derived from the predicate's own declared channel rather
+        // than a list here, so a predicate added to the catalogue later points at the right place
+        // instead of quietly pointing into /outcome.
+        internal string Pointer(VerificationPredicate predicate, string? target) =>
+            predicate.Channel == "record"
+                ? target ?? "/record"
+                : $"/{predicate.Channel}/{predicate.PredicateId.Split('.')[^1]}";
 
         // RFC 6901 over the resulting record: the submitted values plus every value the candidate's
         // own rules computed. An absent pointer reads as JSON null, which no well-typed expected
