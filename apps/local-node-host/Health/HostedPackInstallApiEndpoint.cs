@@ -63,6 +63,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
     private readonly IWebAntiforgeryPolicy? _antiforgery;
     private readonly AuthorizedActAudit? _acceptedAudit;
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? _configuration;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? _proposals;
 
     /// <summary>Constructs the hosted install endpoint. <paramref name="platform"/> is the running
     /// build's compatibility facts — optional for back-compat embedders; when present the installed-pack
@@ -83,8 +84,10 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? platform = null,
         IWebAntiforgeryPolicy? antiforgery = null,
         AuthorizedActAudit? acceptedAudit = null,
-        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null)
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? proposals = null)
     {
+        _proposals = proposals;
         _platform = platform;
         _antiforgery = antiforgery;
         _acceptedAudit = acceptedAudit;
@@ -122,6 +125,11 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         if (_configuration is not null)
             _sharedApp.MapApiRoutes(app => ConfigurationActivationRoutes.Map(
                 app, _configuration, _activeTeam, _gate, _time, _logger));
+
+        // T-461: propose, save and release, beside activation and never on its path.
+        if (_proposals is not null)
+            _sharedApp.MapApiRoutes(app => ConfigurationProposalRoutes.Map(
+                app, _proposals, _activeTeam, _gate, _time, _logger));
 
         if (_antiforgery is not null)
             _sharedApp.MapApiRoutes(app => SelectedPackReplacementRoutes.Map(
