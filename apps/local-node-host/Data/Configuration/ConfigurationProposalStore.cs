@@ -162,16 +162,13 @@ public sealed class ConfigurationProposalStore
         TenantId tenant, string proposalId, int ordinal, string packageKey, string revision,
         AuthorizationWriteContext authority, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(authority);
         using var context = _factory.CreateDbContext();
         var row = Require(context, tenant, proposalId);
         var proposed = Rebuild(row);
         var version = ReadSavedVersion(tenant, proposalId, ordinal)
             ?? throw new ArgumentException("configuration-saved-version-missing");
-        if (proposed.Check is null)
-            return (new ConfigurationReleaseResult(null, new("configuration-check-required", "check",
-                "No check is recorded for this proposed change.")), null);
-
+        // A proposed change with no recorded check refuses in the producer, beside every other release
+        // refusal, rather than here: the api does not get to author a release rule.
         var result = ConfigurationProposal.Release(proposed.State, version, proposed.Check,
             ReadEffective(tenant), packageKey, revision);
         if (result.Released is null) return (result, null);
@@ -194,7 +191,7 @@ public sealed class ConfigurationProposalStore
                 SavedVersionDigest = released.SavedVersionDigest, BaselineDigest = released.BaselineDigest,
                 PackageKey = released.PackageKey, Revision = released.Revision,
                 Document = released.Document.ToArray(), SignatureJson = signatureJson,
-                ReleasedBy = principal, CheckReceiptId = proposed.Check.ReceiptId, ReleasedAt = authority.At,
+                ReleasedBy = principal, CheckReceiptId = proposed.Check!.ReceiptId, ReleasedAt = authority.At,
             });
             context.SaveChanges();
             return (result, new(released, signatureJson, principal, authority.At));
@@ -211,10 +208,12 @@ public sealed class ConfigurationProposalStore
     public IReadOnlyList<HostReleasedPackage> Offered(TenantId tenant, string? proposalId = null)
     {
         using var context = _factory.CreateDbContext();
+        // SQLite cannot ORDER BY a DateTimeOffset, so the ordering is applied client side over the
+        // tenant's own released rows rather than pushed into the query.
         return context.ReleasedPackages.AsNoTracking()
             .Where(r => r.Tenant == tenant.Value && (proposalId == null || r.ProposalId == proposalId))
-            .OrderByDescending(r => r.ReleasedAt).ThenBy(r => r.Digest)
             .AsEnumerable()
+            .OrderByDescending(r => r.ReleasedAt).ThenBy(r => r.Digest, StringComparer.Ordinal)
             .Select(r => new HostReleasedPackage(Rebuild(r), r.SignatureJson, r.ReleasedBy, r.ReleasedAt))
             .ToArray();
     }

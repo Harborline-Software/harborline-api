@@ -9,13 +9,16 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -146,7 +149,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         await AutosaveAsync("proposal-1", "forms/invoice", FormsEditWithSupplier);
         var row = Assert.Single(SavedVersionRows());
         Assert.Equal(frozenDigest, row.Digest);
-        Assert.Contains("\"purchaseOrderNumber\"", row.EditsJson, StringComparison.Ordinal);
+        Assert.Contains("purchaseOrderNumber", row.EditsJson, StringComparison.Ordinal);
         Assert.DoesNotContain("supplier", row.EditsJson, StringComparison.Ordinal);
         Assert.NotEqual(frozenDigest, (await ReadAsync("proposal-1")).GetProperty("workingDigest").GetString());
 

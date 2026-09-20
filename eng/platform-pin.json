@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "7a12be73f6e656c7da54228b4fc9054426692698",
+  "commit": "ff010b5dc52a94f06899138d2c8eb019b9eaead7",
   "recordedAt": "2026-09-20 (T-461 proposed-change producer; platform PR 80. Supersedes the T-524 pin at 4bbba70f, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
