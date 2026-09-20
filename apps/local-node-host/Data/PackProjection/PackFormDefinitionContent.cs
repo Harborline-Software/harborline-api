@@ -7,6 +7,10 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Contracts.Fields;
+using Harborline.Foundation.FieldRuntime;
+
+using PlatformTenantId = Harborline.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -19,6 +23,9 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal static class PackFormDefinitionContent
 {
     private const string MoneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
+    private static readonly PlatformTenantId ProjectionTenant = new("pack-projection");
+    private static readonly PackLiteralDomain LiteralDomain = new();
+    private static readonly ValueDomainRuntime FieldDomains = new(LiteralDomain, LiteralDomain, TimeProvider.System);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -164,13 +171,14 @@ internal static class PackFormDefinitionContent
         var located = FindProperty(schemaRoot, key)
             ?? throw new JsonException($"form schema has no property for overlay field '{key}'");
         var fieldSchema = located.Schema;
-        var type = string.IsNullOrWhiteSpace(overlay.ControlHint)
-            ? InferControlType(fieldSchema)
-            : overlay.ControlHint;
-
         var options = fieldSchema["enum"] is JsonArray values
             ? values.Select(v => v?.GetValue<string>() ?? string.Empty).ToList()
             : null;
+        // ControlHint is legacy authoring data. The runtime owns editor selection, so a
+        // present authored hint is deliberately ignored rather than admitted as authority.
+        var type = options is { Count: > 0 }
+            ? ResolveDomainControlType(options)
+            : InferControlType(fieldSchema);
         var validations = new List<FieldValidationDto>();
         AddNumericKeyword(fieldSchema, validations, "minLength",
             skip: located.Required && fieldSchema["minLength"]?.GetValue<int>() == 1);
@@ -213,6 +221,44 @@ internal static class PackFormDefinitionContent
             "boolean" => "checkbox",
             _ => "text",
         };
+    }
+
+    private static string ResolveDomainControlType(IReadOnlyList<string> values)
+    {
+        var resolved = FieldDomains.ResolveAsync(
+                new ValueDomainDefinition(LiteralValues: values),
+                new FieldDomainScope(ProjectionTenant, "pack-projection"),
+                "/fieldsMeta")
+            .AsTask().GetAwaiter().GetResult();
+        return resolved.Editor == FieldEditorKind.RadioGroup ? "radio" : "select";
+    }
+
+    private sealed class PackLiteralDomain : IFieldDomainSource, IFieldDomainSnapshot, IFieldDomainReadAuthority
+    {
+        public PlatformTenantId Tenant => ProjectionTenant;
+        public string Revision => "pack-projection";
+        public bool IsComplete => true;
+
+        public ValueTask<IFieldDomainSnapshot> OpenSnapshotAsync(
+            PlatformTenantId tenant,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IFieldDomainSnapshot>(this);
+        }
+
+        public IReadOnlyList<FieldDomainMember>? GetTaxonomyScheme(TaxonomySchemeReference scheme) => null;
+        public IReadOnlyList<FieldDomainMember>? GetRecords(string recordTypeId) => null;
+
+        public ValueTask<bool> CanReadAsync(
+            FieldDomainScope scope,
+            ValueDomainDefinition domain,
+            FieldDomainMember member,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(true);
+        }
     }
 
     private static LocatedProperty? FindProperty(JsonObject objectSchema, string key)

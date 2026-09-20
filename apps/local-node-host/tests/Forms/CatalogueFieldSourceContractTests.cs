@@ -73,6 +73,26 @@ public sealed class CatalogueFieldSourceContractTests
     }
 
     [Fact]
+    public async Task Pack_projection_ignores_authored_control_and_uses_the_runtime_editor()
+    {
+        var content = Content(false);
+        content["overlay"]!["fields"]!["title"]!["controlHint"] = "textarea";
+        content["fieldsMeta"]!["title"] = JsonNode.Parse(
+            """{"type":"select","required":false,"options":["one","two","three"]}""");
+        Assert.True(PackFormDefinitionContent.TryParse(content, out var request, out var error), error);
+        var schema = await new InMemorySchemaRegistry(TimeProvider.System)
+            .RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request, new FormDefinitionId("runtime-editor")));
+        var definition = FormDefinitionRoutes.BuildDefinition(new FormDefinitionId("runtime-editor"),
+            new SemanticVersion(1, 0, 0), new TenantId("test"), IdentityRef.System, schema.Id,
+            request.Overlay, DateTimeOffset.UnixEpoch);
+
+        var exported = PackFormDefinitionContent.ToContent(FormDefinitionFreezer.Freeze(definition), schema);
+
+        Assert.Equal("textarea", exported["overlay"]!["fields"]!["title"]!["controlHint"]!.GetValue<string>());
+        Assert.Equal("radio", exported["fieldsMeta"]!["title"]!["type"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Legacy_content_does_not_synthesize_or_serialize_a_mapping()
     {
         Assert.True(PackFormDefinitionContent.TryParse(Content(false), out var request, out var error), error);
