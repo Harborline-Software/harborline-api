@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "ff010b5dc52a94f06899138d2c8eb019b9eaead7",
-  "recordedAt": "2026-09-20 (T-461 proposed-change producer; platform PR 80. Supersedes the T-524 pin at 4bbba70f, which this commit descends from)",
+  "commit": "7176ab5ae92f885901b3d8232300e6a49fcbee69",
+  "recordedAt": "2026-09-20 (T-461 proposed-change producer; platform PR 80 merge commit 7176ab5a, which also carries PR 77 T-621 adding the Harborline.Foundation.FieldRuntime producer and PR 79 T-658/T-663. Supersedes the T-659 pin at 4bac7eca, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
