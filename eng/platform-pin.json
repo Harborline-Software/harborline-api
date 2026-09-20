@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "033918a2412be81fbca55b504b4c72e4ef1e45fe",
+  "commit": "7b93bca2079361b8652868501d5a21828d661937",
   "recordedAt": "2026-09-20 (T-463 slice 2, the api verification runner; platform PR 84 merge commit 033918a2, which is platform main and carries slice 1 — VerificationSuite, VerificationCatalog, VerificationReceipt and VerificationDetail — that this runner executes. It descends from the T-461 pin at 7176ab5a and also carries PR 81 T-624 (Harborline.Blocks.MeasureCatalogue, a new package id), PR 82 T-586, PR 83 T-585 and PR 85 T-671.)",
   "why": [
     "The API builds the complete platform library feed before restore.",

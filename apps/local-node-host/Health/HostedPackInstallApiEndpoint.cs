@@ -65,6 +65,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? _configuration;
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? _proposals;
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? _verification;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ReleasedPackInstaller? _releases;
 
     /// <summary>Constructs the hosted install endpoint. <paramref name="platform"/> is the running
     /// build's compatibility facts — optional for back-compat embedders; when present the installed-pack
@@ -87,9 +88,11 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         AuthorizedActAudit? acceptedAudit = null,
         Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null,
         Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? proposals = null,
-        Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? verification = null)
+        Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? verification = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ReleasedPackInstaller? releases = null)
     {
         _proposals = proposals;
+        _releases = releases;
         _verification = verification;
         _platform = platform;
         _antiforgery = antiforgery;
@@ -132,7 +135,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         // T-461: propose, save and release, beside activation and never on its path.
         if (_proposals is not null)
             _sharedApp.MapApiRoutes(app => ConfigurationProposalRoutes.Map(
-                app, _proposals, _activeTeam, _gate, _time, _logger));
+                app, _proposals, _activeTeam, _gate, _time, _logger, _releases));
 
         if (_antiforgery is not null)
             _sharedApp.MapApiRoutes(app => SelectedPackReplacementRoutes.Map(
