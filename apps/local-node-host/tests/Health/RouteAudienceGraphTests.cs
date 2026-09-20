@@ -55,7 +55,9 @@ public sealed class RouteAudienceGraphTests
         // Ticket 492 adds the desktop-only Data Exchange runtime-contract read in every profile.
         // T-644 adds the three selected-session configuration-generation routes (effective read,
         // prepare, activate) in every profile.
-        int[] expectedClassifiedCounts = [230, 253, 254, 241, 264, 265];
+        // T-461 adds the seven selected-session proposed-change routes (start, read, autosave,
+        // save version, record check, release, and the released-package offer) in every profile.
+        int[] expectedClassifiedCounts = [237, 260, 261, 248, 271, 272];
 
         Assert.Equal(6, profiles.Length);
         for (var index = 0; index < profiles.Length; index++)

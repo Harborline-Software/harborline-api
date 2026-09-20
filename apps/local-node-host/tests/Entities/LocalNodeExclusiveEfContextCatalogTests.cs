@@ -102,11 +102,14 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260908160000_RosterDropSignedPermissions",
         "20260916170000_InvitationInitialRole",
         "20260919090000_AddConfigurationGenerations",
+        // T-461: the proposed changes, their immutable saved versions and the signed released
+        // packages offered for activation. None of the three is on the effective-generation path.
+        "20260920100000_AddConfigurationProposals",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_55_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_56_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 
