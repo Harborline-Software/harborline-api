@@ -24,7 +24,7 @@ internal sealed class FormRuleGraphFactory : IFormRuleGraphFactory
         _clock = clock;
     }
 
-    public IFormRuleGraph Create(CompiledGraph compiled) => new FormRuleGraph(compiled, _limits, _clock);
+    public IFormRuleGraph Create(CompiledGraph compiled) => new FormRuleGraph(compiled, _clock, _limits);
 }
 
 /// <summary>DI wiring for the SPINE-1 rule engine (SPINE-1 design §5.2).</summary>
