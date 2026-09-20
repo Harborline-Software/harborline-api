@@ -100,7 +100,10 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // T-576 shares the report-run admission and tenant resolution, reducing its tokens 8 -> 4.
         // T-644 adds the configuration-generation activation family (433 -> 435) at the minimum 2/0 shape:
         // one tenant resolution point per file, and that tenant is the authorization subject of the act.
-        Assert.Equal(435, ledger.ReviewedAggregateDebtCeiling);
+        // T-461 adds the proposed-change family beside it (435 -> 437) on the same 2026-09-07 exception and
+        // at the same minimum 2/0 shape: one tenant resolution point for seven routes rather than one per
+        // handler, and that tenant is the authorization subject of proposing, saving and releasing.
+        Assert.Equal(437, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));
