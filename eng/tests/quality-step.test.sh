@@ -63,7 +63,7 @@ git -C "$fixture" add artifacts/quality
 git -C "$fixture" commit --no-verify -qm 'record quality artifact'
   # The merge-queue gate exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
   # artifacts, so the flag must not leak into it.
-( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries dependency-ledger identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
+( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries dependency-ledger identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact removal-exercise exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
 node -e 'const r=require(process.argv[1]), q=r.steps.find(s=>typeof s === "object" && s.id === "quality"); if(!q || !/^sha256:[a-f0-9]{64}$/.test(q.decisionDigest) || !/^sha256:[a-f0-9]{64}$/.test(q.policyDigest)) process.exit(1)' "$fixture/.git/harborline-api-verify-receipt.json"
 
 printf 'before\nnew finding\n' > "$fixture/src/example.cs"
