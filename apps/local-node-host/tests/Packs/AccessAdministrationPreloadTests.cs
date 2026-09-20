@@ -258,7 +258,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         var listedBinding = listedBody.GetProperty("catalogueFieldBinding");
         Assert.Equal("harborline.platform",
             listedBinding.GetProperty("provenance").GetProperty("packKey").GetString());
-        Assert.Equal("1.5.0",
+        Assert.Equal("1.6.0",
             listedBinding.GetProperty("provenance").GetProperty("packVersion").GetString());
         var listedSourceBinding = JsonSerializer.Deserialize<CatalogueFieldSourceBinding>(listedBinding)!;
         var definition = await _forms.GetAsync(new(Tenant, "platform.detail.form", "1.0.1"));
@@ -302,7 +302,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             projection.Values["title"].GetProperty("values").GetProperty("en").GetString());
         Assert.Equal("1.0.1", projection.Values["version"].GetString());
         Assert.True(projection.ReadOnly);
-        Assert.Equal("1.5.0", projection.DetailBinding.Provenance.PackVersion);
+        Assert.Equal("1.6.0", projection.DetailBinding.Provenance.PackVersion);
         Assert.Equal("sha256:" + _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "platform.detail.form", "1.0.1")!.DefinitionHash,
             projection.DetailBinding.DefinitionHash);
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
@@ -583,7 +583,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
 
         var active = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
-        Assert.Equal("1.5.0", active.Version);
+        Assert.Equal("1.6.0", active.Version);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         var preservedLegacy = _store.GetVersion(Tenant, legacy.Key, "1.3.0")!;
         Assert.Equal(PackLifecycleState.Superseded, preservedLegacy.Lifecycle);
@@ -608,14 +608,14 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(FormDefinitionStatus.Published, newAuthor.Status);
         Assert.Equal("Form details", newDetail.Overlay.Title!.Values["en"]);
         Assert.Equal("Author a domain pack", newAuthor.Overlay.Title!.Values["en"]);
-        Assert.Equal("1.5.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
+        Assert.Equal("1.6.0", Assert.Single(_defaults.List(Tenant)).Source.PackVersion);
         Assert.Equal(39, active.SeedItems.Count(item => item.Kind == PackContentKind.ViewDefinition));
         var projected = await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None);
         Assert.Equal(39, projected.Count);
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.health.", StringComparison.Ordinal)));
         Assert.Equal(13, projected.Count(view => view.Key.StartsWith("platform.browse.", StringComparison.Ordinal)));
         Assert.Equal(
-            new[] { "1.3.0", "1.5.0" },
+            new[] { "1.3.0", "1.6.0" },
             _store.ListInstalled(Tenant)
                 .Where(pack => pack.PackKey == PlatformPackPreloadHostedService.PackKey)
                 .Select(pack => pack.Version)

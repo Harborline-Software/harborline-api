@@ -16,6 +16,7 @@ internal static class PackNavigationLabels
             "access.holders" => Resources.GetString("access.holders", CultureInfo.CurrentUICulture),
             "configuration.workspace" => Resources.GetString("configuration.workspace", CultureInfo.CurrentUICulture),
             "configuration.activation" => Resources.GetString("configuration.activation", CultureInfo.CurrentUICulture),
+            "configuration.proposal" => Resources.GetString("configuration.proposal", CultureInfo.CurrentUICulture),
             "navigation.asset-tree" => Resources.GetString("navigation.asset-tree", CultureInfo.CurrentUICulture),
             "navigation.invoices" => Resources.GetString("navigation.invoices", CultureInfo.CurrentUICulture),
             "navigation.documents" => Resources.GetString("navigation.documents", CultureInfo.CurrentUICulture),

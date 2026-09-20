@@ -21,7 +21,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal sealed class PlatformPackPreloadHostedService : IHostedService
 {
     public const string PackKey = PackSealedSystemTypeAdmission.PlatformPackKey;
-    public const string PackVersion = "1.5.0";
+    public const string PackVersion = "1.6.0";
     private const string ResourceName = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
 
     private readonly IPackExporter exporter;

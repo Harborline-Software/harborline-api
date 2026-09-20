@@ -68,7 +68,7 @@ public sealed class CascadeDefaultsTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var request = PlatformPackPreloadHostedService.ReadExportRequest(keys.PrincipalId.ToBase64Url());
-        Assert.Equal("1.5.0", request.Version);
+        Assert.Equal("1.6.0", request.Version);
         Assert.Equal(PlatformPackPreloadHostedService.PackVersion, request.Version);
         var source = Assert.Single(request.Contents, item => item.Kind == PackContentKind.CascadeDefaults);
         Assert.Equal("platform.defaults.pack-author", source.Key);
