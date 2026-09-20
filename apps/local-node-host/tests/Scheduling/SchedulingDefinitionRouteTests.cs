@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -805,12 +806,29 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
     }
 
     [Fact]
+    public void The_booking_route_holds_no_in_process_fence()
+    {
+        // T-659: the per-(tenant, resource) SemaphoreSlim map that used to make the platform call one
+        // unit on this node is gone. The producer commits under an epoch-conditional write, so a lock
+        // whose ceiling is one host process must not come back here by habit.
+        var fences = typeof(SchedulingDefinitionRoutes)
+            .GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(f => typeof(SemaphoreSlim).IsAssignableFrom(f.FieldType)
+                || f.FieldType.GetGenericArguments().Any(a => typeof(SemaphoreSlim).IsAssignableFrom(a)))
+            .Select(f => f.Name)
+            .ToList();
+
+        Assert.Empty(fences);
+    }
+
+    [Fact]
     public async Task Two_concurrent_bookings_of_one_exclusive_slot_yield_one_success()
     {
         var resource = await BookableResourceAsync();
 
-        // The same slot, both in flight: the pre-T-524 check-then-write admitted both, because each read
-        // capacity before either wrote.
+        // The same slot, both in flight. The pre-T-524 check-then-write admitted both because each read
+        // capacity before either wrote; T-524 fenced that with an in-process lock; T-659 deleted the
+        // lock and the platform producer refuses the stale claim on its capacity epoch instead.
         var both = await Task.WhenAll(
             BookAsync(resource, "subject-1", "15:00", "15:30"),
             BookAsync(resource, "subject-2", "15:00", "15:30"));

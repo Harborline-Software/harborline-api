@@ -53,6 +53,8 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260701175903_AddSubmissionDraftTable",
         "20260707044248_PacksInitial",
         "20260707100739_CalendarCollectionInitial",
+        // T-659: the per-(tenant, resource) capacity epoch the conditional booking commit compares.
+        "20260920033344_CalendarCapacityEpochs",
         "20260707103037_OrgBrandingInitial",
         "20260707140050_AddFeedChannelSequences",
         "20260712120000_AddSchedulingDefinitionDrafts",
