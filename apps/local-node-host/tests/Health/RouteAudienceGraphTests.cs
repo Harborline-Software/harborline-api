@@ -60,6 +60,13 @@ public sealed class RouteAudienceGraphTests
         int[] expectedClassifiedCounts = [237, 260, 261, 248, 271, 272];
 
         Assert.Equal(6, profiles.Length);
+        // T-585 item 3, the other direction. The forward half below refuses an executable route with no
+        // manifest entry and names it; nothing refused a manifest ENTRY no executable route reaches.
+        // A dead expectation is a fence that has silently stopped fencing anything: it still reads as
+        // policy and no longer applies to a request, which is the more dangerous of the two shapes
+        // because it fails open and looks like coverage. Accumulated across profiles, because an entry
+        // for a web-only family is legitimately unmatched in a desktop-only graph.
+        var matchedExpectations = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < profiles.Length; index++)
         {
             var snapshot = await CaptureProfileAsync(profiles[index]);
@@ -102,6 +109,15 @@ public sealed class RouteAudienceGraphTests
                 else
                     Assert.Empty(matches);
             }
+            foreach (var expectation in LocalNodeExecutableEndpointRegistry.RouteFenceExpectations)
+            {
+                if (snapshot.Endpoints.Any(endpoint =>
+                        endpoint.RoutePattern.StartsWith(expectation.RouteBase, StringComparison.Ordinal)))
+                {
+                    matchedExpectations.Add(expectation.RouteBase);
+                }
+            }
+
             var classified = pairs.Count(pair => pair.RouteFenceKind is not null);
             var unclassified = pairs
                 .Where(pair => pair.RouteFenceKind is null)
@@ -121,6 +137,18 @@ public sealed class RouteAudienceGraphTests
                 report);
             Assert.Equal(pairs.Length, classified);
         }
+
+        // The finding names the entries, not a count: "one expectation is dead" does not say which
+        // fence stopped applying, and which one is the whole question.
+        var dead = LocalNodeExecutableEndpointRegistry.RouteFenceExpectations
+            .Where(expectation => !matchedExpectations.Contains(expectation.RouteBase))
+            .Select(expectation => $"{expectation.RouteBase} ({expectation.Kind})")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(
+            dead.Length == 0,
+            "Route-fence entries that no executable route in any supported profile reaches: "
+            + string.Join(", ", dead));
     }
 
     private static async Task<LocalNodeExecutableEndpointSnapshot> CaptureProfileAsync(

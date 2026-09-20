@@ -33,6 +33,7 @@ export const requiredStepIds = [
   'contracts-rust',
   'operator-cli-headless',
   'install-artefact',
+  'removal-exercise',
   'exact-clone',
   'quality',
   'quality-baseline',
