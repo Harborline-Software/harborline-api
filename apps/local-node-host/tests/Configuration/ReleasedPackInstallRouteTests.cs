@@ -347,6 +347,43 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == PackageKey);
     }
 
+    /// <summary>
+    /// The ordinary R1 shape: a domain expert evolves THEIR OWN pack. The released package carries the
+    /// same pack key as the pack whose definitions it re-states, so it is that pack's successor rather
+    /// than a stranger contesting its keys — the installer treats it as an upgrade and no ownership
+    /// ceremony stands between the release and the effective digest.
+    /// </summary>
+    [Fact]
+    public async Task Evolving_the_pack_that_owns_the_definitions_needs_no_ownership_choice_at_all()
+    {
+        var baseline = await PinEffectiveAsync();
+        var releasedDigest = await ReleaseAsync(packageKey: "acme.finance", proposalId: "proposal-667-own");
+
+        // No ownership in the request body: the released package IS acme.finance, one revision on.
+        using var installed = await _client.PostAsJsonAsync(InstallRoute(releasedDigest), new { });
+        var body = await installed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(installed.StatusCode == HttpStatusCode.OK, body.ToString());
+        Assert.Equal("acme.finance", body.GetProperty("packKey").GetString());
+        Assert.Equal(Revision, body.GetProperty("version").GetString());
+        Assert.Equal(Revision, Assert.Single(_store.ListInstalled(_tenant),
+            item => item.PackKey == "acme.finance" && item.Lifecycle == PackLifecycleState.Active).Version);
+
+        using var prepared = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.PrepareRoute,
+            new { expectedBaselineDigest = baseline, activePackageKeys = new[] { "acme.finance" } });
+        Assert.Equal(HttpStatusCode.OK, prepared.StatusCode);
+        var candidateDigest = (await prepared.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("candidateDigest").GetString()!;
+        Assert.NotEqual(baseline, candidateDigest);
+
+        using var activated = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.ActivateRoute, new
+        {
+            expectedBaselineDigest = baseline,
+            candidateDigest,
+            evidenceIntent = new { id = "intent-667-own", reason = "Activate the evolved finance pack." },
+        });
+        Assert.Equal(HttpStatusCode.OK, activated.StatusCode);
+        Assert.Equal(candidateDigest, await EffectiveDigestAsync());
+    }
+
     private static string InstallRoute(string digest) => $"/api/local-node/configuration/releases/{digest}/install";
 
     private static object OwnedByRelease() => new
@@ -373,9 +410,8 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
     }
 
     /// <summary>Runs T-461's path end to end and returns the Released package's own artifact digest.</summary>
-    private async Task<string> ReleaseAsync()
+    private async Task<string> ReleaseAsync(string packageKey = PackageKey, string proposalId = "proposal-667")
     {
-        const string proposalId = "proposal-667";
         using (var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId }))
             Assert.Equal(HttpStatusCode.OK, started.StatusCode);
         await AutosaveAsync(proposalId, "records/invoice", RecordsEdit, RecordsKind);
@@ -385,7 +421,7 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         using (var checked_ = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/checks", new { receiptId = "receipt-667" }))
             Assert.Equal(HttpStatusCode.OK, checked_.StatusCode);
         using var released = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/release",
-            new { ordinal = 1, packageKey = PackageKey, revision = Revision });
+            new { ordinal = 1, packageKey, revision = Revision });
         var body = await released.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(released.StatusCode == HttpStatusCode.OK, body.ToString());
         return body.GetProperty("releasedPackage").GetProperty("digest").GetString()!;

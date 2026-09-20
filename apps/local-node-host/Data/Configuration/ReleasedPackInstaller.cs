@@ -127,10 +127,12 @@ public sealed class ReleasedPackInstaller
 
         var context = new PackInstallContext(tenant, _trustStore, _revocation, authority.At,
             PackInstallRoutes.RevocationMaxAge, Principal: authority.Principal.Value,
-            // A configuration pack re-states definitions another pack already claims — that is what
-            // editing one means — so activation meets the F4 fail-closed ownership gate every time. The
-            // choice is the caller's, exactly as it is on POST /packs/activate; nothing here decides on
-            // the operator's behalf which pack owns a contested definition.
+            // Only needed when the released package takes definitions a DIFFERENT pack owns. Releasing
+            // under the same pack key — a domain expert evolving their own pack, which is the ordinary
+            // R1 shape — is an upgrade, not a collision: PackCompositionConflicts.ClaimsFromInstalled
+            // groups by pack key, so a pack's own successor is never a second claimant and the F4 gate
+            // does not fire. When the keys really are contested, the choice is the caller's, exactly as
+            // on POST /packs/activate; nothing here decides on the operator's behalf who wins.
             OwnershipResolutions: ownership,
             CorrelationId: authority.CorrelationId);
         var installed = _installer.Install(exported.FileBytes, context);

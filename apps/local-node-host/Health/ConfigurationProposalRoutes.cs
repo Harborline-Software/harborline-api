@@ -226,8 +226,9 @@ internal static class ConfigurationProposalRoutes
                 var tenant = Tenant();
                 var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Operate, ct).ConfigureAwait(false);
                 if (refusal is not null) return refusal;
-                // The owning-pack choice per contested definition is the caller's, as it is on the pack
-                // activate route: an edited definition always collides with the pack that owns it today.
+                // Optional, and empty for the ordinary case. A release under the same pack key is that
+                // pack's upgrade and contests nothing; a release that takes another pack's definitions
+                // needs an owner named, and that choice is the caller's, as on the pack activate route.
                 var ownership = (request?.Ownership ?? [])
                     .Where(owner => !string.IsNullOrWhiteSpace(owner.DefinitionKey) && !string.IsNullOrWhiteSpace(owner.PackageKey))
                     .ToDictionary(owner => owner.DefinitionKey, owner => owner.PackageKey, StringComparer.Ordinal);
