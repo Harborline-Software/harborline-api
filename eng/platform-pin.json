@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "80f1b2554cf39c04da0a71e8b2fd3ef85f741558",
-  "recordedAt": "2026-09-19 (T-524 availability runtime and booking consumer; platform main at PR 75, carrying PR 72 T-626 IAvailabilityRuntime and PR 74 T-568 requester-from-IPartyContext; supersedes the T-644 pin at 519e8996, which this commit descends from)",
+  "commit": "4bac7eca20c4ab6085434c8e2558e20714727b38",
+  "recordedAt": "2026-09-20 (T-659 the epoch-conditional booking commit; platform main at PR 78 merge 4bac7eca, which added GetCapacityEpochAsync and SaveIfCapacityUnchangedAsync to ICalendarEventStore and made BookingService.Book commit conditional on the epoch it read before availability; carries PR 76 T-653 calendar composer windows; supersedes the T-524 pin at 4bbba70f, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
