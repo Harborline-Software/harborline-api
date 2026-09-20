@@ -27,11 +27,12 @@ bash eng/verify-packages.sh
 
 ## Verify
 
-GitHub Actions is switched off in this repository until it is public (see the `ACTIONS_ENABLED`
-block at the top of `.github/workflows/packages.yml`: the org is on the free plan and private-repo
-minutes ran out on 2026-08-24). `eng/verify.sh` is what verifies a change instead. It runs the same
-steps those workflows ran, in the same order, and on success records a receipt that
-`.githooks/pre-push` requires before it will let a push through.
+The required checks (`verify`, `protocol-lane-conformance`, `operator-cli-headless`, `pack-consume`,
+`sbom`) carry no switch; `ACTIONS_ENABLED` (see the block at the top of
+`.github/workflows/packages.yml`) only turns the self-hosted lanes and the optional hosted jobs on
+and off, and with it off the `verify` context is red, not skipped. `eng/verify.sh` is what verifies
+a change locally. It runs the same steps those workflows run, in the same order, and on success
+records a receipt that `.githooks/pre-push` requires before it will let a push through.
 
 ```sh
 bash eng/verify.sh                    # run on a clean tree; the receipt attests to HEAD
