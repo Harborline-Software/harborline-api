@@ -66,10 +66,31 @@ public sealed class CatalogueFieldSourceContractTests
         Assert.Equal(CatalogueFieldSourceContract.Fields, frozen.CatalogueFieldSource.Fields);
         var dto = JsonSerializer.SerializeToNode(FormDefinitionDto.From(frozen))!;
         Assert.True(JsonNode.DeepEquals(content["catalogueFieldSource"], dto["catalogueFieldSource"]));
-        var exported = PackFormDefinitionContent.ToContent(frozen, schema);
+        var exported = await PackFormDefinitionContent.ToContentAsync(frozen, schema, TimeProvider.System);
         Assert.True(JsonNode.DeepEquals(content["catalogueFieldSource"], exported["catalogueFieldSource"]));
         Assert.True(PackFormDefinitionContent.TryParse(exported, out var imported, out error), error);
         Assert.Equal(request.CatalogueFieldSource!.Fields, imported.CatalogueFieldSource!.Fields);
+    }
+
+    [Fact]
+    public async Task Pack_projection_ignores_authored_control_and_uses_the_runtime_editor()
+    {
+        var content = Content(false);
+        content["overlay"]!["fields"]!["title"]!["controlHint"] = "textarea";
+        content["fieldsMeta"]!["title"] = JsonNode.Parse(
+            """{"type":"select","required":false,"options":["one","two","three"]}""");
+        Assert.True(PackFormDefinitionContent.TryParse(content, out var request, out var error), error);
+        var schema = await new InMemorySchemaRegistry(TimeProvider.System)
+            .RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request, new FormDefinitionId("runtime-editor")));
+        var definition = FormDefinitionRoutes.BuildDefinition(new FormDefinitionId("runtime-editor"),
+            new SemanticVersion(1, 0, 0), new TenantId("test"), IdentityRef.System, schema.Id,
+            request.Overlay, DateTimeOffset.UnixEpoch);
+
+        var exported = await PackFormDefinitionContent.ToContentAsync(
+            FormDefinitionFreezer.Freeze(definition), schema, TimeProvider.System);
+
+        Assert.Equal("textarea", exported["overlay"]!["fields"]!["title"]!["controlHint"]!.GetValue<string>());
+        Assert.Equal("radio", exported["fieldsMeta"]!["title"]!["type"]!.GetValue<string>());
     }
 
     [Fact]

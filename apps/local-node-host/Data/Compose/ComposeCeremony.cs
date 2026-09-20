@@ -204,7 +204,7 @@ public sealed class ComposeCeremony
             JsonNode content;
             try
             {
-                content = PackFormDefinitionContent.ToContent(definition, schema);
+                content = await PackFormDefinitionContent.ToContentAsync(definition, schema, _clock, ct).ConfigureAwait(false);
             }
             catch (JsonException ex)
             {

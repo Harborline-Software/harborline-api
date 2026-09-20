@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "de4c5d57",
-  "recordedAt": "2026-09-20T09:20:00Z",
+  "sourcePin": "068cbc5f",
+  "recordedAt": "2026-09-20T12:01:45Z",
   "totals": {
-    "total": 4433,
-    "passed": 4412,
+    "total": 4434,
+    "passed": 4413,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-664 runtime editor choice: the native Windows exact-clone run 35508280626 at 068cbc5f measured 4434 total, 4413 passed, zero failed and 21 skipped, with no new failures and no known-flaky retries. The one added CatalogueFieldSourceContractTests case proves a present authored ControlHint is ignored and the released platform ValueDomainRuntime chooses the editor from the value domain. Every build, host test, analyzer, architecture, globalization, boundary and capability step passed; the sole refusal was the previous 4433-case count inventory. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-585 shell and surface proofs: the Windows count moves by exactly the eight new cases named in deltaFromPrevious, measured on the merged head after T-461 rather than added to T-461's number. The macOS and Ubuntu baselines are NOT updated: both use comparison=\"named\", whose verdict is failure IDENTITY rather than the count -- the macOS lane of the same run passed while observing 4433. No permittedFailures or knownFlaky row is added, removed or reworded.",
     "T-461 propose, save and release: the quality-enabled Windows exact-clone run measured 4425 total, 4404 passed, zero failed and 21 skipped, with no known-flaky retries and NEW: none. Its only failing check was the previous 4415-case count inventory. The ten added cases are ConfigurationProposalRouteTests, which drives the propose, autosave, save-version, check and release routes over the real durable pack store: baseline recorded and no effective-generation row written while editing; autosave durable across a reread and a saved version immutable with authorship and rationale; a rationale-less and an edit-less save refused; release signing the exact saved candidate, with a tampered document offering a different identity and failing signature verification; release refused without a check, refused on an invalidated check and refused on a moved baseline naming both generations; the released digest equal to the digest offered for activation and to the SHA-256 of the stored bytes; the released vocabulary on every step; releasing proving not to make anything effective; and the two refusal-identity cases. No case was removed and no skip identity changed. Five inventories moved with the seven routes and one migration rather than being silenced: operator-CLI coverage gains seven exemptions at T-644's stated posture, RouteAudienceGraphTests moves each profile count by seven with nothing unclassified, the EF context catalog admits 20260920100000_AddConfigurationProposals (55 to 56), the ADR0160 R3 legacy-authority ceiling ratchets 435 to 437 under the 2026-09-07 exception at the minimum 2/0 shape, and the MTW-00A inventory regenerates to 97 owners. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-657 configuration navigation entry: the quality-enabled Windows exact-clone run at 1c2b2dd6d01b67220f3f650fb8ea047bfb2430f8 measured 4414 total, 4393 passed, zero failed and 21 skipped, with no known-flaky retries. Its only failing check was the previous 4411-case count inventory. The three added cases are the one theory PackNavigationRouteTests.Configuration_entry_audience_is_selected_session_product_holding_packages_operate, which names the configuration entry's audience (selected-session-product) and permission (packages:operate, install-wide) and covers holding in audience, not holding in audience, and holding out of audience. No case was removed; ComposedHostBootSmokeTests.Program_Composition_InstallsAndServesPackNavigationThroughTheShippingHost is amended in place to name the configuration workspace it is now served. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
@@ -109,22 +110,22 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4425,
-      "passed": 4404,
+      "total": 4433,
+      "passed": 4412,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4425 -> 4433; passed 4404 -> 4412; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-585 adds eight cases: five in AttributionIsNotAuthorityTests (item 5, attribution never establishes authority at the first-authority and Access boundary) and three in AccessClaimAndRecoveryPathArchTests (item 4, one Access claim path and one recovery path). The rest of T-585 adds no case here: item 3 extends the existing RouteAudienceGraphTests method rather than adding one, and item 2 is a gate STEP (eng/removal-exercise.sh), deliberately outside this suite because a removal that stopped removing must fail as itself rather than as a moved baseline.",
-    "measured": "observed, not computed: the quality-enabled Windows exact-clone at de4c5d57 (CI run 35501529012) reported total 4433, passed 4412, failed 0, skipped 21, with newFailures empty and nothing rescued by the knownFlaky retry. The arithmetic 4425 + 8 agrees, but the recorded tuple is the measurement."
+    "change": "total 4433 -> 4434; passed 4412 -> 4413; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-664 adds one CatalogueFieldSourceContractTests case proving that authored ControlHint is inert legacy data and editor choice comes from the released platform ValueDomainRuntime.",
+    "measured": "observed, not computed: the quality-enabled native Windows exact-clone at 068cbc5f (CI run 35508280626) reported total 4434, passed 4413, failed 0, skipped 21, with newFailures empty and nothing rescued by the knownFlaky retry."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "the rebased head of claude/t-659-booking-atomicity; the pre-rebase measurement was b616a583cb0c1ba06669c04a6932764e326b57ea",
+    "apiCommit": "068cbc5f63d5272beb7d631f1e861bd92d1d9576 (PR 193 merge candidate measured by CI run 35508280626)",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate; platform feed packed from a clean clone at the eng/platform-pin.json commit 4bac7eca20c4ab6085434c8e2558e20714727b38",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "Pre-rebase run completed 2026-09-20T04:20Z green on all 16 steps after the 4412 re-pin; the rebased head is re-gated for the 4415 tuple.",
+    "runs": "CI run 35508280626 measured 4434 total, 4413 passed, zero failed and 21 skipped on native Windows; a fresh committed-head gate confirms the tuple.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
