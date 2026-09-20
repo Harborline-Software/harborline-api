@@ -107,7 +107,7 @@ internal static class SubmitValidationGate
                 var compiled = RuleCompiler.Compile(overlay.Rules);
                 if (compiled.RuleCount > 0)
                 {
-                    result = new FormRuleGraph(compiled, RuleEngineLimits.Default, clock)
+                    result = new FormRuleGraph(compiled, clock)
                         .EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
                 }
             }
