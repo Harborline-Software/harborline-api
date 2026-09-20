@@ -216,15 +216,23 @@ public sealed partial class ComposedHostBootSmokeTests
         var pack = document.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
         var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
-        Assert.Equal(new[] { "access", "workshop", "ticket-229-workspace" },
+        // T-657: the shipping host serves the configuration workspace to THIS caller, whose ordinary
+        // seeded `packages:operate` holding is what admitted the install and activation above. That is
+        // the entry's audience end to end; PackNavigationRouteTests proves the two refusing cases.
+        Assert.Equal(new[] { "access", "configuration", "workshop", "ticket-229-workspace" },
             workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
+        var configuration = workspaces[1];
+        Assert.Equal("configuration.workspace", configuration.GetProperty("labelKey").GetString());
+        var configurationGroup = Assert.Single(configuration.GetProperty("groups").EnumerateArray());
+        Assert.Equal("configuration.activation",
+            Assert.Single(configurationGroup.GetProperty("itemIds").EnumerateArray()).GetString());
         var access = workspaces[0];
         Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
         var group = Assert.Single(access.GetProperty("groups").EnumerateArray());
         Assert.Equal("access-inspection", group.GetProperty("id").GetString());
         Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
         Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
-        var workshop = workspaces[1];
+        var workshop = workspaces[2];
         Assert.Equal("workshop.workspace", workshop.GetProperty("labelKey").GetString());
         var workshopGroup = Assert.Single(workshop.GetProperty("groups").EnumerateArray());
         Assert.Equal("definitions", workshopGroup.GetProperty("id").GetString());
