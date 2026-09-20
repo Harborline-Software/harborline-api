@@ -25,7 +25,6 @@ internal static class PackFormDefinitionContent
     private const string MoneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
     private static readonly PlatformTenantId ProjectionTenant = new("pack-projection");
     private static readonly PackLiteralDomain LiteralDomain = new();
-    private static readonly ValueDomainRuntime FieldDomains = new(LiteralDomain, LiteralDomain, new UnavailableClock());
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -142,6 +141,7 @@ internal static class PackFormDefinitionContent
     public static async ValueTask<JsonNode> ToContentAsync(
         FormDefinition definition,
         Schema schema,
+        TimeProvider clock,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -157,7 +157,7 @@ internal static class PackFormDefinitionContent
         foreach (var entry in overlay.Fields)
         {
             fieldsMeta.Add(entry.Key,
-                await ToFieldMetaAsync(entry.Key, entry.Value, schemaRoot, cancellationToken).ConfigureAwait(false));
+                await ToFieldMetaAsync(entry.Key, entry.Value, schemaRoot, clock, cancellationToken).ConfigureAwait(false));
         }
         var request = new SaveFormDefinitionRequest(overlay, fieldsMeta, CatalogueFieldSource: definition.CatalogueFieldSource);
         var content = JsonSerializer.SerializeToNode(request, JsonOptions) as JsonObject
@@ -175,6 +175,7 @@ internal static class PackFormDefinitionContent
         string key,
         FieldOverlayDto overlay,
         JsonObject schemaRoot,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         var located = FindProperty(schemaRoot, key)
@@ -186,7 +187,7 @@ internal static class PackFormDefinitionContent
         // ControlHint is legacy authoring data. The runtime owns editor selection, so a
         // present authored hint is deliberately ignored rather than admitted as authority.
         var type = options is { Count: > 0 }
-            ? await ResolveDomainControlTypeAsync(options, cancellationToken).ConfigureAwait(false)
+            ? await ResolveDomainControlTypeAsync(options, clock, cancellationToken).ConfigureAwait(false)
             : InferControlType(fieldSchema);
         var validations = new List<FieldValidationDto>();
         AddNumericKeyword(fieldSchema, validations, "minLength",
@@ -224,6 +225,7 @@ internal static class PackFormDefinitionContent
     {
         if (schema["enum"] is JsonArray) return "select";
         if (schema["format"]?.GetValue<string>() == "date") return "date";
+        if (schema["pattern"]?.GetValue<string>() == MoneyPattern) return "currency";
         return schema["type"]?.GetValue<string>() switch
         {
             "number" or "integer" => "number",
@@ -234,20 +236,16 @@ internal static class PackFormDefinitionContent
 
     private static async ValueTask<string> ResolveDomainControlTypeAsync(
         IReadOnlyList<string> values,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
-        var resolved = await FieldDomains.ResolveAsync(
+        var domains = new ValueDomainRuntime(LiteralDomain, LiteralDomain, clock);
+        var resolved = await domains.ResolveAsync(
             new ValueDomainDefinition(LiteralValues: values),
             new FieldDomainScope(ProjectionTenant, "pack-projection"),
             "/fieldsMeta",
             cancellationToken).ConfigureAwait(false);
         return resolved.Editor == FieldEditorKind.RadioGroup ? "radio" : "select";
-    }
-
-    private sealed class UnavailableClock : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow()
-            => throw new InvalidOperationException("literal value-domain projection does not read a clock");
     }
 
     private sealed class PackLiteralDomain : IFieldDomainSource, IFieldDomainSnapshot, IFieldDomainReadAuthority
