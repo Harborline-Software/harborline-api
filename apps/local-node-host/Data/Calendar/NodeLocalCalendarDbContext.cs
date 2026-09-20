@@ -47,6 +47,9 @@ public sealed class NodeLocalCalendarDbContext : DbContext
     /// <summary>The node-local owned-calendar collections (calendar productization #149, C1; JSON-on-master).</summary>
     public DbSet<NodeCalendarRow> Calendars => Set<NodeCalendarRow>();
 
+    /// <summary>The per-(tenant, resource) capacity epochs the conditional booking commit compares (T-659).</summary>
+    public DbSet<NodeCalendarCapacityEpochRow> CalendarCapacityEpochs => Set<NodeCalendarCapacityEpochRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +67,16 @@ public sealed class NodeLocalCalendarDbContext : DbContext
             e.Property(r => r.SnapshotJson).HasColumnName("snapshot_json");
             // The list/agenda read scans by tenant.
             e.HasIndex(r => r.TenantId);
+        });
+
+        modelBuilder.Entity<NodeCalendarCapacityEpochRow>(e =>
+        {
+            e.ToTable("calendar_capacity_epochs");
+            // Composite (tenant, resource) primary key: the unit the conditional commit compares.
+            e.HasKey(r => new { r.TenantId, r.Resource });
+            e.Property(r => r.TenantId).HasColumnName("tenant_id").HasMaxLength(128);
+            e.Property(r => r.Resource).HasColumnName("resource").HasMaxLength(256);
+            e.Property(r => r.Epoch).HasColumnName("epoch");
         });
 
         modelBuilder.Entity<NodeCalendarRow>(e =>
