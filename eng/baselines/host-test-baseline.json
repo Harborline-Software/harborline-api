@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "f1caa55c",
-  "recordedAt": "2026-09-20T15:20:10Z",
+  "sourcePin": "8b8e625c",
+  "recordedAt": "2026-09-20T17:18:46Z",
   "totals": {
-    "total": 4439,
-    "passed": 4418,
+    "total": 4446,
+    "passed": 4425,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-463 slice 2 the api verification runner: the quality-enabled Windows exact-clone run 35524511045 (job 106114224248) at 8b8e625c156df00d54ab2cf51073dfab9ae818b9 measured 4446 total, 4425 passed, 0 failed and 21 skipped, with newFailures empty and no known-flaky retries. Its only failing check was the previous 4439-case count inventory. The added cases are VerificationRunnerTests, which drives the runner over the real durable pack store against three candidate generations that differ in one definition each: the clean run with every declared assertion observed on both sides, the business-rule defect failing all three invoice-total rows while approval-authority still passes, the authorization defect doing the exact reverse, an unprepared candidate refused with no receipt minted, an unsupported outcome proved not to be a pass, and the two POST /api/local-node/configuration/verify route cases. No case was removed and no skip identity changed. Four inventories moved with the one new route and the platform pin: RouteAudienceGraphTests advances each of the six profile counts by one (237/260/261/248/271/272 to 238/261/262/249/272/273) with nothing unclassified, operator-CLI coverage gains one exemption at T-644's stated posture, eng/tests/platform-feed.test.mjs moves the producer count 28 to 29 for T-624's Harborline.Blocks.MeasureCatalogue, and the Views consumption stub takes T-624's widened IViewMeasureCatalog.EvaluateAsync. LocalNodeExecutableEndpointRegistry.RouteFenceExpectations and the route-group fence needed no entry and were verified unchanged. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-668 configuration.proposal navigation entry: the quality-enabled Windows exact-clone run 35518194851 (job 106097609297) at f1caa55ceeac3e94cee614b0b212dad074768e77, the merge candidate for f75361cc, measured 4439 total, 4418 passed, zero failed and 21 skipped, with newFailures empty and no known-flaky retries (rescued 0). Its only failing check was the previous 4434-case count inventory. The five added cases are the one theory PackNavigationRouteTests.Proposal_entry_audience_is_selected_session_product_holding_packages_author, which names the proposed-change entry's audience (selected-session-product, the same group ConfigurationProposalRoutes maps on) and permission (packages:author, install-wide, the AUTHOR side of the ck-8 split those routes already draw), and covers: both operations held, author only, operate only, neither, and out of audience however granted. T-657's own three-row theory is untouched. No case was removed; ComposedHostBootSmokeTests.Program_Composition_InstallsAndServesPackNavigationThroughTheShippingHost is amended in place to name both entries it is now served, because AccessGrantAuthorizationSeed offers the node operator packages:author and packages:operate on the same row. A LOCAL gate run at f75361cc reported two NEW failures in ReportsRouteAuthorizationTests.Every_report_refuses_a_cross_tenant_selected_principal (routes /ar-aging-summary and /profit-and-loss-by-property); that run overlapped this CI job on the same winbox host, both rows pass in isolation and CI observed NEW: none, so it was load, not the change, and NO knownFlaky row is added for it. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-664 runtime editor choice: the native Windows exact-clone run 35508280626 at 068cbc5f measured 4434 total, 4413 passed, zero failed and 21 skipped, with no new failures and no known-flaky retries. The one added CatalogueFieldSourceContractTests case proves a present authored ControlHint is ignored and the released platform ValueDomainRuntime chooses the editor from the value domain. Every build, host test, analyzer, architecture, globalization, boundary and capability step passed; the sole refusal was the previous 4433-case count inventory. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-585 shell and surface proofs: the Windows count moves by exactly the eight new cases named in deltaFromPrevious, measured on the merged head after T-461 rather than added to T-461's number. The macOS and Ubuntu baselines are NOT updated: both use comparison=\"named\", whose verdict is failure IDENTITY rather than the count -- the macOS lane of the same run passed while observing 4433. No permittedFailures or knownFlaky row is added, removed or reworded.",
@@ -111,22 +112,22 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4434,
-      "passed": 4413,
+      "total": 4439,
+      "passed": 4418,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4434 -> 4439; passed 4413 -> 4418; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-668 adds one five-row PackNavigationRouteTests theory naming the configuration.proposal entry's audience and permission. Nothing is removed, renamed or skipped.",
-    "measured": "observed, not computed: the quality-enabled native Windows exact-clone at f1caa55ceeac3e94cee614b0b212dad074768e77 (CI run 35518194851, job 106097609297) reported total 4439, passed 4418, failed 0, skipped 21, with newFailures empty and nothing rescued by the knownFlaky retry."
+    "change": "total 4439 -> 4446; passed 4418 -> 4425; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-463 slice 2 adds VerificationRunnerTests: the clean run, the two mutation directions, an unprepared candidate, the not-a-pass outcome, and the two verify-route cases. Nothing is removed, renamed or skipped.",
+    "measured": "observed, not computed: the quality-enabled native Windows exact-clone at 8b8e625c156df00d54ab2cf51073dfab9ae818b9 (CI run 35524511045, job 106114224248) reported total 4446, passed 4425, failed 0, skipped 21, with newFailures empty and nothing rescued by the knownFlaky retry."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "f1caa55ceeac3e94cee614b0b212dad074768e77 (PR 194 merge candidate for f75361cc, measured by CI run 35518194851 job 106097609297)",
+    "apiCommit": "8b8e625c156df00d54ab2cf51073dfab9ae818b9 (PR 196 head, measured by CI run 35524511045 job 106114224248)",
     "platform": "native Windows",
-    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate; platform feed packed from a clean clone at the eng/platform-pin.json commit 7176ab5ae92f885901b3d8232300e6a49fcbee69",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate; platform feed packed from a clean clone at the eng/platform-pin.json commit 033918a2412be81fbca55b504b4c72e4ef1e45fe",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "CI run 35518194851 measured 4439 total, 4418 passed, zero failed and 21 skipped on native Windows in 5m18s; a fresh committed-head gate confirms the tuple.",
+    "runs": "CI run 35524511045 measured 4446 total, 4425 passed, 0 failed and 21 skipped on native Windows; a fresh committed-head gate confirms the tuple.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {

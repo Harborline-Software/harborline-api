@@ -113,10 +113,15 @@ public sealed class PlatformViewsPackageConsumptionTests
             ValueTask.FromResult<ViewMeasureDescriptor?>(
                 name == "work.count" ? new ViewMeasureDescriptor(name, []) : null);
 
+        // T-624 widened the released contract: a measure is evaluated FOR a tenant and a principal,
+        // never ambiently. This consumption stub takes both and still counts rows, which is what the
+        // test measures; that the runtime forwards the right two is T-624's own proof, not this one's.
         public ValueTask<ViewMeasureResult> EvaluateAsync(
             ViewMeasureBinding binding,
             IReadOnlyList<ViewRow> rows,
             DateTimeOffset evaluatedAt,
+            string tenant,
+            string principal,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(new ViewMeasureResult(binding.Name, rows.Count));
     }

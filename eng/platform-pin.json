@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "7176ab5ae92f885901b3d8232300e6a49fcbee69",
-  "recordedAt": "2026-09-20 (T-461 proposed-change producer; platform PR 80 merge commit 7176ab5a, which also carries PR 77 T-621 adding the Harborline.Foundation.FieldRuntime producer and PR 79 T-658/T-663. Supersedes the T-659 pin at 4bac7eca, which this commit descends from)",
+  "commit": "033918a2412be81fbca55b504b4c72e4ef1e45fe",
+  "recordedAt": "2026-09-20 (T-463 slice 2, the api verification runner; platform PR 84 merge commit 033918a2, which is platform main and carries slice 1 — VerificationSuite, VerificationCatalog, VerificationReceipt and VerificationDetail — that this runner executes. It descends from the T-461 pin at 7176ab5a and also carries PR 81 T-624 (Harborline.Blocks.MeasureCatalogue, a new package id), PR 82 T-586, PR 83 T-585 and PR 85 T-671.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -15,6 +15,7 @@
     "Harborline.Blocks.EntityViews": "Harborline.Blocks.EntityViews.dll",
     "Harborline.Blocks.InspectionReview": "Harborline.Blocks.InspectionReview.dll",
     "Harborline.Blocks.LayoutRuntime": "Harborline.Blocks.LayoutRuntime.dll",
+    "Harborline.Blocks.MeasureCatalogue": "Harborline.Blocks.MeasureCatalogue.dll",
     "Harborline.Blocks.RelativeChains": "Harborline.Blocks.RelativeChains.dll",
     "Harborline.Blocks.Reports": "Harborline.Blocks.Reports.dll",
     "Harborline.Blocks.Scheduling": "Harborline.Blocks.Scheduling.dll",

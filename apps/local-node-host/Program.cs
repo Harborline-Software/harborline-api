@@ -1500,6 +1500,16 @@ builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Config
     sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>()));
+// T-463: the verification runner reads the candidate through the same activation target and the same
+// durable pack store, and writes nothing at all. Each case it runs executes in its own ephemeral world.
+// Ticket 216: the fixture clock is DERIVED HERE, in the composition root, because a fixture's declared
+// virtual instant is still a clock and the runner may not introduce one of its own. It carries no wall
+// time — that is the point of it — so the root hands the runner a factory rather than a TimeProvider.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner(
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
+    DurablePackStore(sp),
+    sp.GetRequiredService<TimeProvider>(),
+    static instant => new DeclaredInstantTimeProvider(instant)));
 builder.Services.AddPackComposerInstall();
 
 // Ticket 208 fix 1: the node's pack TRUST SURFACE is composed once and shared. Both the install routes
@@ -2823,4 +2833,15 @@ await using var endpointMapping = await LocalNodeEndpointMapping.MapAsync(
 await listener.StartAsync(CancellationToken.None);
 await Harborline.Api.LocalNodeHost.LocalNodeHostRuntime.RunAsync(app, listener);
     }
+}
+
+/// <summary>
+/// A clock pinned to one declared instant. Ticket 216 keeps every clock in this composition root, and
+/// a verification fixture's instant is a declared input rather than wall time, so it is minted here
+/// and handed to the runner. It reads no ambient time and never advances.
+/// </summary>
+internal sealed class DeclaredInstantTimeProvider(DateTimeOffset instant) : TimeProvider
+{
+    /// <inheritdoc />
+    public override DateTimeOffset GetUtcNow() => instant;
 }

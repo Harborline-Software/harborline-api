@@ -1502,6 +1502,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:VerifyRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "VerifyRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:CheckRoute",
       "kind": "local-node-http",
       "method": "POST",

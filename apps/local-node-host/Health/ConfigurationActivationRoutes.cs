@@ -31,8 +31,12 @@ internal static class ConfigurationActivationRoutes
     /// <summary>Route: the atomic compare-and-swap of a prepared candidate.</summary>
     public const string ActivateRoute = "/api/local-node/configuration/activate";
 
+    /// <summary>Route: run a declared verification suite against a prepared candidate (T-463).</summary>
+    public const string VerifyRoute = "/api/local-node/configuration/verify";
+
     public static void Map(IEndpointRouteBuilder app, ConfigurationActivationTarget target,
-        IActiveTeamAccessor activeTeam, AuthorizationGate gate, TimeProvider time, ILogger logger)
+        IActiveTeamAccessor activeTeam, AuthorizationGate gate, TimeProvider time, ILogger logger,
+        VerificationRunner? verification = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(target);
@@ -150,7 +154,48 @@ internal static class ConfigurationActivationRoutes
                 logger.LogInformation("Configuration ACTIVATE (tenant {Tenant}) → {Status} effective={Effective}", tenant, result.Status, result.EffectiveDigest);
             return result.Status == "effective" ? Results.Ok(result) : Results.UnprocessableEntity(result);
         });
+
+        // T-463: verifying a candidate is part of AUTHORING a change — it is what produces the receipt a
+        // proposed change records as its check — so it resolves packages:author, the same side of the ck-8
+        // split /proposals/{id}/checks draws, and not the packages:operate that activation resolves. It is
+        // also the only route in this family that changes nothing: the run writes no record, emits no
+        // evidence and cannot move the effective pointer, whatever the candidate's own rules say.
+        if (verification is null) return;
+        selectedSession.MapPost(VerifyRoute, async (HttpContext http, VerifyConfigurationRequestDto request, CancellationToken ct) =>
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.ExpectedBaselineDigest)
+                || string.IsNullOrWhiteSpace(request.CandidateDigest) || string.IsNullOrWhiteSpace(request.ReceiptId)
+                || string.IsNullOrWhiteSpace(request.Suite))
+                return Results.BadRequest(new { error = "expectedBaselineDigest, candidateDigest, receiptId and suite are required." });
+            var tenant = Tenant();
+            var authority = PackRouteAuthorization.Authority(http, tenant, time);
+            var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Author, null, ct).ConfigureAwait(false);
+            if (refusal is not null) return refusal;
+
+            // The suite arrives as a wire document and is re-admitted through the platform's own Declare,
+            // so a case this host would have refused at authoring cannot be smuggled in here and run.
+            var suite = VerificationSuite.Parse(request.Suite, out var admission);
+            if (suite is null)
+                return Results.UnprocessableEntity(new VerificationRunDto("refused", tenant.Value, request.ReceiptId,
+                    request.CandidateDigest, request.ExpectedBaselineDigest, [.. admission.Select(ToDto)]));
+
+            var run = await verification.RunAsync(tenant, request.ReceiptId, request.CandidateDigest,
+                request.ExpectedBaselineDigest, suite, ct).ConfigureAwait(false);
+            if (run.Receipt is not { } receipt)
+                return Results.UnprocessableEntity(new VerificationRunDto("refused", tenant.Value, request.ReceiptId,
+                    request.CandidateDigest, request.ExpectedBaselineDigest, [.. run.Refusals.Select(ToDto)]));
+
+            var dto = new VerificationRunDto(receipt.Status.ToString(), receipt.TenantKey, receipt.ReceiptId,
+                receipt.CandidateDigest, receipt.BaselineDigest, [], receipt.Digest,
+                VerificationDetail.Bind(receipt, suite));
+            if (logger.IsEnabled(LogLevel.Information))
+                logger.LogInformation("Configuration VERIFY (tenant {Tenant}, receipt {Receipt}) → {Status} {Digest}",
+                    tenant, receipt.ReceiptId, dto.Status, receipt.Digest);
+            return Results.Ok(dto);
+        });
     }
+
+    private static ConfigurationRefusalDto ToDto(VerificationRefusal refusal) => new(refusal.Code, refusal.Target, refusal.Message);
 
     private static ActivationDto ToDto(HostConfigurationPreparation prepared, string? candidateDigest)
     {
@@ -196,3 +241,20 @@ public sealed record ProjectionReferenceDto(string Key, string Revision, string 
 public sealed record ActivationDto(string Status, string TenantKey, string CandidateDigest, string ExpectedBaselineDigest,
     string EffectiveDigest, IReadOnlyList<ConfigurationRefusalDto> Refusals, ProjectionReferenceDto? Projection = null,
     IReadOnlyDictionary<string, string>? Detail = null, bool Acknowledged = false);
+
+/// <summary>Run one declared verification suite against a prepared candidate (T-463).</summary>
+/// <param name="ExpectedBaselineDigest">The baseline the candidate must still prepare over.</param>
+/// <param name="CandidateDigest">The prepared candidate to verify.</param>
+/// <param name="ReceiptId">The host's stable identity for this run; a proposed change binds its check to it.</param>
+/// <param name="Suite">The canonical suite document, re-admitted through the platform before anything runs.</param>
+public sealed record VerifyConfigurationRequestDto(string ExpectedBaselineDigest, string CandidateDigest,
+    string ReceiptId, string Suite);
+
+/// <summary>
+/// One verification run: the released outcome vocabulary, the digests the receipt binds, and the
+/// read-only detail bindings both renderer lanes show. A refused run carries its refusals and no
+/// receipt digest, because a run that did not complete has no evidence to offer.
+/// </summary>
+public sealed record VerificationRunDto(string Status, string TenantKey, string ReceiptId,
+    string CandidateDigest, string BaselineDigest, IReadOnlyList<ConfigurationRefusalDto> Refusals,
+    string? ReceiptDigest = null, IReadOnlyDictionary<string, string>? Detail = null);
