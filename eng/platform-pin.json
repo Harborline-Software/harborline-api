@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "7b93bca2079361b8652868501d5a21828d661937",
-  "recordedAt": "2026-09-20 (T-463 slice 2, the api verification runner; platform PR 84 merge commit 033918a2, which is platform main and carries slice 1 — VerificationSuite, VerificationCatalog, VerificationReceipt and VerificationDetail — that this runner executes. It descends from the T-461 pin at 7176ab5a and also carries PR 81 T-624 (Harborline.Blocks.MeasureCatalogue, a new package id), PR 82 T-586, PR 83 T-585 and PR 85 T-671.)",
+  "commit": "ae2bc0056c91174990f459a064880f8867d6712d",
+  "recordedAt": "2026-09-20 (T-667, a Released package installs; platform PR 92 merge commit ae2bc005, verified an ancestor of platform main, which carries the additive Harborline.Blocks.BuilderDefinitions change this consumer needs: ProposedDefinitionEdit gains ContentKind and the release document emits it per definition item, at interface revision 10. It descends from the T-463 slice 2 pin at 033918a2 and also carries PR 88 T-660. No package id is added or removed, so the producer map below is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
