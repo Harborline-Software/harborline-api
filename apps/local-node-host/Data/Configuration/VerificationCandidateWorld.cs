@@ -227,23 +227,51 @@ internal sealed class VerificationCandidateWorld
     /// rule that errors or leaves a value pending closes the save gate, which is the released
     /// behaviour — a computed value that failed is not quietly absent.
     /// </summary>
-    internal JsonObject Evaluate(string recordType, JsonObject values, VerificationFixture fixture, out bool blocked)
+    /// <param name="blocked">
+    /// Why the released save gate closed, or null when it did not. The code is the rule engine's
+    /// OWN released code (<c>rule.div_by_zero</c>, <c>rule.type_error</c>, a failing rule's id, …):
+    /// the runner does not author a second vocabulary for a fault the engine already names, and the
+    /// pointer addresses the cell the engine named.
+    /// </param>
+    internal JsonObject Evaluate(string recordType, JsonObject values, VerificationFixture fixture,
+        out VerificationRuleBlock? blocked)
     {
         var record = values.DeepClone().AsObject();
-        blocked = false;
+        blocked = null;
         if (Form(recordType) is not { Overlay.Rules.Count: > 0 } form) return record;
         var graph = new FormRuleGraph(RuleCompiler.Compile([.. form.Overlay.Rules]),
             clock: new VerificationClock(fixture.Instant));
         var result = graph.EvaluateInstance(RuleInstance.FromJson(record.DeepClone().AsObject()));
-        blocked = result.IsSaveBlocked;
         foreach (var (key, computed) in result.Values)
         {
             if (!key.StartsWith("field:", StringComparison.Ordinal)) continue;
             if (computed.State != ValueState.Resolved) continue;
             record[key["field:".Length..]] = computed.Value?.DeepClone();
         }
+        if (!result.IsSaveBlocked) return record;
+
+        // Ordinal by cell so the same defect names the same cell on every run. A failed validation
+        // is reported ahead of an errored value: it is the verdict the released gate acts on.
+        var validation = result.Validations
+            .Where(outcome => outcome.Validity?.Error is not null)
+            .OrderBy(outcome => outcome.Target.Key, StringComparer.Ordinal).FirstOrDefault();
+        if (validation is not null)
+        {
+            blocked = new(validation.Validity!.Error!.Code, Cell(validation.Target.Key));
+            return record;
+        }
+        var faulted = result.Values.Where(pair => pair.Value.State != ValueState.Resolved)
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+        blocked = faulted.Length == 0
+            ? new("rule.pending", "/record")
+            : new(faulted[0].Value.Error?.Code ?? "rule.pending", Cell(faulted[0].Key));
         return record;
     }
+
+    /// <summary>A cell key as an RFC 6901 pointer into the record; a non-field cell addresses the whole.</summary>
+    private static string Cell(string key) => key.StartsWith("field:", StringComparison.Ordinal)
+        ? "/" + VerificationRunner.Escape(key["field:".Length..])
+        : "/record";
 
     /// <summary>The candidate's form definition for a record type, by content key or its last segment.</summary>
     private FormDefinition? Form(string recordType)
@@ -368,6 +396,9 @@ internal sealed class VerificationCandidateWorld
         }
     }
 }
+
+/// <summary>Why the released save gate closed: the engine's own code, and the cell it named.</summary>
+internal sealed record VerificationRuleBlock(string Code, string Pointer);
 
 /// <summary>One case's clean authority world, disposed with the case.</summary>
 internal sealed class VerificationAuthorityWorld(ServiceProvider provider, AuthorizationGate gate, TenantId tenant)

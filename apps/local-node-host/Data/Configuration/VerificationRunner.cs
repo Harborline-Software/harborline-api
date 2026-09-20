@@ -15,6 +15,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs;
 using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.RuleEngine;
 using Harborline.Api.Foundation.RuleEngine.Compilation;
 using Harborline.Api.Foundation.RuleEngine.Graph;
 using Harborline.Api.Foundation.RuleEngine.Model;
@@ -184,6 +185,14 @@ public sealed class VerificationRunner
             return VerificationCaseOutcome.Blocked(item.CaseId, row?.RowId,
                 $"The candidate's rules for {recordType} do not compile: {exception.Message}");
         }
+        catch (RuleEngineTimeoutException)
+        {
+            // The engine's wall-clock liveness guard is an infrastructure fault, not an evaluation
+            // outcome (D1). It is this ONE case that could not be observed, so it is blocked here and
+            // the rest of the run still reports; a receipt carrying it cannot mint as Passed.
+            return VerificationCaseOutcome.Blocked(item.CaseId, row?.RowId,
+                $"The candidate's rules for {recordType} exhausted the engine's liveness budget.");
+        }
 
         var made = new List<VerificationObservation>(item.Assertions.Count);
         foreach (var assertion in item.Assertions)
@@ -223,9 +232,12 @@ public sealed class VerificationRunner
         var denied = candidate.WriteDeniedFields(recordType, values, held);
         if (denied.Count > 0) return Observed.Refused($"{ValuesPointer}/{Escape(denied[0])}");
 
+        // Authority allowed the act; whether it is ACCEPTED is now the candidate's own rules' answer.
+        // A closed save gate is refused under the engine's own released code rather than a second
+        // vocabulary invented here, because the engine already named that fault.
         var record = candidate.Evaluate(recordType, values, fixture, out var blocked);
-        return blocked
-            ? new Observed(false, "rule-evaluation-blocked", "/record", "allowed", record, [])
+        return blocked is { } fault
+            ? new Observed(false, fault.Code, fault.Pointer, "allowed", record, [])
             : new Observed(true, string.Empty, string.Empty, "allowed", record, ["records.created"]);
     }
 
