@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Calendar;
 using Harborline.Api.LocalNodeHost.Data.Financial;

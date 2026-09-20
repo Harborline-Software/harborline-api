@@ -11,9 +11,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-using Harborline.Api.Blocks.Calendar.DependencyInjection;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.DependencyInjection;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -209,6 +209,9 @@ public sealed class CalendarDevSeederTests
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.
+        builder.Services.AddTestKernelClock();
+        builder.Services.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.AllowAll());
         builder.Services.AddBlocksCalendar();
 
         var app = builder.Build();
@@ -234,7 +237,7 @@ public sealed class CalendarDevSeederTests
                 app.Services.GetRequiredService<ICalendarParticipantCalendarQuery>(),
                 app.Services.GetRequiredService<ICalendarEventStore>(),
                 app.Services.GetRequiredService<ICalendarEventExpansionService>(),
-                app.Services.GetRequiredService<IFreeBusyService>(),
+                app.Services.GetRequiredService<IAvailabilityRuntime>(),
                 activeTeam);
 
             await app.StartAsync();

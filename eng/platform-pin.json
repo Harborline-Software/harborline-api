@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "519e899603ac15b481874d4e8c12e44d92c9307e",
-  "recordedAt": "2026-09-19 (T-644 configuration activation consumer; platform PR 68, T-460 producer contracts; supersedes the T-642 s1 pin at f90829c, which this commit descends from)",
+  "commit": "4bbba70f064958dda3cddcf3712760f5d7f710c4",
+  "recordedAt": "2026-09-19 (T-524 availability runtime and booking consumer; platform main at PR 75, carrying PR 72 T-626 IAvailabilityRuntime and PR 74 T-568 requester-from-IPartyContext; supersedes the T-644 pin at 519e8996, which this commit descends from)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."

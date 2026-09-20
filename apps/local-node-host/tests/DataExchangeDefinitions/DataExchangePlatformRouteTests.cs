@@ -21,11 +21,10 @@ public sealed class DataExchangePlatformRouteTests
             .AddPlatformDataExchange()
             .BuildServiceProvider();
 
-        Assert.IsType<InMemoryDataExchangeDefinitionStore>(services.GetRequiredService<IDataExchangeDefinitionStore>());
         Assert.IsType<InMemoryExchangeRunStore>(services.GetRequiredService<IExchangeRunStore>());
         Assert.IsType<InMemoryAcquisitionCheckpointStore>(services.GetRequiredService<IAcquisitionCheckpointStore>());
         Assert.IsType<InMemoryProtectedEffectPayloadStore>(services.GetRequiredService<IProtectedEffectPayloadStore>());
-        Assert.Equal("Harborline.Foundation.DataExchange", typeof(IDataExchangeDefinitionStore).Assembly.GetName().Name);
+        Assert.Equal("Harborline.Foundation.DataExchange", typeof(IExchangeRunStore).Assembly.GetName().Name);
     }
 
     [Fact]

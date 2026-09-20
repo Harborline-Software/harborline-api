@@ -116,11 +116,10 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
             parties: null!,
             _outer.GetRequiredService<IActiveTeamAccessor>(),
             new FixedCurrentUser(MemberPrincipal),
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System));
         await _app.StartAsync(CancellationToken.None);
         _client = new HttpClient { BaseAddress = new Uri(_app.SelectedUrl!) };

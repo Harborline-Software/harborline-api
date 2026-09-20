@@ -1,7 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
-using Harborline.Api.Blocks.Calendar.DependencyInjection;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.DependencyInjection;
+using Harborline.Blocks.Calendar.Services;
 
 namespace Harborline.Api.LocalNodeHost.Data.Calendar;
 
@@ -58,6 +59,32 @@ public static class NodeCalendarComposition
         // store above.
         services.AddSingleton<ICalendarStore, NodeEfCalendarStore>();
 
+        // T-568 / T-524 — the platform's BookingService (scoped) resolves the requester from the platform's
+        // IPartyContext; the node answers it from its own fail-closed ADR-0102 party seam, so a booking is
+        // attributed to the same server-derived Party every other node mutation is.
+        services.TryAddScoped<Harborline.Foundation.Authorization.IPartyContext, NodeCalendarRequester>();
+
         return services;
+    }
+}
+
+/// <summary>
+/// The platform's <see cref="Harborline.Foundation.Authorization.IPartyContext"/> over the node's
+/// <see cref="Harborline.Api.Foundation.Authorization.IPartyContext"/>: one requester resolution, and a
+/// principal the node cannot resolve becomes the platform's refusal (<c>NO_REQUESTER</c> at the booking).
+/// </summary>
+internal sealed class NodeCalendarRequester(Harborline.Api.Foundation.Authorization.IPartyContext node)
+    : Harborline.Foundation.Authorization.IPartyContext
+{
+    public async ValueTask<Guid> GetCurrentPartyIdAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await node.GetCurrentPartyIdAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Harborline.Api.Foundation.Authorization.PrincipalPartyResolutionException)
+        {
+            throw Harborline.Foundation.Authorization.PrincipalPartyResolutionException.NoAuthenticatedPrincipal();
+        }
     }
 }

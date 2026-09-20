@@ -14,7 +14,6 @@ public static class DataExchangePlatformComposition
     public static IServiceCollection AddPlatformDataExchange(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.AddSingleton<IDataExchangeDefinitionStore, InMemoryDataExchangeDefinitionStore>();
         services.AddSingleton<IExchangeRunStore, InMemoryExchangeRunStore>();
         services.AddSingleton<IAcquisitionCheckpointStore, InMemoryAcquisitionCheckpointStore>();
         services.AddSingleton<IProtectedEffectPayloadStore, InMemoryProtectedEffectPayloadStore>();

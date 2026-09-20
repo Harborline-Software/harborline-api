@@ -417,11 +417,10 @@ public sealed class WebPlaneAuthorizationFenceTests
                     outerProvider.GetRequiredService<NodeEfPartyRepository>(),
                     activeTeam,
                     outerProvider.GetRequiredService<ICurrentUser>(),
-                    bookingService: null!,
+                    scopes: null!,
                     eventStore: null!,
                     calendarStore: null!,
                     availabilityStore: null!,
-                    freeBusyService: null!,
                     TimeProvider.System);
             });
 

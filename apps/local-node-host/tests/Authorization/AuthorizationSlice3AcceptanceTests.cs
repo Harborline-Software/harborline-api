@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
 
 using Harborline.Api.Blocks.AccessGrant;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.FinancialLedger.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
