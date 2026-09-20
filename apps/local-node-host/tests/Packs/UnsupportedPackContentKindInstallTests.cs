@@ -505,6 +505,8 @@ public sealed class UnsupportedPackContentKindInstallTests
             app.MapDeviceReachableProductDataGroup(),
             store,
             activeTeam,
+            TestPackGate.AllowAll(),
+            TimeProvider.System,
             NullLogger.Instance);
 
         await app.StartAsync();
