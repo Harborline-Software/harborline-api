@@ -1500,6 +1500,12 @@ builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Config
     sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>()));
+// T-463: the verification runner reads the candidate through the same activation target and the same
+// durable pack store, and writes nothing at all. Each case it runs executes in its own ephemeral world.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner(
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
+    DurablePackStore(sp),
+    sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddPackComposerInstall();
 
 // Ticket 208 fix 1: the node's pack TRUST SURFACE is composed once and shared. Both the install routes

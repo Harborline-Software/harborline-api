@@ -64,6 +64,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
     private readonly AuthorizedActAudit? _acceptedAudit;
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? _configuration;
     private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? _proposals;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? _verification;
 
     /// <summary>Constructs the hosted install endpoint. <paramref name="platform"/> is the running
     /// build's compatibility facts — optional for back-compat embedders; when present the installed-pack
@@ -85,9 +86,11 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         IWebAntiforgeryPolicy? antiforgery = null,
         AuthorizedActAudit? acceptedAudit = null,
         Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null,
-        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? proposals = null)
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? proposals = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? verification = null)
     {
         _proposals = proposals;
+        _verification = verification;
         _platform = platform;
         _antiforgery = antiforgery;
         _acceptedAudit = acceptedAudit;
@@ -124,7 +127,7 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         // T-644: the atomic activation of one prepared configuration generation, beside the per-pack routes.
         if (_configuration is not null)
             _sharedApp.MapApiRoutes(app => ConfigurationActivationRoutes.Map(
-                app, _configuration, _activeTeam, _gate, _time, _logger));
+                app, _configuration, _activeTeam, _gate, _time, _logger, _verification));
 
         // T-461: propose, save and release, beside activation and never on its path.
         if (_proposals is not null)
