@@ -267,6 +267,16 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
+      - name: T-578 proof (throwaway) - this host lane is deliberately red in the merge group
+        # Throwaway branch only, never to be merged. The condition keeps the pull-request run
+        # green, so the PR is admitted to the queue exactly as PR 175 was; the merge-group run
+        # then goes red on this host lane, which is the state the queue used to merge through.
+        # First step in the job so the group fails fast instead of paying the whole host suite.
+        if: github.event_name == 'merge_group'
+        run: |
+          echo "::error::T-578 proof: verify-windows is deliberately red in this merge group"
+          exit 1
+
       - name: Git Bash on PATH for the service account
         # Only C:\Program Files\Git\cmd is on the machine PATH; bash.exe lives in ...\Git\bin.
         shell: pwsh
