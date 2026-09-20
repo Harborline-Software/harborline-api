@@ -38,11 +38,11 @@ function recordReceipt() {
 test('records every required verification step as per-run evidence', () => {
   const receipt = recordReceipt()
   assert.equal(receipt.repository, 'harborline-api')
-  assert.equal(receipt.steps.length, 16)
+  assert.equal(receipt.steps.length, 17)
   assert.deepEqual(receipt.steps.map(step => typeof step === 'string' ? step : step.id), [
     'boundaries', 'dependency-ledger', 'identity-r3', 'codegen-check', 'codegen-guard-suite', 'contracts-typescript',
     'contracts-csharp', 'localfirst-csharp', 'rule-engine-conformance', 'contracts-rust',
-    'operator-cli-headless', 'install-artefact', 'exact-clone', 'quality', 'quality-baseline', 'packages',
+    'operator-cli-headless', 'install-artefact', 'removal-exercise', 'exact-clone', 'quality', 'quality-baseline', 'packages',
   ])
 })
 

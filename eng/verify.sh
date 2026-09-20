@@ -104,6 +104,13 @@ step operator-cli-headless   dotnet test apps/local-node-host/tests/tests.csproj
 # after the cheap structural steps and before the clean-clone suite.
 step install-artefact        bash eng/verify-install-artefact.sh
 
+# T-585 item 2 / DES-0007 `platform-package-eng-6`: the installed package is the only source of the
+# surface. Beside install-artefact because it needs the same published node from the same clean
+# directory, and for the same reason it is a step rather than an xunit case: the host suite's verdict
+# is a baseline comparison, and a removal that stopped removing must fail as itself. Its OUTPUT is
+# the evidence the ticket asks for -- every probe prints, before and after.
+step removal-exercise        bash eng/removal-exercise.sh
+
 # build-and-test, but through the clean-clone gate rather than a bare `dotnet test`. That matters:
 # the host suite has permitted failures recorded in eng/baselines/host-test-baseline.json, so a bare
 # run is red by design and a gate built on it would be ignored within a week. run-exact-clone.mjs

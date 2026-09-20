@@ -44,7 +44,10 @@ internal sealed record LocalNodeExecutableEndpointSnapshot(
 /// </summary>
 public sealed class LocalNodeExecutableEndpointRegistry
 {
-    private static readonly ImmutableArray<RouteFenceExpectation> RouteFenceExpectations =
+    // internal for T-585 item 3: the declared side of "every route resolves to a manifest entry".
+    // RouteAudienceGraphTests checks both directions against it -- an executable route with no entry,
+    // and an entry no executable route reaches.
+    internal static readonly ImmutableArray<RouteFenceExpectation> RouteFenceExpectations =
     [
         new(FormsRoutes.RouteBase, RouteFenceKind.DesktopPlaneOnly),
         new(CommsRoutes.RouteBase, RouteFenceKind.DesktopPlaneOnly),
@@ -340,7 +343,7 @@ public sealed class LocalNodeExecutableEndpointRegistry
         }
     }
 
-    private sealed record RouteFenceExpectation(string RouteBase, RouteFenceKind Kind)
+    internal sealed record RouteFenceExpectation(string RouteBase, RouteFenceKind Kind)
     {
         internal RoutePattern BasePattern { get; } = RoutePatternFactory.Parse(RouteBase);
     }
