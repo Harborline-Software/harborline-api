@@ -215,7 +215,7 @@ public sealed class VerificationRunner
             var matched = Same(predicate.Expects, expected, actual);
             made.Add(new(assertion.PredicateId, predicate.Version, assertion.Target, expected, actual, matched,
                 matched ? null : "verification-expected-mismatch",
-                matched ? null : observed.Pointer(predicate, assertion.Target)));
+                matched ? null : Observed.Pointer(predicate, assertion.Target)));
         }
         return VerificationCaseOutcome.Observed(item.CaseId, row?.RowId, made);
     }
@@ -275,7 +275,7 @@ public sealed class VerificationRunner
         // Where a disagreement was seen, derived from the predicate's own declared channel rather
         // than a list here, so a predicate added to the catalogue later points at the right place
         // instead of quietly pointing into /outcome.
-        internal string Pointer(VerificationPredicate predicate, string? target) =>
+        internal static string Pointer(VerificationPredicate predicate, string? target) =>
             predicate.Channel == "record"
                 ? target ?? "/record"
                 : $"/{predicate.Channel}/{predicate.PredicateId.Split('.')[^1]}";
@@ -316,7 +316,7 @@ public sealed class VerificationRunner
     internal static string Escape(string token) =>
         token.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
 
-    private static bool TryText(IReadOnlyDictionary<string, string> inputs, string name, out string value)
+    private static bool TryText(Dictionary<string, string> inputs, string name, out string value)
     {
         value = string.Empty;
         if (!inputs.TryGetValue(name, out var json)) return false;
@@ -330,7 +330,7 @@ public sealed class VerificationRunner
         catch (JsonException) { return false; }
     }
 
-    private static bool TryObject(IReadOnlyDictionary<string, string> inputs, string name, out JsonObject value)
+    private static bool TryObject(Dictionary<string, string> inputs, string name, out JsonObject value)
     {
         value = [];
         if (!inputs.TryGetValue(name, out var json)) return false;
