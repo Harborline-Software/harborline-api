@@ -14,6 +14,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Navigation;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Verify;
+using Harborline.Blocks.BuilderDefinitions;
+
 namespace Harborline.Api.Foundation.Packs.Install;
 
 /// <summary>
@@ -909,6 +911,20 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         var priorSeeds = prior?.SeedItems ?? (IReadOnlyList<PackSeedItem>)Array.Empty<PackSeedItem>();
         var priorOverrides = _store.GetOverrides(context.Tenant, manifest.Key);
         var reattach = PackReattachPlanner.Plan(priorSeeds, contents, priorOverrides, manifest.RenamedFrom);
+        if (reattach.RefusalCode is not null)
+        {
+            // (T-655) The platform's safety-floor producer refused the whole re-attach — a floor member is
+            // present but not an integer. Carry its code and named member out rather than installing with
+            // the overrides silently dropped.
+            return HardRefusal(
+                manifest.Key, manifest.Version, reattach.RefusalCode, revocationStale, signerB64, epoch, scope,
+                refusals:
+                [
+                    new PackInstallRefusal(
+                        reattach.RefusalCode,
+                        $"/{PackageSafetyFloorReattachment.FloorsMember}/{reattach.RefusalMember}"),
+                ]);
+        }
 
         // (S-9) ADR 0143 admission over the COMPOSED post-install cascade (seed ⊕ re-attached overrides).
         var composed = BuildComposed(manifest.Key, contents, reattach.Reattached, manifest.CapabilityRequirements);
