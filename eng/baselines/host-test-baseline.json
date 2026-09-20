@@ -3,10 +3,10 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "1c2b2dd6d01b67220f3f650fb8ea047bfb2430f8",
-  "recordedAt": "2026-09-20T03:40:00Z",
+  "recordedAt": "2026-09-20T05:05:00Z",
   "totals": {
-    "total": 4414,
-    "passed": 4393,
+    "total": 4415,
+    "passed": 4394,
     "failed": 0,
     "notExecuted": 21
   },
@@ -50,7 +50,8 @@
     "T-576 Windows re-measure: the +14 repin was taken from test discovery; the Windows gate host measures 4372 total, 4350 passed, 0 failed, 22 not executed on main 7b49027f (full host suite, 5 m 4 s, 2026-09-17). Pinned to the measurement.",
     "T-519, T-522 and T-530 integration with the T-576 baseline correction: the quality-enabled all-lane gate on 4d4c9810 measured 4383 total, 4362 passed, 0 failed and 21 not executed in 12 m 4 s. Relative to corrected main, these admission changes add 11 executions, make one previously skipped capability-linked case execute, and add 12 passes. No failure, permitted-failure or retry allowance changed. The merged-head gate must confirm this measured tuple.",
     "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch alone (host-lane gate receipt on 1efe27b6); merged over T-642 s1 (4389) the expectation is 4403/4382/0/21, confirmed by the host-lane gate on the merged tree before landing (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change.",
-    "T-524 availability runtime and booking consumer: PR adds four host cases - one CalendarRouteTests case fencing the gate on the availability read (an unauthenticated free/busy read, and a malformed window from the same caller, are both 403) and three SchedulingDefinitionRouteTests cases fencing the booking contract (attribution to the authenticated requester and two requesters recorded distinctly, the NO_REQUESTER refusal writing nothing, and the two-concurrent-bookings contention probe yielding exactly one success) - so every host moves by +4 total and +4 passed. The quality-enabled all-lane Windows gate on b1b62e3b measured 4411 total, 4390 passed, 0 failed and 21 not executed; pinned to that measurement. Failure, permitted-failure, skip, known-flaky and retry policies are unchanged. Three existing calendar fixtures compose the real AuthorizationGate and one existing appointment case is re-graded to the runtime rule (supply containment on the visible interval, occupancy on the buffered footprint, DES-0033 open question 8); neither changes a count."
+    "T-524 availability runtime and booking consumer: PR adds four host cases - one CalendarRouteTests case fencing the gate on the availability read (an unauthenticated free/busy read, and a malformed window from the same caller, are both 403) and three SchedulingDefinitionRouteTests cases fencing the booking contract (attribution to the authenticated requester and two requesters recorded distinctly, the NO_REQUESTER refusal writing nothing, and the two-concurrent-bookings contention probe yielding exactly one success) - so every host moves by +4 total and +4 passed. The quality-enabled all-lane Windows gate on b1b62e3b measured 4411 total, 4390 passed, 0 failed and 21 not executed; pinned to that measurement. Failure, permitted-failure, skip, known-flaky and retry policies are unchanged. Three existing calendar fixtures compose the real AuthorizationGate and one existing appointment case is re-graded to the runtime rule (supply containment on the visible interval, occupancy on the buffered footprint, DES-0033 open question 8); neither changes a count.",
+    "T-659 the api drops its in-process booking fence: the branch's own all-lane quality-enabled Windows gate, on the pre-rebase head b616a583 over a 4411 main, measured 4412 total, 4391 passed, 0 failed and 21 not executed, with no known-flaky retries and no new failures; every exact-clone step was green except host-baseline-match against the then-stale 4411 tuple. The delta this slice owns is exactly one case: SchedulingDefinitionRouteTests.The_booking_route_holds_no_in_process_fence, a reflection fence proving the per-(tenant, resource) SemaphoreSlim map T-524 added is gone and does not come back. Main then moved to 4414 under T-655 (PR 188) and T-657 (PR 189), so the rebased expectation is 4414 + 1 = 4415/4394/0/21, and the gate on the rebased head is the measurement of record that confirms it. The existing contention probe Two_concurrent_bookings_of_one_exclusive_slot_yield_one_success is unchanged in name and count and passes with the lock deleted, because the platform producer commits the claim conditional on a capacity epoch (platform PR 78, merge 4bac7eca) and the node store answers that contract with a single-statement SQLite compare-and-set. Failure, permitted-failure, skip, known-flaky and retry policies are unchanged, and the other-OS baselines are untouched."
   ],
   "permittedFailures": [],
   "knownFlaky": [
@@ -106,23 +107,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4383,
-      "passed": 4362,
+      "total": 4414,
+      "passed": 4393,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4383 -> 4389; passed 4362 -> 4368; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-642 s1 consumes the kernel's command-envelope refusal and adds exactly six host cases for it. No route gained a definition contract window in this slice.",
-    "detectedBy": "The destination exact-clone gate on 7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc, native Windows, whose host step reported 4389 total, 4368 passed, 0 failed and 21 skipped in 5m53s with no flaky rescues and no new failures; its only failing step was host-baseline-match against the previous 4383-case tuple.",
-    "arithmeticCrossCheck": "4383 + 6 = 4389; passed = total - notExecuted = 4389 - 21 = 4368"
+    "change": "total 4414 -> 4415; passed 4393 -> 4394; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-659 deletes the api in-process booking fence and adds exactly one case that proves it stays deleted.",
+    "detectedBy": "The branch's all-lane quality-enabled gate on b616a583 measured a one-case increase (4411 -> 4412) over the main it was cut from, with 0 failed, 21 skipped, no flaky rescues and no new failures. Rebased onto the 4414 main produced by T-655 and T-657, the expectation is 4415, which the gate on the rebased head confirms.",
+    "arithmeticCrossCheck": "4414 + 1 = 4415; passed = total - notExecuted = 4415 - 21 = 4394"
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "7f9ee50c8e09ecd101f2b1d38daa7cac776bcbdc",
+    "apiCommit": "the rebased head of claude/t-659-booking-atomicity; the pre-rebase measurement was b616a583cb0c1ba06669c04a6932764e326b57ea",
     "platform": "native Windows",
-    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and both lanes built from the commit alone, capability-host and contracts toolchains installed by the gate; platform feed packed from a clean clone at the eng/platform-pin.json commit 4bac7eca20c4ab6085434c8e2558e20714727b38",
     "sdk": "11.0.100-preview.7.26381.103",
-    "runs": "One gate run completed 2026-09-19T20:01:30Z; no retries. Host step green, host-baseline-match red on the stale count only.",
+    "runs": "Pre-rebase run completed 2026-09-20T04:20Z green on all 16 steps after the 4412 re-pin; the rebased head is re-gated for the 4415 tuple.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
