@@ -2,6 +2,7 @@
 using Harborline.Api.LocalNodeHost.Data.Calendar;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -9,14 +10,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Calendar.Migrations;
 
 [DbContext(typeof(NodeLocalCalendarDbContext))]
-partial class NodeLocalCalendarDbContextModelSnapshot : ModelSnapshot
+[Migration("20260920033344_CalendarCapacityEpochs")]
+partial class _20260920033344_CalendarCapacityEpochs
 {
-    // If you encounter a merge conflict in the line below, it means you need to
-    // discard one of the migration branches and recreate its migrations on top of
-    // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260920033344_CalendarCapacityEpochs";
-
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
