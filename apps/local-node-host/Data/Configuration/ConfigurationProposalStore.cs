@@ -182,7 +182,8 @@ public sealed class ConfigurationProposalStore
             authority.At, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
         var signatureJson = JsonSerializer.Serialize(signed, Json);
 
-        var existing = context.ReleasedPackages.Find(tenant.Value, released.Digest);
+        var existing = await context.ReleasedPackages
+            .FindAsync([tenant.Value, released.Digest], cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
             context.ReleasedPackages.Add(new ConfigurationReleasedPackageRow
@@ -193,7 +194,7 @@ public sealed class ConfigurationProposalStore
                 Document = released.Document.ToArray(), SignatureJson = signatureJson,
                 ReleasedBy = principal, CheckReceiptId = proposed.Check!.ReceiptId, ReleasedAt = authority.At,
             });
-            context.SaveChanges();
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return (result, new(released, signatureJson, principal, authority.At));
         }
         // Releasing the same saved version twice exports byte-identical bytes, so the first release stands
@@ -219,7 +220,7 @@ public sealed class ConfigurationProposalStore
     }
 
     /// <summary>Verifies one offered package's signature against the bytes it is offered with.</summary>
-    public bool VerifyOffer(HostReleasedPackage offer, IOperationVerifier verifier)
+    public static bool VerifyOffer(HostReleasedPackage offer, IOperationVerifier verifier)
     {
         ArgumentNullException.ThrowIfNull(offer);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -251,7 +252,7 @@ public sealed class ConfigurationProposalStore
     private static string Serialize(IReadOnlyList<ProposedDefinitionEdit> edits) =>
         JsonSerializer.Serialize(edits, Json);
 
-    private static IReadOnlyList<ProposedDefinitionEdit> Deserialize(string json) =>
+    private static ProposedDefinitionEdit[] Deserialize(string json) =>
         JsonSerializer.Deserialize<ProposedDefinitionEdit[]>(json, Json) ?? [];
 }
 

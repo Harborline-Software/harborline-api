@@ -198,7 +198,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
 
         // The signature is the api's, over the artifact digest, and it verifies against the stored bytes.
         var offer = Assert.Single(_proposals.Offered(_tenant));
-        Assert.True(_proposals.VerifyOffer(offer, _verifier));
+        Assert.True(ConfigurationProposalStore.VerifyOffer(offer, _verifier));
         Assert.Equal(package.GetProperty("digest").GetString(), offer.Released.Digest);
 
         // A tampered document no longer verifies, because the signature covers the artifact digest and
@@ -213,7 +213,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         }
         var tamperedOffer = Assert.Single(_proposals.Offered(_tenant));
         Assert.NotEqual(offer.Released.Digest, tamperedOffer.Released.Digest);
-        Assert.False(_proposals.VerifyOffer(tamperedOffer, _verifier));
+        Assert.False(ConfigurationProposalStore.VerifyOffer(tamperedOffer, _verifier));
 
         // One more edit after the check, and releasing the same saved version refuses by name and
         // writes no second artifact.
