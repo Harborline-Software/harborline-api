@@ -305,6 +305,95 @@ public sealed class PackNavigationRouteTests
         Assert.Equal(PackNavigationRoutes.ConfigurationNavigationAudience.ItemId, Assert.Single(items));
     }
 
+    /// <summary>
+    /// T-668 — the proposed-change entry's AUDIENCE is the same selected-session-product audience as the
+    /// activation entry's, because <c>ConfigurationProposalRoutes</c> maps on the same group; its PERMISSION
+    /// is <c>packages:author</c>, resolved install-wide (no record target), because reaching a proposed
+    /// change is the AUTHOR side of the ck-8 split those routes already draw.
+    ///
+    /// The two entries share the <c>configuration</c> workspace and do not share a permission, so the
+    /// filter is per entry: an author who cannot operate is served the workspace carrying only the proposed
+    /// change, an operator who cannot author only the activation, a caller holding neither is served no
+    /// configuration workspace at all, and a LAN-device caller out of audience is served none of it however
+    /// it is granted. Every other workspace is unaffected.
+    /// </summary>
+    [Theory(DisplayName = "Each configuration entry is projected only to the selected-session-product audience holding that entry's own operation")]
+    [InlineData(true, true, true, "configuration.proposal,configuration.activation")]
+    [InlineData(true, true, false, "configuration.proposal")]
+    [InlineData(true, false, true, "configuration.activation")]
+    [InlineData(true, false, false, "")]
+    [InlineData(false, true, true, "")]
+    public async Task Proposal_entry_audience_is_selected_session_product_holding_packages_author(
+        bool inAudience, bool holdsAuthor, bool holdsOperate, string projectedItemIds)
+    {
+        Assert.Equal("packages:author", PackNavigationRoutes.ConfigurationNavigationAudience.ProposalOperation.Value);
+        Assert.Equal(
+            new[] { "configuration.activation", "configuration.proposal" },
+            PackNavigationRoutes.ConfigurationNavigationAudience.Entries.Keys.Order(StringComparer.Ordinal));
+        var store = new FakeStore(Pack("harborline.platform", PackLifecycleState.Active,
+            Nav("platform.workshop", Workspace("workshop", "workshop.workspace", "forms")),
+            Nav("platform.configuration", ConfigurationWorkspace())));
+
+        using var response = await GetAsync(store, gate: Gate(holdsAuthor, holdsOperate), inAudience: inAudience);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var workspaces = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray().ToArray();
+        Assert.Contains(workspaces, workspace => workspace.GetProperty("id").GetString() == "workshop");
+        var configuration = workspaces
+            .Where(workspace => workspace.GetProperty("id").GetString()
+                == PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId)
+            .ToArray();
+        if (projectedItemIds.Length == 0)
+        {
+            Assert.Empty(configuration);
+            return;
+        }
+
+        var workspaceElement = Assert.Single(configuration);
+        // A group whose only entry is refused is dropped whole, so the surviving groups and the surviving
+        // items agree — the shell never renders an empty rail group.
+        Assert.Equal(
+            projectedItemIds.Split(','),
+            workspaceElement.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+                .Select(item => item.GetString()));
+        Assert.Equal(
+            projectedItemIds.Split(','),
+            workspaceElement.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("items").EnumerateArray())
+                .Select(item => item.GetProperty("id").GetString()));
+    }
+
+    /// <summary>The platform pack's configuration workspace: one group per entry, in released order.</summary>
+    private static object ConfigurationWorkspace() => new
+    {
+        id = PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId,
+        labelKey = "configuration.workspace",
+        groups = new[]
+        {
+            Group("configuration-proposal", PackNavigationRoutes.ConfigurationNavigationAudience.ProposalItemId),
+            Group("configuration-activation", PackNavigationRoutes.ConfigurationNavigationAudience.ItemId),
+        },
+    };
+
+    private static object Group(string id, string itemId) => new
+    {
+        id,
+        labelKey = itemId,
+        itemIds = new[] { itemId },
+        items = new[] { new { id = itemId, labelKey = itemId } },
+    };
+
+    /// <summary>A gate holding both pack operations, one of them, or neither.</summary>
+    private static AuthorizationGate Gate(bool holdsAuthor, bool holdsOperate) => (holdsAuthor, holdsOperate) switch
+    {
+        (true, true) => TestPackGate.AllowAll(),
+        (true, false) => TestPackGate.Only(PackNavigationRoutes.ConfigurationNavigationAudience.ProposalOperation),
+        (false, true) => TestPackGate.Only(PackNavigationRoutes.ConfigurationNavigationAudience.Operation),
+        _ => TestPackGate.Denying(),
+    };
+
     private static async Task<HttpResponseMessage> GetAsync(
         FakeStore store,
         TenantId? selectedTenant = null,

@@ -30,6 +30,17 @@ internal static class TestPackGate
     /// <summary>A gate granting nothing — every act refuses fail-closed.</summary>
     internal static AuthorizationGate Denying() => Granting();
 
+    /// <summary>
+    /// A gate granting ONE operation at the install root and refusing every other (T-668). The
+    /// configuration entries do not share a permission, so proving each is scoped to its own needs a
+    /// holder of one who is not a holder of the other.
+    /// </summary>
+    internal static AuthorizationGate Only(AuthorizationOperation operation)
+    {
+        var source = new ScopedGrantSource([ScopeExpression.Parse("/")], operation);
+        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
+    }
+
     /// <summary>A gate granting every pack operation ONLY within the named packs' record scopes.</summary>
     internal static AuthorizationGate ScopedTo(params string[] packKeys) => Granting(
         (packKeys ?? Array.Empty<string>())
@@ -42,7 +53,9 @@ internal static class TestPackGate
         return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source);
     }
 
-    private sealed class ScopedGrantSource(IReadOnlyList<ScopeExpression> grantScopes) :
+    private sealed class ScopedGrantSource(
+        IReadOnlyList<ScopeExpression> grantScopes,
+        AuthorizationOperation? onlyOperation = null) :
         IAuthorizationClosureSnapshotReader,
         IAuthorizationDefinitionAtomReader
     {
@@ -55,7 +68,11 @@ internal static class TestPackGate
             ct.ThrowIfCancellationRequested();
             _issued.Clear();
             var derivations = new List<AuthorizationAtomDerivation>(grantScopes.Count);
-            foreach (var grantScope in grantScopes)
+            IReadOnlyList<ScopeExpression> scopes =
+                onlyOperation is { } only && !string.Equals(only.Value, request.Act.Operation.Value, StringComparison.Ordinal)
+                    ? []
+                    : grantScopes;
+            foreach (var grantScope in scopes)
             {
                 var atom = new PermissionAtom(request.Act.Operation, grantScope);
                 _issued.Add(atom);

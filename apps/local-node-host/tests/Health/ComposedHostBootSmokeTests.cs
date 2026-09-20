@@ -216,16 +216,20 @@ public sealed partial class ComposedHostBootSmokeTests
         var pack = document.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
         var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
-        // T-657: the shipping host serves the configuration workspace to THIS caller, whose ordinary
-        // seeded `packages:operate` holding is what admitted the install and activation above. That is
-        // the entry's audience end to end; PackNavigationRouteTests proves the two refusing cases.
+        // T-657, extended by T-668: the shipping host serves the configuration workspace to THIS caller,
+        // whose ordinary seeded holding is what admitted the install and activation above. The node
+        // operator is offered `packages:author` and `packages:operate` on the same row
+        // (AccessGrantAuthorizationSeed), so both entries reach it. That is the entries' audience end to
+        // end; PackNavigationRouteTests proves the refusing cases, including the author who cannot operate.
         Assert.Equal(new[] { "access", "configuration", "workshop", "ticket-229-workspace" },
             workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
         var configuration = workspaces[1];
         Assert.Equal("configuration.workspace", configuration.GetProperty("labelKey").GetString());
-        var configurationGroup = Assert.Single(configuration.GetProperty("groups").EnumerateArray());
-        Assert.Equal("configuration.activation",
-            Assert.Single(configurationGroup.GetProperty("itemIds").EnumerateArray()).GetString());
+        Assert.Equal(
+            new[] { "configuration.proposal", "configuration.activation" },
+            configuration.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+                .Select(item => item.GetString()));
         var access = workspaces[0];
         Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
         var group = Assert.Single(access.GetProperty("groups").EnumerateArray());

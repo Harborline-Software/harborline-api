@@ -80,16 +80,27 @@ public static class PackNavigationRoutes
     }
 
     /// <summary>
-    /// T-657 — the configuration workspace is projected only to the audience of the routes behind it.
+    /// T-657, extended by T-668 — each configuration entry is projected only to the audience of the routes
+    /// behind it.
     /// </summary>
     /// <remarks>
-    /// The configuration activation routes (<see cref="ConfigurationActivationRoutes"/>) are mapped on the
-    /// selected-session-product audience and each resolves <c>packages:operate</c> install-wide at its point
-    /// of use. This navigation route is mapped on the wider device-reachable audience, so the entry is
-    /// scoped here rather than by the route family it rides on: a LAN device caller, and any caller the gate
-    /// does not admit for that operation, is not shown a destination the server would refuse. Menu
-    /// visibility remains courtesy UX — the routes re-decide the same operation on every call, and this
-    /// filter can only hide the entry, never open one.
+    /// <para>
+    /// The configuration activation routes (<see cref="ConfigurationActivationRoutes"/>) and the proposed
+    /// change routes (<see cref="ConfigurationProposalRoutes"/>) are both mapped on the selected-session-product
+    /// audience, and each resolves its operation install-wide at its point of use: activation is
+    /// <c>packages:operate</c>, and reaching a proposed change is <c>packages:author</c>, the ck-8 split those
+    /// routes already draw. This navigation route is mapped on the wider device-reachable audience, so the
+    /// entries are scoped here rather than by the route families they ride on: a LAN device caller, and any
+    /// caller the gate does not admit for that operation, is not shown a destination the server would refuse.
+    /// Menu visibility remains courtesy UX — the routes re-decide the same operation on every call, and this
+    /// filter can only hide an entry, never open one.
+    /// </para>
+    /// <para>
+    /// T-668 makes the filter per entry rather than per workspace, because the two entries share the
+    /// <c>configuration</c> workspace and do not share a permission: an author who cannot operate is served
+    /// the workspace carrying only the proposed change. A group whose every entry is refused is dropped, and
+    /// the workspace is dropped when no group survives.
+    /// </para>
     /// </remarks>
     internal static class ConfigurationNavigationAudience
     {
@@ -99,8 +110,22 @@ public static class PackNavigationRoutes
         /// <summary>The navigation item id both app shells mount the activation surface on.</summary>
         internal const string ItemId = "configuration.activation";
 
-        /// <summary>The operation the entry's audience requires, install-wide: <c>packages:operate</c>.</summary>
+        /// <summary>The navigation item id both app shells mount the proposed-change surface on (T-668).</summary>
+        internal const string ProposalItemId = "configuration.proposal";
+
+        /// <summary>The operation the activation entry requires, install-wide: <c>packages:operate</c>.</summary>
         internal static AuthorizationOperation Operation => PackOperation.Operate;
+
+        /// <summary>The operation the proposed-change entry requires, install-wide: <c>packages:author</c>.</summary>
+        internal static AuthorizationOperation ProposalOperation => PackOperation.Author;
+
+        /// <summary>Every scoped entry, and the operation its own route family resolves install-wide.</summary>
+        internal static IReadOnlyDictionary<string, AuthorizationOperation> Entries { get; }
+            = new Dictionary<string, AuthorizationOperation>(StringComparer.Ordinal)
+            {
+                [ItemId] = Operation,
+                [ProposalItemId] = ProposalOperation,
+            };
 
         internal static async ValueTask<PackNavigationPackDto?> ScopeAsync(
             PackNavigationPackDto? pack,
@@ -112,15 +137,47 @@ public static class PackNavigationRoutes
         {
             if (pack is null || !pack.SeedWorkspaces.Any(workspace => workspace.Id == WorkspaceId))
                 return pack;
-            if (SelectedSessionProductRouteFence.IsInAudience(http)
-                && await PackRouteAuthorization.RefusalAsync(
-                    gate, PackRouteAuthorization.Authority(http, tenant, time), Operation, null, ct)
-                    .ConfigureAwait(false) is null)
-                return pack;
-            return pack with
+            var admitted = new HashSet<string>(StringComparer.Ordinal);
+            if (SelectedSessionProductRouteFence.IsInAudience(http))
             {
-                SeedWorkspaces = [.. pack.SeedWorkspaces.Where(workspace => workspace.Id != WorkspaceId)],
-            };
+                // One admitted instant for the whole projection (ADR 0081), re-asked per operation.
+                var authority = PackRouteAuthorization.Authority(http, tenant, time);
+                foreach (var entry in Entries)
+                {
+                    if (await PackRouteAuthorization.RefusalAsync(gate, authority, entry.Value, null, ct)
+                            .ConfigureAwait(false) is null)
+                        admitted.Add(entry.Key);
+                }
+            }
+
+            return pack with { SeedWorkspaces = [.. Scope(pack.SeedWorkspaces, admitted)] };
+        }
+
+        private static IEnumerable<PackNavigationWorkspaceDto> Scope(
+            IReadOnlyList<PackNavigationWorkspaceDto> workspaces,
+            HashSet<string> admitted)
+        {
+            bool Keep(string itemId) => !Entries.ContainsKey(itemId) || admitted.Contains(itemId);
+
+            foreach (var workspace in workspaces)
+            {
+                if (workspace.Id != WorkspaceId)
+                {
+                    yield return workspace;
+                    continue;
+                }
+
+                var groups = workspace.Groups
+                    .Select(group => group with
+                    {
+                        ItemIds = [.. group.ItemIds.Where(Keep)],
+                        Items = group.Items is null ? null : group.Items.Where(item => Keep(item.Id)).ToArray(),
+                    })
+                    .Where(group => group.ItemIds.Count > 0)
+                    .ToArray();
+                if (groups.Length > 0)
+                    yield return workspace with { Groups = groups };
+            }
         }
     }
 
