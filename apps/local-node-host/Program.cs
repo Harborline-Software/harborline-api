@@ -1493,6 +1493,13 @@ builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Config
     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
     sp.GetRequiredService<IPackInstallAudit>(),
     sp.GetRequiredService<IPackPlatformCompatibility>()));
+// T-461: propose, save and release sit beside activation and share the same pack database, but they are
+// a different act. The store reads the effective generation as a baseline and never writes the pointer;
+// signing the exported document is the api's half of ADR 0097 decision 6.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore(
+    sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>()));
 builder.Services.AddPackComposerInstall();
 
 // Ticket 208 fix 1: the node's pack TRUST SURFACE is composed once and shared. Both the install routes

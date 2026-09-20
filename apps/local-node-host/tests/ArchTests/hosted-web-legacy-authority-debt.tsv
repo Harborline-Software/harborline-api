@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	435
+# reviewed-aggregate-debt-ceiling	437
+# 2026-09-20 (T-461) reviewed ratchet 435 -> 437	new hosted route family for proposed changes, saved versions and released packages at the minimum 2/0 shape: one tenant resolution point per file rather than one per handler, which would have been 7, and that tenant IS the authorization subject of every act in the family. Same shape and same reason as the T-644 configuration-activation row.
 # 2026-09-19 (T-644) reviewed ratchet 433 -> 435	new hosted route family for configuration-generation activation at the minimum 2/0 shape: one tenant resolution point per file, and that tenant IS the authorization subject of prepare and activate, as for POST /packs/check.
 # 2026-09-17 (T-576) ratchet 437 -> 433	shared report-run admission resolves the tenant once per request.
 # 2026-09-13 (395 s1) reviewed ratchet 436 -> 437	POST /packs/check's tenant IS the authorization subject: the seventh token is the same kind as the six already there. Admission depends on that tenant's installed set, trust store and revocation state, exactly as preview.
@@ -11,6 +12,7 @@ Health/AssetRegistryRoutes.cs	21	0
 Health/AuthorizationAdminRoutes.cs	2	0
 Health/AuditEventRoutes.cs	6	0
 Health/ConfigurationActivationRoutes.cs	2	0
+Health/ConfigurationProposalRoutes.cs	2	0
 Health/ConsentRecordRoutes.cs	2	0
 Health/HostedConsentRecordApiEndpoint.cs	1	0
 Health/BankAccountRoutes.cs	34	0
