@@ -93,7 +93,7 @@ internal static class CorpusLoader
             caseObj["clock"]?.GetValue<string>() ?? "2026-06-30T00:00:00Z",
             CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal));
 
-        var graph = new FormRuleGraph(compiled, limits, clock);
+        var graph = new FormRuleGraph(compiled, clock, limits);
         var instance = RuleInstance.FromJson((JsonObject)caseObj["instance"]!);
         var result = graph.EvaluateInstance(instance);
         return (compiled, result);

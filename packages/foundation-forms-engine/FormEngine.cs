@@ -1492,7 +1492,9 @@ public sealed class FormEngine : IFormEngine
         RuleEvaluationResult result;
         try
         {
-            result = new FormRuleGraph(compiled).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
+            // T-676: the same clock the submit gate below evaluates against (_timeProvider) — render
+            // and submit must read one clock, and the graph has no usable default.
+            result = new FormRuleGraph(compiled, _timeProvider).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
         }
         catch (RuleEngineTimeoutException)
         {
