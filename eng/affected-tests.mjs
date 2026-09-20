@@ -2,7 +2,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 const HOST = 'apps/local-node-host/tests/tests.csproj'
 const slash = value => value.replaceAll('\\', '/')
@@ -86,7 +85,7 @@ export function parseFailing(path) {
   return trx.length ? trx : text.split(/[\r\n,]+/).map(line => line.trim()).filter(Boolean)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/affected-tests.mjs')) {
   const root = resolve(import.meta.dirname, '..')
   const args = process.argv.slice(2)
   const failingAt = args.indexOf('--failing')

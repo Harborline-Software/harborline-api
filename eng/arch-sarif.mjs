@@ -3,7 +3,6 @@
 // consumed by the quality gate.  The tests already own edge discovery and rule
 // semantics; this adapter deliberately only carries their evidence across.
 import {readFileSync, writeFileSync} from 'node:fs'
-import {fileURLToPath} from 'node:url'
 import path from 'node:path'
 import {normalizeSarifFile} from './normalize-roslyn-sarif.mjs'
 
@@ -80,7 +79,7 @@ export const writeArchSarif = (trxFile, outputFile, repoRoot) => {
   normalizeSarifFile(outputFile, repoRoot, {engine: 'arch', project: 'api-tier-dependency'})
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/arch-sarif.mjs')) {
   const [flag, repoRoot, trxFile, outputFile] = process.argv.slice(2)
   if (flag !== '--repo-root' || !repoRoot || !trxFile || !outputFile || process.argv.length !== 6) {
     throw new Error('usage: arch-sarif.mjs --repo-root <path> <trx-file> <output-file>')

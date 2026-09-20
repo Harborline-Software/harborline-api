@@ -5,7 +5,6 @@
 // partial fingerprint derived from that clone-independent location and project output.
 import {createHash} from 'node:crypto'
 import {readFileSync, writeFileSync, realpathSync} from 'node:fs'
-import {fileURLToPath} from 'node:url'
 import path from 'node:path'
 
 const slash = value => value.replaceAll('\\', '/')
@@ -99,7 +98,7 @@ export const normalizeSarifFile = (file, repoRoot, {engine, project: projectOpti
   writeFileSync(file, JSON.stringify(sarif) + '\n')
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/normalize-roslyn-sarif.mjs')) {
   const args = process.argv.slice(2)
   if (args[0] !== '--repo-root' || !args[1] || args.length < 3) {
     throw new Error('usage: normalize-roslyn-sarif.mjs --repo-root <path> <sarif-file> [sarif-file...]')
