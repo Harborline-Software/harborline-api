@@ -234,12 +234,16 @@ public static class FormDefinitionRoutes
             // act — forms:author — decided BEFORE any schema synthesis or persistence. A draft save
             // is still authoring, so the gate covers it too.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: ONE kernel-clock read for the whole act. The guard already read it to date its
+            // decision, so the revision is stamped with that SAME admitted instant instead of a second
+            // read that the act never decided on (ADR 0081, DES-0029 ck-9).
+            var now = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
+                    decision => now = decision.Request.At) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
@@ -533,12 +537,15 @@ public static class FormDefinitionRoutes
         {
             // Ticket 151: restore REGISTERS a new draft revision — the same authoring permission gates it.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var now = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
+                    decision => now = decision.Request.At) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,

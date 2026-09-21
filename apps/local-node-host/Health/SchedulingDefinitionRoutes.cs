@@ -97,8 +97,12 @@ public static class SchedulingDefinitionRoutes
         app.MapPost($"{RouteBase}/{{definitionId}}/restore", async (
             string definitionId, SchedulingRestoreRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var admittedAt = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct) is { } denied)
+                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
+                    decision => admittedAt = decision.Request.At) is { } denied)
                 return denied;
             var tenant = Tenant().Value;
             var source = await store.GetRevisionAsync(tenant, definitionId, request.Revision, ct).ConfigureAwait(false);
@@ -112,7 +116,7 @@ public static class SchedulingDefinitionRoutes
             try
             {
                 var saved = await store.SaveAsync(tenant, definitionId, source.Definition,
-                    head!.Revision, currentUser.UserId, ct).ConfigureAwait(false);
+                    head!.Revision, currentUser.UserId, admittedAt, ct).ConfigureAwait(false);
                 // Lineage is response-only: the audit row has no free field, and adding a column
                 // is the separately-decided store migration (ticket 088's recorded ruling).
                 return Results.Ok(new { definitionId, revision = saved.Revision, restoredFrom = request.Revision });
@@ -126,8 +130,12 @@ public static class SchedulingDefinitionRoutes
         app.MapPut($"{RouteBase}/{{definitionId}}/draft", async (
             string definitionId, SchedulingDraftSaveRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // saved revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var admittedAt = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct) is { } denied)
+                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
+                    decision => admittedAt = decision.Request.At) is { } denied)
                 return denied;
             var issues = validator.Validate(request.Definition);
             if (issues.Count != 0)
@@ -140,7 +148,8 @@ public static class SchedulingDefinitionRoutes
             try
             {
                 var saved = await store.SaveAsync(Tenant().Value, definitionId,
-                    request.Definition, request.ExpectedRevision, currentUser.UserId, ct).ConfigureAwait(false);
+                    request.Definition, request.ExpectedRevision, currentUser.UserId, admittedAt, ct)
+                    .ConfigureAwait(false);
                 return Results.Ok(saved);
             }
             catch (SchedulingDraftConflictException ex)

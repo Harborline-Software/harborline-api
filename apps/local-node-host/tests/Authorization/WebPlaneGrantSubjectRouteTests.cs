@@ -111,7 +111,7 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
             _outer.GetRequiredService<TimeProvider>());
         _app.MapApiRoutes(routes => SchedulingDefinitionRoutes.Map(
             routes.MapDeviceReachableProductDataGroup(),
-            new NodeSchedulingDraftStore(factory, TimeProvider.System),
+            new NodeSchedulingDraftStore(factory),
             new SchedulingDraftValidator(),
             parties: null!,
             _outer.GetRequiredService<IActiveTeamAccessor>(),

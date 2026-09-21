@@ -77,6 +77,13 @@ internal static class RequestAuthorization
     /// fail-closed refusal when the single decision denies, or <see langword="null"/> when the act may
     /// proceed. The clock and the gate are read from the request's own container.
     /// </summary>
+    /// <remarks>
+    /// This overload performs the act's ONE kernel-clock read. A write route that stamps its mutation with
+    /// an instant must therefore take it from <paramref name="onAllowed"/> — <c>decision.Request.At</c> is
+    /// the admitted instant this guard decided on — rather than reading the clock again, which would date
+    /// the record off an instant the act never admitted (T-650; ADR 0081, DES-0029 ck-9,
+    /// <c>KernelClockIntegrationTests</c> counts the reads).
+    /// </remarks>
     internal static ValueTask<IResult?> RefusalAsync(
         HttpContext http,
         TenantId tenant,

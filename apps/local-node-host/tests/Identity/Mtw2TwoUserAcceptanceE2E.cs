@@ -1397,8 +1397,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             provider.GetRequiredService<TimeProvider>());
         await endpoint.StartAsync(CancellationToken.None);
         var schedulingStore = new NodeSchedulingDraftStore(
-            provider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>(),
-            TimeProvider.System);
+            provider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>());
         app.MapApiRoutes(routes =>
         {
             SelectedSessionIdentityRoutes.Map(

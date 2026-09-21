@@ -79,7 +79,7 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
         var factory = _outer.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>();
         await using (var db = await factory.CreateDbContextAsync())
             await db.Database.MigrateAsync();
-        _store = new NodeSchedulingDraftStore(factory, TimeProvider.System);
+        _store = new NodeSchedulingDraftStore(factory);
 
         _app = new SharedHostedWebApp(
             _outer,

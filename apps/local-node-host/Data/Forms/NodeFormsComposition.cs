@@ -226,10 +226,16 @@ public static class NodeFormsComposition
         services.AddInMemoryRegulatoryPolicy();
         services.TryAddSingleton<IRetentionPolicyResolver>(provider =>
         {
-            var timeProvider = provider.GetRequiredService<TimeProvider>();
+            // T-650: the synthesized default is a constant — the only field any caller reads off it
+            // is AuditRetention, and LastUpdatedAt is inert on a policy no Standing Order has ever
+            // touched. Reading the kernel clock inside the loader made EVERY act that resolves
+            // retention read it again: a form-definition supersession reaches this through the legal
+            // -hold validator, so a restore paid two reads for one act. ADR 0081 / DES-0029 ck-9 say
+            // an act admits one instant, so the composition stamps it once instead of per call.
+            var composedAt = provider.GetRequiredService<TimeProvider>().GetUtcNow();
             return new DefaultRetentionPolicyResolver((tenant, ct) =>
                 new ValueTask<TenantSecurityPolicy>(
-                    TenantSecurityPolicy.DefaultFor(tenant, timeProvider.GetUtcNow())));
+                    TenantSecurityPolicy.DefaultFor(tenant, composedAt)));
         });
         services.TryAddSingleton<ISubjectFieldEncryptor, FailClosedSubjectFieldEncryptor>();
         services.TryAddSingleton<ISubjectErasureService, FailClosedSubjectErasureService>();
