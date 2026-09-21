@@ -66,19 +66,9 @@ internal static class RequestAuthorization
     /// and the instant the act happens. Never an ambient read.</summary>
     internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, TimeProvider time)
     {
-        ArgumentNullException.ThrowIfNull(time);
-        return Authority(http, tenant, time.GetUtcNow());
-    }
-
-    /// <summary>
-    /// The same authority over an instant the route has ALREADY admitted. A write route that reads the
-    /// kernel clock once and stamps its mutation with that instant builds its gate authority from the very
-    /// same value, so the guard costs no second read (T-650; <c>KernelClockIntegrationTests</c> counts them).
-    /// </summary>
-    internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, DateTimeOffset at)
-    {
         ArgumentNullException.ThrowIfNull(http);
-        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, at)
+        ArgumentNullException.ThrowIfNull(time);
+        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow())
         { CorrelationId = http.Features.Get<WebSession.SelectedRequestCorrelation>()?.Value };
     }
 
@@ -87,6 +77,13 @@ internal static class RequestAuthorization
     /// fail-closed refusal when the single decision denies, or <see langword="null"/> when the act may
     /// proceed. The clock and the gate are read from the request's own container.
     /// </summary>
+    /// <remarks>
+    /// This overload performs the act's ONE kernel-clock read. A write route that stamps its mutation with
+    /// an instant must therefore take it from <paramref name="onAllowed"/> — <c>decision.Request.At</c> is
+    /// the admitted instant this guard decided on — rather than reading the clock again, which would date
+    /// the record off an instant the act never admitted (T-650; ADR 0081, DES-0029 ck-9,
+    /// <c>KernelClockIntegrationTests</c> counts the reads).
+    /// </remarks>
     internal static ValueTask<IResult?> RefusalAsync(
         HttpContext http,
         TenantId tenant,
