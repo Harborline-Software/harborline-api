@@ -2,9 +2,30 @@
 # check. This is the same gate the Mac slice-gate wrapper ran by ssh; the runner replaces the wrapper,
 # the merge queue replaces the receipt-by-tree landing (control: docs/velocity/landing.md).
 #
-# Fork safety: harborline-api is public and the shared lane runs on our own machines. It runs only
-# for pull requests whose head lives in this repository, and for merge-queue groups (which are built
-# from already-reviewed heads). A fork PR gets the hosted checks only.
+# Fork safety: harborline-api is public and all three verify lanes run on our own machines. They run
+# only for pull requests whose head lives in this repository, and for merge-queue groups (which are
+# built from already-reviewed heads).
+#
+# T-662: what a fork pull request gets. All three lanes -- verify-shared, verify-macos and
+# verify-windows -- are skipped, so no fork code executes on the team's Macs or winbox. A fork PR
+# therefore gets the four GitHub-hosted required contexts and nothing else: `sbom` (license-sbom.yml)
+# and `protocol-lane-conformance`, `operator-cli-headless` and `pack-consume` (packages.yml), all on
+# ubuntu-latest.
+#
+# The fifth required context, `verify`, is RED for a fork pull request, and deliberately so: the
+# aggregator below demands success from every lane, and a skipped lane is not a success (T-633). A
+# fork pull request consequently cannot merge. That is not a regression introduced here -- it was
+# already true, because verify-shared has carried this guard and `verify` needs it. External
+# contributions are closed; T-483 is where opening them is decided, and whoever answers it has to
+# decide what fork pull requests run before `verify` can ever go green for one. Options on the table
+# are a hosted mirror of the lanes added to this aggregator's `needs`, or a GitHub Environment with
+# required reviewers on the self-hosted jobs (a repository setting, not a change to this file).
+#
+# Why the guard is still worth having while the repository's Actions approval policy is
+# `all_external_contributors` (checked 2026-09-21): that policy is one blunt click covering the
+# whole workflow run. A maintainer who approves a fork run to get the hosted checks would, without
+# the lines below, also be handing that fork's code to our Macs and winbox. The guard makes the
+# split structural instead of a judgement call, and it survives the policy being relaxed.
 #
 # T-633: `verify` is the required context, and it is an aggregator with no condition. GitHub counts
 # a job skipped by its own `if` as a SUCCESSFUL required check, so a required job that carries
@@ -198,7 +219,15 @@ jobs:
     # host suite needs a job of its own or a shared lane that landed on Windows would silently stop
     # running it. Its baseline permits six failures where the Windows one permits zero -- four of
     # those are T-425 and T-426, not facilities macOS lacks.
-    if: vars.ACTIONS_ENABLED == 'true'
+    #
+    # T-662: the fork guard, character for character the one verify-shared carries above. A fork
+    # pull request does not start this job, so it does not run its author's code on our Mac.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, macOS]
     timeout-minutes: 90
     env:
@@ -261,7 +290,16 @@ jobs:
     # Deliberately gone from this job: the quality-baseline fetch (its step no longer runs here, and
     # the fetch can wait 600s for an artifact nothing would read) and the Rust toolchain install (the
     # clone gate builds no Rust; contracts-rust is a shared step).
-    if: vars.ACTIONS_ENABLED == 'true'
+    #
+    # T-662: the fork guard, character for character the one verify-shared carries above. A fork
+    # pull request does not start this job, so it does not run its author's code on winbox. The
+    # nightly schedule datapoint is unaffected -- `schedule` is the first disjunct.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, Windows]
     timeout-minutes: 90
     defaults:
