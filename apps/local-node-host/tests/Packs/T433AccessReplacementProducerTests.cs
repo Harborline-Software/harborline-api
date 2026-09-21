@@ -39,7 +39,7 @@ public sealed class T433AccessReplacementProducerTests
         }, contents.Select(Tuple));
 
         var holders = contents.Single(item => item.GetProperty("key").GetString() == "access.holders").GetProperty("content");
-        Assert.Equal("views.entity-list/grid", holders.GetProperty("viewKind").GetString());
+        Assert.Equal("layout.table", holders.GetProperty("viewKind").GetString());
         Assert.Equal(TeamRolePermissions.MembersManage, holders.GetProperty("authorizationCapability").GetString());
         Assert.Equal(new[]
         {
@@ -65,7 +65,7 @@ public sealed class T433AccessReplacementProducerTests
         var second = File.ReadAllBytes(artifactPath);
         Assert.Equal(first, second);
         var hash = Convert.ToHexStringLower(SHA256.HashData(first));
-        Assert.Equal("1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852", hash);
+        Assert.Equal("bd86c64e2886390881cbc70debd49df335796416f5c041d100485b93c516f378", hash);
 
         var codec = new PackFileCodec();
         var file = Assert.IsType<PackFile>(codec.TryDecode(first));
@@ -92,7 +92,7 @@ public sealed class T433AccessReplacementProducerTests
     {
         using var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ReplacementDirectory, "replacement.manifest.json")));
         var root = manifest.RootElement;
-        Assert.Equal("1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852", root.GetProperty("sha256").GetString());
+        Assert.Equal("bd86c64e2886390881cbc70debd49df335796416f5c041d100485b93c516f378", root.GetProperty("sha256").GetString());
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(InitialPath))),
             root.GetProperty("source").GetProperty("sha256").GetString());
         Assert.Equal(new[]
@@ -148,7 +148,7 @@ public sealed class T433AccessReplacementProducerTests
         Assert.Equal(File.ReadAllBytes(Path.Combine(ReplacementDirectory, AccessReplacementFixture.ProbeArtifactName)), bytes);
         using var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ReplacementDirectory, "atomicity-probe.manifest.json")));
         var pinned = manifest.RootElement;
-        Assert.Equal("263e363a0224a7205520920ac776e8ef99e7a72cff5db01db3c0291dffafe7fc", pinned.GetProperty("sha256").GetString());
+        Assert.Equal("c7d6510bf188dea5cb4e8ad632946c658427067dfe7ee5adf3b093e5470e62ca", pinned.GetProperty("sha256").GetString());
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(bytes)), pinned.GetProperty("sha256").GetString());
         var codec = new PackFileCodec();
         var file = Assert.IsType<PackFile>(codec.TryDecode(bytes));
@@ -161,7 +161,7 @@ public sealed class T433AccessReplacementProducerTests
         Assert.Equal("pack.view-definition.malformed", pinned.GetProperty("expectedRefusal").GetProperty("code").GetString());
         using var early = JsonDocument.Parse(Convert.FromBase64String(file.Contents[index - 1].ContentBase64));
         using var late = JsonDocument.Parse(Convert.FromBase64String(file.Contents[index].ContentBase64));
-        Assert.Equal("views.entity-list/grid", early.RootElement.GetProperty("viewKind").GetString());
+        Assert.Equal("layout.table", early.RootElement.GetProperty("viewKind").GetString());
         Assert.Equal("views.not-registered", late.RootElement.GetProperty("viewKind").GetString());
         var holders = file.Contents.Single(item => item.Key == "access.holders");
         using var holder = JsonDocument.Parse(Convert.FromBase64String(holders.ContentBase64));

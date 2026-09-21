@@ -15,7 +15,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>
 /// Adapts the host's registered view surfaces to view-definition descriptor admission. This slice
-/// admits <see cref="EntityListGridKind"/>, the entity list served by
+/// admits <see cref="LayoutTableKind"/>, the table served by
 /// <c>GET /asset-registry/entities?type=</c> and rendered by the Harborline grid. Typed per-kind
 /// parameter binding is a recorded deepening follow-up. A <c>views.dashboard/helm</c> kind admitting
 /// registered Helm widget ids is likewise deferred until the host composes
@@ -23,8 +23,12 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 /// </summary>
 public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRegistry
 {
-    /// <summary>The saved entity-list grid kind this host serves today.</summary>
-    public const string EntityListGridKind = "views.entity-list/grid";
+    /// <summary>
+    /// The table view kind this host serves today. Platform T-581 renamed it from the retired
+    /// <c>views.entity-list/grid</c>; T-656 moved the host onto the current name so neither app
+    /// lane has to translate it.
+    /// </summary>
+    public const string LayoutTableKind = "layout.table";
 
     /// <summary>The compiled Access holder entity backed by the ordinary <c>IGrantStore</c> read.</summary>
     public const string AccessGrantEntityType = "AccessGrant";
@@ -55,7 +59,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!StringComparer.Ordinal.Equals(definition.ViewKind, EntityListGridKind))
+        if (!StringComparer.Ordinal.Equals(definition.ViewKind, LayoutTableKind))
         {
             throw new ViewDefinitionGovernanceException("view_definition.kind_unknown");
         }

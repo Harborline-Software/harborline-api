@@ -328,7 +328,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Empty(empty.Entries);
         Assert.Empty(empty.KindsUnavailable);
         await views.RegisterAsync(new ViewDefinition { Key = "receipt.view", Version = "1.0.0", Tenant = _tenantA.Value,
-            SchemaVersion = 1, Title = "View receipt", ViewKind = HostViewKindDescriptorRegistry.EntityListGridKind,
+            SchemaVersion = 1, Title = "View receipt", ViewKind = HostViewKindDescriptorRegistry.LayoutTableKind,
             Parameters = JsonSerializer.SerializeToElement(new { entityType = "FormDefinition" }) });
         Assert.Equal("receipt.view", Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.ViewDefinition)).Entries).Id);
         Assert.Equal(FormId, Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.FormDefinition)).Entries).Id);

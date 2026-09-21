@@ -165,7 +165,7 @@ public sealed class HostViewRequestAdmissionTests
     private static ViewDefinition Definition(string descriptorId = "records.read.v1", string source = "input", string pointer = "/recordId") => new()
     {
         Tenant = "43300000-0000-4000-8000-000000000000", Key = "example.holders", Version = "1.0.0",
-        SchemaVersion = 1, ViewKind = "views.entity-list/grid", Title = "Example",
+        SchemaVersion = 1, ViewKind = "layout.table", Title = "Example",
         Parameters = JsonSerializer.SerializeToElement(new
         {
             entityType = "AccessGrant", fields = new[] { new { id = "grantId", label = "Grant" } },

@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "artifact": "access-administration-pack-1.1.4-atomicity-probe.0.export.json",
-  "sha256": "263e363a0224a7205520920ac776e8ef99e7a72cff5db01db3c0291dffafe7fc",
+  "sha256": "c7d6510bf188dea5cb4e8ad632946c658427067dfe7ee5adf3b093e5470e62ca",
   "packKey": "harborline.access-administration",
   "version": "1.1.4-atomicity-probe.0",
   "expectedRefusal": {

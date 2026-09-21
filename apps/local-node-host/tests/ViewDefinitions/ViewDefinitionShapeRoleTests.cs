@@ -168,7 +168,7 @@ public sealed class ViewDefinitionShapeRoleTests
         Key = key,
         Version = "1.0.0",
         SchemaVersion = 1,
-        ViewKind = "views.entity-list/grid",
+        ViewKind = "layout.table",
         Title = "Work items",
         Parameters = JsonSerializer.SerializeToElement(new { entityType = "work-item" }),
         ShapeRoles = shapeRoles,

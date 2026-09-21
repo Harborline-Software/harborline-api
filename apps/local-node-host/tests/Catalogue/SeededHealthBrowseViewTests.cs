@@ -26,7 +26,7 @@ public sealed class SeededHealthBrowseViewTests
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
     private const string PackVersion = "1.6.0";
     private const string DefinitionVersion = "1.0.0";
-    private const string GridKind = "views.entity-list/grid";
+    private const string GridKind = "layout.table";
 
     private static readonly SurfaceExpectation[] ExpectedSurfaces =
     [

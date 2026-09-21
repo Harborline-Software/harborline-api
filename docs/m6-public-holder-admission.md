@@ -36,9 +36,9 @@ empty closure returns a successful empty permission set; an unknown role, stale
 epoch, stale grant pin, ejection or unavailable reader remains unresolved.
 
 The signed `1.1.4` replacement retains the admitted-user role. Its current SHA256
-is `1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852`.
+is `bd86c64e2886390881cbc70debd49df335796416f5c041d100485b93c516f378`.
 The atomicity probe SHA256 is
-`263e363a0224a7205520920ac776e8ef99e7a72cff5db01db3c0291dffafe7fc`;
+`c7d6510bf188dea5cb4e8ad632946c658427067dfe7ee5adf3b093e5470e62ca`;
 the probe's late refusal pointer is `/contents/7/contentBase64`.
 
 Focused verification passed 166/166 tests with zero skips. The receipt is

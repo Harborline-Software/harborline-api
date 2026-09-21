@@ -44,7 +44,7 @@ public sealed class T433AccessGrantViewDescriptorTests
         Key = "access.holders",
         Version = "1.0.0",
         SchemaVersion = 1,
-        ViewKind = HostViewKindDescriptorRegistry.EntityListGridKind,
+        ViewKind = HostViewKindDescriptorRegistry.LayoutTableKind,
         Title = "Access holders",
         Parameters = JsonSerializer.SerializeToElement(new { entityType }),
     };

@@ -221,7 +221,7 @@
         "version": "1.0.2",
         "tenant": "bootstrap",
         "schemaVersion": 1,
-        "viewKind": "views.entity-list/grid",
+        "viewKind": "layout.table",
         "title": "Access holders",
         "authorizationCapability": "members:manage",
         "parameters": {

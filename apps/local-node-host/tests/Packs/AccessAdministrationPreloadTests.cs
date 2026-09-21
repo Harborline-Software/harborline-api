@@ -467,7 +467,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("harborline.platform", formsView!.Provenance.PackKey);
         Assert.NotNull(formsView.RenderPlan);
         Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
-        Assert.Equal("views.entity-list/grid", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
+        Assert.Equal("layout.table", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
         Assert.Equal(7, formsView.RenderPlan.Bindings.GetProperty("actions").GetArrayLength());
         var authorForm = await catalogue.GetAsync(
             Tenant, PackContentKind.FormDefinition, "platform.pack.author", cancellationToken: CancellationToken.None);
