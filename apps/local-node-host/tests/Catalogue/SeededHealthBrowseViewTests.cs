@@ -26,7 +26,8 @@ public sealed class SeededHealthBrowseViewTests
     private const string PackResource = "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json";
     private const string PackVersion = "1.6.0";
     private const string DefinitionVersion = "1.0.0";
-    private const string GridKind = "views.entity-list/grid";
+    private const string RetiredGridKind = "views.entity-list/grid";
+    private const string GridKind = Harborline.Blocks.EntityViews.ViewKindIds.Table;
 
     private static readonly SurfaceExpectation[] ExpectedSurfaces =
     [
@@ -81,7 +82,10 @@ public sealed class SeededHealthBrowseViewTests
     public void Every_frozen_health_and_browse_definition_compiles_to_its_declared_grid_projection()
     {
         using var document = ReadPack();
-        var items = FrozenViewItems(document).Select(ToSeedItem).ToArray();
+        var items = FrozenViewItems(document)
+            .Select(ToSeedItem)
+            .Select(item => ReleasedViewKindCompatibility.Project("harborline.platform", PackVersion, item))
+            .ToArray();
 
         Assert.Equal(26, items.Length);
         foreach (var item in items)
@@ -111,7 +115,7 @@ public sealed class SeededHealthBrowseViewTests
         var store = new InMemoryPackInstallStore();
         using var keyPair = KeyPair.Generate();
         var pack = new InstalledPack(
-            "seeded-health-browse.test",
+            "harborline.platform",
             PackVersion,
             PackScopeTier.Horizontal,
             PackLifecycleState.Draft,
@@ -169,7 +173,7 @@ public sealed class SeededHealthBrowseViewTests
         Assert.Equal(DefinitionVersion, content.GetProperty("version").GetString());
         Assert.Equal("bootstrap", content.GetProperty("tenant").GetString());
         Assert.Equal(1, content.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal(GridKind, content.GetProperty("viewKind").GetString());
+        Assert.Equal(RetiredGridKind, content.GetProperty("viewKind").GetString());
         Assert.Equal(expected.EntityType, parameters.GetProperty("entityType").GetString());
         Assert.Equal(
             expected.FieldIds,

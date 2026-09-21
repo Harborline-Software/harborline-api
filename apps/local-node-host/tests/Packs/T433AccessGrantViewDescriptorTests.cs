@@ -13,7 +13,8 @@ public sealed class T433AccessGrantViewDescriptorTests
 {
     private readonly HostViewKindDescriptorRegistry _descriptors = new(
         new InMemoryEntityTypeRegistry(new InMemoryRegistryAuditLog()),
-        Substitute.For<IFormDefinitionStore>(), Substitute.For<ISchemaRegistry>());
+        Substitute.For<IFormDefinitionStore>(), Substitute.For<ISchemaRegistry>(),
+        Harborline.Blocks.EntityViews.ViewKindRegistry.Platform);
 
     [Fact]
     public async Task Compiled_AccessGrant_identity_is_admitted_with_the_holder_row_shape()
@@ -44,7 +45,7 @@ public sealed class T433AccessGrantViewDescriptorTests
         Key = "access.holders",
         Version = "1.0.0",
         SchemaVersion = 1,
-        ViewKind = HostViewKindDescriptorRegistry.EntityListGridKind,
+        ViewKind = HostViewKindDescriptorRegistry.TableKind,
         Title = "Access holders",
         Parameters = JsonSerializer.SerializeToElement(new { entityType }),
     };

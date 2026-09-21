@@ -19,7 +19,25 @@ public sealed class HostViewRequestAdmissionTests
 {
     private readonly HostViewKindDescriptorRegistry descriptors = new(
         new InMemoryEntityTypeRegistry(new InMemoryRegistryAuditLog()),
-        Substitute.For<IFormDefinitionStore>(), Substitute.For<ISchemaRegistry>());
+        Substitute.For<IFormDefinitionStore>(), Substitute.For<ISchemaRegistry>(),
+        Harborline.Blocks.EntityViews.ViewKindRegistry.Platform);
+
+    [Fact]
+    public async Task Canonical_platform_table_kind_is_admitted()
+    {
+        await descriptors.AdmitAsync(Definition() with { ViewKind = "layout.table" });
+    }
+
+    [Theory]
+    [InlineData("views.entity-list/grid")]
+    [InlineData("views.not-registered")]
+    public async Task Non_platform_kind_is_refused_outside_released_pack_compatibility(string viewKind)
+    {
+        var error = await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() =>
+            descriptors.AdmitAsync(Definition() with { ViewKind = viewKind }).AsTask());
+
+        Assert.Equal("view_definition.kind_unknown", error.ErrorCode);
+    }
 
     [Fact]
     public async Task Missing_input_form_is_a_stable_governance_refusal()
@@ -31,7 +49,8 @@ public sealed class HostViewRequestAdmissionTests
         action["inputForm"] = JsonSerializer.SerializeToNode(new { formId = "missing.input", version = "1.0.0" });
         var registry = new HostViewKindDescriptorRegistry(
             new InMemoryEntityTypeRegistry(new InMemoryRegistryAuditLog()),
-            new NoopFormDefinitionStore(), Substitute.For<ISchemaRegistry>());
+            new NoopFormDefinitionStore(), Substitute.For<ISchemaRegistry>(),
+            Harborline.Blocks.EntityViews.ViewKindRegistry.Platform);
         var error = await Assert.ThrowsAsync<ViewDefinitionGovernanceException>(() => registry.AdmitAsync(
             definition with { Parameters = JsonSerializer.SerializeToElement(parameters) }).AsTask());
         Assert.Equal("view_definition.request_binding_invalid", error.ErrorCode);
@@ -165,7 +184,7 @@ public sealed class HostViewRequestAdmissionTests
     private static ViewDefinition Definition(string descriptorId = "records.read.v1", string source = "input", string pointer = "/recordId") => new()
     {
         Tenant = "43300000-0000-4000-8000-000000000000", Key = "example.holders", Version = "1.0.0",
-        SchemaVersion = 1, ViewKind = "views.entity-list/grid", Title = "Example",
+        SchemaVersion = 1, ViewKind = HostViewKindDescriptorRegistry.TableKind, Title = "Example",
         Parameters = JsonSerializer.SerializeToElement(new
         {
             entityType = "AccessGrant", fields = new[] { new { id = "grantId", label = "Grant" } },

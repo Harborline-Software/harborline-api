@@ -50,7 +50,7 @@ public sealed class ViewDefinitionPackProjectionTests
             Version = "2.3.4",
             Tenant = tenantValue,
             SchemaVersion = 1,
-            ViewKind = "views.entity-list/grid",
+            ViewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
             Title = "Authoritative compliance controls",
             Parameters = JsonSerializer.SerializeToElement(new { entityType = "equipment.condenser", pageSize = 25 }),
             // Authority tier travels as the envelope-backed CascadeLayer: any non-Tenant layer
@@ -103,7 +103,7 @@ public sealed class ViewDefinitionPackProjectionTests
             Version = "3.2.1",
             Tenant = tenantValue,
             SchemaVersion = 1,
-            ViewKind = "views.entity-list/grid",
+            ViewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
             Title = "Tenant-owned regional operations",
             Parameters = JsonSerializer.SerializeToElement(new { entityType = "equipment.condenser", pageSize = 25 }),
             Provenance = JsonDocument.Parse(provenanceJson).RootElement.Clone(),
@@ -378,7 +378,7 @@ public sealed class ViewDefinitionPackProjectionTests
         string key,
         string version,
         string title,
-        string viewKind = "views.entity-list/grid")
+        string viewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table)
     {
         return new ViewDefinition
         {

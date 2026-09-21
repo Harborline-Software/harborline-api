@@ -15,7 +15,7 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>
 /// Adapts the host's registered view surfaces to view-definition descriptor admission. This slice
-/// admits <see cref="EntityListGridKind"/>, the entity list served by
+/// admits <see cref="TableKind"/>, the entity list served by
 /// <c>GET /asset-registry/entities?type=</c> and rendered by the Harborline grid. Typed per-kind
 /// parameter binding is a recorded deepening follow-up. A <c>views.dashboard/helm</c> kind admitting
 /// registered Helm widget ids is likewise deferred until the host composes
@@ -23,8 +23,8 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 /// </summary>
 public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRegistry
 {
-    /// <summary>The saved entity-list grid kind this host serves today.</summary>
-    public const string EntityListGridKind = "views.entity-list/grid";
+    /// <summary>The canonical table kind published by the platform registry.</summary>
+    public const string TableKind = Harborline.Blocks.EntityViews.ViewKindIds.Table;
 
     /// <summary>The compiled Access holder entity backed by the ordinary <c>IGrantStore</c> read.</summary>
     public const string AccessGrantEntityType = "AccessGrant";
@@ -32,6 +32,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
     private readonly IEntityTypeRegistry _types;
     private readonly IFormDefinitionStore _forms;
     private readonly ISchemaRegistry _schemas;
+    private readonly Harborline.Blocks.EntityViews.IViewKindRegistry _kinds;
 
     /// <summary>Initializes descriptor admission over the host's entity-type registry.</summary>
     /// <param name="types">The host's registered entity types.</param>
@@ -40,11 +41,13 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
     public HostViewKindDescriptorRegistry(
         IEntityTypeRegistry types,
         IFormDefinitionStore forms,
-        ISchemaRegistry schemas)
+        ISchemaRegistry schemas,
+        Harborline.Blocks.EntityViews.IViewKindRegistry kinds)
     {
         _types = types ?? throw new ArgumentNullException(nameof(types));
         _forms = forms ?? throw new ArgumentNullException(nameof(forms));
         _schemas = schemas ?? throw new ArgumentNullException(nameof(schemas));
+        _kinds = kinds ?? throw new ArgumentNullException(nameof(kinds));
     }
 
     /// <inheritdoc />
@@ -55,7 +58,7 @@ public sealed class HostViewKindDescriptorRegistry : IViewDefinitionDescriptorRe
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!StringComparer.Ordinal.Equals(definition.ViewKind, EntityListGridKind))
+        if (await _kinds.ResolveAsync(definition.ViewKind, cancellationToken).ConfigureAwait(false) is null)
         {
             throw new ViewDefinitionGovernanceException("view_definition.kind_unknown");
         }

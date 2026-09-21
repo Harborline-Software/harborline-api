@@ -134,7 +134,8 @@ public sealed class ViewDefinitionShapeRoleTests
                 PropertyFormBinding: new FormBindingRef(form.Id, form.Version)),
             CascadeLayer.Pack));
         var registry = new InMemoryViewDefinitionRegistry(
-            new HostViewKindDescriptorRegistry(types, forms, schemas));
+            new HostViewKindDescriptorRegistry(
+                types, forms, schemas, Harborline.Blocks.EntityViews.ViewKindRegistry.Platform));
         var definition = Definition(
             "schema-backed",
             new ShapeRoleMapping(
@@ -168,7 +169,7 @@ public sealed class ViewDefinitionShapeRoleTests
         Key = key,
         Version = "1.0.0",
         SchemaVersion = 1,
-        ViewKind = "views.entity-list/grid",
+        ViewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
         Title = "Work items",
         Parameters = JsonSerializer.SerializeToElement(new { entityType = "work-item" }),
         ShapeRoles = shapeRoles,

@@ -1553,6 +1553,8 @@ builder.Services.AddSingleton<IScheduleDefinitionDescriptorRegistry, HostSchedul
 builder.Services.AddInMemoryScheduleDefinitions();
 // Ticket 074: the descriptor's IEntityTypeRegistry dependency resolves lazily; AddNodeAssetRegistry
 // registers it later, matching the registration-order dependency the projector wiring already relies on.
+builder.Services.AddSingleton<Harborline.Blocks.EntityViews.IViewKindRegistry>(
+    Harborline.Blocks.EntityViews.ViewKindRegistry.Platform);
 builder.Services.AddSingleton<IViewDefinitionDescriptorRegistry, HostViewKindDescriptorRegistry>();
 builder.Services.AddInMemoryViewDefinitions();
 // ADR 0047/0069 record standings: installed standing rules are ordinary immutable definition rows.
