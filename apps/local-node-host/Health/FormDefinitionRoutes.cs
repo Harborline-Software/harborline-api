@@ -234,12 +234,15 @@ public static class FormDefinitionRoutes
             // act — forms:author — decided BEFORE any schema synthesis or persistence. A draft save
             // is still authoring, so the gate covers it too.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: ONE kernel-clock read for the whole act. The guard decides on the very instant the
+            // revision is stamped with, so the gate costs no second read (ADR 0081, DES-0029 ck-9).
+            var now = timeProvider.GetUtcNow();
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, RequestAuthorization.Authority(http, tenant, now),
+                    Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
@@ -533,12 +536,14 @@ public static class FormDefinitionRoutes
         {
             // Ticket 151: restore REGISTERS a new draft revision — the same authoring permission gates it.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: one kernel-clock read for the whole act, shared by the guard and the stamp.
+            var now = timeProvider.GetUtcNow();
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, RequestAuthorization.Authority(http, tenant, now),
+                    Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,

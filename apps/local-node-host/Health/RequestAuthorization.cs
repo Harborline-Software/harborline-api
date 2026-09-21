@@ -66,9 +66,19 @@ internal static class RequestAuthorization
     /// and the instant the act happens. Never an ambient read.</summary>
     internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, TimeProvider time)
     {
-        ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(time);
-        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, time.GetUtcNow())
+        return Authority(http, tenant, time.GetUtcNow());
+    }
+
+    /// <summary>
+    /// The same authority over an instant the route has ALREADY admitted. A write route that reads the
+    /// kernel clock once and stamps its mutation with that instant builds its gate authority from the very
+    /// same value, so the guard costs no second read (T-650; <c>KernelClockIntegrationTests</c> counts them).
+    /// </summary>
+    internal static AuthorizationWriteContext Authority(HttpContext http, TenantId tenant, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        return new AuthorizationWriteContext(NodeGatePrincipal.Resolve(http), tenant, at)
         { CorrelationId = http.Features.Get<WebSession.SelectedRequestCorrelation>()?.Value };
     }
 

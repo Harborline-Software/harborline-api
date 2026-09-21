@@ -93,7 +93,7 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
             await db.Database.EnsureCreatedAsync();
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _principal = new MutablePrincipal("server-actor");
-        var store = new NodeSchedulingDraftStore(_factory, TimeProvider.System);
+        var store = new NodeSchedulingDraftStore(_factory);
         _parties = new NodeEfPartyRepository(peopleFactory, TimeProvider.System);
         _app.Use(async (http, next) =>
         {

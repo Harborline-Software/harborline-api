@@ -8,16 +8,21 @@ using Microsoft.EntityFrameworkCore;
 namespace Harborline.Api.LocalNodeHost.Data.Scheduling;
 
 /// <summary>Durable, tenant-scoped immutable revision history for scheduling drafts.</summary>
+/// <remarks>
+/// The store holds NO clock. <paramref name="occurredAt"/> on <see cref="SaveAsync"/> is the instant the
+/// calling act already admitted, so a save cannot date itself off an instant the act never decided on
+/// (T-650; ADR 0081, DES-0029 ck-9). Reading a <c>TimeProvider</c> here was exactly that defect: the route
+/// guard had already read the kernel clock, and the second read persisted a different instant.
+/// </remarks>
 public sealed class NodeSchedulingDraftStore(
-    IDbContextFactory<NodeLocalSchedulingDbContext> contextFactory,
-    TimeProvider timeProvider)
+    IDbContextFactory<NodeLocalSchedulingDbContext> contextFactory)
 {
     public const int MaxDefinitionBytes = 256 * 1024;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.Ordinal);
 
     public async Task<SchedulingDraftView> SaveAsync(
         string tenantId, string definitionId, JsonElement definition, int expectedRevision,
-        string actorId, CancellationToken ct)
+        string actorId, DateTimeOffset occurredAt, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(definitionId);
@@ -42,7 +47,6 @@ public sealed class NodeSchedulingDraftStore(
             if (current != expectedRevision)
                 throw new SchedulingDraftConflictException(current);
 
-            var occurredAt = timeProvider.GetUtcNow();
             var row = new NodeSchedulingDraftRow
             {
                 TenantId = tenantId,

@@ -415,8 +415,12 @@ public sealed class KernelClockIntegrationTests
                         fields = new[] { "name" },
                         access = new
                         {
-                            readRoles = new[] { nameof(RoleReference.Administrator) },
-                            writeRoles = new[] { nameof(RoleReference.Administrator) },
+                            // The section gate parses these through DeclarativeGateReference: only a
+                            // qualified role ("<vocabulary>/<name>") or one of the forms wire aliases
+                            // is admitted. The bare name "Administrator" is neither, and the refusal
+                            // escapes RegisterAndPublishAsync uncaught as a 500.
+                            readRoles = new[] { RoleReference.Administrator.ToString() },
+                            writeRoles = new[] { RoleReference.Administrator.ToString() },
                             readStandings = Array.Empty<string>(),
                             writeStandings = Array.Empty<string>(),
                         },

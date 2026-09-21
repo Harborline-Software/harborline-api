@@ -393,8 +393,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             var invoiceRepository = new NodeEfInvoiceRepository(localFactory);
             var invoiceNumbering = new InMemoryInvoiceNumberingService(new ReplicaId("FENCE"));
             var schedulingStore = new NodeSchedulingDraftStore(
-                outerProvider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>(),
-                TimeProvider.System);
+                outerProvider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>());
             app.MapApiRoutes(routes =>
             {
                 ContactRoutes.Map(

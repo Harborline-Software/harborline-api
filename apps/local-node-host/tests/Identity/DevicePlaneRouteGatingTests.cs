@@ -86,7 +86,7 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
             new FixedLanDeviceSessionAuthority(),
             new LanConnectionRateLimiter(TimeProvider.System));
 
-        var store = new NodeSchedulingDraftStore(_factory, TimeProvider.System);
+        var store = new NodeSchedulingDraftStore(_factory);
         SchedulingDefinitionRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             store,
