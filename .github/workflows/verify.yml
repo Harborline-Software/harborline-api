@@ -104,7 +104,17 @@ jobs:
           fi
           qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
           if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then
-            git -C "$HARBORLINE_QUALITY_REPO" cat-file -e "$qpin^{commit}" 2>/dev/null || git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null || true
+            # quality is private like control, so the bare fetch below can only ever see commits the
+            # account was seeded with -- a newly-pinned commit is unreachable and the checkout exits 6
+            # even on a runner that holds the token. Fetch through the pins token the same way the
+            # control refresh above does; without a token, fall back to the bare fetch as before.
+            if ! git -C "$HARBORLINE_QUALITY_REPO" cat-file -e "$qpin^{commit}" 2>/dev/null; then
+              if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
+                git -C "$HARBORLINE_QUALITY_REPO" -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' '${{ secrets.HARBORLINE_PINS_TOKEN }}' | base64 | tr -d '\n')" fetch -q origin 2>/dev/null || true
+              else
+                git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null || true
+              fi
+            fi
             git -C "$HARBORLINE_QUALITY_REPO" checkout -q --detach "$qpin" 2>/dev/null || { echo "quality pin $qpin is not on this runner and cannot be fetched (private; no token)"; exit 6; }
           fi
           pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
