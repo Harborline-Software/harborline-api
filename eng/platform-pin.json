@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "ae2bc0056c91174990f459a064880f8867d6712d",
-  "recordedAt": "2026-09-20 (T-667, a Released package installs; platform PR 92 merge commit ae2bc005, verified an ancestor of platform main, which carries the additive Harborline.Blocks.BuilderDefinitions change this consumer needs: ProposedDefinitionEdit gains ContentKind and the release document emits it per definition item, at interface revision 10. It descends from the T-463 slice 2 pin at 033918a2 and also carries PR 88 T-660. No package id is added or removed, so the producer map below is unchanged.)",
+  "commit": "39b46e3525097dc530f53eb5f5126e4ca52d7d20",
+  "recordedAt": "2026-09-20 (T-463 slice 2b, one verification corpus; platform PR 93 merge commit 39b46e35, verified an ancestor of platform main. It carries the corpus this host now PARSES rather than restating: conformance/hlp.blocks.builder-definitions/verification.json is embedded in Harborline.Blocks.BuilderDefinitions and read through VerificationSuite.Corpus(), so moving this pin moves the suite the runner executes. The fixture grant scope is corrected finance -> / (a bare name reads as /finance and contains nothing in the records tree, so the actor held nothing for records:write) and a fourth vacuous run is added. This SUPERSEDES the T-667 pin at ae2bc005 rather than competing with it: 39b46e35 descends from ae2bc005, so the ProposedDefinitionEdit ContentKind change that T-667 consumes is still present at interface revision 10, and PR 89 T-674 comes with it. No package id is added or removed, so the producer map below is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."

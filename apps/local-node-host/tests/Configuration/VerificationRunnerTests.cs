@@ -38,6 +38,12 @@ namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 /// </summary>
 /// <remarks>
 /// <para>
+/// Slice 2b: the suite is <b>not declared here</b>. It is parsed out of the platform-owned corpus
+/// the pinned <c>Harborline.Blocks.BuilderDefinitions</c> package carries, so the platform states
+/// the suite once and this host executes it. Slice 2 restated it in C# and the two copies had
+/// already diverged on the fixture's grant scope.
+/// </para>
+/// <para>
 /// Acceptance line 7 is the reason this file exists, and it is proved in BOTH directions. The suite
 /// carries two deliberately independent claims over one invoice: an invariant about approval
 /// authority that never asserts a total, and an examples table about the total that never asserts an
@@ -310,6 +316,59 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
             refusal => refusal.GetProperty("code").GetString() == "verification-assertion-required");
     }
 
+    /// <summary>
+    /// Owner guardrail 5, and the point of slice 2b: the platform-owned corpus runs through the
+    /// api-hosted interpreters, so it can be re-run and compared after T-304 rebinds them.
+    /// <para>
+    /// Every other test in this file asserts against the suite that <see cref="Suite"/> parses out
+    /// of the pinned package, so a change to the document already reaches them. This test is the
+    /// one that names the disagreement instead of letting it surface as a puzzling mismatch inside
+    /// a run: it pins the digest, the authority the fixtures grant, and every value this host
+    /// expects back, against what the document actually declares.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_suite_this_host_runs_is_the_pinned_platform_corpus()
+    {
+        var corpus = Corpus();
+        var suite = Suite();
+
+        // The document re-admitted to the digest the platform recorded for it. So this is that
+        // corpus, parsed faithfully — not something merely shaped like it.
+        Assert.Equal(corpus.GetProperty("suiteDigest").GetString(), suite.Digest);
+
+        // The fixtures grant at the install root. A record-scoped act canonicalises to
+        // /records/<recordId>, and VerificationCandidateWorld reads a bare name as one segment, so
+        // a package name like "finance" would become /finance, contain nothing in the records tree,
+        // and leave the actor holding nothing for records:write — every case would refuse and the
+        // clean run would "pass" for the wrong reason. This is the value the two corpora differed in.
+        Assert.All(suite.Fixtures,
+            fixture => Assert.All(fixture.Grants, grant => Assert.Equal("/", grant.Scope)));
+        Assert.Equal(["approver", "clerk"],
+            suite.Fixtures.Select(fixture => fixture.FixtureId).Order(StringComparer.Ordinal));
+
+        // Every total this file asserts a run returns is the document's total, and the row set is
+        // the document's row set. Add a row upstream, drop one, or change a product, and this fails.
+        var rows = suite.Cases.Single(item => item.CaseId == "invoice-total").Rows;
+        Assert.Equal(Rows.Select(row => row.RowId).Order(StringComparer.Ordinal),
+            rows.Select(row => row.RowId).Order(StringComparer.Ordinal));
+        foreach (var (rowId, total) in Rows)
+            Assert.Equal(total.ToString(CultureInfo.InvariantCulture),
+                rows.Single(row => row.RowId == rowId).Expected["record.number:/total"]);
+
+        // And the refusal vocabulary the runner mints is the document's, not this host's. These are
+        // the four values the clean and authorization-defect tests below compare actuals against.
+        Assert.Equal(
+            [
+                "authorization.decision=\"refused\"",
+                "outcome.accepted=false",
+                "outcome.refusalCode=\"records-authority-insufficient\"",
+                "outcome.refusalPointer=\"/values/status\"",
+            ],
+            suite.Cases.Single(item => item.CaseId == "approval-authority").Assertions
+                .Select(assertion => $"{assertion.Key}={assertion.ExpectedJson}").Order(StringComparer.Ordinal));
+    }
+
     private static readonly (string RowId, int Total)[] Rows =
     [
         ("two-at-one-hundred", 200), ("ten-at-one-hundred", 1000), ("three-at-four-hundred", 1200),
@@ -347,56 +406,31 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
     private const string Add = """{"+":[{"var":"quantity"},{"var":"unitPrice"}]}""";
 
     /// <summary>
+    /// The platform-owned verification corpus, read out of the pinned
+    /// <c>Harborline.Blocks.BuilderDefinitions</c> package — the same
+    /// <c>conformance/hlp.blocks.builder-definitions/verification.json</c> the platform's producer
+    /// tests and both renderer lanes consume. Moving the platform pin moves this document.
+    /// </summary>
+    private static JsonElement Corpus() => JsonSerializer.Deserialize<JsonElement>(VerificationSuite.Corpus());
+
+    /// <summary>
     /// The canonical Records-and-Rules suite: one invariant over an authorization rule and one
     /// examples table over a business rule, sharing one invoice and asserting nothing in common.
+    /// <para>
+    /// This host declares none of it. It parses the platform's document through the platform's own
+    /// admission, so there is one corpus rather than a twin here that can drift out of step with it
+    /// — which is exactly what had happened by slice 2. See
+    /// <see cref="The_suite_this_host_runs_is_the_pinned_platform_corpus"/>, which fails if this
+    /// host's expectations and that document ever disagree again.
+    /// </para>
     /// </summary>
-    private static VerificationSuite Suite() => VerificationSuite.Declare(
-        "tenant-a.invoice-verification", "1.0.0",
-        [
-            Fixture("clerk", "dana.okafor", new VerificationGrant("invoice.author", "/")),
-            Fixture("approver", "moss.adeyemi", new VerificationGrant("invoice.author", "/"),
-                new VerificationGrant("invoice.approver", "/")),
-        ],
-        [
-            new("approval-authority", "Only an approver may create an invoice already marked approved.",
-                "clerk", "records.create",
-                new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["recordType"] = "\"invoice\"",
-                    ["values"] = Values(4, 500, "approved"),
-                },
-                [],
-                [
-                    new("outcome.accepted", null, "false"),
-                    new("outcome.refusalCode", null, "\"records-authority-insufficient\""),
-                    new("outcome.refusalPointer", null, "\"/values/status\""),
-                    new("authorization.decision", null, "\"refused\""),
-                ]),
-            new("invoice-total", "An invoice total is its quantity times its unit price.",
-                "approver", "records.create",
-                new Dictionary<string, string>(StringComparer.Ordinal) { ["recordType"] = "\"invoice\"" },
-                [Row("two-at-one-hundred", 2, 100, 200), Row("ten-at-one-hundred", 10, 100, 1000),
-                    Row("three-at-four-hundred", 3, 400, 1200)],
-                [new("record.number", "/total", null), new("outcome.accepted", null, null)]),
-        ],
-        out _);
-
-    private static VerificationFixture Fixture(string id, string actor, params VerificationGrant[] grants) =>
-        new(id, Frozen, "Europe/London", "en-GB", "t-463-invoice", "ordinal-by-key", actor, grants,
-            [new("notifications.email", "record-only"), new("payments.remit", "denied")],
-            [new("supplier", """{"supplierKey":"contoso","name":"Contoso Ltd"}""")]);
-
-    private static VerificationExamplesRow Row(string rowId, int quantity, int unitPrice, int total) => new(rowId,
-        new Dictionary<string, string>(StringComparer.Ordinal) { ["values"] = Values(quantity, unitPrice) },
-        new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["record.number:/total"] = total.ToString(CultureInfo.InvariantCulture),
-            ["outcome.accepted"] = "true",
-        });
-
-    private static string Values(int quantity, int unitPrice, string? status = null) => string.Create(
-        CultureInfo.InvariantCulture,
-        $$"""{"supplier":"contoso","quantity":{{quantity}},"unitPrice":{{unitPrice}}{{(status is null ? string.Empty : $",\"status\":\"{status}\"")}}}""");
+    private static VerificationSuite Suite()
+    {
+        var suite = VerificationSuite.Parse(Corpus().GetProperty("suite").GetRawText(), out var refusals);
+        Assert.Empty(refusals);
+        Assert.NotNull(suite);
+        return suite!;
+    }
 
     private static string RoleKey(string name) => $"roles/invoice-{name}";
 
