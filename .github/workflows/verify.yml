@@ -309,6 +309,25 @@ jobs:
               git -C "$d" fetch -q origin
             done
           fi
+          # This job never detached the quality clone, so it read whatever commit the directory was
+          # left at. verify-shared is unlabelled and lands on this host too, and it detaches this
+          # same directory ($HOME and $USERPROFILE are one path here) to ITS tree's pin -- so the pin
+          # from whichever run went last leaked into the next one's boundary check. Measured: PR #203
+          # pins ced797c2 and logged "quality-pin 369c247" (left by #202), then boundary-check:FAIL.
+          # Detach to the commit this tree names, the way verify-shared and the platform pin already do.
+          qd="$lanes/quality-pin"
+          qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
+          if [ -n "$qpin" ] && [ -d "$qd/.git" ]; then
+            if ! git -C "$qd" cat-file -e "$qpin^{commit}" 2>/dev/null; then
+              if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
+                git -C "$qd" -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' '${{ secrets.HARBORLINE_PINS_TOKEN }}' | base64 | tr -d '\n')" fetch -q origin 2>/dev/null || true
+              else
+                git -C "$qd" fetch -q origin 2>/dev/null || true
+              fi
+            fi
+            git -C "$qd" checkout -q --detach "$qpin" 2>/dev/null || { echo "quality pin $qpin is not on this runner and cannot be fetched (private; no token)"; exit 6; }
+            echo "quality-pin detached to $qpin"
+          fi
           for r in control-gh:CONTROL quality-pin:QUALITY; do
             d="$lanes/${r%%:*}"
             if [ -d "$d/.git" ]; then
