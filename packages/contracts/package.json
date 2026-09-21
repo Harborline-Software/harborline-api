@@ -47,13 +47,13 @@
   },
   "devDependencies": {
     "@typescript/native": "npm:typescript@7.0.2",
-    "@vitest/coverage-v8": "5.0.0",
+    "@vitest/coverage-v8": "5.0.1",
     "@microsoft/eslint-formatter-sarif": "3.1.0",
     "ajv": "8.20.0",
     "eslint": "10.10.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "8.69.0",
-    "vitest": "5.0.0"
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
   },
   "justifications": {
     "@typescript/native": "R-0086",
