@@ -18,6 +18,8 @@ using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Data.Scheduling;
+using Harborline.Api.Foundation.Forms;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.People;
@@ -66,6 +68,10 @@ public sealed class KernelClockIntegrationTests
     [InlineData("journal-post")]
     [InlineData("workflow-advance")]
     [InlineData("definition-publish")]
+    [InlineData("form-definition-publish")]
+    [InlineData("form-definition-restore")]
+    [InlineData("scheduling-draft-save")]
+    [InlineData("scheduling-draft-restore")]
     [InlineData("identity-administration")]
     public async Task ProductionComposition_UsesTheAdmittedInstantAfterClockAdvances(string operation)
     {
@@ -82,6 +88,10 @@ public sealed class KernelClockIntegrationTests
                 "journal-post" => await fixture.JournalPostAsync(),
                 "workflow-advance" => await fixture.WorkflowAdvanceAsync(),
                 "definition-publish" => await fixture.DefinitionPublishAsync(),
+                "form-definition-publish" => await fixture.FormDefinitionPublishAsync(),
+                "form-definition-restore" => await fixture.FormDefinitionRestoreAsync(),
+                "scheduling-draft-save" => await fixture.SchedulingDraftSaveAsync(),
+                "scheduling-draft-restore" => await fixture.SchedulingDraftRestoreAsync(),
                 "identity-administration" => await fixture.IdentityAdministrationAsync(),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation)),
             };
@@ -179,6 +189,7 @@ public sealed class KernelClockIntegrationTests
         private readonly string? _priorRootSeed;
         private readonly string? _priorEventLogLevel;
         private readonly string? _priorWebClientEnabled;
+        private readonly string? _priorSchedulingDogfood;
         private IDbContextFactory<LocalNodeDbContext> _nodeFactory;
         private IDbContextFactory<NodeLocalSearchDbContext> _searchFactory;
         private readonly TimeProvider _clock;
@@ -199,6 +210,7 @@ public sealed class KernelClockIntegrationTests
             string? priorRootSeed,
             string? priorEventLogLevel,
             string? priorWebClientEnabled,
+            string? priorSchedulingDogfood,
             Uri baseAddress,
             IServiceProvider services,
             IDbContextFactory<LocalNodeDbContext> nodeFactory,
@@ -210,6 +222,7 @@ public sealed class KernelClockIntegrationTests
             _priorRootSeed = priorRootSeed;
             _priorEventLogLevel = priorEventLogLevel;
             _priorWebClientEnabled = priorWebClientEnabled;
+            _priorSchedulingDogfood = priorSchedulingDogfood;
             _baseAddress = baseAddress;
             Services = services;
             _nodeFactory = nodeFactory;
@@ -234,6 +247,11 @@ public sealed class KernelClockIntegrationTests
                 "2162162162162162162162162162162162162162162162162162162162162162");
             Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
             Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", "true");
+            // T-650: scheduling authoring DI is behind this flag (Program.cs reads
+            // LocalNode:SchedulingDogfood:Enabled), so without it NodeSchedulingDraftStore is
+            // simply absent and the two scheduling cases cannot reach a handler at all.
+            var priorSchedulingDogfood = Environment.GetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled");
+            Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", "true");
             var baseAddress = await LocalNodeHostRuntime.StartAsync(
                 "ticket-216-kernel-clock",
                 directory,
@@ -257,6 +275,7 @@ public sealed class KernelClockIntegrationTests
                 priorRootSeed,
                 priorEventLogLevel,
                 priorWebClientEnabled,
+                priorSchedulingDogfood,
                 baseAddress,
                 provider,
                 nodeFactory,
@@ -273,7 +292,17 @@ public sealed class KernelClockIntegrationTests
                     await SeedFinancialPostingPrerequisitesAsync();
                     break;
                 case "definition-publish":
+                case "form-definition-publish":
+                case "scheduling-draft-save":
                     await SeedOperatorGrantAsync();
+                    break;
+                case "form-definition-restore":
+                    await SeedOperatorGrantAsync();
+                    await FormDefinitionPublishAsync();
+                    break;
+                case "scheduling-draft-restore":
+                    await SeedOperatorGrantAsync();
+                    await SchedulingDraftSaveAsync();
                     break;
                 case "workflow-advance":
                 {
@@ -360,6 +389,138 @@ public sealed class KernelClockIntegrationTests
                 .GetCurrentPublishedAsync(new DefinitionAddress(tenant, key));
             return [Assert.IsType<WorkflowDefinitionRecord>(row).UpdatedAt];
         }
+
+        private const string FormKey = "kernel-clock-form";
+        private const string SchedulingKey = "kernel-clock-scheduling";
+
+        private static object FormDefinitionBody() => new
+        {
+            overlay = new
+            {
+                fields = new Dictionary<string, object>
+                {
+                    ["name"] = new
+                    {
+                        label = new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = "Name" } },
+                        controlHint = "text",
+                        piiSensitivity = "None",
+                    },
+                },
+                sections = new[]
+                {
+                    new
+                    {
+                        id = "main",
+                        title = new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = "Main" } },
+                        fields = new[] { "name" },
+                        access = new
+                        {
+                            readRoles = new[] { nameof(RoleReference.Administrator) },
+                            writeRoles = new[] { nameof(RoleReference.Administrator) },
+                            readStandings = Array.Empty<string>(),
+                            writeStandings = Array.Empty<string>(),
+                        },
+                    },
+                },
+                rules = Array.Empty<object>(),
+            },
+            fieldsMeta = new Dictionary<string, object>
+            {
+                ["name"] = new { type = "text", required = false, options = (string[]?)null },
+            },
+        };
+
+        // The form routes answer with the new version rather than the instant, so the timestamp is
+        // read back from the store at that exact version. A restore registers a DRAFT, so reading
+        // the current published row would miss it entirely and the assertion would pass on the
+        // revision this act did not write.
+        private async Task<DateTimeOffset> FormUpdatedAtAsync(string version)
+        {
+            var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
+            var row = await Services.GetRequiredService<IFormDefinitionStore>()
+                .GetAsync(new DefinitionCoordinates(tenant, FormKey, version));
+            return row.UpdatedAt;
+        }
+
+        private static async Task<string> VersionOfAsync(HttpResponseMessage response)
+        {
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return body.GetProperty("version").GetString()!;
+        }
+
+        internal async Task<DateTimeOffset[]> FormDefinitionPublishAsync()
+        {
+            using var client = Client();
+            using var response = await client.PutAsJsonAsync(
+                $"{FormDefinitionRoutes.RouteBase}/{FormKey}", FormDefinitionBody());
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            return [await FormUpdatedAtAsync(await VersionOfAsync(response))];
+        }
+
+        internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()
+        {
+            using var client = Client();
+            using var response = await client.PostAsJsonAsync(
+                $"{FormDefinitionRoutes.RouteBase}/{FormKey}/restore",
+                new RestoreVersionRequest("1.0.0"));
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            return [await FormUpdatedAtAsync(await VersionOfAsync(response))];
+        }
+
+        private NodeSchedulingDraftStore SchedulingStore() =>
+            Services.GetRequiredService<NodeSchedulingDraftStore>();
+
+        private async Task<SchedulingDraftView?> SchedulingDraftAsync()
+        {
+            var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
+            return await SchedulingStore().GetAsync(tenant.Value, SchedulingKey, CancellationToken.None);
+        }
+
+        internal async Task<DateTimeOffset[]> SchedulingDraftSaveAsync()
+        {
+            var current = await SchedulingDraftAsync();
+            using var client = Client();
+            using var response = await client.PutAsJsonAsync(
+                $"{SchedulingDefinitionRoutes.RouteBase}/{SchedulingKey}/draft",
+                new { expectedRevision = current?.Revision ?? 0, definition = SchedulingDefinition() });
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var saved = await SchedulingDraftAsync();
+            return [Assert.IsType<SchedulingDraftView>(saved).UpdatedAt];
+        }
+
+        internal async Task<DateTimeOffset[]> SchedulingDraftRestoreAsync()
+        {
+            var current = Assert.IsType<SchedulingDraftView>(await SchedulingDraftAsync());
+            using var client = Client();
+            using var response = await client.PostAsJsonAsync(
+                $"{SchedulingDefinitionRoutes.RouteBase}/{SchedulingKey}/restore",
+                new { revision = current.Revision });
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var restored = await SchedulingDraftAsync();
+            return [Assert.IsType<SchedulingDraftView>(restored).UpdatedAt];
+        }
+
+        private static JsonElement SchedulingDefinition() => JsonDocument.Parse(
+            """
+            {
+              "schema":"harborline.scheduling-definition-draft/v0",
+              "title":"Kernel clock proof",
+              "timezone":"America/New_York",
+              "activities":[{"id":"appointment","durationMinutes":30}],
+              "resourceRequirements":[],
+              "bufferBeforeMinutes":0,
+              "bufferAfterMinutes":0,
+              "minimumLeadTimeMinutes":0
+            }
+            """).RootElement.Clone();
 
         private HttpClient Client()
         {
@@ -1103,6 +1264,7 @@ public sealed class KernelClockIntegrationTests
             Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", _priorRootSeed);
             Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", _priorEventLogLevel);
             Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", _priorWebClientEnabled);
+            Environment.SetEnvironmentVariable("LocalNode__SchedulingDogfood__Enabled", _priorSchedulingDogfood);
             try { Directory.Delete(_directory, recursive: true); } catch { }
         }
 
