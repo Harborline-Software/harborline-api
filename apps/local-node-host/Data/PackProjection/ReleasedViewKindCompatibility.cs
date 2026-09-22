@@ -21,6 +21,11 @@ public static class ReleasedViewKindCompatibility
     {
         ("harborline.platform", "1.3.0"),
         ("harborline.platform", "1.6.0"),
+        // 1.0.0 is the first Access release and the version the embedded seed export
+        // (_shared/packs/access-administration) is installed as when an upgrade starts from the
+        // previous package. That seed still carries the retired token, so omitting this pair
+        // refused activation of the predecessor with view_definition.kind_unknown.
+        ("harborline.access-administration", "1.0.0"),
         ("harborline.access-administration", "1.1.1"),
         ("harborline.access-administration", "1.1.2"),
         ("harborline.access-administration", "1.1.2-atomicity-probe.0"),
