@@ -727,7 +727,10 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // kind, at any depth — admits NOTHING and (refusals being non-empty) removes nothing either.
             // The kind half of the prohibition needs no code: PackContentKind has no grant member and
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
-            var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
+            var seedItems = pack.SeedItems
+                .Select(Overlaid)
+                .Select(item => ReleasedViewKindCompatibility.Project(pack.PackKey, pack.Version, item))
+                .ToArray();
             var defaultRows = new List<ProjectedCascadeDefaults>();
             var defaultSeeds = new List<CascadeDeclaration>();
             var defaultCoordinates = new HashSet<(string? Type, string? Field)>();

@@ -198,7 +198,8 @@ public static class RenderPlanCompiler
     private static JsonElement? ViewBindings(JsonElement root, out string refusalCode)
     {
         refusalCode = string.Empty;
-        if (!TryGetProperty(root, "viewKind", out var kind) || kind.GetString() != "views.entity-list/grid"
+        if (!TryGetProperty(root, "viewKind", out var kind)
+            || kind.GetString() != Harborline.Blocks.EntityViews.ViewKindIds.Table
             || !TryGetProperty(root, "parameters", out var parameters) || parameters.ValueKind != JsonValueKind.Object
             || !TryGetProperty(parameters, "entityType", out var entityType) || entityType.ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(entityType.GetString()))

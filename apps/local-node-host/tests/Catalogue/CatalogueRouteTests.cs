@@ -322,13 +322,14 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var views = new InMemoryViewDefinitionRegistry(new HostViewKindDescriptorRegistry(
             services.GetRequiredService<IEntityTypeRegistry>(), _app.Services.GetRequiredService<IFormDefinitionStore>(),
-            _app.Services.GetRequiredService<ISchemaRegistry>()));
+            _app.Services.GetRequiredService<ISchemaRegistry>(),
+            Harborline.Blocks.EntityViews.ViewKindRegistry.Platform));
         var catalogue = new ProjectedCatalogue(_app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>(), views);
         var empty = await catalogue.ListAsync(_tenantA, PackContentKind.ViewDefinition);
         Assert.Empty(empty.Entries);
         Assert.Empty(empty.KindsUnavailable);
         await views.RegisterAsync(new ViewDefinition { Key = "receipt.view", Version = "1.0.0", Tenant = _tenantA.Value,
-            SchemaVersion = 1, Title = "View receipt", ViewKind = HostViewKindDescriptorRegistry.EntityListGridKind,
+            SchemaVersion = 1, Title = "View receipt", ViewKind = HostViewKindDescriptorRegistry.TableKind,
             Parameters = JsonSerializer.SerializeToElement(new { entityType = "FormDefinition" }) });
         Assert.Equal("receipt.view", Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.ViewDefinition)).Entries).Id);
         Assert.Equal(FormId, Assert.Single((await catalogue.ListAsync(_tenantA, PackContentKind.FormDefinition)).Entries).Id);

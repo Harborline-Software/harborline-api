@@ -129,7 +129,7 @@ public sealed class CatalogueTests
         var action = new { id = "run", label = "Run", operation };
         var body = JsonSerializer.Serialize(new
         {
-            viewKind = "views.entity-list/grid",
+            viewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
             parameters = new { entityType = "FormDefinition", actions = duplicate ? new[] { action, action } : new[] { action } },
         });
         return new PackSeedItem("actions", PackContentKind.ViewDefinition, "1.0.0", body, Cid.FromBytes([]));

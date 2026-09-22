@@ -123,7 +123,9 @@ public sealed partial class AccessAdministrationPreloadTests
 
     private PackExportRequest MixedReplacement(string version, bool refuse)
     {
-        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var source = WithVersionAndCurrentViewKinds(
+            AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url()),
+            version);
         var holder = source.Contents.Single(item => item.Key == "access.holders");
         var early = holder.Content.DeepClone();
         early["key"] = "m6.early-view";
@@ -140,7 +142,6 @@ public sealed partial class AccessAdministrationPreloadTests
         workflow["postSubmitProjection"] = "m6.workflow";
         return source with
         {
-            Version = version,
             Contents = source.Contents.Concat([
                 new PackContentSource("m6.asset", PackContentKind.AssetTypeDefinition, "1.0.0",
                     JsonSerializer.SerializeToNode(new { id = "m6.asset", displayName = "Atomic asset", traits = new[] { "Maintainable" } })!),
@@ -183,10 +184,10 @@ public sealed partial class AccessAdministrationPreloadTests
         var prior = _store.GetActive(Tenant, PlatformPackPreloadHostedService.PackKey)!;
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value));
         var source = PlatformPackPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var replacement = source with
+        var canonicalSource = WithVersionAndCurrentViewKinds(source, "1.6.1");
+        var replacement = canonicalSource with
         {
-            Version = "1.6.1",
-            Contents = source.Contents.Append(new PackContentSource(
+            Contents = canonicalSource.Contents.Append(new PackContentSource(
                 "platform.binding.forbidden-auditor", PackContentKind.AuthorizationCapabilityBinding, "1.0.0",
                 JsonSerializer.SerializeToNode(new
                 {
@@ -211,7 +212,9 @@ public sealed partial class AccessAdministrationPreloadTests
         await PreloadPlatformThenAccessAsync();
         var prior = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
         var viewsBefore = JsonSerializer.Serialize(await _views.ListDefinitionsAsync(Tenant.Value, CancellationToken.None));
-        var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
+        var source = WithVersionAndCurrentViewKinds(
+            AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url()),
+            "1.1.4-atomicity-probe.0");
         var holder = source.Contents.Single(item => item.Key == "access.holders");
         var early = holder.Content.DeepClone();
         early["key"] = "m6.early-view";
@@ -220,7 +223,6 @@ public sealed partial class AccessAdministrationPreloadTests
         late["viewKind"] = "views.not-registered";
         var replacement = source with
         {
-            Version = "1.1.4-atomicity-probe.0",
             Contents = source.Contents.Concat([
                 new PackContentSource("m6.early-view", holder.Kind, holder.Version, early),
                 new PackContentSource("m6.late-refusal", holder.Kind, holder.Version, late),
@@ -244,4 +246,21 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.Null(await _views.GetDefinitionAsync(Tenant.Value, "m6.early-view", "1.0.0", CancellationToken.None));
         Assert.NotEqual(PackLifecycleState.Active, _store.GetVersion(Tenant, replacement.Key, replacement.Version)!.Lifecycle);
     }
+
+    private static PackExportRequest WithVersionAndCurrentViewKinds(PackExportRequest source, string version) =>
+        source with
+        {
+            Version = version,
+            Contents = source.Contents.Select(item =>
+            {
+                if (item.Kind != PackContentKind.ViewDefinition)
+                {
+                    return item;
+                }
+
+                var content = item.Content.DeepClone();
+                content["viewKind"] = Harborline.Blocks.EntityViews.ViewKindIds.Table;
+                return item with { Content = content };
+            }).ToArray(),
+        };
 }

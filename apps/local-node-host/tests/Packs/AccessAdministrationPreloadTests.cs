@@ -139,7 +139,11 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
         _views = new InMemoryViewDefinitionRegistry(new ObservedViewAdmission(
-            new HostViewKindDescriptorRegistry(_app.Services.GetRequiredService<IEntityTypeRegistry>(), _forms, schemas),
+            new HostViewKindDescriptorRegistry(
+                _app.Services.GetRequiredService<IEntityTypeRegistry>(),
+                _forms,
+                schemas,
+                Harborline.Blocks.EntityViews.ViewKindRegistry.Platform),
             (definition, ct) => _beforeViewAdmission?.Invoke(definition, ct) ?? ValueTask.CompletedTask));
         _reports = new InMemoryReportDefinitionRegistry(
             new HostReportKindDescriptorRegistry(new ReportCartridgeRegistry()));
@@ -467,7 +471,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal("harborline.platform", formsView!.Provenance.PackKey);
         Assert.NotNull(formsView.RenderPlan);
         Assert.Equal(formsView.DefinitionHash, formsView.RenderPlan!.DefinitionHash);
-        Assert.Equal("views.entity-list/grid", formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
+        Assert.Equal(Harborline.Blocks.EntityViews.ViewKindIds.Table,
+            formsView.RenderPlan.Bindings.GetProperty("viewKind").GetString());
         Assert.Equal(7, formsView.RenderPlan.Bindings.GetProperty("actions").GetArrayLength());
         var authorForm = await catalogue.GetAsync(
             Tenant, PackContentKind.FormDefinition, "platform.pack.author", cancellationToken: CancellationToken.None);

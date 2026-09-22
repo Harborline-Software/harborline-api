@@ -376,7 +376,7 @@ public sealed class PackReplacementRemovalTests
                         Version = ItemVersion,
                         Tenant = Tenant.Value,
                         SchemaVersion = 1,
-                        ViewKind = "views.entity-list/grid",
+                        ViewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
                         Title = "Who holds what",
                         Parameters = JsonSerializer.SerializeToElement(new { groupBy = "role", pageSize = 25 }),
                         CascadeLayer = CascadeLayer.Tenant,
