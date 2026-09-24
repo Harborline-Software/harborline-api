@@ -34,8 +34,8 @@ public sealed class LayoutDenialReaderTests
     public async Task AReaderAuthorizedForBothFindsTheDenialByBindingPlusRequest()
     {
         await using var h = await Harness.CreateAsync();
-        h.Deny("request-7");
-        h.Deny("request-8");
+        await h.DenyAsync("request-7");
+        await h.DenyAsync("request-8");
 
         var read = await h.Reader.ReadAsync(Tenant, Both, "owner-card", "invoice.owner", "request-7", At);
 
@@ -56,7 +56,7 @@ public sealed class LayoutDenialReaderTests
     public async Task AReaderLackingEitherAuthorizationGetsNothing(string reader)
     {
         await using var h = await Harness.CreateAsync();
-        h.Deny("request-7");
+        await h.DenyAsync("request-7");
 
         Assert.Empty(await h.Reader.ReadAsync(Tenant, new ActorId(reader), "owner-card", "invoice.owner", "request-7", At));
         // The control: the same entry is there for a reader holding both.
@@ -104,10 +104,13 @@ public sealed class LayoutDenialReaderTests
         }
 
         /// <summary>Resolves the surface for principal.clerk-4 with the owner denied, through the host trace.</summary>
-        public void Deny(string requestId) => Resolve(
-            new OutcomeSources(LayoutRelatedResult.Denied("authorization.permission_required", "/records/party-19", Owner)),
-            new LayoutDenialGateLog(Trail, new Ed25519Signer(_keys), Tenant, new FixedTime(At), NullLogger.Instance),
-            new LayoutResolutionRequest(requestId, "principal.clerk-4"));
+        public Task DenyAsync(string requestId)
+        {
+            var trace = new LayoutDenialGateLog(Trail, new Ed25519Signer(_keys), Tenant, new FixedTime(At), NullLogger.Instance);
+            Resolve(new OutcomeSources(LayoutRelatedResult.Denied("authorization.permission_required", "/records/party-19", Owner)),
+                trace, new LayoutResolutionRequest(requestId, "principal.clerk-4"));
+            return trace.WrittenAsync();
+        }
 
         private static AccessGrant Grant(ActorId subject, RoleReference role, string scope) => new(
             GrantId.New(), Tenant, subject, role, ScopeExpression.Parse(scope), GrantResidency.Cache,

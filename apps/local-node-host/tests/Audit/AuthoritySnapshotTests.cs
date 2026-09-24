@@ -530,6 +530,9 @@ public sealed class AuthoritySnapshotTests
         string[] allowed =
         {
             "apps/local-node-host/Enrollment/KernelAuditEnrollmentCompensatingControlRecorder.cs|Harborline.Api.LocalNodeHost.Enrollment.KernelAuditEnrollmentCompensatingControlRecorder.EmitAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Kernel.Audit.AuditEventType,System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Object],System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            // T-731 — Layout's related-binding denial (DES-0052 layout-run-5). ORDINARY for the same reason as
+            // the refusal row below: the act it records was DENIED, and it re-decides nothing.
+            "apps/local-node-host/Layout/LayoutDenialGateLog.cs|Harborline.Api.LocalNodeHost.Layout.LayoutDenialGateLog.AppendAsync(Harborline.Blocks.LayoutRuntime.LayoutRelatedDenial): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             // Ticket 214 slice 2 — the refusal audit row. ORDINARY by construction: the decision it
             // records is DENIED, and AppendAuthorizedAsync refuses a denied decision
             // (AuthorizedAuditRefusalCodes.DecisionDenied). It carries the very decision the guard made

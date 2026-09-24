@@ -31,15 +31,44 @@ public sealed class LayoutDenialGateLog(
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
 
+    private readonly List<Task> _appends = [];
+
     /// <inheritdoc />
     public void RecordDenial(LayoutRelatedDenial denial)
     {
         ArgumentNullException.ThrowIfNull(denial);
+        // The append starts here, at the act, and runs synchronously up to its first incomplete await;
+        // the platform trace is synchronous, so the host awaits the rest through WrittenAsync.
+        _appends.Add(AppendAsync(denial));
+    }
+
+    /// <summary>Completes every append this request started. The host awaits it before it answers.</summary>
+    public Task WrittenAsync() => Task.WhenAll(_appends);
+
+    private async Task AppendAsync(LayoutRelatedDenial denial)
+    {
         try
         {
-            // ponytail: the platform trace is synchronous, so the append blocks the resolving thread.
-            // The host has no synchronization context; an async trace needs a platform interface change.
-            AppendAsync(denial).AsTask().GetAwaiter().GetResult();
+            var at = time.GetUtcNow();
+            // The denied act, typed: reading the target record, by the acting principal, at this instant.
+            var request = new AuthorizationWriteContext(new ActorId(denial.PrincipalId), tenant, at)
+                .Request(RecordsRead, AuthorizationGate.RecordKindFor(RecordsRead), denial.Target.RecordId);
+            var body = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["requestId"] = denial.RequestId,
+                ["principalId"] = denial.PrincipalId,
+                ["blockId"] = denial.BlockId,
+                ["bindingKind"] = denial.BindingKind,
+                ["relationshipKey"] = denial.RelationshipKey,
+                ["targetRecordTypeId"] = denial.Target.RecordTypeId,
+                ["targetRecordId"] = denial.Target.RecordId,
+                ["code"] = denial.Code,
+                ["pointer"] = denial.Pointer,
+            };
+            var payload = await signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid()).ConfigureAwait(false);
+            await trail.AppendAsync(new AuditRecord(
+                Guid.NewGuid(), tenant, LayoutRelatedDeniedEventType, at, payload, [],
+                Actor: request.Principal, Target: request.Target, Act: request.Act)).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -48,30 +77,6 @@ public sealed class LayoutDenialGateLog(
                 + "the viewer still sees absence but the gate log has no record.",
                 tenant, denial.RequestId, denial.BlockId);
         }
-    }
-
-    private async ValueTask AppendAsync(LayoutRelatedDenial denial)
-    {
-        var at = time.GetUtcNow();
-        // The denied act, typed: reading the target record, by the acting principal, at this instant.
-        var request = new AuthorizationWriteContext(new ActorId(denial.PrincipalId), tenant, at)
-            .Request(RecordsRead, AuthorizationGate.RecordKindFor(RecordsRead), denial.Target.RecordId);
-        var body = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["requestId"] = denial.RequestId,
-            ["principalId"] = denial.PrincipalId,
-            ["blockId"] = denial.BlockId,
-            ["bindingKind"] = denial.BindingKind,
-            ["relationshipKey"] = denial.RelationshipKey,
-            ["targetRecordTypeId"] = denial.Target.RecordTypeId,
-            ["targetRecordId"] = denial.Target.RecordId,
-            ["code"] = denial.Code,
-            ["pointer"] = denial.Pointer,
-        };
-        var payload = await signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid()).ConfigureAwait(false);
-        await trail.AppendAsync(new AuditRecord(
-            Guid.NewGuid(), tenant, LayoutRelatedDeniedEventType, at, payload, [],
-            Actor: request.Principal, Target: request.Target, Act: request.Act)).ConfigureAwait(false);
     }
 
     /// <summary>The denial a gate-log record stores, or <see langword="null"/> for any other record.</summary>

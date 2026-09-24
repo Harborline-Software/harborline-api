@@ -36,6 +36,7 @@ public sealed class LayoutDenialGateLogTests
             onField: () => countedDuringResolution = Count(trail));
 
         Resolve(sources, trace, new LayoutResolutionRequest("request-7", "principal.clerk-4"));
+        await trace.WrittenAsync();
 
         Assert.Equal(1, countedDuringResolution);
         var record = Assert.Single(await RowsAsync(trail));
@@ -58,6 +59,7 @@ public sealed class LayoutDenialGateLogTests
             new FixedTime(At), NullLogger.Instance);
 
         Resolve(new OutcomeSources(LayoutRelatedResult.Absent), trace, new LayoutResolutionRequest("request-7", "principal.clerk-4"));
+        await trace.WrittenAsync();
 
         Assert.Empty(await RowsAsync(trail));
     }
