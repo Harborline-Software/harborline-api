@@ -46,12 +46,20 @@ Keep the process attached to a terminal or a supervisor that captures stdout and
 
 Query `http://127.0.0.1:<port>/live` for process liveness, `http://127.0.0.1:<port>/ready` through the CLI `health` verb for readiness, and `http://127.0.0.1:<port>/health` for the multiline health report; these are the documented unauthenticated health interfaces, while the CLI operations below require the session token.
 
-Run the bundled client from the same published directory after readiness answers:
+Run the bundled client from the same published directory after readiness answers. On Linux and macOS:
 
 ```sh
 export HARBORLINE_NODE_TOKEN="$LocalNode__SessionToken"
 ./harborline-node --url http://127.0.0.1:<port> --json health
 ./harborline-node --url http://127.0.0.1:<port> --json tenant list
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:HARBORLINE_NODE_TOKEN = $env:LocalNode__SessionToken
+.\harborline-node.exe --url http://127.0.0.1:<port> --json health
+.\harborline-node.exe --url http://127.0.0.1:<port> --json tenant list
 ```
 
 The token travels in `HARBORLINE_NODE_TOKEN` rather than `--token`, so it does not appear in the process list another local user can read.
