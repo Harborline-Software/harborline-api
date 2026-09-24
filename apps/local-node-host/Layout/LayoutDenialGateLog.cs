@@ -89,3 +89,43 @@ public sealed class LayoutDenialGateLog(
             Text("code"), Text("pointer"));
     }
 }
+
+/// <summary>
+/// DES-0052 layout-run-5, host half (T-731): the only reader of Layout's related-binding denials.
+/// It finds them by authored binding (block and relationship) plus request, and returns one only to a
+/// reader the gate allows both <c>audit:read</c> on that gate-log entry and <c>records:read</c> on
+/// the denied record. It never re-evaluates the denial; it returns what was stored at the act.
+/// </summary>
+/// <remarks>A reader lacking either authorization gets an empty list, the same answer as when no
+/// denial exists, so the read is not an oracle for the record either.</remarks>
+public sealed class LayoutDenialReader(IAuditTrail trail, AuthorizationGate gate)
+{
+    private static readonly AuthorizationOperation AuditRead = AuthorizationOperation.Parse(Permission.AuditRead);
+    private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
+
+    /// <summary>The denials recorded for <paramref name="blockId"/>'s <paramref name="relationshipKey"/>
+    /// in <paramref name="requestId"/> that <paramref name="reader"/> may read at <paramref name="at"/>.</summary>
+    public async ValueTask<IReadOnlyList<LayoutRelatedDenial>> ReadAsync(
+        TenantId tenant, ActorId reader, string blockId, string relationshipKey, string requestId,
+        DateTimeOffset at, CancellationToken ct = default)
+    {
+        var context = new AuthorizationWriteContext(reader, tenant, at);
+        var found = new List<LayoutRelatedDenial>();
+        await foreach (var record in trail
+            .QueryAsync(new AuditQuery(tenant, LayoutDenialGateLog.LayoutRelatedDeniedEventType), ct).ConfigureAwait(false))
+        {
+            if (LayoutDenialGateLog.Denial(record) is not { } denial
+                || denial.BlockId != blockId || denial.RelationshipKey != relationshipKey || denial.RequestId != requestId)
+                continue;
+            if (await AllowedAsync(context, AuditRead, record.AuditId.ToString(), ct).ConfigureAwait(false)
+                && await AllowedAsync(context, RecordsRead, denial.Target.RecordId, ct).ConfigureAwait(false))
+                found.Add(denial);
+        }
+        return found;
+    }
+
+    private async ValueTask<bool> AllowedAsync(
+        AuthorizationWriteContext context, AuthorizationOperation operation, string recordId, CancellationToken ct)
+        => (await gate.DecideAsync(context.Request(operation, AuthorizationGate.RecordKindFor(operation), recordId), ct)
+            .ConfigureAwait(false)).Verdict == AuthorizationVerdict.Allowed;
+}
