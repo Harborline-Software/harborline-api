@@ -1,10 +1,11 @@
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
-internal sealed class FixedAuthorizationClosure : IAuthorizationClosureReader
+internal sealed class FixedAuthorizationClosure : IAuthorizationClosureReader, IAuthorizationDefinitionAtomReader
 {
     private static readonly PermissionAtomSet Required = PermissionAtomSet.Of(
         PermissionAtom.Parse("members:manage@/"));
@@ -31,6 +32,17 @@ internal sealed class FixedAuthorizationClosure : IAuthorizationClosureReader
     public ValueTask<PermissionAtomSet> RolePermissionsAsync(
         TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
         ValueTask.FromResult(_role);
+
+    public ValueTask<IReadOnlyList<PermissionAtom>> AtomsForRoleAsync(
+        TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
+        ValueTask.FromResult<IReadOnlyList<PermissionAtom>>(_role.Atoms.ToArray());
+}
+
+internal sealed class InvitationTestRoleAtoms(IAuthorizationClosureReader source) : IAuthorizationDefinitionAtomReader
+{
+    public async ValueTask<IReadOnlyList<PermissionAtom>> AtomsForRoleAsync(
+        TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
+        (await source.RolePermissionsAsync(tenantId, role, ct)).Atoms.ToArray();
 }
 
 internal sealed class LegacyPermissionAuthorizationClosure(

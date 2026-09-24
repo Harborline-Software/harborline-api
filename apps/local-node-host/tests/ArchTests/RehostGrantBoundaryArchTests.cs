@@ -19,7 +19,7 @@ public sealed class RehostGrantBoundaryArchTests
         Assert.Equal("apps/local-node-host/BackupRestore/NodeRehostService.cs", site.File);
         Assert.Equal(MethodSignatureSymbol.Format(
             typeof(NodeRehostService).GetMethod(nameof(NodeRehostService.RestoreAsync))!), site.Symbol);
-        Assert.Equal(121, site.Line); // Manual restore: redemption precedes every recovery/write port.
+        Assert.Equal(128, site.Line); // Manual restore: redemption precedes every recovery/write port.
     }
 
     private static string? ClassifyRedemption(MethodBase method) =>

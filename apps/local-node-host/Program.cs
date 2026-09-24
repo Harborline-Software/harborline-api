@@ -8,7 +8,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Transport;
+using Harborline.Api.Foundation.Transport.DependencyInjection;
+using Harborline.Api.Foundation.Transport.Mdns;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.FinancialLedger.DependencyInjection;
 using Harborline.Api.Blocks.FinancialLedger.Services;
@@ -22,6 +29,7 @@ using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Blocks.FinancialPayments.Data;
 using Harborline.Api.Blocks.People.Foundation.Data;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.Localization;
 using Harborline.Api.Foundation.LocalFirst;
 using Harborline.Api.Foundation.LocalFirst.Installation;
 using Harborline.Api.Foundation.Packs.DependencyInjection;
@@ -72,6 +80,7 @@ using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Data.Docs;
 using Harborline.Api.LocalNodeHost.Data.Drafts;
+using Harborline.Api.LocalNodeHost.Data.DataExchange;
 using Harborline.Api.LocalNodeHost.Data.Payroll;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Governance;
@@ -400,6 +409,11 @@ var sqlCipherKeyDerivation = new SqlCipherKeyDerivation();
     Console.WriteLine(
         $"[local-node-host] Gossip anti-entropy round interval: {roundIntervalSeconds}s " +
         "(push-on-change is the primary path; this is the backstop cadence).");
+
+    // T-449: compose Foundation localization from the local-node host's root.
+    // ADR-0086: establish runtime reach for its external dependencies.
+    builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+    builder.Services.AddHarborlineLocalization();
 
     builder.Services
         .AddHarborlineKernelRuntime()              // plugin registry + INodeHost          (Wave 1.1)
@@ -1107,7 +1121,10 @@ if (localNodeOptions.Sync.EnableMdns &&
     localNodeOptions.Sync.NetworkTrust is Harborline.Api.Kernel.Sync.Network.NetworkTrustLevel.Known)
 {
     builder.Services.AddMdnsPeerDiscovery();
+    builder.Services.AddHarborlineTransport();
+    builder.Services.AddSingleton<IPeerTransport>(sp => new MdnsPeerTransport(time: sp.GetRequiredService<TimeProvider>()));
     Console.WriteLine("[local-node-host] mDNS peer discovery: ENABLED (same-subnet auto-discovery).");
+    Console.WriteLine("[local-node-host] mDNS peer transport: ENABLED (tier-1 link-local).");
 }
 else if (localNodeOptions.Sync.EnableMdns)
 {
@@ -1215,13 +1232,41 @@ builder.Services.AddLocalNodePatternAModules();
 // bootstrap window until MultiTeamBootstrapHostedService completes.
 Harborline.Api.Foundation.EngineRoom.EngineRoomServiceCollectionExtensions.AddHarborlineEngineRoom(
     builder.Services);
+if (localNodeOptions.Diagnostics.OtlpEndpoint is { } otlpEndpoint)
+{
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(metrics => metrics
+            .AddMeter(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.MeterName)
+            .AddOtlpExporter((options, readerOptions) =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/metrics");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+                readerOptions.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds = 1_000;
+            }))
+        .WithTracing(tracing => tracing
+            .AddSource(Harborline.Api.Foundation.EngineRoom.EngineRoomMetrics.ActivitySourceName)
+            .AddOtlpExporter(options =>
+            {
+                options.Endpoint = new Uri(otlpEndpoint, "v1/traces");
+                options.Protocol = OtlpExportProtocol.HttpProtobuf;
+                options.ExportProcessorType = ExportProcessorType.Simple;
+            }));
+    Console.WriteLine($"[local-node-host] telemetry export: ENABLED ({otlpEndpoint})");
+}
+else
+{
+    Console.WriteLine("[local-node-host] telemetry export: DISABLED (no LocalNode:Diagnostics:OtlpEndpoint)");
+}
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
+builder.Services.AddSingleton<ExposedViewAuthorizationReachabilityReports>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
     builder.Services.AddHealthChecks()
         .AddCheck<LocalNodeHealthCheck>("local-node")
         .AddCheck<AuthorizationHealthCheck>("authorization")
         .AddCheck<WorkflowCatalogueLintHealthCheck>("workflow-catalogue-lint")
+        .AddCheck<ExposedViewAuthorizationReachabilityHealthCheck>("exposed-view-authorization-reachability")
         .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
         .AddCheck<LocalNodeReadinessCheck>("local-node-readiness", tags: ["ready"]));
 
@@ -1407,14 +1452,15 @@ builder.Services.AddAuthorizationRefusalAudit();
 builder.Services.AddAuthorizedActAudit();
 builder.Services.AddSingleton<IPackInstallAudit, KernelAuditPackInstallAudit>();
 builder.Services.AddSingleton<IPackContentAdmission, PackWorkflowAdmissionAdapter>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>();
+builder.Services.AddSingleton<Harborline.Api.Foundation.Governance.Resolution.ICascadeDefaultsProjection>(sp =>
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>());
 var runningPackPlatformVersion =
     (typeof(PackInstaller).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? typeof(PackInstaller).Assembly.GetName().Version?.ToString()
         ?? "0.0.0")
     .Split('+', 2)[0];
-builder.Services.AddSingleton<IPackPlatformCompatibility>(new PackPlatformCompatibility(
-    runningPackPlatformVersion,
-    Harborline.Api.LocalNodeHost.Data.PackProjection.PackSeedProjector.RegisteredCases));
+builder.Services.AddCatalogueFieldSourceRuntime(runningPackPlatformVersion);
 // F5 (migration-update-architecture D5.2 / D5.3) — bind the DURABLE SQLCipher-backed IPackInstallStore BEFORE
 // AddPackComposerInstall so its TryAdd default (InMemoryPackInstallStore) is skipped. This is what makes an
 // installed+activated pack + its S-8 watermark + tenant overrides SURVIVE a node restart / deploy-dogfood
@@ -1439,6 +1485,31 @@ builder.Services.AddSingleton<IPackInstaller>(sp => new PackInstaller(
     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.PackProjection.IPackSeedProjector>(),
     sp.GetRequiredService<IPackPlatformCompatibility>()));
+// T-644: the api half of atomic activation shares the durable pack store's SQLite unit, so ownership
+// selections, the effective pointer, the Access decision reference and the evidence intent commit together.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget(
+    sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
+    DurablePackStore(sp),
+    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+    sp.GetRequiredService<IPackInstallAudit>(),
+    sp.GetRequiredService<IPackPlatformCompatibility>()));
+// T-461: propose, save and release sit beside activation and share the same pack database, but they are
+// a different act. The store reads the effective generation as a baseline and never writes the pointer;
+// signing the exported document is the api's half of ADR 0097 decision 6.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore(
+    sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>()));
+// T-463: the verification runner reads the candidate through the same activation target and the same
+// durable pack store, and writes nothing at all. Each case it runs executes in its own ephemeral world.
+// Ticket 216: the fixture clock is DERIVED HERE, in the composition root, because a fixture's declared
+// virtual instant is still a clock and the runner may not introduce one of its own. It carries no wall
+// time — that is the point of it — so the root hands the runner a factory rather than a TimeProvider.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner(
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget>(),
+    DurablePackStore(sp),
+    sp.GetRequiredService<TimeProvider>(),
+    static instant => new DeclaredInstantTimeProvider(instant)));
 builder.Services.AddPackComposerInstall();
 
 // Ticket 208 fix 1: the node's pack TRUST SURFACE is composed once and shared. Both the install routes
@@ -1452,6 +1523,17 @@ builder.Services.AddSingleton<Harborline.Api.Foundation.Packs.Trust.IPackTrustSt
 // revokes nothing and reports itself STALE, rather than silently claiming "nothing revoked" (S-11).
 builder.Services.AddSingleton<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>(
     _ => Harborline.Api.Foundation.Packs.Install.Trust.PackRevocationList.Empty);
+// T-667: the bridge from a Released package to an installable one. It resolves the SAME trust surface
+// and the SAME install engine as every other install path, so a Released package earns no weaker
+// verification than a pack carried in on a USB stick.
+builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ReleasedPackInstaller(
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Export.IPackExporter>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.IPackInstaller>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationVerifier>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Trust.IPackTrustStore>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>()));
 // App-layer FEATURE GRAPH (G1 keystone; design note app-layer-feature-graph-2026-07-07). The rebuildable
 // content-edge-index provider + the read-model that assembles per-app contributions (grouped by pillar) +
 // cross-app edges from install state, surfaced read-only at GET /packs/graph. Registered here so the seed
@@ -1466,10 +1548,13 @@ builder.Services.AddInMemoryReportDefinitions();
 // stays unwired here.
 builder.Services.AddSingleton<IDataExchangeDefinitionDescriptorRegistry, HostDataExchangeKindDescriptorRegistry>();
 builder.Services.AddInMemoryDataExchangeDefinitions();
+builder.Services.AddPlatformDataExchange();
 builder.Services.AddSingleton<IScheduleDefinitionDescriptorRegistry, HostScheduleKindDescriptorRegistry>();
 builder.Services.AddInMemoryScheduleDefinitions();
 // Ticket 074: the descriptor's IEntityTypeRegistry dependency resolves lazily; AddNodeAssetRegistry
 // registers it later, matching the registration-order dependency the projector wiring already relies on.
+builder.Services.AddSingleton<Harborline.Blocks.EntityViews.IViewKindRegistry>(
+    Harborline.Blocks.EntityViews.ViewKindRegistry.Platform);
 builder.Services.AddSingleton<IViewDefinitionDescriptorRegistry, HostViewKindDescriptorRegistry>();
 builder.Services.AddInMemoryViewDefinitions();
 // ADR 0047/0069 record standings: installed standing rules are ordinary immutable definition rows.
@@ -1948,6 +2033,7 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     Harborline.Api.LocalNodeHost.Data.Identity.ISelectedSessionPermissionResolver,
     Harborline.Api.LocalNodeHost.Data.Identity.SelectedSessionPermissionResolver>();
+builder.Services.AddScoped<Harborline.Api.LocalNodeHost.Health.WebSession.SelectedSessionTenantContext>();
 
 // ── KG-search "360-view" Slice 0 (ADR 0135 KG-search F3-lift amendment) ───────────────────────────────
 //
@@ -2281,6 +2367,8 @@ builder.Services.AddNodeForms(
 // Ticket 176 slice 1: the catalogue reads the already-composed definition stores; it owns no persistence.
 // Ticket 402 slice 1: activation emits an artifact into this catalogue; read routes only retrieve it.
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.InMemoryRenderPlanCatalogue>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.CatalogueRegistries>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.TerminologyProjection>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Health.ICatalogue,
     Harborline.Api.LocalNodeHost.Health.ProjectedCatalogue>();
 
@@ -2340,6 +2428,10 @@ var reconcileSweepInterval = TimeSpan.FromSeconds(
         : Harborline.Api.LocalNodeHost.AssetRegistryOptions.DefaultReconcileSweepIntervalSeconds);
 Harborline.Api.LocalNodeHost.Data.AssetRegistry.NodeAssetRegistryComposition.AddNodeAssetRegistry(
     builder.Services, reconcileSweepInterval);
+// M4: only the full node owns the canonical NodeEntityWriter used by an explicitly typed
+// property-form record. Keep its registry adapter at this boundary so partial asset-registry
+// compositions retain their read/projection routes without acquiring an unrelated writer dependency.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.AssetRegistry.PackBoundRegistryRecordWriter>();
 // ADR 0101 Rev 3.2 Wave 5 — the durable SpatialFrameDescriptor store + signed epoch mint (0168
 // OQ-1 ruling). AFTER AddNodeAssetRegistry: the durable audit swap must already be in place. The
 // extension itself hard-fails the composition unless the store resolves to the package adapter,
@@ -2754,4 +2846,15 @@ await using var endpointMapping = await LocalNodeEndpointMapping.MapAsync(
 await listener.StartAsync(CancellationToken.None);
 await Harborline.Api.LocalNodeHost.LocalNodeHostRuntime.RunAsync(app, listener);
     }
+}
+
+/// <summary>
+/// A clock pinned to one declared instant. Ticket 216 keeps every clock in this composition root, and
+/// a verification fixture's instant is a declared input rather than wall time, so it is minted here
+/// and handed to the runner. It reads no ambient time and never advances.
+/// </summary>
+internal sealed class DeclaredInstantTimeProvider(DateTimeOffset instant) : TimeProvider
+{
+    /// <inheritdoc />
+    public override DateTimeOffset GetUtcNow() => instant;
 }

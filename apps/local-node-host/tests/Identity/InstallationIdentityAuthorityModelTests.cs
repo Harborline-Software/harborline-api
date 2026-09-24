@@ -186,6 +186,7 @@ public sealed class InstallationIdentityAuthorityModelTests
                 "20260723050000_RecoveryInvitations",
                 "20260728043828_LegacyBearerCutoverEvidence",
                 "20260902140000_BootstrapClaimMarker",
+                "20260916170000_InvitationInitialRole",
             ],
             descriptor.CompiledMigrations.Select(migration => migration.MigrationId));
     }

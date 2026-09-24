@@ -315,6 +315,7 @@ public sealed class WebPlaneAuthorizationFenceTests
 
             // The pack routes resolve at the gate now, so the outer container carries the production
             // authorization module — the same registration Program.cs makes.
+            TestAuthorization.AddMemberRosterConstraints(outer);
             outer.AddAccessGrantModule();
 
             var outerProvider = outer.BuildServiceProvider();
@@ -374,7 +375,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ── The INNER serving app: the real production listener.
             var app = new SharedHostedWebApp(
                 outerProvider,
-                Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
+                Options.Create(new LocalNodeOptions { HealthPort = 0 }),
                 new LocalNodeExecutableEndpointRegistry(),
                 outerProvider.GetRequiredService<ILogger<SharedHostedWebApp>>(),
                 outerProvider.GetRequiredService<TimeProvider>());
@@ -392,8 +393,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             var invoiceRepository = new NodeEfInvoiceRepository(localFactory);
             var invoiceNumbering = new InMemoryInvoiceNumberingService(new ReplicaId("FENCE"));
             var schedulingStore = new NodeSchedulingDraftStore(
-                outerProvider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>(),
-                TimeProvider.System);
+                outerProvider.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>());
             app.MapApiRoutes(routes =>
             {
                 ContactRoutes.Map(
@@ -416,11 +416,10 @@ public sealed class WebPlaneAuthorizationFenceTests
                     outerProvider.GetRequiredService<NodeEfPartyRepository>(),
                     activeTeam,
                     outerProvider.GetRequiredService<ICurrentUser>(),
-                    bookingService: null!,
+                    scopes: null!,
                     eventStore: null!,
                     calendarStore: null!,
                     availabilityStore: null!,
-                    freeBusyService: null!,
                     TimeProvider.System);
             });
 

@@ -2,7 +2,6 @@
 import {execFileSync} from 'node:child_process'
 import {existsSync} from 'node:fs'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
 import {readPin} from './build-local-feed.mjs'
 
 // Resolve beside the source API checkout, not beside the new scratch clone.
@@ -38,7 +37,7 @@ export function resolvePlatformCheckout({apiRoot, scratch, pin, env = process.en
   return {platform, source: 'public-clone', reason}
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/exact-clone-platform-feed.mjs')) {
   const [apiRoot, scratch] = process.argv.slice(2)
   if (!apiRoot || !scratch) throw new Error('usage: exact-clone-platform-feed.mjs <source-api> <scratch>')
   const pin = readPin()

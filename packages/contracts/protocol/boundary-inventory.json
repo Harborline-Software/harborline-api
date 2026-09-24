@@ -110,6 +110,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AccessHoldersRead.cs:SelectedReadRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "SelectedReadRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/AccessHoldersRead.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/AccountingPeriodRoutes.cs:RouteBase",
       "kind": "local-node-http",
       "method": "GET",
@@ -150,14 +158,6 @@
       "status": "deferred"
     },
     {
-      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}\"",
-      "kind": "local-node-http",
-      "method": "GET",
-      "routeExpression": "$\"{RouteBase}/entities/{{id}}\"",
-      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
-      "status": "deferred"
-    },
-    {
       "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:$\"{RouteBase}/entities/{{id}}/condition\"",
       "kind": "local-node-http",
       "method": "GET",
@@ -194,6 +194,14 @@
       "kind": "local-node-http",
       "method": "GET",
       "routeExpression": "$\"{RouteBase}/types/{{id}}\"",
+      "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AssetRegistryRoutes.cs:ReadEntityRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ReadEntityRequest.RouteTemplate",
       "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
       "status": "deferred"
     },
@@ -258,6 +266,14 @@
       "kind": "local-node-http",
       "method": "GET",
       "routeExpression": "AccessHoldersRead.Route",
+      "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/AuthorizationAdminRoutes.cs:SelectedRolesRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "SelectedRolesRoute",
       "source": "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
       "status": "deferred"
     },
@@ -414,6 +430,30 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:EffectiveRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "EffectiveRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:ProposalRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ProposalRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:ReleasesRoute",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "ReleasesRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/ConsentRecordRoutes.cs:$\"{RouteBase}/{{recordId}}\"",
       "kind": "local-node-http",
       "method": "GET",
@@ -475,6 +515,14 @@
       "method": "GET",
       "routeExpression": "RouteBase",
       "source": "apps/local-node-host/Health/DataExchangeDefinitionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:GET:apps/local-node-host/Health/DataExchangePlatformRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/DataExchangePlatformRoutes.cs",
       "status": "deferred"
     },
     {
@@ -1085,6 +1133,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/KernelAuditMetadataRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/WebSession/KernelAuditMetadataRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs:PermissionsPath",
       "kind": "local-node-http",
       "method": "GET",
@@ -1366,6 +1422,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/CatalogueDetailRoutes.cs:Route",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "Route",
+      "source": "apps/local-node-host/Health/CatalogueDetailRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs:$\"{RouteBase}/{{id}}/archive\"",
       "kind": "local-node-http",
       "method": "POST",
@@ -1419,6 +1483,70 @@
       "method": "POST",
       "routeExpression": "$\"{RouteBase}/{{partyId}}/respond\"",
       "source": "apps/local-node-host/Health/CompromisedDeviceResponseRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:ActivateRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ActivateRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:PrepareRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "PrepareRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationActivationRoutes.cs:VerifyRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "VerifyRoute",
+      "source": "apps/local-node-host/Health/ConfigurationActivationRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:CheckRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "CheckRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:InstallReleaseRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "InstallReleaseRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:ProposalsRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ProposalsRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:ReleaseRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ReleaseRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:SaveVersionRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "SaveVersionRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
       "status": "deferred"
     },
     {
@@ -1702,6 +1830,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:CheckRoute",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "CheckRoute",
+      "source": "apps/local-node-host/Health/PackInstallRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/PackInstallRoutes.cs:DeactivateRoute",
       "kind": "local-node-http",
       "method": "POST",
@@ -1926,6 +2062,30 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs:NarrowScopeRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "NarrowScopeRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs:ReviewGrantRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ReviewGrantRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs:RevokeGrantRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "RevokeGrantRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/WebSession/AdminGrantActionRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/AdminTeamAccessRoutes.cs:InvitationsPath",
       "kind": "local-node-http",
       "method": "POST",
@@ -1974,6 +2134,22 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/SelectedFormSubmitRoutes.cs:SubmitRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "SubmitRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/WebSession/SelectedFormSubmitRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/SelectedPackReplacementRoutes.cs:ReplaceRequest.RouteTemplate",
+      "kind": "local-node-http",
+      "method": "POST",
+      "routeExpression": "ReplaceRequest.RouteTemplate",
+      "source": "apps/local-node-host/Health/WebSession/SelectedPackReplacementRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:POST:apps/local-node-host/Health/WebSession/SessionLogoutRoutes.cs:LogoutPath",
       "kind": "local-node-http",
       "method": "POST",
@@ -2011,6 +2187,14 @@
       "method": "PUT",
       "routeExpression": "$\"{RouteBase}/types/{{id}}\"",
       "source": "apps/local-node-host/Health/AssetRegistryRoutes.cs",
+      "status": "deferred"
+    },
+    {
+      "id": "local-node-http:PUT:apps/local-node-host/Health/ConfigurationProposalRoutes.cs:AutosaveRoute",
+      "kind": "local-node-http",
+      "method": "PUT",
+      "routeExpression": "AutosaveRoute",
+      "source": "apps/local-node-host/Health/ConfigurationProposalRoutes.cs",
       "status": "deferred"
     },
     {

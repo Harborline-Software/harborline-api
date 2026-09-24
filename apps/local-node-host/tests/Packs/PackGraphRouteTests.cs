@@ -84,8 +84,7 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
         // read-model also self-heals on read, so either path leaves the graph correct.
         var edgeIndex = new InMemoryPackContentEdgeIndexProvider(store);
         var readModel = new PackFeatureGraphReadModel(store, edgeIndex);
-        var projector = new PackSeedProjector(
-            store, registry, NullLogger<PackSeedProjector>.Instance, templates: null, edgeIndex: edgeIndex, time: TimeProvider.System);
+        var projector = PackProjectionTestFixture.Create(store, registry, edgeIndex: edgeIndex);
 
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
@@ -232,7 +231,7 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
                 key = "fleet-ops.walkaround",
                 kind = "FormDefinition",
                 version = "1.0.0",
-                content = new { title = "Daily walkaround" },
+                content = PackProjectionTestFixture.FormContent("Daily walkaround"),
             },
         },
         dependencies = Array.Empty<object>(),

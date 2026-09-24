@@ -48,9 +48,27 @@ public sealed class RouteAudienceGraphTests
         // Ticket 362 adds the selected-session narrow-member route (POST, beside revoke) in the four
         // web-enabled profiles, and slice 2 retires the permissions route from the same four.
         // Ticket 176 adds the catalogue list, item, and system-type reads in every profile.
-        int[] expectedClassifiedCounts = [222, 239, 240, 233, 250, 251];
+        // Ticket 395 adds the selected-session pack admission check in every profile.
+        // Ticket 427 adds the selected-session read-only catalogue detail projection in every profile.
+        // Ticket 433 adds selected role vocabulary and kernel audit metadata in every profile;
+        // the four grant routes, selected form submission and pack replacement require the web session host.
+        // Ticket 492 adds the desktop-only Data Exchange runtime-contract read in every profile.
+        // T-644 adds the three selected-session configuration-generation routes (effective read,
+        // prepare, activate) in every profile.
+        // T-461 adds the seven selected-session proposed-change routes (start, read, autosave,
+        // save version, record check, release, and the released-package offer) in every profile.
+        // T-667 adds the one selected-session released-package install route, beside the offer it
+        // installs, in every profile.
+        int[] expectedClassifiedCounts = [239, 262, 263, 250, 273, 274];
 
         Assert.Equal(6, profiles.Length);
+        // T-585 item 3, the other direction. The forward half below refuses an executable route with no
+        // manifest entry and names it; nothing refused a manifest ENTRY no executable route reaches.
+        // A dead expectation is a fence that has silently stopped fencing anything: it still reads as
+        // policy and no longer applies to a request, which is the more dangerous of the two shapes
+        // because it fails open and looks like coverage. Accumulated across profiles, because an entry
+        // for a web-only family is legitimately unmatched in a desktop-only graph.
+        var matchedExpectations = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < profiles.Length; index++)
         {
             var snapshot = await CaptureProfileAsync(profiles[index]);
@@ -68,6 +86,40 @@ public sealed class RouteAudienceGraphTests
             var trace = Assert.Single(pairs, pair => pair.HttpMethod == "GET"
                 && pair.RoutePattern == AuthorizationAdminRoutes.RouteBase + "/traces/{auditId:guid}");
             Assert.Equal(RouteFenceKind.DesktopPlaneOnly, trace.RouteFenceKind);
+            var detail = Assert.Single(pairs, pair => pair.HttpMethod == "POST"
+                && pair.RoutePattern == CatalogueDetailRoutes.Route);
+            Assert.Equal(RouteFenceKind.SelectedSessionProduct, detail.RouteFenceKind);
+            string[] alwaysSelectedReads =
+            ["/api/session/authorization/role-vocabulary", "/api/session/audit/metadata"];
+            foreach (var route in alwaysSelectedReads)
+                Assert.Equal(RouteFenceKind.SelectedSessionProduct,
+                    Assert.Single(pairs, pair => pair.HttpMethod == "GET" && pair.RoutePattern == route).RouteFenceKind);
+            (string Method, string Route)[] webSelectedActions =
+            [
+                ("GET", "/api/session/admin/grants/holders"),
+                ("POST", "/api/session/admin/grants/narrow-scope"),
+                ("POST", "/api/session/admin/grants/review"),
+                ("POST", "/api/session/admin/grants/revoke"),
+                ("POST", "/api/session/forms/{formId}/submit"),
+                ("POST", "/api/session/packs/{packKey}/replace"),
+            ];
+            foreach (var (method, route) in webSelectedActions)
+            {
+                var matches = pairs.Where(pair => pair.HttpMethod == method && pair.RoutePattern == route).ToArray();
+                if (profiles[index].WebClientEnabled)
+                    Assert.Equal(RouteFenceKind.SelectedSessionProduct, Assert.Single(matches).RouteFenceKind);
+                else
+                    Assert.Empty(matches);
+            }
+            foreach (var expectation in LocalNodeExecutableEndpointRegistry.RouteFenceExpectations)
+            {
+                if (snapshot.Endpoints.Any(endpoint =>
+                        endpoint.RoutePattern.StartsWith(expectation.RouteBase, StringComparison.Ordinal)))
+                {
+                    matchedExpectations.Add(expectation.RouteBase);
+                }
+            }
+
             var classified = pairs.Count(pair => pair.RouteFenceKind is not null);
             var unclassified = pairs
                 .Where(pair => pair.RouteFenceKind is null)
@@ -87,6 +139,18 @@ public sealed class RouteAudienceGraphTests
                 report);
             Assert.Equal(pairs.Length, classified);
         }
+
+        // The finding names the entries, not a count: "one expectation is dead" does not say which
+        // fence stopped applying, and which one is the whole question.
+        var dead = LocalNodeExecutableEndpointRegistry.RouteFenceExpectations
+            .Where(expectation => !matchedExpectations.Contains(expectation.RouteBase))
+            .Select(expectation => $"{expectation.RouteBase} ({expectation.Kind})")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(
+            dead.Length == 0,
+            "Route-fence entries that no executable route in any supported profile reaches: "
+            + string.Join(", ", dead));
     }
 
     private static async Task<LocalNodeExecutableEndpointSnapshot> CaptureProfileAsync(

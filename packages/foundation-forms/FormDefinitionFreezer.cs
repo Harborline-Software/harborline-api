@@ -17,6 +17,9 @@ internal static class FormDefinitionFreezer
                 Requires = definition.Envelope.Requires.ToImmutableArray(),
             },
             Overlay = Freeze(definition.Overlay),
+            CatalogueFieldSource = definition.CatalogueFieldSource is { } source
+                ? source with { Fields = source.Fields.ToImmutableArray() }
+                : null,
         };
     }
 

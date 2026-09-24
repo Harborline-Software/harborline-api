@@ -2,10 +2,15 @@ using System.Text.Json;
 
 namespace Harborline.Api.LocalNodeHost.Data.Scheduling;
 
-/// <summary>Non-mutating advisory validation for the dogfood scheduling authoring contract.</summary>
+/// <summary>Authoritative admission validation for the dogfood scheduling authoring contract.</summary>
 public sealed class SchedulingDraftValidator
 {
     public const string DraftSchema = "harborline.scheduling-definition-draft/v0";
+
+    private readonly HashSet<string> _admittedModules;
+
+    public SchedulingDraftValidator(IEnumerable<string>? admittedModules = null) =>
+        _admittedModules = new HashSet<string>(admittedModules ?? [], StringComparer.Ordinal);
 
     public IReadOnlyList<SchedulingValidationIssue> Validate(JsonElement definition)
     {
@@ -73,6 +78,26 @@ public sealed class SchedulingDraftValidator
                     || requirement.GetString()!.Length > 100)
                     issues.Add(new("scheduling.validation.resource_invalid", $"resourceRequirements.{index}"));
                 index++;
+            }
+        }
+        if (definition.TryGetProperty("modules", out var modules))
+        {
+            if (modules.ValueKind != JsonValueKind.Array)
+            {
+                issues.Add(new("scheduling.validation.array_required", "modules"));
+            }
+            else
+            {
+                var index = 0;
+                foreach (var module in modules.EnumerateArray())
+                {
+                    var moduleId = module.ValueKind == JsonValueKind.String ? module.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(moduleId))
+                        issues.Add(new("scheduling.validation.module_invalid", $"modules.{index}"));
+                    else if (!_admittedModules.Contains(moduleId))
+                        issues.Add(new("scheduling.validation.module_unsupported", $"modules.{index}"));
+                    index++;
+                }
             }
         }
         return issues;

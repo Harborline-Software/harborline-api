@@ -83,6 +83,8 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
                 ["breakGlassAuthorizingPrincipal"] = entry.BreakGlassAuthorizingPrincipal,
                 ["preDecision"] = entry.PreDecision,
             };
+            if (decision?.Request.CorrelationId is { } correlation)
+                body["correlation_id"] = correlation.ToString("D");
 
             var occurredAt = entry.OccurredAtUtc;
             // The port is synchronous (the install engine is sync); block on the append. Installs are not a

@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Definitions;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -41,10 +42,19 @@ namespace Harborline.Api.Kernel.Schema;
 /// <see cref="ValidateAsync"/> call.
 /// </para>
 /// </remarks>
-public sealed class InMemorySchemaRegistry : ISchemaRegistry
+public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionParticipant
 {
     private readonly SchemaRegistryOptions _options;
-    private readonly ConcurrentDictionary<SchemaId, Entry> _schemas = new();
+    private ConcurrentDictionary<SchemaId, Entry> _schemas = new();
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _schemas;
+        var next = new ConcurrentDictionary<SchemaId, Entry>(before);
+        _schemas = next;
+        return () => _schemas = before;
+    });
 
     /// <summary>
     /// Creates a new <see cref="InMemorySchemaRegistry"/>. The migration surface
@@ -94,6 +104,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
     /// <inheritdoc />
     public ValueTask<Schema?> GetAsync(SchemaId id, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ct.ThrowIfCancellationRequested();
         return _schemas.TryGetValue(id, out var entry)
             ? new ValueTask<Schema?>(entry.Schema)
@@ -108,6 +119,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
         int? blobThreshold = null,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ArgumentNullException.ThrowIfNull(jsonSchemaText);
         ct.ThrowIfCancellationRequested();
 
@@ -199,6 +211,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
         ReadOnlyMemory<byte> documentBytes,
         CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ct.ThrowIfCancellationRequested();
 
         if (!_schemas.TryGetValue(id, out var entry))
@@ -260,13 +273,17 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
         string? tagFilter = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        foreach (var entry in _schemas.Values)
+        // A paused iterator must not keep activation waiting while its consumer processes a row.
+        // Materialize one stable projection before yielding control back to that consumer.
+        Schema[] snapshot;
+        using (PackProjectionActivationBarrier.Read(ct))
+            snapshot = _schemas.Values.Select(entry => entry.Schema)
+                .Where(schema => tagFilter is null || schema.Tags.Contains(tagFilter))
+                .ToArray();
+        foreach (var schema in snapshot)
         {
             ct.ThrowIfCancellationRequested();
-            if (tagFilter is null || entry.Schema.Tags.Contains(tagFilter))
-            {
-                yield return entry.Schema;
-            }
+            yield return schema;
         }
 
         // Satisfy the async-iterator contract without adding real asynchrony —
@@ -278,6 +295,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
     /// <inheritdoc />
     public ValueTask<MigrationPlan> PlanMigrationAsync(SchemaId from, SchemaId to, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         throw new NotSupportedException(
             "Migration half of ISchemaRegistry is deferred — see gap analysis G2 follow-up.");
     }
@@ -285,6 +303,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry
     /// <inheritdoc />
     public ValueTask<ReadOnlyMemory<byte>> MigrateAsync(SchemaId from, SchemaId to, ReadOnlyMemory<byte> document, CancellationToken ct = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         throw new NotSupportedException(
             "Migration half of ISchemaRegistry is deferred — see gap analysis G2 follow-up.");
     }

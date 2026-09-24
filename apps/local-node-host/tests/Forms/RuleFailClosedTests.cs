@@ -171,7 +171,7 @@ public sealed class RuleFailClosedTests
             Action: RuleActionKind.Validate);
 
         var compiled = RuleCompiler.Compile(new[] { rule });
-        var result = new FormRuleGraph(compiled, new RuleEngineLimits { StepBudget = 1 }, clock: TimeProvider.System)
+        var result = new FormRuleGraph(compiled, TimeProvider.System, new RuleEngineLimits { StepBudget = 1 })
             .EvaluateInstance(new RuleInstance());
 
         // The synthetic refusal keeps the RESERVED engine id (an authored rule id there can
@@ -224,6 +224,46 @@ public sealed class RuleFailClosedTests
         var warning = Assert.Single(logger.Messages, m => m.Level == LogLevel.Warning);
         Assert.Contains(FormId.Value, warning.Message, StringComparison.Ordinal); // …but names the definition
         Assert.Contains("restrict.uninterpretable", warning.Message, StringComparison.Ordinal);
+    }
+
+    // ── T-676: render of a form whose Tier-2 rules COMPILE reaches the graph ──
+    // Every render test above feeds the projection a rule that does NOT compile, so it degrades
+    // before constructing the graph. Nothing exercised the compiling path, which is why
+    // FormEngine's clock-less `new FormRuleGraph(compiled)` survived: it threw
+    // ArgumentNullException, and the enclosing catch names only RuleEngineTimeoutException.
+    // This renders a form whose one Compute rule compiles, so the graph is built and evaluated,
+    // and asserts the projected computed value — the outcome only a real evaluation can produce.
+
+    [Fact]
+    public async Task Render_projects_a_compiling_tier2_rule_instead_of_throwing()
+    {
+        var overlay = HarborlineOverlay.Empty with
+        {
+            Fields = new Dictionary<string, FieldOverlay> { ["total"] = Field("total") },
+            Sections = new[] { Section("s1", "total") },
+            Rules = new[]
+            {
+                RestrictingRule("compute.total", """{"+":[1,2]}""", RuleActionKind.Compute, RuleScope.Field, "total"),
+            },
+        };
+        var context = await CreateServicesAsync(overlay, """
+            {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "properties": { "total": { "type": "number" } },
+              "additionalProperties": false
+            }
+            """);
+        await using var services = context.Services;
+        var engine = services.GetRequiredService<IFormEngine>();
+        var token = await IssueReadWriteTokenAsync(services, new[] { OperatorRole });
+
+        var view = await engine.RenderAsync(FormId, instance: null, token, CancellationToken.None);
+
+        var total = view.Sections.Single().Fields.Single(f => f.Name == "total");
+        Assert.NotNull(total.Rules);
+        Assert.NotNull(total.Rules!.Computed);
+        Assert.Equal(3, total.Rules.Computed!.Value.GetDecimal());
     }
 
     // ── Review fix 1: the whole-graph budget refusal is UN-SKIPPABLE ──────────

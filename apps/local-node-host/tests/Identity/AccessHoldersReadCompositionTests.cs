@@ -10,6 +10,7 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -76,6 +77,17 @@ public sealed class AccessHoldersReadCompositionTests
                 Assert.Equal("principal-other-granter", scoped.GetProperty("granter").GetString());
                 Assert.Equal(Now.AddDays(-2), scoped.GetProperty("effectiveFrom").GetDateTimeOffset());
                 Assert.Equal(Now.AddDays(3), scoped.GetProperty("effectiveTo").GetDateTimeOffset());
+
+                var viewRows = json.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+                Assert.Equal(rows.Length, viewRows.Length);
+                Assert.Equal(expectedIds, viewRows.Select(row => row.GetProperty("grantId").GetString()).Order().ToArray());
+                var canonical = Assert.Single(viewRows, row =>
+                    row.GetProperty("principalId").GetString() == "principal-target"
+                    && row.GetProperty("scope").GetString() == "/records/example");
+                Assert.Equal(AccessGrantAuthorizationSeed.MemberRole.ToString(), canonical.GetProperty("role").GetString());
+                Assert.Equal("/records/example", canonical.GetProperty("scope").GetString());
+                Assert.Equal("Active", canonical.GetProperty("status").GetString());
+                Assert.Equal("32900000-0000-4000-8000-000000000001", canonical.GetProperty("grantId").GetString());
             }
         }
         finally
@@ -111,8 +123,40 @@ public sealed class AccessHoldersReadCompositionTests
         }
     }
 
+    [Theory]
+    [InlineData("principal-admin", 200)]
+    [InlineData("principal-without-read-atom", 403)]
+    public async Task Selected_holder_projection_uses_same_gate_and_rows_as_desktop_read(string principal, int status)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"t433-selected-holders-{Guid.NewGuid():N}");
+        try
+        {
+            await using var host = await UnattributedGrantCompositionTests.OpenAsync(directory);
+            await UnattributedGrantCompositionTests.SeedAsync(host.Services, "resolved");
+            var desktop = await ReadAsync(host.Services, principal);
+            var selected = await ReadAsync(host.Services, principal, selected: true);
+            Assert.Equal(status, selected.Status);
+            using var selectedJson = JsonDocument.Parse(selected.Body);
+            if (status == 200)
+            {
+                using var desktopJson = JsonDocument.Parse(desktop.Body);
+                Assert.Equal(desktopJson.RootElement.GetProperty("rows").GetRawText(), selectedJson.RootElement.GetProperty("rows").GetRawText());
+                Assert.Equal(desktopJson.RootElement.GetProperty("holders").GetRawText(), selectedJson.RootElement.GetProperty("holders").GetRawText());
+            }
+            else Assert.DoesNotContain("holders", selected.Body);
+            var missing = await ReadAsync(host.Services, principal, selected: true, withCookie: false);
+            Assert.Equal(401, missing.Status);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
     // Execute the production mapping with Program's actual service provider; no listener or alternate gate.
-    private static async Task<(int Status, string Body)> ReadAsync(IServiceProvider services, string principal)
+    private static async Task<(int Status, string Body)> ReadAsync(IServiceProvider services, string principal,
+        bool selected = false, bool withCookie = true)
     {
         await using var app = WebApplication.CreateBuilder().Build();
         AuthorizationAdminRoutes.Map(app,
@@ -121,10 +165,13 @@ public sealed class AccessHoldersReadCompositionTests
             services.GetRequiredService<AuthorizationDefinitionWriter>(),
             services.GetRequiredService<IStandingRuleDefinitionStore>(),
             services.GetRequiredService<StandingCatalogue>(), new ActiveTenant(services), services.GetRequiredService<TimeProvider>());
+        AccessHoldersRead.MapSelected(app, services.GetRequiredService<TimeProvider>());
         var endpoint = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
-            .OfType<RouteEndpoint>().Single(endpoint => endpoint.RoutePattern.RawText == AccessHoldersRead.Route);
+            .OfType<RouteEndpoint>().Single(endpoint => endpoint.RoutePattern.RawText ==
+                (selected ? AccessHoldersRead.SelectedReadRequest.RouteTemplate : AccessHoldersRead.Route));
         using var body = new MemoryStream();
         var http = new DefaultHttpContext { RequestServices = services };
+        if (withCookie) http.Request.Headers.Cookie = $"{WebSessionCookieNames.Selected}=fixture-selected";
         http.Features.Set(new SelectedSessionRequestPrincipal("account-admin", Tenant,
             new PrincipalUserId(principal), new CanonicalPartyReference("party-admin"),
             "membership", 1, [new PinnedGrantOwnerVersion("grant-fixture", 1)], 1, "session", "coordination"));

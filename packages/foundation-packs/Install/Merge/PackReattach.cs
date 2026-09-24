@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Globalization;
 
 using Harborline.Api.Foundation.Catalog.Templates;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Blocks.BuilderDefinitions;
 
 namespace Harborline.Api.Foundation.Packs.Install.Merge;
 
@@ -50,9 +50,18 @@ public sealed record PackReattachConflict(
 /// </summary>
 /// <param name="Reattached">Overrides re-expressed as patches over the new seed content.</param>
 /// <param name="Conflicts">Modified-both-sides / orphaned / floor-clamped surfaces (D8).</param>
+/// <param name="RefusalCode">The producer's refusal code when the whole re-attach is refused, else null.</param>
+/// <param name="RefusalMember">The named member the refusal is about, else null.</param>
 public sealed record PackReattachPlan(
     IReadOnlyList<PackTenantOverride> Reattached,
-    IReadOnlyList<PackReattachConflict> Conflicts);
+    IReadOnlyList<PackReattachConflict> Conflicts,
+    string? RefusalCode = null,
+    string? RefusalMember = null)
+{
+    /// <summary>A whole-re-attach refusal: nothing re-attaches and the producer's code names the member.</summary>
+    public static PackReattachPlan Refused(string code, string member)
+        => new(Array.Empty<PackTenantOverride>(), Array.Empty<PackReattachConflict>(), code, member);
+}
 
 /// <summary>
 /// Re-attaches a prior installed version's tenant overrides onto a new version's seed layer via the
@@ -121,11 +130,21 @@ public static class PackReattachPlanner
                     c.BaseNewValue?.ToJsonString(), c.OverlayValue?.ToJsonString()));
             }
 
-            // PER-CONTENT-TYPE merge table: StandardsCatalog floors are raise-strictness-only. Clamp any
-            // floor the overlay tried to lower below the seed's floor back up (F1/S-4) + surface it.
+            // PER-CONTENT-TYPE merge table: StandardsCatalog floors are raise-strictness-only, and the
+            // rule has ONE producer (ADR 0096, T-655) — the platform's PackageSafetyFloorReattachment.
+            // It clamps a lowered, missing or removed floor back to the seed and REFUSES the whole
+            // reattachment when a floor member is present but not an integer. The api reports what the
+            // producer changed (D8 preview); it does not re-decide the rule.
             if (newItem.Kind == PackContentKind.StandardsCatalog)
             {
-                ClampSafetyFloors(newKey, baseNew, merged, conflicts);
+                var floors = PackageSafetyFloorReattachment.Apply(baseNew, merged);
+                if (!floors.Succeeded)
+                {
+                    return PackReattachPlan.Refused(floors.RefusalCode!, floors.Member!);
+                }
+
+                ReportFloorClamps(newKey, baseNew, merged, floors.Content!, conflicts);
+                merged = floors.Content!;
             }
 
             // Re-express the re-attached override as a patch over the NEW seed (so the next upgrade can
@@ -141,48 +160,44 @@ public static class PackReattachPlanner
     }
 
     /// <summary>
-    /// Raise-strictness clamp for catalog safety floors (F1/S-4): for every floor the new SEED declares,
-    /// the merged result must be ≥ the seed's floor. A merged floor below the seed's (the overlay tried to
-    /// lower it) is clamped back up and surfaced as a <see cref="PackReattachConflictKind.FloorClamped"/>.
+    /// Surfaces what the platform producer changed as the D8 install-preview conflicts the admin sees:
+    /// a restored <c>safetyFloors</c> object, or each member the clamp raised back to the seed floor.
+    /// This is reporting over the producer's result, not a second copy of the raise-only rule.
     /// </summary>
-    private static void ClampSafetyFloors(
-        string contentKey, JsonNode baseNew, JsonNode merged, List<PackReattachConflict> conflicts)
+    private static void ReportFloorClamps(
+        string contentKey, JsonNode baseNew, JsonNode candidate, JsonNode clamped,
+        List<PackReattachConflict> conflicts)
     {
-        var seedFloors = PackSafetyFloors.Extract(baseNew);
-        if (seedFloors.Count == 0 || merged is not JsonObject mergedObject)
+        if (baseNew is not JsonObject seedObject
+            || seedObject[PackageSafetyFloorReattachment.FloorsMember] is not JsonObject seedFloors
+            || seedFloors.Count == 0)
         {
             return;
         }
 
-        if (mergedObject[PackSafetyFloors.FloorsProperty] is not JsonObject mergedFloors)
+        if (candidate is not JsonObject candidateObject
+            || candidateObject[PackageSafetyFloorReattachment.FloorsMember] is not JsonObject candidateFloors)
         {
-            // The overlay stripped the floors object entirely — restore the seed's floors verbatim.
-            if (baseNew is JsonObject bn && bn[PackSafetyFloors.FloorsProperty] is JsonObject seedFloorObj)
-            {
-                mergedObject[PackSafetyFloors.FloorsProperty] = seedFloorObj.DeepClone();
-                conflicts.Add(new PackReattachConflict(
-                    contentKey, PackContentKind.StandardsCatalog, PackReattachConflictKind.FloorClamped,
-                    PackSafetyFloors.FloorsProperty, seedFloorObj.ToJsonString(), "null"));
-            }
-
+            // The overlay stripped the floors object entirely — the producer restored the seed's verbatim.
+            conflicts.Add(new PackReattachConflict(
+                contentKey, PackContentKind.StandardsCatalog, PackReattachConflictKind.FloorClamped,
+                PackageSafetyFloorReattachment.FloorsMember, seedFloors.ToJsonString(), "null"));
             return;
         }
 
-        foreach (var (floorKey, seedStrictness) in seedFloors)
+        var clampedFloors = (clamped as JsonObject)?[PackageSafetyFloorReattachment.FloorsMember] as JsonObject;
+        foreach (var (member, _) in seedFloors)
         {
-            var mergedIsBelow = mergedFloors[floorKey] is JsonValue mv
-                && mv.TryGetValue(out int mergedStrictness)
-                && mergedStrictness < seedStrictness;
-            var missing = !mergedFloors.ContainsKey(floorKey);
-
-            if (mergedIsBelow || missing)
+            var attempted = candidateFloors[member]?.ToJsonString() ?? "null";
+            var applied = clampedFloors?[member]?.ToJsonString() ?? "null";
+            if (string.Equals(attempted, applied, StringComparison.Ordinal))
             {
-                var attempted = mergedFloors[floorKey]?.ToJsonString() ?? "null";
-                mergedFloors[floorKey] = seedStrictness; // clamp up to the seed floor (raise-only)
-                conflicts.Add(new PackReattachConflict(
-                    contentKey, PackContentKind.StandardsCatalog, PackReattachConflictKind.FloorClamped,
-                    $"/{PackSafetyFloors.FloorsProperty}/{floorKey}", seedStrictness.ToString(CultureInfo.InvariantCulture), attempted));
+                continue;
             }
+
+            conflicts.Add(new PackReattachConflict(
+                contentKey, PackContentKind.StandardsCatalog, PackReattachConflictKind.FloorClamped,
+                $"/{PackageSafetyFloorReattachment.FloorsMember}/{member}", applied, attempted));
         }
     }
 

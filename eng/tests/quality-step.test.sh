@@ -5,6 +5,16 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 # The main root's sibling, portable to bash 3.2 (a brace group inside ${:-} does not parse there).
 main_sibling() { (cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../$1" && { pwd -W 2>/dev/null || pwd; }); }
 quality_root=${HARBORLINE_QUALITY_REPO:-$(main_sibling harborline-quality 2>/dev/null || true)}
+# Ticket 689: a bare `grep -q` under `set -e` exits 1 printing nothing, so a refusal arriving out of
+# order (the quality-cleanliness one instead of the control-repo one) read as an empty failure and
+# cost an investigation. Name the check that missed and show what the step actually said.
+expect() { # expect <check> <pattern> <file>
+  if ! grep -q "$2" "$3"; then
+    echo "FAIL $1: no match for '$2' in $3; the step said:" >&2
+    tail -n 20 "$3" | sed -e 's/^/  | /' >&2
+    exit 1
+  fi
+}
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="${quality_root:-/nonexistent}"
@@ -33,7 +43,7 @@ git -C "$fixture" update-ref refs/remotes/origin/main "$base"
 if env -u HARBORLINE_QUALITY_REPO -u HARBORLINE_CONTROL_REPO node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/missing.out" 2>&1; then
   echo 'FAIL missing quality pin passed'; exit 1
 fi
-grep -q 'HARBORLINE_QUALITY_REPO' "$fixture/.git/missing.out"
+expect 'missing pins' 'HARBORLINE_QUALITY_REPO' "$fixture/.git/missing.out"
 
 # A host without the two pinned checkouts (the GitHub runner: both repositories are private) can prove only
 # the refusal above. It says so by name instead of dying in a cd or pretending; the gate hosts (the Windows
@@ -46,8 +56,8 @@ fi
 if HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$fixture/missing-control" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/missing-control.out" 2>&1; then
   echo 'FAIL missing control repo passed'; exit 1
 fi
-grep -q 'HARBORLINE_CONTROL_REPO' "$fixture/.git/missing-control.out"
-grep -q 'quality-defaults.yaml' "$fixture/.git/missing-control.out"
+expect 'real defaults' 'HARBORLINE_CONTROL_REPO' "$fixture/.git/missing-control.out"
+expect 'real defaults' 'quality-defaults.yaml' "$fixture/.git/missing-control.out"
 
 mkdir -p "$old_control/policy"
 cp "$control_root/policy/quality-defaults.yaml" "$old_control/policy/quality-defaults.yaml"
@@ -55,15 +65,15 @@ sed -e 's/maxDropPercentagePoints/maximumAggregateDrop/' "$old_control/policy/qu
 if HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$old_control" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/old-control.out" 2>&1; then
   echo 'FAIL old control key passed'; exit 1
 fi
-grep -q 'coverage.maximumAggregateDrop' "$fixture/.git/old-control.out"
+expect 'old key refusal' 'coverage.maximumAggregateDrop' "$fixture/.git/old-control.out"
 
 HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/zero.out"
-grep -q 'quality: recorded sha256:' "$fixture/.git/zero.out"
+expect 'receipt' 'quality: recorded sha256:' "$fixture/.git/zero.out"
 git -C "$fixture" add artifacts/quality
 git -C "$fixture" commit --no-verify -qm 'record quality artifact'
   # The merge-queue gate exports HARBORLINE_GATE_COVERAGE=1 for verify.sh; this fixture records a receipt with no coverage
   # artifacts, so the flag must not leak into it.
-( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
+( cd "$fixture" && env -u HARBORLINE_GATE_COVERAGE node eng/verify-receipt.mjs --record boundaries dependency-ledger identity-r3 codegen-check codegen-guard-suite contracts-typescript contracts-csharp localfirst-csharp rule-engine-conformance contracts-rust operator-cli-headless install-artefact removal-exercise exact-clone quality quality-baseline packages --host-baseline eng/baselines/host-test-baseline.json ) > "$fixture/.git/receipt.out"
 node -e 'const r=require(process.argv[1]), q=r.steps.find(s=>typeof s === "object" && s.id === "quality"); if(!q || !/^sha256:[a-f0-9]{64}$/.test(q.decisionDigest) || !/^sha256:[a-f0-9]{64}$/.test(q.policyDigest)) process.exit(1)' "$fixture/.git/harborline-api-verify-receipt.json"
 
 printf 'before\nnew finding\n' > "$fixture/src/example.cs"
@@ -82,5 +92,5 @@ git -C "$fixture" commit --no-verify -qm enforce
 if HARBORLINE_QUALITY_REPO="$quality_root" HARBORLINE_CONTROL_REPO="$control_root" node "$root/eng/quality-step.mjs" --root "$fixture" > "$fixture/.git/enforce.out" 2>&1; then
   echo 'FAIL enforce quality step passed'; exit 1
 fi
-grep -q 'Code Quality Gate — FAILURE' "$fixture/.git/enforce.out"
+expect 'enforce failure' 'Code Quality Gate — FAILURE' "$fixture/.git/enforce.out"
 echo 'quality-step: 6 checks passed (missing pins; real defaults; old key refusal; receipt; evaluate wouldBlock; enforce failure)'

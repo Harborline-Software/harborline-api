@@ -62,7 +62,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls("http://[::1]:7308");
+        builder.WebHost.UseUrls("http://[::1]:0");
         builder.Logging.ClearProviders();
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _memberships = new InMemoryTeamRegistry();
@@ -125,7 +125,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         await DesktopGrantSourceTests.SeedAsync(_webApplication.Services, new TenantId(TeamB.Value.ToString("D")), Now);
         _app = new SharedHostedWebApp(
             _webApplication,
-            Options.Create(new LocalNodeOptions { HealthPort = 7309 }),
+            Options.Create(new LocalNodeOptions { HealthPort = 0 }),
             new LocalNodeExecutableEndpointRegistry(),
             _webApplication.Services.GetRequiredService<ILogger<SharedHostedWebApp>>(),
             _webApplication.Services.GetRequiredService<TimeProvider>());
@@ -161,7 +161,11 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Add(NodeCallerSessionToken.HeaderName, "Bearer " + DesktopToken);
     }
 
-    internal static void RegisterGate(IServiceCollection services) => services.AddNodeAuthorizationModel();
+    internal static void RegisterGate(IServiceCollection services)
+    {
+        TestAuthorization.AddMemberRosterConstraints(services);
+        services.AddNodeAuthorizationModel();
+    }
 
     public async Task DisposeAsync()
     {

@@ -116,6 +116,7 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         // it (the roster edge answers), so it stands in for a composition that has one, unstubbed.
         services.AddDbContextFactory<NodeLocalSearchDbContext>(options =>
             options.UseSqlite($"Data Source={Path.Combine(_directory, "authorization.db")};Pooling=False"));
+        TestAuthorization.AddLiveNodeRosterConstraints(services);
         services.AddNodeAuthorizationModel();
         services.AddSingleton(new NodeAdministratorAuthority(
             _contexts, TimeProvider.System, TestAuthorization.AllowGate()));

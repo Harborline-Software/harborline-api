@@ -7,6 +7,10 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Contracts.Fields;
+using Harborline.Foundation.FieldRuntime;
+
+using PlatformTenantId = Harborline.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -19,11 +23,32 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal static class PackFormDefinitionContent
 {
     private const string MoneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
+    private static readonly PlatformTenantId ProjectionTenant = new("pack-projection");
+    private static readonly PackLiteralDomain LiteralDomain = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
     };
+
+    public static bool TryParse(
+        string content,
+        out SaveFormDefinitionRequest request,
+        out DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>? envelope,
+        out string error)
+    {
+        request = null!;
+        envelope = null;
+        error = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            _ = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
+            return TryParse(JsonNode.Parse(content), out request, out envelope, out error);
+        }
+        catch (CatalogueFieldSourceException ex) { error = ex.Code; return false; }
+        catch (JsonException ex) { error = ex.Message; return false; }
+    }
 
     public static bool TryParse(
         JsonNode? content,
@@ -49,6 +74,8 @@ internal static class PackFormDefinitionContent
 
         try
         {
+            using var document = JsonDocument.Parse(content.ToJsonString());
+            _ = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
             request = content.Deserialize<SaveFormDefinitionRequest>(JsonOptions)!;
             if (content["definitionEnvelope"] is { } envelopeNode)
             {
@@ -63,6 +90,11 @@ internal static class PackFormDefinitionContent
                     return false;
                 }
             }
+        }
+        catch (CatalogueFieldSourceException ex)
+        {
+            error = ex.Code;
+            return false;
         }
         catch (JsonException ex)
         {
@@ -106,7 +138,11 @@ internal static class PackFormDefinitionContent
     /// <see cref="SaveFormDefinitionRequest"/> the install projector consumes. This avoids silently
     /// weakening required fields, options, or validation constraints during an authoring round-trip.
     /// </summary>
-    public static JsonNode ToContent(FormDefinition definition, Schema schema)
+    public static async ValueTask<JsonNode> ToContentAsync(
+        FormDefinition definition,
+        Schema schema,
+        TimeProvider clock,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(schema);
@@ -117,11 +153,13 @@ internal static class PackFormDefinitionContent
         }
 
         var overlay = OverlayDto.From(definition.Overlay);
-        var fieldsMeta = overlay.Fields.ToDictionary(
-            entry => entry.Key,
-            entry => ToFieldMeta(entry.Key, entry.Value, schemaRoot),
-            StringComparer.Ordinal);
-        var request = new SaveFormDefinitionRequest(overlay, fieldsMeta);
+        var fieldsMeta = new Dictionary<string, FieldMetaDto>(StringComparer.Ordinal);
+        foreach (var entry in overlay.Fields)
+        {
+            fieldsMeta.Add(entry.Key,
+                await ToFieldMetaAsync(entry.Key, entry.Value, schemaRoot, clock, cancellationToken).ConfigureAwait(false));
+        }
+        var request = new SaveFormDefinitionRequest(overlay, fieldsMeta, CatalogueFieldSource: definition.CatalogueFieldSource);
         var content = JsonSerializer.SerializeToNode(request, JsonOptions) as JsonObject
             ?? throw new JsonException("form definition did not serialize to a JSON object");
         // Crossing the signed-pack boundary changes the authority of the transported definition.
@@ -133,18 +171,24 @@ internal static class PackFormDefinitionContent
         return content;
     }
 
-    private static FieldMetaDto ToFieldMeta(string key, FieldOverlayDto overlay, JsonObject schemaRoot)
+    private static async ValueTask<FieldMetaDto> ToFieldMetaAsync(
+        string key,
+        FieldOverlayDto overlay,
+        JsonObject schemaRoot,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
     {
         var located = FindProperty(schemaRoot, key)
             ?? throw new JsonException($"form schema has no property for overlay field '{key}'");
         var fieldSchema = located.Schema;
-        var type = string.IsNullOrWhiteSpace(overlay.ControlHint)
-            ? InferControlType(fieldSchema)
-            : overlay.ControlHint;
-
         var options = fieldSchema["enum"] is JsonArray values
             ? values.Select(v => v?.GetValue<string>() ?? string.Empty).ToList()
             : null;
+        // ControlHint is legacy authoring data. The runtime owns editor selection, so a
+        // present authored hint is deliberately ignored rather than admitted as authority.
+        var type = options is { Count: > 0 }
+            ? await ResolveDomainControlTypeAsync(options, clock, cancellationToken).ConfigureAwait(false)
+            : InferControlType(fieldSchema);
         var validations = new List<FieldValidationDto>();
         AddNumericKeyword(fieldSchema, validations, "minLength",
             skip: located.Required && fieldSchema["minLength"]?.GetValue<int>() == 1);
@@ -181,12 +225,55 @@ internal static class PackFormDefinitionContent
     {
         if (schema["enum"] is JsonArray) return "select";
         if (schema["format"]?.GetValue<string>() == "date") return "date";
+        if (schema["pattern"]?.GetValue<string>() == MoneyPattern) return "currency";
         return schema["type"]?.GetValue<string>() switch
         {
             "number" or "integer" => "number",
             "boolean" => "checkbox",
             _ => "text",
         };
+    }
+
+    private static async ValueTask<string> ResolveDomainControlTypeAsync(
+        IReadOnlyList<string> values,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var domains = new ValueDomainRuntime(LiteralDomain, LiteralDomain, clock);
+        var resolved = await domains.ResolveAsync(
+            new ValueDomainDefinition(LiteralValues: values),
+            new FieldDomainScope(ProjectionTenant, "pack-projection"),
+            "/fieldsMeta",
+            cancellationToken).ConfigureAwait(false);
+        return resolved.Editor == FieldEditorKind.RadioGroup ? "radio" : "select";
+    }
+
+    private sealed class PackLiteralDomain : IFieldDomainSource, IFieldDomainSnapshot, IFieldDomainReadAuthority
+    {
+        public PlatformTenantId Tenant => ProjectionTenant;
+        public string Revision => "pack-projection";
+        public bool IsComplete => true;
+
+        public ValueTask<IFieldDomainSnapshot> OpenSnapshotAsync(
+            PlatformTenantId tenant,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<IFieldDomainSnapshot>(this);
+        }
+
+        public IReadOnlyList<FieldDomainMember>? GetTaxonomyScheme(TaxonomySchemeReference scheme) => null;
+        public IReadOnlyList<FieldDomainMember>? GetRecords(string recordTypeId) => null;
+
+        public ValueTask<bool> CanReadAsync(
+            FieldDomainScope scope,
+            ValueDomainDefinition domain,
+            FieldDomainMember member,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(true);
+        }
     }
 
     private static LocatedProperty? FindProperty(JsonObject objectSchema, string key)

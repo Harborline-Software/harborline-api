@@ -6,6 +6,7 @@ using System.Threading;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Versions;
 using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Assets.Entities;
 
@@ -17,12 +18,23 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 /// over the same storage container so the materialized current-body cache and the append-only
 /// version log stay in sync by construction (plan D-VERSION-STORE-SHAPE).
 /// </remarks>
-public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
+public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore, IPackProjectionParticipant
 {
     private readonly InMemoryAssetStorage _storage;
     private readonly IEntityValidator _validator;
     private readonly IVersionObserver _observer;
     private readonly TimeProvider _timeProvider;
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(_storage);
+
+    private Task NotifyVersionAsync(EntityId id, Versions.Version version, CancellationToken ct)
+    {
+        if (_storage.Projection is not { } projection)
+            return _observer.OnVersionAppendedAsync(id, version, ct);
+        projection.AfterCommit(() => _observer.OnVersionAppendedAsync(id, version, CancellationToken.None));
+        return Task.CompletedTask;
+    }
 
     /// <summary>Creates an in-memory entity store backed by the given shared storage.</summary>
     public InMemoryEntityStore(
@@ -123,6 +135,8 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
         {
             if (_storage.Entities.TryGetValue(id, out var existing))
             {
+                if (options.RequireNew)
+                    throw new IdempotencyConflictException($"Entity '{id}' already exists; a new insertion was required.");
                 // Idempotent: same body → return same id.
                 if (existing.BodyJson == canonicalBody)
                     return id;
@@ -162,7 +176,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
             };
             _storage.Entities[id] = record;
 
-            _ = _observer.OnVersionAppendedAsync(id, version, ct);
+            _ = NotifyVersionAsync(id, version, ct);
             return id;
         }
     }
@@ -248,6 +262,8 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
 
                     if (_storage.Entities.TryGetValue(id, out var existing))
                     {
+                        if (draft.Options.RequireNew)
+                            throw new IdempotencyConflictException($"Entity '{id}' already exists; a new insertion was required and the batch was rolled back.");
                         if (existing.BodyJson == canonicalBody)
                         {
                             // Idempotent match — entity pre-existed with matching body, accept as-is.
@@ -397,7 +413,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
             record.DeletedAt = null;
         }
 
-        await _observer.OnVersionAppendedAsync(id, appended, ct).ConfigureAwait(false);
+        await NotifyVersionAsync(id, appended, ct).ConfigureAwait(false);
         return appended.Id;
     }
 
@@ -444,7 +460,7 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
             record.DeletedAt = validFrom;
         }
 
-        await _observer.OnVersionAppendedAsync(id, appended, ct).ConfigureAwait(false);
+        await NotifyVersionAsync(id, appended, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -639,8 +655,10 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore
 }
 
 /// <summary>Read-only facade that prevents a resolved <see cref="IEntityStore"/> from being cast to a raw writer.</summary>
-public sealed class InMemoryEntityStoreReader(InMemoryEntityStore inner) : IEntityStore
+public sealed class InMemoryEntityStoreReader(InMemoryEntityStore inner) : IEntityStore, IPackProjectionParticipant
 {
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(inner);
     public Task<Entity?> GetAsync(
         EntityId id,
         VersionSelector version = default,

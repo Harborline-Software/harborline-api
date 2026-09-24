@@ -39,7 +39,6 @@
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
     <ProjectReference Include="..\blocks-property-equipment\Harborline.Blocks.PropertyEquipment.csproj" />
     <ProjectReference Include="..\ui-core\Harborline.UICore.csproj" />
-    <ProjectReference Include="..\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
   </ItemGroup>
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

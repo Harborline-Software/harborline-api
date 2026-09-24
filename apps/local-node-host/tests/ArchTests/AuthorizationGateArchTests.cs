@@ -38,7 +38,6 @@ public sealed class AuthorizationGateArchTests
         // Ticket 293 slice 4: ActiveTeamAuthorizationContext and SelectedSessionPermissionResolver now ask
         // AuthorizationGate for install-root grants instead of carrying a closure reader, and
         // EffectiveMemberPermissions carries membership and ejection only, so all three rows went vacuous.
-        ("apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs", "account-setup route guard"),
         ("apps/local-node-host/Data/Identity/AdminTeamAccessAuthority.cs", "admin-team route guard"),
         ("apps/local-node-host/Data/Identity/WebAdmittedMemberAtlasBridge.cs", "member-admission route guard"),
         ("apps/local-node-host/Data/Search/ClosureAuthorizedRecordSetProjection.cs", "ticket-205 record-set read consumer"),
@@ -147,6 +146,19 @@ public sealed class AuthorizationGateArchTests
                 Assert.DoesNotContain('*', item.Path);
                 Assert.False(string.IsNullOrWhiteSpace(item.Reason));
             });
+    }
+
+    [Theory]
+    [InlineData(typeof(AccountSetupInvitationIssuer))]
+    [InlineData(typeof(AccountSetupAcceptanceService))]
+    public void Invitation_role_snapshots_use_definitions_and_leave_attenuation_to_the_gate(Type site)
+    {
+        var dependencies = site.GetConstructors()
+            .SelectMany(constructor => constructor.GetParameters()).Select(parameter => parameter.ParameterType).ToArray();
+        Assert.Contains(typeof(AuthorizationGate), dependencies);
+        Assert.Contains(typeof(IAuthorizationDefinitionAtomReader), dependencies);
+        Assert.DoesNotContain(typeof(IAuthorizationClosureReader), dependencies);
+        Assert.DoesNotContain(typeof(IAuthorizationClosureSnapshotReader), dependencies);
     }
 
     [Fact]

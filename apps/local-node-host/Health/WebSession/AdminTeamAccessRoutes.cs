@@ -23,7 +23,7 @@ namespace Harborline.Api.LocalNodeHost.Health.WebSession;
 /// handler's principal + cookie checks are defense in depth, never the sole gate. Non-admin callers
 /// receive an identical non-enumerating refusal.
 /// </remarks>
-internal static class AdminTeamAccessRoutes
+internal static partial class AdminTeamAccessRoutes
 {
     internal const string MembersPath = "/api/session/admin/members";
     internal const string InvitationsPath = "/api/session/admin/invitations";
@@ -34,7 +34,8 @@ internal static class AdminTeamAccessRoutes
 
     internal sealed record IssueInvitationRequest(
         IReadOnlyList<string>? RequestedPermissions,
-        string? IdempotencyKey);
+        string? IdempotencyKey,
+        string? InitialRole = null);
 
     /// <param name="SuccessorPrincipalId">
     /// Present only for an Administrator handover (ledger L618): the revocation and the successor's
@@ -72,7 +73,9 @@ internal static class AdminTeamAccessRoutes
         string TenantId,
         DateTimeOffset AbsoluteExpiresAtUtc);
 
-    private sealed record RevokeResponse(string Status, string? SuccessorGrantId = null);
+    private sealed record RevokeResponse(string Status, string? SuccessorGrantId = null,
+        [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        Guid? AuditId = null);
 
     private sealed record NarrowResponse(string Status, string? NarrowedGrantId = null);
 
@@ -109,6 +112,7 @@ internal static class AdminTeamAccessRoutes
             NarrowMemberPath,
             (NarrowMemberRequest? request, HttpContext context) =>
                 NarrowMemberAsync(authority, antiforgery, request, context, timeProvider.GetUtcNow()));
+        MapGrantActions(app, authority, antiforgery, timeProvider);
     }
 
     internal static async Task<IResult> ListMembersAsync(
@@ -188,7 +192,8 @@ internal static class AdminTeamAccessRoutes
             return Refused();
         }
 
-        if (request?.RequestedPermissions is null || request.RequestedPermissions.Count == 0 ||
+        if (request?.RequestedPermissions is null ||
+            (request.RequestedPermissions.Count == 0 && request.InitialRole is null) ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
             return Results.Json(
@@ -208,11 +213,12 @@ internal static class AdminTeamAccessRoutes
         AdminIssuedInvitation? result;
         try
         {
-            result = await authority.IssueInvitationAsync(
+            result = await authority.IssueRoleInvitationAsync(
                     handle,
                     principal.TenantId.Value,
                     request.RequestedPermissions,
                     request.IdempotencyKey,
+                    request.InitialRole,
                     WriteAuthority(principal, at),
                     context.RequestAborted)
                 .ConfigureAwait(false);
@@ -289,7 +295,7 @@ internal static class AdminTeamAccessRoutes
 
         return result.Status switch
         {
-            AdminRevokeMemberStatus.Revoked => Results.Ok(new RevokeResponse("revoked")),
+            AdminRevokeMemberStatus.Revoked => Results.Ok(new RevokeResponse("revoked", AuditId: result.AuditId)),
             // Ledger L618: both legs of the handover committed as one transaction.
             AdminRevokeMemberStatus.HandedOver => Results.Ok(
                 new RevokeResponse("handed_over", result.SuccessorGrantId)),

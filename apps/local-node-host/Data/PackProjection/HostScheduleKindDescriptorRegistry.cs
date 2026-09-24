@@ -15,7 +15,11 @@ public sealed class HostScheduleKindDescriptorRegistry : IScheduleDefinitionDesc
     private const string KindUnknown = "schedule_definition.kind_unknown";
     private const string BodyInvalid = "schedule_definition.body_invalid";
 
-    private readonly SchedulingDraftValidator _validator = new();
+    private readonly SchedulingDraftValidator _validator;
+
+    /// <summary>Creates descriptor admission over the host's canonical draft validator.</summary>
+    public HostScheduleKindDescriptorRegistry(SchedulingDraftValidator? validator = null) =>
+        _validator = validator ?? new SchedulingDraftValidator();
 
     /// <inheritdoc />
     public ValueTask AdmitAsync(

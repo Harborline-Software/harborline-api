@@ -164,6 +164,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             _app.MapDeviceReachableProductDataGroup(),
             _packStore,
             _activeTeam,
+            authz,
+            TimeProvider.System,
             NullLogger.Instance);
         AssetRegistryRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
@@ -228,8 +230,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(6, (await GetTypeIdsAsync()).Count(id => id.StartsWith("general.")));
     }
 
-    [Fact(DisplayName = "a malformed asset type in the pack is skipped, the valid ones still project")]
-    public async Task Malformed_type_is_skipped_valid_ones_project()
+    [Fact(DisplayName = "a malformed asset type refuses the complete pack without publishing valid siblings")]
+    public async Task Malformed_type_discards_valid_siblings()
     {
         var body = new
         {
@@ -241,7 +243,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             contents = new object[]
             {
                 AssetTypeContent("general.equipment", "Equipment", new[] { "Maintainable" }, 10, 5),
-                // Trait-less ⇒ invalid per the pinned contract; must be skipped, not fatal.
+                // Trait-less ⇒ invalid per the pinned contract; refuses the complete projection.
                 AssetTypeContent("general.broken", "Broken", Array.Empty<string>(), 1, 5),
             },
             dependencies = Array.Empty<object>(),
@@ -250,11 +252,12 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
 
         var packBytes = await ExportAsync(body);
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK,
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,
             (await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" })).StatusCode);
 
         var ids = await GetTypeIdsAsync();
-        Assert.Contains("general.equipment", ids);
+        Assert.DoesNotContain("general.equipment", ids);
+        Assert.Null(_packStore.GetActive(NodeTenant.Resolve(_activeTeam), PackKey));
         Assert.DoesNotContain("general.broken", ids);
     }
 
@@ -345,7 +348,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var activation = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activation.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activation.StatusCode);
         using var response = JsonDocument.Parse(await activation.Content.ReadAsStringAsync());
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(sealedKey, refusal.GetProperty("contentKey").GetString());
@@ -414,7 +417,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute,
             new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -427,7 +430,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var tenant = NodeTenant.Resolve(_activeTeam);
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId)));
         Assert.Equal(
-            PackLifecycleState.Active,
+            PackLifecycleState.Draft,
             Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
     }
 
@@ -446,7 +449,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
 
         using var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync());
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
@@ -495,7 +498,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -534,7 +537,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute, new { packKey = PackKey, version = "1.0.0" });
 
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync());
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(formId, refusal.GetProperty("contentKey").GetString());
@@ -582,12 +585,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var packBytes = await ExportAsync(FormPackBody(formId, "1.0.0", invalidRule: false));
         Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes)).StatusCode);
         var tenant = NodeTenant.Resolve(_activeTeam);
-        var interrupted = NewInstaller(new ThrowingProjectionDispatcher());
-
-        var activated = interrupted.Activate(
-            tenant, PackKey, "1.0.0", DateTimeOffset.UtcNow, "test-operator");
-        Assert.True(activated.Activated);
-        Assert.False(activated.Projected);
+        // Simulate persisted evidence from a pre-atomicity release, not a new failed activation.
+        SeedLegacyIncompleteActivation(tenant);
         Assert.Single(((IPackProjectionAdmissionStore)_packStore).ListIncompleteProjectionAdmissions());
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId)));
 
@@ -606,11 +605,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         const string workflowKey = "general.second-tenant-recovery";
         var secondTenant = new TenantId("tenant-not-active-team");
         CommitWorkflowPackDirectly(secondTenant, workflowKey, "1.0.0", admissible: true);
-        var interrupted = NewInstaller(new ThrowingProjectionDispatcher());
-
-        var activated = interrupted.Activate(
-            secondTenant, PackKey, "1.0.0", DateTimeOffset.UtcNow, "test-operator");
-        Assert.True(activated.Activated);
+        SeedLegacyIncompleteActivation(secondTenant);
         Assert.Contains(
             ((IPackProjectionAdmissionStore)_packStore).ListIncompleteProjectionAdmissions(),
             admission => admission.Tenant == secondTenant);
@@ -660,7 +655,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute,
             new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -806,8 +801,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
     }
 
-    [Fact(DisplayName = "an inadmissible Active workflow is refused with its localizable code without deactivation")]
-    public async Task Invalid_workflow_admission_does_not_mutate_activation()
+    [Fact(DisplayName = "an inadmissible workflow refuses activation with its localizable code and leaves the pack Draft")]
+    public async Task Invalid_workflow_admission_leaves_the_pack_Draft()
     {
         const string workflowKey = "general.unclassified-workflow";
         const string workflowVersion = "1.0.0";
@@ -817,7 +812,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             PackInstallRoutes.ActivateRoute,
             new { packKey = PackKey, version = "1.0.0" });
 
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -826,7 +821,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             Assert.Equal("WorkflowDefinition", refusal.GetProperty("contentKind").GetString());
             Assert.Equal(WorkflowAdmissionCodes.ActionUnclassified, refusal.GetProperty("code").GetString());
         }
-        Assert.Equal(PackLifecycleState.Active, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
         await Assert.ThrowsAsync<WorkflowDefinitionNotFoundException>(
             async () => await _workflows.GetAsync(new DefinitionCoordinates(tenant, workflowKey, workflowVersion)));
     }
@@ -848,7 +843,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute,
             new { packKey = PackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var response = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -862,7 +857,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(WorkflowDefinitionStatus.Draft, existing.Status);
         Assert.Equal("pack-author", existing.Authored.GetProperty("owner").GetProperty("scheme").GetString());
         Assert.Equal("ignored", existing.Authored.GetProperty("provenance").GetString());
-        Assert.Equal(PackLifecycleState.Active, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
     }
 
     [Fact(DisplayName = "an already-published workflow owned by another pack refuses instead of resuming")]
@@ -1084,7 +1079,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             active.SeedItems.ToDictionary(item => item.Key, item => (item.ContentAddress, item.CanonicalJson)));
     }
 
-    [Fact(DisplayName = "malformed property nav + template refuse with stable codes without bricking activation")]
+    [Fact(DisplayName = "malformed property content refuses the complete activation with stable codes")]
     public async Task Malformed_property_content_is_admission_gated()
     {
         await InstallAndActivateGeneralAsync();
@@ -1105,7 +1100,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute,
             new { packKey = "harborline.property-management-malformed", version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
         using (var activationJson = JsonDocument.Parse(await activate.Content.ReadAsStringAsync()))
         {
             var refusal = Assert.Single(
@@ -1117,17 +1112,11 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
 
         Assert.Null(_templates.Resolve("property-management.rent-invoice", "1.0.0"));
         var tenant = NodeTenant.Resolve(_activeTeam);
-        Assert.Equal(
-            PackLifecycleState.Active,
-            _packStore.GetActive(tenant, "harborline.property-management-malformed")!.Lifecycle);
+        Assert.Null(_packStore.GetActive(tenant, "harborline.property-management-malformed"));
 
         var navigationResponse = await _client.GetAsync(PackNavigationRoutes.NavigationRoute);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, navigationResponse.StatusCode);
-        using var navigationJson = JsonDocument.Parse(await navigationResponse.Content.ReadAsStringAsync());
-        Assert.Equal("pack.nav.malformed", navigationJson.RootElement.GetProperty("code").GetString());
-        Assert.Equal(
-            PackLifecycleState.Active,
-            _packStore.GetActive(tenant, "harborline.property-management-malformed")!.Lifecycle);
+        Assert.Equal(HttpStatusCode.OK, navigationResponse.StatusCode);
+        Assert.Null(_packStore.GetActive(tenant, "harborline.property-management-malformed"));
     }
 
     [Theory]
@@ -1151,15 +1140,13 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var activate = await _client.PostAsJsonAsync(
             PackInstallRoutes.ActivateRoute,
             new { packKey = PropertyPackKey, version = "1.0.0" });
-        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
 
         using var activationJson = JsonDocument.Parse(await activate.Content.ReadAsStringAsync());
         var refusal = Assert.Single(
             activationJson.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(expectedCode, refusal.GetProperty("code").GetString());
-        Assert.Equal(
-            PackLifecycleState.Active,
-            _packStore.GetActive(NodeTenant.Resolve(_activeTeam), PropertyPackKey)!.Lifecycle);
+        Assert.Null(_packStore.GetActive(NodeTenant.Resolve(_activeTeam), PropertyPackKey));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1230,6 +1217,13 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         new InMemoryPackInstallAudit(),
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
         dispatcher);
+
+    private void SeedLegacyIncompleteActivation(TenantId tenant) =>
+        ((IPackProjectionAdmissionStore)_packStore).ActivateAndRecordProjectionAdmission(
+            tenant, PackKey, "1.0.0", new PackProjectionAdmission(
+                Guid.NewGuid(), PackKey, "1.0.0", tenant,
+                new ActorId("test-operator"),
+                DateTimeOffset.UtcNow, ["legacy-grant", "legacy-definition"], Projected: false));
 
     private async Task<FormDefinition> RegisterInstalledFormDraftAsync(
         TenantId tenant,
@@ -1491,6 +1485,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
 
     private sealed class ThrowingProjectionDispatcher : IPackProjectionDispatcher
     {
+        public void StageProjection(PackProjectionTransaction transaction) { }
+
         public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default) =>
             throw new IOException("Simulated process death before projection completed.");
     }

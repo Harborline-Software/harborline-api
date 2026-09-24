@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 
 using Harborline.Api.Blocks.AccessGrant;
-using Harborline.Api.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;

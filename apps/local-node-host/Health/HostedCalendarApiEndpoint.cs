@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 
 namespace Harborline.Api.LocalNodeHost.Health;
@@ -32,7 +32,7 @@ public sealed class HostedCalendarApiEndpoint : IHostedService
     private readonly ICalendarParticipantCalendarQuery _participantQuery;
     private readonly ICalendarEventStore _eventStore;
     private readonly ICalendarEventExpansionService _expansion;
-    private readonly IFreeBusyService _freeBusy;
+    private readonly IAvailabilityRuntime _availability;
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly ILogger<HostedCalendarApiEndpoint> _logger;
 
@@ -42,7 +42,7 @@ public sealed class HostedCalendarApiEndpoint : IHostedService
         ICalendarParticipantCalendarQuery participantQuery,
         ICalendarEventStore eventStore,
         ICalendarEventExpansionService expansion,
-        IFreeBusyService freeBusy,
+        IAvailabilityRuntime availability,
         IActiveTeamAccessor activeTeam,
         ILogger<HostedCalendarApiEndpoint> logger)
     {
@@ -50,7 +50,7 @@ public sealed class HostedCalendarApiEndpoint : IHostedService
         ArgumentNullException.ThrowIfNull(participantQuery);
         ArgumentNullException.ThrowIfNull(eventStore);
         ArgumentNullException.ThrowIfNull(expansion);
-        ArgumentNullException.ThrowIfNull(freeBusy);
+        ArgumentNullException.ThrowIfNull(availability);
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -58,7 +58,7 @@ public sealed class HostedCalendarApiEndpoint : IHostedService
         _participantQuery = participantQuery;
         _eventStore = eventStore;
         _expansion = expansion;
-        _freeBusy = freeBusy;
+        _availability = availability;
         _activeTeam = activeTeam;
         _logger = logger;
     }
@@ -72,7 +72,7 @@ public sealed class HostedCalendarApiEndpoint : IHostedService
                 _participantQuery,
                 _eventStore,
                 _expansion,
-                _freeBusy,
+                _availability,
                 _activeTeam));
 
         _logger.LogInformation(

@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -20,6 +22,26 @@ namespace Harborline.Api.LocalNodeHost.Health;
 public static class AuthorizationAdminRoutes
 {
     public const string RouteBase = "/api/local-node/authorization";
+    internal const string SelectedRolesRoute = "/api/session/authorization/role-vocabulary";
+
+    internal static void MapSelectedRoles(IEndpointRouteBuilder app, IRoleVocabularyReader vocabulary, TimeProvider time) =>
+        app.MapGet(SelectedRolesRoute, (HttpContext http, CancellationToken ct) => ReadSelectedRolesAsync(http, vocabulary, time, ct));
+
+    internal static async Task<IResult> ReadSelectedRolesAsync(HttpContext http, IRoleVocabularyReader vocabulary,
+        TimeProvider time, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+        if (selected is null || selected.TenantId.IsSystemSentinel ||
+            string.IsNullOrWhiteSpace(http.Request.Cookies[WebSessionCookieNames.Selected])) return Results.Unauthorized();
+        var authority = RequestAuthorization.Authority(http, selected.TenantId, time);
+        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.OrgManageSettings, RouteRecord.TheInstall, ct)
+            .ConfigureAwait(false) is { } denied) return denied;
+        var rows = await vocabulary.ListAsync(ct).ConfigureAwait(false);
+        return Results.Ok(rows.Where(row => row.Owner.Kind != RoleOwnerKind.Tenant || row.Owner.OwnerId == selected.TenantId.Value)
+            .OrderBy(row => row.Role.Vocabulary, StringComparer.Ordinal).ThenBy(row => row.Role.Name, StringComparer.Ordinal)
+            .Select(ToDto).ToArray());
+    }
 
     public static void Map(
         IEndpointRouteBuilder app,

@@ -277,6 +277,9 @@ public sealed class AuthorizationSnapshotFilterTests
             inner.RecordReviewAsync(tenantId, grantId, reviewedAt, reviewedBy, ct);
         public Task<AccessGrant?> RevokeAsync(TenantId tenantId, GrantId grantId, GrantRevocation revocation, CancellationToken ct = default) =>
             inner.RevokeAsync(tenantId, grantId, revocation, ct);
+        public Task<GrantScopeNarrowing?> NarrowScopeAsync(TenantId tenantId, GrantId grantId, ScopeExpression narrowed,
+            GrantId successorId, GrantRevocation revocation, CancellationToken ct = default) =>
+            inner.NarrowScopeAsync(tenantId, grantId, narrowed, successorId, revocation, ct);
         public Task<AdministratorHandover?> HandoverAdministratorAsync(
             TenantId tenantId, GrantId currentGrantId, AccessGrant successor, GrantRevocation revocation, CancellationToken ct = default) =>
             inner.HandoverAdministratorAsync(tenantId, currentGrantId, successor, revocation, ct);

@@ -36,11 +36,17 @@ public sealed class FormRuleGraph : IFormRuleGraph
     private readonly Dictionary<string, ComputedValue> _values = new();
     private readonly Dictionary<string, RuleOutcome> _outcomes = new();
 
-    public FormRuleGraph(CompiledGraph compiled, RuleEngineLimits? limits = null, TimeProvider? clock = null)
+    // T-676: the clock is REQUIRED, and the signature says so. It used to default to null and
+    // then throw on null — optional in the signature, mandatory in fact — so the compiler offered
+    // a default that could not work, and FormEngine's render path took it. Only genuinely
+    // defaultable parameters carry a default here.
+    public FormRuleGraph(CompiledGraph compiled, TimeProvider clock, RuleEngineLimits? limits = null)
     {
-        Compiled = compiled ?? throw new ArgumentNullException(nameof(compiled));
+        ArgumentNullException.ThrowIfNull(compiled);
+        ArgumentNullException.ThrowIfNull(clock);
+        Compiled = compiled;
         _limits = limits ?? RuleEngineLimits.Default;
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _clock = clock;
     }
 
     /// <inheritdoc />

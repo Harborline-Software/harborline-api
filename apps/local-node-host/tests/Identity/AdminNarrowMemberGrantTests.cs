@@ -326,6 +326,195 @@ public sealed class AdminNarrowMemberGrantTests
             delegated.Payload.Payload.Body["correlation_id"]);
     }
 
+    [Fact]
+    public async Task Scope_narrowing_preserves_role_and_removes_outside_authority_with_correlated_receipts()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var template = await ConferAsync(h, tenant, "scope-role-template", "records:read");
+        var holder = new ActorId("scoped-holder");
+        var original = template with { GrantId = GrantId.New(), Subject = holder, Scope = ScopeExpression.Parse("/records") };
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        await store.AppendAsync(tenant, original);
+        var actor = new AuthorizationWriteContext(holder, tenant, Now);
+        var allowed = actor.Request(AuthorizationOperation.Parse("records:read"), "record", "m6-t433-allowed-record-1");
+        var outside = actor.Request(AuthorizationOperation.Parse("records:read"), "record", "m6-t433-outside-record-1");
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(outside)).Verdict);
+        var successor = GrantId.New();
+
+        var result = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), ScopeExpression.Parse("/records/m6-t433-allowed-record-1"), successor,
+            FounderAuthority(setup.TenantId));
+
+        Assert.NotNull(result);
+        Assert.Equal(AdminNarrowMemberGrantStatus.Narrowed, result.Status);
+        Assert.Equal(successor.ToString(), result.NarrowedGrantId);
+        Assert.Equal(original.Role, (await store.FindAsync(tenant, successor))!.Role);
+        Assert.Equal(GrantStatus.Revoked, (await store.FindAsync(tenant, original.GrantId))!.Status);
+        Assert.Equal(AuthorizationVerdict.Allowed, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(outside)).Verdict);
+        var revoked = Assert.Single(await AuditAsync(h, tenant, AuditEventType.CapabilityRevoked),
+            row => row.Target?.RecordId == original.GrantId.ToString());
+        var delegated = Assert.Single(await AuditAsync(h, tenant, AuditEventType.CapabilityDelegated),
+            row => row.Target?.RecordId == original.GrantId.ToString());
+        Assert.Equal(delegated.AuditId, result.AuditId);
+        Assert.Equal(revoked.Payload.Payload.Body["correlation_id"], delegated.Payload.Payload.Body["correlation_id"]);
+        Assert.Equal(result.CorrelationId!.Value.ToString("D"), delegated.Payload.Payload.Body["correlation_id"]);
+        var revokedSuccessor = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, revokedSuccessor!.Status);
+        Assert.NotNull(revokedSuccessor.AuditId);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(allowed)).Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, (await h.RouteGate.DecideAsync(outside)).Verdict);
+    }
+
+    [Fact]
+    public async Task Grant_only_revocation_preserves_roster_and_membership_with_stable_replay_receipt()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        await h.AdmitInvitationTargetToRosterAsync(setup.InvitationId);
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var target = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId).ToArray();
+        var roster = System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default));
+        var result = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            target.GrantId.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
+        Assert.NotNull(result.AuditId);
+        var replay = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            target.GrantId.ToString(), FounderAuthority(setup.TenantId));
+        Assert.Equal(result.AuditId, replay!.AuditId);
+        Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId != target.GrantId));
+        Assert.Equal(roster, System.Text.Json.JsonSerializer.Serialize(await h.RosterReader.ReadAsync(tenant, default)));
+        Assert.Equal(GrantStatus.Revoked, (await store.FindAsync(tenant, target.GrantId))!.Status);
+        // Roster admission independently conveys a member role; removing one grant must not strip it.
+        Assert.Contains("records:read", await AtomsAsync(h, tenant, member));
+        Assert.Contains(Permission.ContactsRead, await AtomsAsync(h, tenant, member));
+    }
+
+    [Fact]
+    public async Task Governed_review_stamps_server_actor_and_time_without_changing_authority()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var grant = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = await store.FindAsync(tenant, grant.GrantId);
+        var authority = FounderAuthority(setup.TenantId) with { At = Now.AddMinutes(1) };
+        var result = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            grant.GrantId.ToString(), authority);
+        Assert.NotNull(result);
+        var after = await store.FindAsync(tenant, grant.GrantId);
+        Assert.Equal(before! with { LastReviewedAt = authority.At, LastReviewedBy = authority.Principal }, after);
+        var audit = Assert.Single(await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded")));
+        Assert.Equal(result.AuditId, audit.AuditId);
+        Assert.Equal(authority.Principal, audit.Actor);
+        Assert.Equal(result.CorrelationId.ToString("D"), audit.Payload.Payload.Body["correlation_id"]);
+        var second = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            grant.GrantId.ToString(), authority with { At = Now.AddMinutes(2) });
+        Assert.NotEqual(result.AuditId, second!.AuditId);
+        Assert.Equal(2, (await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded"))).Count);
+    }
+
+    [Fact]
+    public async Task Correlated_grant_actions_replay_without_mutation_and_reject_changed_intent()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var original = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var reviewAuthority = FounderAuthority(setup.TenantId) with
+        { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000031") };
+        var review = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), reviewAuthority);
+        Assert.Equal(reviewAuthority.CorrelationId, review!.CorrelationId);
+        var reviewed = await store.FindAsync(tenant, original.GrantId);
+        var reviewReplay = await h.AdminTeam.ReviewGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), reviewAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(review, reviewReplay);
+        Assert.Equal(reviewed, await store.FindAsync(tenant, original.GrantId));
+        Assert.Single(await AuditAsync(h, tenant, new AuditEventType("GrantReviewRecorded")));
+
+        var narrowAuthority = reviewAuthority with { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000032") };
+        var successor = GrantId.New();
+        var scope = ScopeExpression.Parse("/records/m6-t433-allowed-record-1");
+        var narrow = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), scope, successor, narrowAuthority);
+        Assert.Equal(AdminNarrowMemberGrantStatus.Narrowed, narrow!.Status);
+        Assert.Equal(narrowAuthority.CorrelationId, narrow.CorrelationId);
+        var narrowReplay = await h.AdminTeam.NarrowMemberScopeAsync(setup.FounderSelectedHandle, setup.TenantId,
+            original.GrantId.ToString(), scope, successor, narrowAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(narrow, narrowReplay);
+        var snapshot = await store.SnapshotAsync(tenant);
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => h.AdminTeam.NarrowMemberScopeAsync(
+            setup.FounderSelectedHandle, setup.TenantId, original.GrantId.ToString(),
+            ScopeExpression.Parse("/records/different"), successor, narrowAuthority));
+        Assert.Equal(snapshot, await store.SnapshotAsync(tenant));
+
+        var revokeAuthority = reviewAuthority with { CorrelationId = Guid.Parse("43300000-0000-4000-8000-000000000033") };
+        var revoke = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), revokeAuthority);
+        Assert.Equal(revokeAuthority.CorrelationId, revoke!.CorrelationId);
+        var revokeReplay = await h.AdminTeam.RevokeGrantAsync(setup.FounderSelectedHandle, setup.TenantId,
+            successor.ToString(), revokeAuthority with { At = Now.AddMinutes(1) });
+        Assert.Equal(revoke, revokeReplay);
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => h.AdminTeam.RevokeGrantAsync(
+            setup.FounderSelectedHandle, setup.TenantId, successor.ToString(), revokeAuthority with { CorrelationId = Guid.NewGuid() }));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Grant_review_and_revoke_denials_leave_store_and_epoch_unchanged(bool review)
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var grant = await ConferAsync(h, tenant, member, "records:read");
+        var store = new NodeEfGrantStore(h.SearchStore.Factory);
+        var before = await store.SnapshotAsync(tenant);
+        var epoch = await EpochAsync(h, tenant, member);
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        var actor = new AuthorizationWriteContext(new ActorId(member), tenant, Now);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
+        {
+            if (review) await h.AdminTeam.ReviewGrantAsync(handle, setup.TenantId, grant.GrantId.ToString(), actor);
+            else await h.AdminTeam.RevokeGrantAsync(handle, setup.TenantId, grant.GrantId.ToString(), actor);
+        });
+        Assert.Equal(before, await store.SnapshotAsync(tenant));
+        Assert.Equal(epoch, await EpochAsync(h, tenant, member));
+    }
+
+    [Fact]
+    public async Task Scope_narrowing_denial_writes_no_grant_or_epoch()
+    {
+        var setup = await Mtw2TwoUserAcceptanceE2E.CreateAcceptedMembersAsync();
+        await using var h = setup.Harness;
+        var tenant = new TenantId(setup.TenantId);
+        var member = await JoinerPrincipalAsync(h, setup);
+        var original = await ConferAsync(h, tenant, member, "records:read");
+        var count = await GrantCountAsync(h, member);
+        var epoch = await EpochAsync(h, tenant, member);
+        var handle = await Mtw2TwoUserAcceptanceE2E.LoginJoinerAsync(h, setup.TenantId);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => h.AdminTeam.NarrowMemberScopeAsync(
+            handle, setup.TenantId, original.GrantId.ToString(),
+            ScopeExpression.Parse("/records/m6-t433-allowed-record-1"), GrantId.New(),
+            new AuthorizationWriteContext(new ActorId(member), tenant, Now)));
+        Assert.Equal(count, await GrantCountAsync(h, member));
+        Assert.Equal(epoch, await EpochAsync(h, tenant, member));
+        Assert.Null((await h.ReadGrantRowAsync(original.GrantId.ToString())).RevokedAtUnixMs);
+    }
+
     // ── helpers (the production derivations; nothing here doubles a security type) ────────────────────
 
     /// <summary>

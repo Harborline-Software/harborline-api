@@ -161,6 +161,9 @@ public sealed class UnsupportedPackContentKindInstallTests
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
             Assert.Contains(PackInstallCodes.RefusedAdmission, outcome.RefusalCodes);
             Assert.Equal(expectedCode, Assert.Single(outcome.Preview.AdmissionRefusals).Code);
+            var refusal = Assert.Single(outcome.Preview.Refusals);
+            Assert.Equal(PackInstallCodes.RefusedAdmission, refusal.Code);
+            Assert.Equal("/contents/0/contentBase64", refusal.Pointer);
             Assert.Empty(store.ListInstalled(Tenant));
         }
     }
@@ -322,7 +325,7 @@ public sealed class UnsupportedPackContentKindInstallTests
     }
 
     [Fact]
-    public async Task Install_refuses_terminology_override_with_a_stated_reason()
+    public async Task Install_refuses_terminology_without_consumer_admission()
     {
         var (installer, context, store, packBytes, keyPair) =
             await CreateFixtureAsync(PackContentKind.TerminologyOverride);
@@ -332,15 +335,14 @@ public sealed class UnsupportedPackContentKindInstallTests
 
             Assert.False(outcome.Installed);
             Assert.Equal(PackInstallVerdict.Refused, outcome.Preview.Verdict);
-            Assert.Contains(
-                "pack.install.refused.unsupported_content_kind.terminology_override",
-                outcome.RefusalCodes);
+            Assert.Contains(PackInstallCodes.RefusedAdmission, outcome.RefusalCodes);
+            Assert.Contains(outcome.Preview.AdmissionRefusals, refusal => refusal.Code == PackAdmissionCodes.NotWired);
             Assert.Empty(store.ListInstalled(Tenant));
         }
     }
 
     [Fact]
-    public async Task Projector_loudly_refuses_an_unsupported_legacy_seed()
+    public async Task Projector_loudly_refuses_a_malformed_legacy_terminology_seed()
     {
         using var keyPair = KeyPair.Generate();
         var store = new InMemoryPackInstallStore();
@@ -382,7 +384,7 @@ public sealed class UnsupportedPackContentKindInstallTests
 
         var refusal = Assert.Single(summary.Refusals);
         Assert.Equal(PackContentKind.TerminologyOverride, refusal.ContentKind);
-        Assert.Equal("pack.projection.unsupported_content_kind", refusal.Code);
+        Assert.Equal(PackTerminologyCodes.Malformed, refusal.Code);
         Assert.Equal(0, summary.OtherKindsSkipped);
     }
 
@@ -503,6 +505,8 @@ public sealed class UnsupportedPackContentKindInstallTests
             app.MapDeviceReachableProductDataGroup(),
             store,
             activeTeam,
+            TestPackGate.AllowAll(),
+            TimeProvider.System,
             NullLogger.Instance);
 
         await app.StartAsync();

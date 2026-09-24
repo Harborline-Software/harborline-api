@@ -14,12 +14,107 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260902120000_AddPackProjectionAdmissions";
+    public override string LastMigrationId => "20260920100000_AddConfigurationProposals";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationEffectiveGenerationRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<DateTimeOffset>("ActivatedAt").HasColumnType("TEXT").HasColumnName("activated_at");
+                b.Property<string>("DecisionId").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("decision_id");
+                b.Property<string>("Digest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("digest");
+                b.Property<string>("EvidenceIntentId").IsRequired().HasMaxLength(256).HasColumnType("TEXT").HasColumnName("evidence_intent_id");
+                b.Property<string>("Principal").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("principal");
+                b.Property<string>("ReferencesJson").IsRequired().HasColumnType("TEXT").HasColumnName("references_json");
+                b.HasKey("Tenant");
+                b.ToTable("configuration_effective_generations", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationEvidenceOutboxRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("IntentId").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("intent_id");
+                b.Property<DateTimeOffset>("CommittedAt").HasColumnType("TEXT").HasColumnName("committed_at");
+                b.Property<string>("DecisionId").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("decision_id");
+                b.Property<string>("DecisionJson").IsRequired().HasColumnType("TEXT").HasColumnName("decision_json");
+                b.Property<string>("InputsDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("inputs_digest");
+                b.Property<string>("NewDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("new_digest");
+                b.Property<string>("Principal").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("principal");
+                b.Property<string>("PriorDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("prior_digest");
+                b.Property<DateTimeOffset?>("PublishedAt").HasColumnType("TEXT").HasColumnName("published_at");
+                b.Property<string>("Reason").IsRequired().HasColumnType("TEXT").HasColumnName("reason");
+                b.HasKey("Tenant", "IntentId");
+                b.HasIndex("Tenant", "PublishedAt");
+                b.ToTable("configuration_evidence_outbox", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationPreparedProjectionRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("CandidateDigest").HasMaxLength(64).HasColumnType("TEXT").HasColumnName("candidate_digest");
+                b.Property<string>("BaselineDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("baseline_digest");
+                b.Property<string>("DestinationDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("destination_digest");
+                b.Property<DateTimeOffset>("PreparedAt").HasColumnType("TEXT").HasColumnName("prepared_at");
+                b.Property<string>("ProjectionDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("projection_digest");
+                b.Property<string>("ReferencesJson").IsRequired().HasColumnType("TEXT").HasColumnName("references_json");
+                b.Property<string>("Revision").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("revision");
+                b.HasKey("Tenant", "CandidateDigest");
+                b.ToTable("configuration_prepared_projections", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationProposalRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("ProposalId").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("proposal_id");
+                b.Property<DateTimeOffset>("AutosavedAt").HasColumnType("TEXT").HasColumnName("autosaved_at");
+                b.Property<string>("BaselineDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("baseline_digest");
+                b.Property<string>("CheckReceiptId").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("check_receipt_id");
+                b.Property<string>("CheckedDigest").HasMaxLength(64).HasColumnType("TEXT").HasColumnName("checked_digest");
+                b.Property<string>("EditsJson").IsRequired().HasColumnType("TEXT").HasColumnName("edits_json");
+                b.Property<int>("SavedVersionCount").HasColumnType("INTEGER").HasColumnName("saved_version_count");
+                b.Property<DateTimeOffset>("StartedAt").HasColumnType("TEXT").HasColumnName("started_at");
+                b.Property<string>("StartedBy").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("started_by");
+                b.HasKey("Tenant", "ProposalId");
+                b.ToTable("configuration_proposals", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationReleasedPackageRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("Digest").HasMaxLength(64).HasColumnType("TEXT").HasColumnName("digest");
+                b.Property<string>("BaselineDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("baseline_digest");
+                b.Property<string>("CheckReceiptId").IsRequired().HasMaxLength(256).HasColumnType("TEXT").HasColumnName("check_receipt_id");
+                b.Property<byte[]>("Document").IsRequired().HasColumnType("BLOB").HasColumnName("document");
+                b.Property<string>("PackageKey").IsRequired().HasMaxLength(256).HasColumnType("TEXT").HasColumnName("package_key");
+                b.Property<string>("ProposalId").IsRequired().HasMaxLength(256).HasColumnType("TEXT").HasColumnName("proposal_id");
+                b.Property<DateTimeOffset>("ReleasedAt").HasColumnType("TEXT").HasColumnName("released_at");
+                b.Property<string>("ReleasedBy").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("released_by");
+                b.Property<string>("Revision").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("revision");
+                b.Property<string>("SavedVersionDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("saved_version_digest");
+                b.Property<string>("SignatureJson").IsRequired().HasColumnType("TEXT").HasColumnName("signature_json");
+                b.HasKey("Tenant", "Digest");
+                b.HasIndex("Tenant", "ProposalId");
+                b.ToTable("configuration_released_packages", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationSavedVersionRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("ProposalId").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("proposal_id");
+                b.Property<int>("Ordinal").HasColumnType("INTEGER").HasColumnName("ordinal");
+                b.Property<string>("Author").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("author");
+                b.Property<string>("BaselineDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("baseline_digest");
+                b.Property<string>("Digest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("digest");
+                b.Property<string>("EditsJson").IsRequired().HasColumnType("TEXT").HasColumnName("edits_json");
+                b.Property<string>("Rationale").IsRequired().HasColumnType("TEXT").HasColumnName("rationale");
+                b.Property<DateTimeOffset>("SavedAt").HasColumnType("TEXT").HasColumnName("saved_at");
+                b.HasKey("Tenant", "ProposalId", "Ordinal");
+                b.ToTable("configuration_saved_versions", (string)null);
+            });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.FeedChannelSequenceRow", b =>
             {

@@ -5,9 +5,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 
@@ -26,9 +27,11 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>READ-ONLY.</b> Zero write path, zero booking, zero auth-decision surface. The viewer-scoped
-/// visibility clip (<c>FreeBusyForViewer</c> / <c>IEventDetailVisibilityPolicy</c>) and the booking
-/// write path are out of scope (survey inc-2 / inc-3) — this slice uses the plain, non-viewer reads.
+/// <b>READ-ONLY.</b> Zero write path, zero booking. The free/busy read is an availability read and
+/// passes the access gate (<c>scheduling:read</c> against the install, DES-0033 eng-2, T-524) before
+/// anything is parsed; it reads through the platform's <see cref="IAvailabilityRuntime"/>, the one
+/// composition the booking gate also reads. The viewer-scoped detail clip
+/// (<c>IEventDetailVisibilityPolicy</c>) is not consulted: the wire carries intervals, never detail.
 /// </para>
 /// <para>
 /// <b>UTC instants over the wire.</b> The block's S1 <c>ExpandInstants</c> / <c>FreeBusy</c> already
@@ -65,18 +68,18 @@ public static class CalendarRoutes
         ICalendarParticipantCalendarQuery participantQuery,
         ICalendarEventStore eventStore,
         ICalendarEventExpansionService expansion,
-        IFreeBusyService freeBusy,
+        IAvailabilityRuntime availability,
         IActiveTeamAccessor activeTeam)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(participantQuery);
         ArgumentNullException.ThrowIfNull(eventStore);
         ArgumentNullException.ThrowIfNull(expansion);
-        ArgumentNullException.ThrowIfNull(freeBusy);
+        ArgumentNullException.ThrowIfNull(availability);
         ArgumentNullException.ThrowIfNull(activeTeam);
 
         MapOccurrences(app, participantQuery, eventStore, expansion, activeTeam);
-        MapFreeBusy(app, freeBusy, activeTeam);
+        MapFreeBusy(app, availability, activeTeam);
     }
 
     // ── GET /api/local-node/calendar/occurrences — the owning-calendar agenda (UTC instants) ──────
@@ -173,15 +176,25 @@ public static class CalendarRoutes
     // ── GET /api/local-node/calendar/free-busy — free slots + busy intervals (UTC) ─────────────────
     private static void MapFreeBusy(
         IEndpointRouteBuilder app,
-        IFreeBusyService freeBusy,
+        IAvailabilityRuntime availability,
         IActiveTeamAccessor activeTeam)
     {
         app.MapGet($"{RouteBase}/free-busy", async (
             string? resource,
             string? fromUtc,
             string? toUtc,
+            HttpContext http,
             CancellationToken ct) =>
         {
+            // An availability read passes the gate like any other read (DES-0033 eng-2, T-524): the acting
+            // principal is decided against the install before the window or the resource is even parsed, so
+            // a refused caller learns nothing about either.
+            var tenantId = NodeTenant.Resolve(activeTeam);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, tenantId, Permission.SchedulingRead, RouteRecord.TheInstall, ct)
+                    .ConfigureAwait(false) is { } denied)
+                return denied;
+
             if (!TryParseResource(resource, out var resourceRef, out var resourceError))
             {
                 return Results.BadRequest(new { error = "invalid_resource", detail = resourceError });
@@ -191,16 +204,16 @@ public static class CalendarRoutes
                 return Results.BadRequest(new { error = "invalid_window", detail = windowError });
             }
 
-            var tenantId = NodeTenant.Resolve(activeTeam);
-
-            // The plain, non-viewer free/busy (no principal needed for the read MVP). A resource with no
-            // availability record yields no free slots (availability is the supply that must exist first);
-            // a foreign-tenant resource is cross-tenant isolated by the store keying.
-            var result = await freeBusy
-                .FreeBusy(tenantId, resourceRef, fromInstant, toInstant, ct)
+            // The platform's one composition (T-626): supply minus exceptions minus occupancy over the bounded
+            // window, read as one exclusive resource. A resource with no availability record yields no free
+            // slots; a foreign-tenant resource is cross-tenant isolated by the store keying.
+            var answer = await availability
+                .Read(tenantId, new AvailabilityRequest(fromInstant, toInstant, [ResourceCapacity.Exclusive(resourceRef)]), ct)
                 .ConfigureAwait(false);
+            if (answer.Refusal is { } refusal)
+                return Results.BadRequest(new { error = "invalid_window", code = refusal.Code, pointer = refusal.Pointer });
 
-            return Results.Ok(CalendarFreeBusyResponse.From(result));
+            return Results.Ok(CalendarFreeBusyResponse.From(answer.Resources[0], fromInstant, toInstant));
         });
     }
 
@@ -333,11 +346,11 @@ public sealed record CalendarFreeBusyResponse(
     [property: JsonPropertyName("freeSlots")] IReadOnlyList<CalendarIntervalWire> FreeSlots,
     [property: JsonPropertyName("busyIntervals")] IReadOnlyList<CalendarIntervalWire> BusyIntervals)
 {
-    /// <summary>Projects a block <see cref="FreeBusyResult"/> onto the wire shape.</summary>
-    public static CalendarFreeBusyResponse From(FreeBusyResult r) => new(
-        Resource:       r.ResourceRef.ToString(),
-        WindowStartUtc: r.WindowStartUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-        WindowEndUtc:   r.WindowEndUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-        FreeSlots:      r.FreeSlots.Select(CalendarIntervalWire.From).ToList(),
-        BusyIntervals:  r.BusyIntervals.Select(CalendarIntervalWire.From).ToList());
+    /// <summary>Projects one resource's runtime read (<see cref="ResourceAvailabilityRead"/>) onto the wire shape.</summary>
+    public static CalendarFreeBusyResponse From(ResourceAvailabilityRead r, DateTimeOffset windowStartUtc, DateTimeOffset windowEndUtc) => new(
+        Resource:       r.Resource.ToString(),
+        WindowStartUtc: windowStartUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+        WindowEndUtc:   windowEndUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+        FreeSlots:      r.Free.Select(CalendarIntervalWire.From).ToList(),
+        BusyIntervals:  r.Busy.Select(CalendarIntervalWire.From).ToList());
 }

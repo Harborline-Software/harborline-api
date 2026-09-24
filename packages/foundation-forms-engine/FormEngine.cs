@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Submission;
 using Harborline.Api.Foundation.Governance.Enforcement;
 using Harborline.Api.Foundation.Governance.Resolution;
+using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Recovery;
 using Harborline.Api.Foundation.Recovery.Crypto;
 using Harborline.Api.Foundation.RuleEngine;
@@ -328,6 +329,7 @@ public sealed class FormEngine : IFormEngine
                 ValidationErrorKind.NotFound,
                 Code: "form-not-found"));
         }
+        if (formDef.CatalogueFieldSource is not null) return CatalogueFieldReadOnly();
 
         // D4 / retro #1654 FINDING 1: expand the reuse cascade so the pre-check validates the SAME
         // resolved definition the submit gate enforces — the referenced units' fields participate in
@@ -386,7 +388,7 @@ public sealed class FormEngine : IFormEngine
         EnsureNotExpired(token, authority.At);
         RequireAction(token, FormCapabilityAction.Write);
 
-        var formDef = await ResolveFormOrThrowAsync(form, token, ct).ConfigureAwait(false);
+        var formDef = await ResolveFormOrThrowAsync(form, token, ct, forSubmission: true).ConfigureAwait(false);
 
         // FAIL-CLOSED (retro #1654 FINDING 1): the write path MUST NOT persist a definition that still
         // carries an unexpanded Reference node. If it did, the referenced unit's fields would be absent
@@ -447,6 +449,8 @@ public sealed class FormEngine : IFormEngine
             ? DeriveIdempotentLocalPart(token.Tenant, form, idempotencyKey!)
             : Guid.NewGuid().ToString("N");
         var instanceId = new EntityId(InstanceScheme, InstanceAuthority, localPart);
+        var requestFingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(candidate.RootElement)));
 
         // F-ROUTE idempotent replay: a resubmit with the same key whose instance ALREADY exists (for this
         // tenant, not soft-deleted) is a no-op — return the existing receipt WITHOUT re-persisting,
@@ -460,6 +464,7 @@ public sealed class FormEngine : IFormEngine
             var prior = await _entities.GetAsync(instanceId, default, ct).ConfigureAwait(false);
             if (prior is not null && prior.Tenant == token.Tenant && prior.DeletedAt is null)
             {
+                await ValidateReplayContextAsync(instanceId, prior.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
                 return new FormSubmitReceipt(instanceId, prior.CreatedAt);
             }
         }
@@ -495,7 +500,10 @@ public sealed class FormEngine : IFormEngine
                 Tenant: token.Tenant,
                 ValidFrom: submittedAt,
                 ExplicitLocalPart: localPart,
-                Binding: binding);
+                Binding: binding,
+                // A lost equal-body create must take the same authenticated replay path as any
+                // other collision, never append a second Mint or project a different request.
+                RequireNew: hasIdempotencyKey);
 
             EntityId entityId;
             try
@@ -514,6 +522,7 @@ public sealed class FormEngine : IFormEngine
                 var winner = await _entities.GetAsync(instanceId, default, ct).ConfigureAwait(false);
                 if (winner is not null && winner.Tenant == token.Tenant && winner.DeletedAt is null)
                 {
+                    await ValidateReplayContextAsync(instanceId, winner.CreatedAt, authority, requestFingerprint, ct).ConfigureAwait(false);
                     return new FormSubmitReceipt(instanceId, winner.CreatedAt);
                 }
                 throw;
@@ -548,6 +557,8 @@ public sealed class FormEngine : IFormEngine
                     ["operation"] = Op.Mint.ToString(),
                     ["encrypted_fields"] = encryptedFields.ToArray(),
                     ["submission"] = auditPayload.RootElement.Clone(),
+                    ["correlation_id"] = authority.CorrelationId?.ToString("D"),
+                    ["request_fingerprint"] = requestFingerprint,
                 }),
                 submittedAt,
                 Guid.NewGuid(),
@@ -566,6 +577,54 @@ public sealed class FormEngine : IFormEngine
             storedBody.Dispose();
             snapshot?.FullProjection?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The Mint audit record is appended AFTER the entity create commits, so a same-key concurrent
+    /// submit that lost the create race can observe the winner's entity before the winner's audit
+    /// row exists. That window is not a context mismatch: the loser waits, bounded, for the audit
+    /// to land and only then judges actor, correlation and payload. A row that IS present and
+    /// disagrees refuses immediately; a row still absent at the deadline refuses too, because a
+    /// committed entity without its original audit cannot authorize any replay/projection.
+    /// </summary>
+    private static readonly TimeSpan ReplayAuditWait = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReplayAuditPoll = TimeSpan.FromMilliseconds(25);
+
+    private async ValueTask ValidateReplayContextAsync(EntityId instance, DateTimeOffset submittedAt,
+        AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var found = await FindReplayAuditAsync(instance, submittedAt, authority, fingerprint, ct).ConfigureAwait(false);
+            if (found == ReplayAudit.Matches) return;
+            if (found == ReplayAudit.Mismatch || waited.Elapsed >= ReplayAuditWait)
+                throw new FormSubmissionReplayConflictException();
+            await Task.Delay(ReplayAuditPoll, ct).ConfigureAwait(false);
+        }
+    }
+
+    private enum ReplayAudit { Missing, Matches, Mismatch }
+
+    private async ValueTask<ReplayAudit> FindReplayAuditAsync(EntityId instance, DateTimeOffset submittedAt,
+        AuthorizationWriteContext authority, string fingerprint, CancellationToken ct)
+    {
+        await foreach (var row in _authorizedAudit.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(authority.Tenant,
+            FormMintAuditEventType, submittedAt, submittedAt), ct).ConfigureAwait(false))
+        {
+            var body = row.Payload.Payload.Body;
+            if (!body.TryGetValue("entity_id", out var entity) || entity?.ToString() != instance.ToString()) continue;
+            // Header absence is still a request context, never permission to skip actor/payload checks.
+            // Durable audit decoding can represent an absent correlation as JSON null rather than CLR null.
+            var hasCorrelation = body.TryGetValue("correlation_id", out var original);
+            var originalCorrelation = original is null or JsonElement { ValueKind: JsonValueKind.Null }
+                ? null : original.ToString();
+            if (row.Actor == authority.Principal && hasCorrelation &&
+                originalCorrelation == authority.CorrelationId?.ToString("D") && body.TryGetValue("request_fingerprint", out var hash) &&
+                hash?.ToString() == fingerprint) return ReplayAudit.Matches;
+            return ReplayAudit.Mismatch;
+        }
+        return ReplayAudit.Missing;
     }
 
     // Audit correspondence is an independent description of the admitted form act. These helpers
@@ -618,7 +677,12 @@ public sealed class FormEngine : IFormEngine
             ct);
     }
 
-    private async Task<FormDefinition> ResolveFormOrThrowAsync(FormDefinitionId form, CapabilityToken token, CancellationToken ct)
+    private static ValidationResult CatalogueFieldReadOnly() => ValidationResult.Invalid(new ValidationError(
+        string.Empty, "Catalogue-field-source definitions are read-only; instance submission is refused.",
+        ValidationErrorKind.Schema, Code: CatalogueFieldSourceCodes.ReadOnly));
+
+    private async Task<FormDefinition> ResolveFormOrThrowAsync(FormDefinitionId form, CapabilityToken token, CancellationToken ct,
+        bool forSubmission = false)
     {
         var formDef = await _formDefinitions.GetCurrentPublishedAsync(
             new DefinitionAddress(token.Tenant, form.Value), ct).ConfigureAwait(false);
@@ -626,6 +690,10 @@ public sealed class FormEngine : IFormEngine
         {
             throw new FormDefinitionNotFoundException(form, null, token.Tenant);
         }
+        // The opt-in reader supplies values only through exact field gates; a legacy whole-body
+        // submission must not replace them or invoke a reuse resolver before this refusal.
+        if (forSubmission && formDef.CatalogueFieldSource is not null)
+            throw new FormValidationException(CatalogueFieldReadOnly());
 
         // D4 / retro #1654 FINDING 1: expand the reuse cascade HERE, so EVERY caller of the throw-path
         // (RenderAsync + SaveWithReceiptAsync) governs the RESOLVED effective overlay rather than the raw
@@ -1072,7 +1140,7 @@ public sealed class FormEngine : IFormEngine
                     isReadable = false;
                     value = null;
                 }
-                else if (isClassified)
+                else if (isClassified || policy.EffectsFor(Trigger.Read).Count > 0)
                 {
                     // The stored value as a display string ONLY when it is cleartext at rest; an
                     // encrypted envelope is passed to the PEP as null (the PEP never masks / reveals
@@ -1424,7 +1492,9 @@ public sealed class FormEngine : IFormEngine
         RuleEvaluationResult result;
         try
         {
-            result = new FormRuleGraph(compiled).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
+            // T-676: the same clock the submit gate below evaluates against (_timeProvider) — render
+            // and submit must read one clock, and the graph has no usable default.
+            result = new FormRuleGraph(compiled, _timeProvider).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
         }
         catch (RuleEngineTimeoutException)
         {
@@ -1738,9 +1808,8 @@ public sealed class FormEngine : IFormEngine
 
                 var policy = _aspectResolver!.ResolvePolicy(formDef, name);
 
-                // Declared but unclassified (e.g. PiiSensitivity.None) ⇒ cleartext, exactly the
-                // pre-governance posture for a non-sensitive field.
-                if (policy.Tags.Count == 0)
+                // An unclassified field can still carry defaults such as audit or retention.
+                if (policy.Tags.Count == 0 && policy.EffectsFor(Trigger.Store).Count == 0)
                 {
                     property.WriteTo(writer);
                     continue;

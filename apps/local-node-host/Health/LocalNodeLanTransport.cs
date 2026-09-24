@@ -174,8 +174,16 @@ internal static class LocalNodeLanValidation
         return X509CertificateLoader.LoadPkcs12FromFile(
             certificatePath,
             options.CertificatePassword,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            CertificateStorageFlags);
     }
+
+    // macOS has never supported EphemeralKeySet: X509CertificateLoader raises
+    // PlatformNotSupportedException there, so the node leaf never loads and the LAN listener never
+    // binds. Ticket 426. Everywhere else the key stays in memory, which is what we want.
+    private static X509KeyStorageFlags CertificateStorageFlags =>
+        OperatingSystem.IsMacOS()
+            ? X509KeyStorageFlags.Exportable
+            : X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet;
 
     private static void ValidateCertificate(
         X509Certificate2 certificate,

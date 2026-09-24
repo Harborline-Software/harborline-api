@@ -28,6 +28,36 @@ public sealed class SelectedSessionPepTests
 
     private readonly ITestOutputHelper _output;
 
+    [Fact]
+    public async Task Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable()
+    {
+        var known = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()), PermissionSet.Empty,
+            new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]));
+        var permissions = await known.Resolver.ResolveAsync(known.Principal);
+        Assert.NotNull(permissions);
+        Assert.Empty(permissions.Permissions);
+
+        var unknown = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()), PermissionSet.Empty,
+            new InMemoryRoleVocabulary([]));
+        Assert.Null(await unknown.Resolver.ResolveAsync(unknown.Principal));
+    }
+
+    [Fact]
+    public async Task Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection()
+    {
+        var fixture = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()), PermissionSet.Empty,
+            new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]));
+        var principal = fixture.Principal;
+        SelectedSessionRequestPrincipal WithPins(long epoch, long ownerVersion) => new(
+            principal.AccountId, principal.TenantId, principal.PrincipalUserId, principal.CanonicalParty,
+            principal.MembershipId, principal.MembershipOwnerVersion,
+            [new PinnedGrantOwnerVersion(principal.PinnedGrantOwnerVersions.Single().GrantId, ownerVersion)],
+            epoch, principal.SessionCorrelationId, principal.CoordinationCorrelationId);
+        Assert.Null(await fixture.Resolver.ResolveAsync(WithPins(2, 1)));
+        Assert.NotNull(await fixture.Resolver.ResolveAsync(fixture.Principal));
+        Assert.Null(await fixture.Resolver.ResolveAsync(WithPins(1, 2)));
+    }
+
     public SelectedSessionPepTests(ITestOutputHelper output) => _output = output;
 
     [Theory]
@@ -464,7 +494,8 @@ public sealed class SelectedSessionPepTests
     private static async Task<(SelectedSessionPermissionResolver Resolver,
         SelectedSessionRequestPrincipal Principal)> BuildResolverAsync(
         IVerifiedTenantRosterReader rosterReader,
-        PermissionSet permissions)
+        PermissionSet permissions,
+        IRoleVocabularyReader? roles = null)
     {
         var tenant = new TenantId(TeamId.ToString("D"));
         var grants = TestInMemoryAuthorizationStores.GrantStore();
@@ -482,7 +513,7 @@ public sealed class SelectedSessionPepTests
                 new FixedTimeProvider(Now),
                 NullLogger<SelectedSessionPermissionResolver>.Instance,
                 TestAuthorization.ConferredGate(principal =>
-                    principal.Value == "principal-deferred" ? permissions : PermissionSet.Empty)),
+                    principal.Value == "principal-deferred" ? permissions : PermissionSet.Empty), roles: roles),
             new SelectedSessionRequestPrincipal(
                 "account-deferred",
                 tenant,

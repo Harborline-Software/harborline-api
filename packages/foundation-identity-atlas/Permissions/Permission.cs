@@ -151,6 +151,9 @@ public static class Permission
     /// </summary>
     public const string FormsAuthor = "forms:author";
 
+    /// <summary>Run report cartridges over the install's chart (T-576).</summary>
+    public const string ReportsRun = "reports:run";
+
     /// <summary>
     /// Read projected configuration definitions through the catalogue. This is a distinct read
     /// capability because catalogue entries expose the definition body and its pack provenance.

@@ -1,13 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Security.Cryptography;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.FinancialLedger.Models;
@@ -19,11 +22,18 @@ using Harborline.Api.Blocks.FinancialAr.Data;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Blocks.People.Foundation.Data;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.People;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.Kernel.Audit;
 
 using Xunit;
 
@@ -54,6 +64,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
     private HttpClient _client = null!;
     private IDbContextFactory<LocalNodeDbContext> _factory = null!;
     private string _dir = null!;
+    private readonly List<AuthorizationGateRequest> _decisions = [];
 
     private static readonly TenantId LocalTenantId =
         Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext.ProjectTenantId(NodeTestActiveTeam.TestTeamId);
@@ -64,6 +75,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddTestKernelClock();
+        builder.Services.AddSingleton(TestAuthorization.Gate(true, _decisions.Add));
 
         _dir = Path.Combine(Path.GetTempPath(), "harborline-reports-routes-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
@@ -192,7 +204,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/trial-balance",
             new { chartId = chartId.Value, asOfDate = $"{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}" });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var doc = await resp.Content.ReadFromJsonAsync<JsonElement>();
         var result = doc.GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
@@ -209,7 +221,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/balance-sheet",
             new { chartId = chartId.Value, asOfDate = $"{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}" });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -222,7 +234,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/profit-and-loss",
             new { chartId = chartId.Value });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -235,7 +247,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/profit-and-loss-by-property",
             new { chartId = chartId.Value });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -247,7 +259,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/ar-aging-summary",
             new { chartId = chartId.Value });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
         // No invoices seeded — totals present + zeroed (the report still computes offline).
@@ -261,10 +273,19 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/ap-aging-summary",
             new { chartId = chartId.Value });
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        AssertReportAllowed(resp);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
         Assert.True(result.TryGetProperty("totals", out _));
+    }
+
+    private void AssertReportAllowed(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var decision = Assert.Single(_decisions);
+        Assert.Equal("reports:run", decision.Act.Operation.Value);
+        Assert.Equal(LocalTenantId, decision.Tenant);
+        Assert.Equal("/", decision.Target.Scope.ToString());
     }
 
     // ── chart guard ───────────────────────────────────────────────────────────────────
@@ -344,5 +365,167 @@ public sealed class ReportsRouteTests : IAsyncLifetime
         };
         ctx.Set<JournalEntry>().Add(entry);
         await ctx.SaveChangesAsync();
+    }
+}
+
+/// <summary>T-576: direct report calls must pass the install authorization decision before any read.</summary>
+public sealed class ReportsRouteAuthorizationTests
+{
+    private static readonly TenantId Tenant = ActiveTeamTenantContext.ProjectTenantId(NodeTestActiveTeam.TestTeamId);
+    private const string PrivateChart = "private-report-chart-576";
+    private const string PrivateCredential = "private-report-credential-576";
+
+    public static TheoryData<string> Routes => new()
+    {
+        "/trial-balance", "/ar-aging-summary", "/ap-aging-summary", "/balance-sheet",
+        "/profit-and-loss", "/profit-and-loss-by-property",
+    };
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public Task Every_report_without_principal_renders_the_gate_denial(string route) =>
+        AssertRefusedAsync(route, allowed: false, selectedTenant: null, hasClock: true);
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public Task Every_report_refuses_a_cross_tenant_selected_principal(string route) =>
+        AssertRefusedAsync(route, allowed: true, new TenantId("foreign-report-tenant"), hasClock: true);
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public Task Every_report_without_a_clock_returns_Denied(string route) =>
+        AssertRefusedAsync(route, allowed: true, Tenant, hasClock: false);
+
+    [Fact]
+    public Task Report_denial_is_audited_without_credentials_or_report_parameters() =>
+        AssertRefusedAsync("/trial-balance", allowed: false, selectedTenant: null, hasClock: true, audit: true);
+
+    private static async Task AssertRefusedAsync(string route, bool allowed, TenantId? selectedTenant,
+        bool hasClock, bool audit = false)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        var clock = new CountingClock();
+        builder.Services.RemoveAll<TimeProvider>();
+        if (hasClock) builder.Services.AddSingleton<TimeProvider>(clock);
+        var decisions = new List<AuthorizationGateRequest>();
+        builder.Services.AddSingleton(TestAuthorization.Gate(allowed, decisions.Add));
+        if (audit)
+        {
+            builder.Services.AddSingleton(new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32)));
+            builder.Services.AddSingleton<IOperationSigner>(sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+            builder.Services.AddEnrollmentCompensatingControlAudit();
+            builder.Services.AddSingleton<IAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
+            builder.Services.AddAuthorizationRefusalAudit();
+        }
+        await using var app = builder.Build();
+        app.Use(async (http, next) =>
+        {
+            clock.Reset(); // Exclude the host's startup clock read from the request's authority read.
+            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            if (selectedTenant is { } tenant)
+                http.Features.Set(new SelectedSessionRequestPrincipal("report-account", tenant,
+                    new PrincipalUserId("report-user"), new CanonicalPartyReference("report-party"),
+                    "report-membership", 1, [new PinnedGrantOwnerVersion("report-grant", 1)], 1,
+                    "report-session", "report-coordination"));
+            await next(http);
+        });
+        var runner = new UnreachableRunner();
+        var factory = new UnreachableFactory();
+        ReportsRoutes.Map(app.MapDeviceReachableProductDataGroup(), runner, factory, NodeTestActiveTeam.Accessor);
+        await app.StartAsync();
+        try
+        {
+            var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
+            using var client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, ReportsRoutes.ReportsRouteBase + route)
+            {
+                Content = JsonContent.Create(new { chartId = PrivateChart, asOfDate = "2025-01-17" }),
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", PrivateCredential);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            var wire = await response.Content.ReadAsStringAsync();
+            using var body = JsonDocument.Parse(wire);
+            var refusal = body.RootElement;
+            Assert.Equal(AuthorizationRefusalRenderer.PermissionRequiredCode, refusal.GetProperty("code").GetString());
+            Assert.Equal("reports:run", refusal.GetProperty("permission").GetString());
+            Assert.Equal(audit
+                    ? new[] { "auditId", "code", "detail", "permission", "remediation", "title" }
+                    : new[] { "code", "detail", "permission", "remediation", "title" },
+                refusal.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray());
+            AssertRedacted(wire);
+            Assert.Equal(0, runner.Calls);
+            Assert.Equal(0, factory.Calls);
+            Assert.Equal(hasClock ? 1 : 0, clock.Reads);
+            if (hasClock && selectedTenant is null)
+            {
+                var decision = Assert.Single(decisions);
+                Assert.Equal(Tenant, decision.Tenant);
+                Assert.Equal("reports:run", decision.Act.Operation.Value);
+                Assert.Equal("/", decision.Target.Scope.ToString());
+                Assert.Equal(TestAuthorization.At, decision.At);
+            }
+            else Assert.Empty(decisions);
+
+            if (!hasClock)
+            {
+                var expected = JsonSerializer.SerializeToElement(
+                    ((IValueHttpResult)RequestAuthorization.Denied("reports:run")).Value);
+                Assert.Equal(expected.GetRawText(), refusal.GetRawText());
+            }
+            if (audit)
+            {
+                var rows = new List<AuditRecord>();
+                await foreach (var row in app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+                    new AuditQuery(Tenant, AuthorizationRefusalAudit.AuthorizationRefusedEventType))) rows.Add(row);
+                var recorded = Assert.Single(rows);
+                Assert.Equal(recorded.AuditId, refusal.GetProperty("auditId").GetGuid());
+                Assert.Equal(false, recorded.Payload.Payload.Body["preDecision"]);
+                Assert.NotNull(recorded.AuthoritySnapshot);
+                AssertRedacted(JsonSerializer.Serialize(recorded));
+            }
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    private static void AssertRedacted(string text)
+    {
+        foreach (var secret in new[] { PrivateChart, PrivateCredential, "chartId", "asOfDate", "2025-01-17" })
+            Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
+    }
+
+    private sealed class CountingClock : TimeProvider
+    {
+        public int Reads { get; private set; }
+        public void Reset() => Reads = 0;
+        public override DateTimeOffset GetUtcNow()
+        {
+            Reads++;
+            return TestAuthorization.At;
+        }
+    }
+
+    private sealed class UnreachableFactory : IDbContextFactory<LocalNodeDbContext>
+    {
+        public int Calls { get; private set; }
+        public LocalNodeDbContext CreateDbContext()
+        {
+            Calls++;
+            throw new InvalidOperationException("Refused reports must not read the chart.");
+        }
+    }
+
+    private sealed class UnreachableRunner : IReportRunner
+    {
+        public int Calls { get; private set; }
+        public Task<ReportRunResult<TResult>> RunAsync<TParams, TResult>(ReportKind kind, TParams parameters,
+            TenantId tenantId, PrincipalId requestedBy, CancellationToken ct = default)
+            where TParams : class where TResult : class
+        {
+            Calls++;
+            throw new InvalidOperationException("Refused reports must not run.");
+        }
     }
 }

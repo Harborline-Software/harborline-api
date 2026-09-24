@@ -266,6 +266,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
                 Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
             var grantStore = await SearchTestStore.CreateAsync();
             outer.AddSingleton(grantStore.Factory);
+            TestAuthorization.AddLiveNodeRosterConstraints(outer);
             outer.AddNodeAuthorizationModel();
             outer.AddTestNodeForms();
             outer.AddSingleton(sp => SignedOperatorRoster(

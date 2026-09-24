@@ -1,0 +1,11 @@
+{
+  "reason": "pack.install.activate.unmet_interface_requirement",
+  "code": "pack.install.activate.unmet_interface_requirement",
+  "pointer": "/contents/0/contentBase64",
+  "activationSetup": {
+    "packKey": "access",
+    "contentKey": "access.definition",
+    "interfaceVersion": 1,
+    "exposes": ["access.definition"]
+  }
+}

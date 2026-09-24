@@ -39,6 +39,78 @@ public sealed class AccountSetupAcceptanceServiceTests
         "$argon2id$v=19$m=19456,t=2,p=1$" +
         Convert.ToBase64String(new byte[16]) + "$" + Convert.ToBase64String(new byte[32]);
 
+    private static readonly RoleDefinition AdmittedRole = RoleDefinition.CreatePackageRole(
+        new RoleDefinitionId(Guid.Parse("7283f8a1-7172-49db-a1f3-01d1093fce22")),
+        "admitted-user", "Admitted user", "harborline.access-administration");
+
+    [Fact]
+    public async Task Powerless_admission_creates_root_anchor_and_burns_invitation_once()
+    {
+        await using var fixture = await AcceptanceFixture.CreateAsync([ShipRole.Captain],
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty),
+            initialRole: AdmittedRole.Role.ToString(), installedRole: AdmittedRole,
+            roleDigest: InvitationInitialRole.Digest(AdmittedRole, PermissionAtomSet.Empty));
+        var command = new AccountSetupAcceptCommand(fixture.RawCode, fixture.TenantId, "holder",
+            ArgonHash, Guid.NewGuid().ToString("N"));
+        Assert.Equal(AccountSetupAcceptStatus.Accepted, (await fixture.Service.AcceptAsync(command)).Status);
+        await using var grants = fixture.SearchStore.CreateContext();
+        var anchor = await grants.Grants.SingleAsync();
+        Assert.Equal("admitted-user", anchor.RoleName);
+        Assert.Equal("tax.roles", anchor.RoleVocabulary);
+        Assert.Equal("/", anchor.ScopeValue);
+        Assert.Equal(AccountSetupAcceptStatus.InvitationRefused, (await fixture.Service.AcceptAsync(command)).Status);
+        Assert.Single(await grants.Grants.ToArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("changed")]
+    [InlineData("unbound")]
+    [InlineData("lost-mandate")]
+    [InlineData("lost-membership")]
+    [InlineData("escalating")]
+    public async Task Selected_role_refusals_happen_before_mint(string condition)
+    {
+        var roleAtoms = condition == "escalating"
+            ? PermissionAtomSet.Of(PermissionAtom.Parse("records:write@/")) : PermissionAtomSet.Empty;
+        await using var fixture = await AcceptanceFixture.CreateAsync([ShipRole.Captain],
+            authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty, roleAtoms),
+            initialRole: AdmittedRole.Role.ToString(),
+            installedRole: condition == "unknown" ? null : AdmittedRole,
+            roleDigest: condition == "unbound" ? null : InvitationInitialRole.Digest(AdmittedRole,
+                condition == "changed" ? PermissionAtomSet.Of(PermissionAtom.Parse("records:read@/")) : roleAtoms),
+            mandateAllowed: condition != "lost-mandate", inviterMember: condition != "lost-membership");
+        var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
+            fixture.RawCode, fixture.TenantId, "holder", ArgonHash, "refused-holder"));
+        Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
+        Assert.Equal(0, fixture.PartyBinding.MintCalls);
+        await using var grants = fixture.SearchStore.CreateContext();
+        Assert.Empty(await grants.Grants.ToArrayAsync());
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        Assert.Null((await identity.AccountSetupInvitations.SingleAsync()).ConsumedAtUtc);
+    }
+
+    [Fact]
+    public async Task Acceptance_sends_the_bound_role_scope_to_the_gate_before_minting()
+    {
+        var roleAtoms = PermissionAtomSet.Of(PermissionAtom.Parse("records:read@/"));
+        var reads = new List<AuthorizationGateRequest>();
+        await using var fixture = await AcceptanceFixture.CreateAsync([ShipRole.Captain],
+            authorization: new FixedAuthorizationClosure(
+                PermissionAtomSet.Of(PermissionAtom.Parse("records:read@/records/one")), roleAtoms),
+            initialRole: AdmittedRole.Role.ToString(), installedRole: AdmittedRole,
+            roleDigest: InvitationInitialRole.Digest(AdmittedRole, roleAtoms), gateRead: reads.Add);
+        var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
+            fixture.RawCode, fixture.TenantId, "holder", ArgonHash, "scope-refusal"));
+        Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
+        var mandate = Assert.Single(reads, request => request.RequiredGrantAtoms is not null);
+        Assert.Equal("members:manage", mandate.Act.Operation.Value);
+        Assert.Equal(roleAtoms, mandate.RequiredGrantAtoms);
+        Assert.Contains(reads, request => request.RequiredGrantAtoms is null
+            && request.Act == PermissionAtom.Parse("records:read@/") && request.Target.Scope.Value == "/");
+        Assert.Equal(0, fixture.PartyBinding.MintCalls);
+    }
+
     [Fact]
     [Trait("PlanCard", "MTW-2-2614")]
     public async Task Full_Acceptance_Provisions_Account_Grant_Epoch_And_Membership()
@@ -361,7 +433,13 @@ public sealed class AccountSetupAcceptanceServiceTests
         public static async Task<AcceptanceFixture> CreateAsync(
             IReadOnlyCollection<ShipRole> inviterRoles,
             PermissionSet? requestedPermissions = null,
-            IAuthorizationClosureReader? authorization = null)
+            IAuthorizationClosureReader? authorization = null,
+            string initialRole = InvitationInitialRole.Default,
+            RoleDefinition? installedRole = null,
+            string? roleDigest = null,
+            bool? mandateAllowed = null,
+            bool inviterMember = true,
+            Action<AuthorizationGateRequest>? gateRead = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"accept-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -400,6 +478,8 @@ public sealed class AccountSetupAcceptanceServiceTests
                     InviterAuthorizationEpoch = 1,
                     RequestedPermissionsJson = JsonSerializer.Serialize(
                         (requestedPermissions ?? PermissionCompositions.Member).Permissions),
+                    InitialRole = initialRole,
+                    InitialRoleDigest = roleDigest,
                     TokenDigest = Digest(rawCode),
                     Purpose = WebSetupInvitationPurpose.AccountSetup,
                     CommandFingerprint = Digest("command-fingerprint-1"),
@@ -432,14 +512,30 @@ public sealed class AccountSetupAcceptanceServiceTests
             var minterProvider = minterServices.BuildServiceProvider();
 
             var partyBinding = new RecordingPartyBindingMinter();
+            var authorizationSource = authorization ?? new FixedAuthorizationClosure(inviterRoles.Contains(ShipRole.Captain));
+            var held = await authorizationSource.UserPermissionsAsync(new TenantId(tenantId),
+                new ActorId("inviter-principal-1"), Now);
+            var rosterReader = new AcceptanceInviterRoster(
+                tenantId, inviterMember ? inviterPartyId : "different-founder", Now);
             var service = new AccountSetupAcceptanceService(
                 invitationStore,
-                authorization ?? new FixedAuthorizationClosure(inviterRoles.Contains(ShipRole.Captain)),
+                new InvitationTestRoleAtoms(authorizationSource),
                 partyBinding,
                 grantWriter,
                 membershipWriter,
                 minterProvider.GetRequiredService<IServiceScopeFactory>(),
-                time);
+                time, TestAuthorization.GateWithRoster(request =>
+                {
+                    gateRead?.Invoke(request);
+                    return request.RequiredGrantAtoms is not null
+                        ? mandateAllowed ?? inviterRoles.Contains(ShipRole.Captain)
+                        : held.Covers(request.Act);
+                }, new AuthorizationRosterInputs(inviterPartyId, inviterMember, Ejected: false),
+                    AccessGrantAuthorizationSeed.MemberRole),
+                new InMemoryRoleVocabulary(installedRole is null
+                    ? [AccessGrantAuthorizationSeed.MemberDefinition]
+                    : [AccessGrantAuthorizationSeed.MemberDefinition, installedRole]),
+                rosterReader);
 
             return new AcceptanceFixture(
                 directory, identityFactory, searchStore, minterProvider, service, rawCode, tenantId,

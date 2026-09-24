@@ -24,3 +24,7 @@ __pycache__/
 # Built from eng/platform-pin.json; CI also checks the producer out here.
 .feed/
 .platform/
+
+# session and lane artefacts (gate evidence included); the three s293 logs tracked by accident are untracked here
+.claude/
+.codex/

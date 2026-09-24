@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
@@ -79,6 +80,17 @@ public sealed class AccountSetupAcceptRouteE2E
 
     private const string JoinerUsername = "joiner";
     private const string JoinerPassword = "correct horse battery staple joiner";
+
+    [Fact]
+    public async Task Admitted_user_invitation_redeems_and_authenticates_without_member_role()
+    {
+        await using var h = await Harness.CreateAsync(admittedUser: true);
+        var redeem = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        Assert.Equal(HttpStatusCode.OK, redeem.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await h.SignInAsync(JoinerUsername, JoinerPassword)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await h.RedeemAsync(h.RawCode, h.TenantId, "changed", JoinerPassword)).StatusCode);
+    }
 
     [Fact(DisplayName = "A redeemed invitation leaves the joiner able to sign in with the password they chose")]
     public async Task Redeeming_An_Invitation_Lets_The_Joiner_Sign_In_With_The_Password_They_Chose()
@@ -306,7 +318,7 @@ public sealed class AccountSetupAcceptRouteE2E
 
         public string TenantId { get; }
 
-        public static async Task<Harness> CreateAsync(NodeWebLoginLockoutOptions? lockout = null)
+        public static async Task<Harness> CreateAsync(NodeWebLoginLockoutOptions? lockout = null, bool admittedUser = false)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"accept-route-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -338,6 +350,12 @@ public sealed class AccountSetupAcceptRouteE2E
 
             var tenantId = Guid.NewGuid().ToString("D");
             var invitationStore = new AccountSetupInvitationStore(identityFactory);
+            var initialRole = admittedUser ? RoleDefinition.CreatePackageRole(
+                new RoleDefinitionId(Guid.Parse("7283f8a1-7172-49db-a1f3-01d1093fce22")),
+                "admitted-user", "Admitted user", "harborline.access-administration")
+                : AccessGrantAuthorizationSeed.MemberDefinition;
+            var closure = admittedUser ? new FixedAuthorizationClosure(PermissionAtomSet.Empty)
+                : new FixedAuthorizationClosure();
             var issued = await invitationStore.IssueAsync(new AccountSetupInvitationSeed(
                 TenantId: tenantId,
                 InviterAccountId: "inviter-account-3338",
@@ -352,7 +370,9 @@ public sealed class AccountSetupAcceptRouteE2E
                 RequestedPermissionsJson: "[\"records:read\"]",
                 CommandFingerprint: Digest("command-fingerprint-3338"),
                 IssuedAtUtc: Now.AddMinutes(-1),
-                AbsoluteExpiresAtUtc: Now.AddHours(24)));
+                AbsoluteExpiresAtUtc: Now.AddHours(24),
+                InitialRole: initialRole.Role.ToString(),
+                InitialRoleDigest: admittedUser ? InvitationInitialRole.Digest(initialRole, PermissionAtomSet.Empty) : null));
             Assert.NotNull(issued);
 
             var searchStore = await SearchTestStore.CreateAsync();
@@ -371,12 +391,14 @@ public sealed class AccountSetupAcceptRouteE2E
 
             var acceptance = new AccountSetupAcceptanceService(
                 invitationStore,
-                new FixedAuthorizationClosure(),
+                closure,
                 new RecordingPartyBindingMinter(),
                 grantIssuance,
                 coordinator,
                 minterProvider.GetRequiredService<IServiceScopeFactory>(),
-                time);
+                time, TestAuthorization.AllowGate(),
+                new InMemoryRoleVocabulary([initialRole]),
+                new AcceptanceInviterRoster(tenantId, "inviter-party-3338", Now));
 
             var antiforgery = new WebAntiforgeryPolicy(
                 sessionFactory,

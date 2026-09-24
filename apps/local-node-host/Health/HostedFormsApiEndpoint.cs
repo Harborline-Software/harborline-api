@@ -11,6 +11,8 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
+using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -98,7 +100,10 @@ public sealed class HostedFormsApiEndpoint : IHostedService
     private readonly ICurrentUser? _currentUser;
     private readonly TimeProvider _timeProvider;
     private readonly IFormSubmissionGate? _submissionGate;
+    private readonly IWebAntiforgeryPolicy? _antiforgery;
+    private readonly IAuditTrail? _audit;
     private readonly IRestrictingDefinitionKindValidator _restrictingKinds;
+    private readonly IFormFieldTypeCatalogue _fieldTypes;
     private readonly ILogger<HostedFormsApiEndpoint> _logger;
 
     /// <summary>Constructs the hosted dynamic-forms API endpoint.</summary>
@@ -115,7 +120,10 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         TimeProvider? timeProvider = null,
         IRestrictingDefinitionKindValidator? restrictingKinds = null,
         IFormSubmissionGate? submissionGate = null,
-        ICatalogue? catalogue = null)
+        ICatalogue? catalogue = null,
+        IWebAntiforgeryPolicy? antiforgery = null,
+        IAuditTrail? audit = null,
+        IFormFieldTypeCatalogue? fieldTypes = null)
     {
         ArgumentNullException.ThrowIfNull(sharedApp);
         ArgumentNullException.ThrowIfNull(engine);
@@ -137,7 +145,10 @@ public sealed class HostedFormsApiEndpoint : IHostedService
         _currentUser = currentUser;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _restrictingKinds = restrictingKinds ?? RestrictingDefinitionKindValidator.Shared;
+        _fieldTypes = fieldTypes ?? FormFieldTypeCatalogue.Shared;
         _submissionGate = submissionGate;
+        _antiforgery = antiforgery;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -181,11 +192,15 @@ public sealed class HostedFormsApiEndpoint : IHostedService
             // half re-introduces the constant identity #3437 removed. In a diff those two mistakes and
             // the correct merge look nearly identical, so this comment is the guard.
             FormsRoutes.Map(desktopPlaneOnly, _engine, _issuer, _verifier, _activeTeam, roles, _timeProvider, _submissionGate);
+            if (_submissionGate is not null && _antiforgery is not null)
+                SelectedFormSubmitRoutes.Map(app.MapSelectedSessionProductGroup(), _engine, _issuer, _verifier,
+                    _submissionGate, _antiforgery, _timeProvider, _audit);
             // Authoring surface: save + load + list a FormDefinition (the tenant ADMIN authors it
             // in the Harborline App form builder). Real persistence over IFormDefinitionStore — production
             // slice 1 (2026-06-27).
             FormDefinitionRoutes.Map(
-                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider, _restrictingKinds, _catalogue);
+                desktopPlaneOnly, _definitionStore, _schemaRegistry, _activeTeam, _timeProvider,
+                _restrictingKinds, _catalogue, _fieldTypes);
         });
 
         // CA1873, as on the catalogue endpoint: guard the registration message so the arguments are

@@ -147,7 +147,12 @@ internal sealed class AccessGrantAuthorizationSeed(
             [Permission.PackagesOperate] = RoleBindingSet.From(
                 [RoleReference.Administrator, NodeOperatorRole]),
             [Permission.FormsAuthor] = Roles(nodeOperator: true),
-            [Permission.CatalogueRead] = Roles(),
+            // T-576: the report-run family requires an explicit install-wide grant.
+            [Permission.ReportsRun] = Roles(nodeOperator: true),
+            // The reference apps reach the catalogue through their authenticated desktop proxy. The
+            // desktop operator therefore needs the same read as Administrator; the route still resolves
+            // every request through the gate and this offer grants no authoring or mutation capability.
+            [Permission.CatalogueRead] = Roles(nodeOperator: true),
             [Permission.SchedulingRead] = Roles(member: true, nodeOperator: true),
             [Permission.SchedulingAuthor] = Roles(nodeOperator: true),
             [Permission.SchedulingOperate] = Roles(nodeOperator: true),

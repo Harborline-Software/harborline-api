@@ -65,6 +65,7 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
     private static async Task<ServiceProvider> SeededInstallAsync()
     {
         var services = new ServiceCollection();
+        TestAuthorization.AddMemberRosterConstraints(services);
         services.AddAccessGrantModule();
         var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<AccessGrantAuthorizationSeed>()

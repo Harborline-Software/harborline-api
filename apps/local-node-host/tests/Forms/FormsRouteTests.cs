@@ -21,6 +21,7 @@ using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
@@ -45,7 +46,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// in-memory entity store the route contract is agnostic to (the durable node-EF
 /// forms store is the follow-up).
 /// </remarks>
-public sealed class FormsRouteTests : IAsyncLifetime
+public sealed partial class FormsRouteTests : IAsyncLifetime
 {
     private static readonly TeamId TeamA = new(Guid.Parse("aaaa0000-0000-0000-0000-00000000fa01"));
     private static readonly TeamId TeamB = new(Guid.Parse("bbbb0000-0000-0000-0000-00000000fb01"));
@@ -81,6 +82,10 @@ public sealed class FormsRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
+        var formWriter = builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IAuthorizedFormEntityWriter));
+        builder.Services.Remove(formWriter);
+        builder.Services.AddSingleton<IAuthorizedFormEntityWriter>(services => new PausedFormEntityWriter(
+            (IAuthorizedFormEntityWriter)formWriter.ImplementationFactory!(services), () => _racingWrites));
 
         _app = builder.Build();
 
@@ -140,6 +145,11 @@ public sealed class FormsRouteTests : IAsyncLifetime
         await store.PublishAsync(new DefinitionCoordinates(TenantA, def.Id.Value, def.Version.ToString()));
 
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Team A"));
+        _app.Use(async (http, next) =>
+        {
+            if (_selected is not null) http.Features.Set(_selected);
+            await next(http);
+        });
 
         // The durable forms mechanism owns this route; the node-wide middleware must skip it.
         NodeMutationIdempotency.UseOnce(_app, TimeProvider.System);
@@ -147,12 +157,19 @@ public sealed class FormsRouteTests : IAsyncLifetime
         // Map the SAME production routes (mirrors HostedFormsApiEndpoint wiring — no [FromServices]).
         FormsRoutes.Map(
             _app,
-            _app.Services.GetRequiredService<IFormEngine>(),
+            new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(), _replayProjections),
             _app.Services.GetRequiredService<IFormCapabilityIssuer>(),
             _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
             _activeTeam,
             OperatorRoles,
             TimeProvider.System);
+
+        SelectedFormSubmitRoutes.Map(_app.MapSelectedSessionProductGroup(),
+            new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(), _replayProjections),
+            new SelectedDenialIssuer(_app.Services.GetRequiredService<IFormCapabilityIssuer>(), () => _selectedSubmissionDenial),
+            _app.Services.GetRequiredService<IFormCapabilityVerifier>(),
+            new SelectedTestSubmissionGate(), new SelectedTestAntiforgery(), TimeProvider.System,
+            _app.Services.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());
 
         await _app.StartAsync();
 
@@ -343,10 +360,10 @@ public sealed class FormsRouteTests : IAsyncLifetime
         using var secondResponse = await _client.SendAsync(second);
 
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
-        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
-        Assert.Equal(
-            await firstResponse.Content.ReadAsStringAsync(),
-            await secondResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        var refusal = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("forms.replay_context_mismatch", refusal.GetProperty("code").GetString());
+        Assert.Equal(1, _replayProjections.Calls);
     }
 
     [Fact(DisplayName = "submit: an over-long Into-Case-Ref header is rejected (400) — a bounded token")]

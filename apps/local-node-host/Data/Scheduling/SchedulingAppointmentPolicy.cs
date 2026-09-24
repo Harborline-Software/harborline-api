@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-using Harborline.Api.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Models;
 
 namespace Harborline.Api.LocalNodeHost.Data.Scheduling;
 

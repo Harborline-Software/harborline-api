@@ -2,21 +2,32 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "6145f0fb",
-  "recordedAt": "2026-09-09T00:00:00Z",
+  "sourcePin": "1fb90522cbdee5462b9dd7f8c26603151ee25c59",
+  "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 3688,
-    "passed": 3664,
+    "total": 3874,
+    "passed": 3850,
     "failed": 4,
     "notExecuted": 19
   },
   "policy": [
+    "Ticket 427 runtime: advance passed and total by 66 ordinary platform-independent cases, from 3750/3774 to 3816/3840. This is a documentary additive inventory adjustment from the focused 356-case Windows execution, not a fresh Ubuntu measurement. Exact failure, skip, retry identities, allowances and named comparison remain unchanged.",
+    "Ticket 426 Standards adapter: four ordinary platform-independent cases advance this derived inventory from 3750/3774 to 3754/3778. Failure identities, allowances, skipped counts and named comparison remain unchanged; this is not a new Ubuntu measurement.",
+    "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3750/3774 passed/total on Ubuntu. This remains a documentary additive adjustment, not a fresh Ubuntu measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
+    "Ticket 427 integration: add 61 ordinary, platform-independent admission cases to ticket 426's 17, for +78 passed and total from this platform's original 3664/3688 inventory to 3742/3766. These named-comparison totals are documentary and this is a derived additive adjustment, not a new Ubuntu measurement. Exact failure identities, failure allowances, skip counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 398: advance passed and total by eight ordinary platform-independent reachability and Health cases. This is an additive inventory adjustment from the focused Windows execution, including real activation plus production startup reprojection; named failures, allowances and skips are unchanged.",
+    "Ticket 426 integration: combine the seed's four and the adapter's thirteen ordinary, platform-independent cases, for exactly +17 passed and total from this platform's original 3664/3688 inventory to 3681/3705. This is a derived additive inventory adjustment, not a new Ubuntu measurement. Failure identities, failure allowances, skipped counts, retry identities, and named comparison remain unchanged.",
+    "Ticket 426 seeded Health/Browse slice: advance this platform's existing passed and total counts by exactly four ordinary, platform-independent host cases added at 3170e2fe. This is an additive inventory adjustment, not a new Ubuntu measurement; failure identities, allowances, skipped counts and named comparison remain unchanged.",
     "Ticket 341: Ubuntu CI measurement so build-and-test can be green and publish can run. Landings stay on Windows.",
     "Failure identity is exact. Listed failures are expected; listed passes are burn-down and their rows must be removed; unlisted failures are red.",
     "Totals describe the ticket 341 run-84 measurement, not the named comparison verdict. Missing or skipped permitted tests are red.",
     "Every permitted environmental row traces to LinuxLibsecretKeystore, a declared Wave-2 stub that throws PlatformNotSupportedException.",
-    "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green."
+    "The three CI-checkout scanner rows from run 84 are intentionally absent: ticket 341 scopes those fences to tracked files, so they are expected to turn green.",
+    "T-492 Data Exchange consumer: PR 172 adds two host cases (DataExchangePlatformRouteTests) for the desktop-only runtime-contract discovery read, so Ubuntu moves by +2 total and +2 passed; the audience graph counts and the CLI coverage exemption for the new route land in the same change.",
+    "T-576 report-run authorization: fourteen host cases added (four theories over the six report-run routes plus the extended holding and provenance cases), measured by --list-tests at 4365 against the 4351 pin; Ubuntu moves by +14 total and +14 passed. The PR gate is the measurement of record.",
+    "T-644 atomic configuration activation: PR adds fourteen host cases (ConfigurationActivationRouteTests) over the real SQLCipher packs store for preparation, the compare-and-swap transaction, stale-baseline and projection refusals, the crash paths, acknowledgement by evidence intent, the one-generation read pin and the clock-once invariant, so every host moves by +14 total and +14 passed. Windows measured 4397 total, 0 failed on the branch before pinning (a local run reports 22 skipped only because the capability-host node toolchain is absent locally; the gate installs it). Failure, skip, known-flaky and retry policies stay unchanged; the audience-graph counts (+3 routes), CLI coverage exemptions, boundary inventory, MTW-00A owner and R3 ledger row land in the same change.",
+    "T-524 availability runtime and booking consumer: PR adds four host cases - one CalendarRouteTests case fencing the gate on the availability read (an unauthenticated free/busy read, and a malformed window from the same caller, are both 403) and three SchedulingDefinitionRouteTests cases fencing the booking contract (attribution to the authenticated requester and two requesters recorded distinctly, the NO_REQUESTER refusal writing nothing, and the two-concurrent-bookings contention probe yielding exactly one success) - so every host moves by +4 total and +4 passed. The quality-enabled all-lane Windows gate on b1b62e3b measured 4411 total, 4390 passed, 0 failed and 21 not executed; pinned to that measurement. Failure, permitted-failure, skip, known-flaky and retry policies are unchanged. Three existing calendar fixtures compose the real AuthorizationGate and one existing appointment case is re-graded to the runtime rule (supply containment on the visible interval, occupancy on the buffered footprint, DES-0033 open question 8); neither changes a count."
   ],
   "permittedFailures": [
     {

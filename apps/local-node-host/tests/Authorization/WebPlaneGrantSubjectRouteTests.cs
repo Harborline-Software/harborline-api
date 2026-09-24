@@ -66,6 +66,7 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
 
         // The REAL seed over the REAL gate: the desktop operator's node-operator grant comes from here.
         var grantServices = new ServiceCollection();
+        TestAuthorization.AddMemberRosterConstraints(grantServices);
         grantServices.AddAccessGrantModule();
         _grants = grantServices.BuildServiceProvider();
         await new AuthorizationSeedHostedService(
@@ -110,16 +111,15 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
             _outer.GetRequiredService<TimeProvider>());
         _app.MapApiRoutes(routes => SchedulingDefinitionRoutes.Map(
             routes.MapDeviceReachableProductDataGroup(),
-            new NodeSchedulingDraftStore(factory, TimeProvider.System),
+            new NodeSchedulingDraftStore(factory),
             new SchedulingDraftValidator(),
             parties: null!,
             _outer.GetRequiredService<IActiveTeamAccessor>(),
             new FixedCurrentUser(MemberPrincipal),
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System));
         await _app.StartAsync(CancellationToken.None);
         _client = new HttpClient { BaseAddress = new Uri(_app.SelectedUrl!) };

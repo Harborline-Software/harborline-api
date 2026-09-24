@@ -27,8 +27,7 @@
          IOodWatchSweepRepository contract is internal so application code
          cannot enumerate watches across tenants. NSubstitute uses Castle
          DynamicProxy to mock interfaces, and DynamicProxy needs visibility
-         to internal types via this assembly-level IVT. Cohort precedent:
-         Harborline.Api.UIAdapters.Blazor / Harborline.Api.Foundation. -->
+         to internal types via this assembly-level IVT. -->
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />

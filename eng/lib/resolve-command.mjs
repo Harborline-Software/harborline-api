@@ -54,7 +54,25 @@ function entryScript(name) {
   return null
 }
 
+function gitBashExecutable() {
+  const candidates = [
+    process.env.ProgramFiles && join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe'),
+    process.env['ProgramFiles(x86)'] && join(process.env['ProgramFiles(x86)'], 'Git', 'bin', 'bash.exe'),
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+  ].filter(Boolean)
+  return candidates.find(candidate => existsSync(candidate)) ?? null
+}
+
 export function resolveCommand(executable, args) {
+  // WindowsApps/bash.exe is WSL's launcher. It ignores spawnSync's Windows cwd, so a gate that
+  // asks it to run `eng/...` executes from WSL's inherited home and reports the script missing.
+  // The repository's shell gates are Git-Bash scripts; resolve that host explicitly just as we
+  // resolve npm shims explicitly below. Non-Windows hosts continue to use their PATH bash.
+  if (isWindows && executable === 'bash') {
+    const gitBash = gitBashExecutable()
+    if (!gitBash) throw new Error('unable to resolve bash to Git for Windows')
+    return {executable: gitBash, args}
+  }
   if (!isWindows || !['npm', 'npx', 'pnpm'].includes(executable)) return {executable, args}
   if (!cache.has(executable)) cache.set(executable, entryScript(executable))
   const script = cache.get(executable)

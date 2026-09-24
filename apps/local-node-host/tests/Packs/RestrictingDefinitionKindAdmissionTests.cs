@@ -172,6 +172,8 @@ public sealed class RestrictingDefinitionKindAdmissionTests
 
     private sealed class ProjectionSpy : IPackProjectionDispatcher
     {
+        public void StageProjection(PackProjectionTransaction transaction) { }
+
         public int ProjectCount { get; private set; }
 
         public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default)

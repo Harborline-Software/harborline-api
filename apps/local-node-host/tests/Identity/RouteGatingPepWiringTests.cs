@@ -79,7 +79,7 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
         var factory = _outer.GetRequiredService<IDbContextFactory<NodeLocalSchedulingDbContext>>();
         await using (var db = await factory.CreateDbContextAsync())
             await db.Database.MigrateAsync();
-        _store = new NodeSchedulingDraftStore(factory, TimeProvider.System);
+        _store = new NodeSchedulingDraftStore(factory);
 
         _app = new SharedHostedWebApp(
             _outer,
@@ -95,11 +95,10 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
             parties: null!,
             activeTeam,
             currentUser,
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System));
         await _app.StartAsync(CancellationToken.None);
         _client = new HttpClient { BaseAddress = new Uri(_app.SelectedUrl!) };

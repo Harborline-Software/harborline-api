@@ -449,6 +449,13 @@ public sealed class EnrollmentOptions
 public sealed class DiagnosticsOptions
 {
     /// <summary>
+    /// T-448 — optional OTLP collector base endpoint. When set, the local-node host exports its engine-room
+    /// metrics and traces to the collector over HTTP/protobuf; when unset, telemetry export remains disabled.
+    /// Bound from <c>LocalNode:Diagnostics:OtlpEndpoint</c>.
+    /// </summary>
+    public Uri? OtlpEndpoint { get; set; }
+
+    /// <summary>
     /// When <c>true</c> (the DEFAULT, for pre-release dev + troubleshooting), the host emits verbose, structured
     /// <c>[comms-diag]</c> diagnostic log lines at the comms / enrollment / peer-trust / roster decision points that
     /// otherwise hide the real reason (admission reject reasons, <c>PEER_UNTRUSTED</c> trust decisions, team adoption

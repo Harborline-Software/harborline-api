@@ -1,16 +1,26 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.ViewDefinitions;
 
 /// <summary>Thread-safe, in-memory reference implementation of <see cref="IViewDefinitionRegistry"/>.</summary>
-public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
+public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry, IPackProjectionParticipant
 {
     private const string PinnedTupleConflict = "view_definition.pinned_tuple_conflict";
 
     private readonly IViewDefinitionDescriptorRegistry _descriptors;
     private readonly IViewDefinitionCanonicalizer _canonicalizer;
-    private readonly ConcurrentDictionary<(string Tenant, string Key, string Version), ViewDefinition> _definitions = new();
+    private ConcurrentDictionary<(string Tenant, string Key, string Version), ViewDefinition> _definitions = new();
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var before = _definitions;
+        var next = new ConcurrentDictionary<(string Tenant, string Key, string Version), ViewDefinition>(before);
+        _definitions = next;
+        return () => _definitions = before;
+    });
 
     /// <summary>Initializes the registry with engine-owned descriptor admission and pass-through canonicalization.</summary>
     /// <param name="descriptors">The host-supplied view descriptor registry.</param>
@@ -35,6 +45,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         ViewDefinition definition,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentNullException.ThrowIfNull(definition);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -73,6 +84,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -87,6 +99,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         string version,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -100,6 +113,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         string tenant,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         cancellationToken.ThrowIfCancellationRequested();
         var heads = _definitions.Values
@@ -117,6 +131,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         string key,
         CancellationToken cancellationToken = default)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(tenant);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         cancellationToken.ThrowIfCancellationRequested();
@@ -189,6 +204,12 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         {
             throw new ViewDefinitionGovernanceException("view_definition.parameters_not_object");
         }
+
+        if (definition.AuthorizationCapability is not null
+            && string.IsNullOrWhiteSpace(definition.AuthorizationCapability))
+        {
+            throw new ViewDefinitionGovernanceException("view_definition.authorization_capability_empty");
+        }
     }
 
     private static ViewDefinition Detach(ViewDefinition definition) => definition with
@@ -207,6 +228,7 @@ public sealed class InMemoryViewDefinitionRegistry : IViewDefinitionRegistry
         JsonEqual(left.Provenance, right.Provenance) &&
         StringComparer.Ordinal.Equals(left.ViewKind, right.ViewKind) &&
         StringComparer.Ordinal.Equals(left.Title, right.Title) &&
+        StringComparer.Ordinal.Equals(left.AuthorizationCapability, right.AuthorizationCapability) &&
         Equals(left.ShapeRoles, right.ShapeRoles) &&
         JsonEqual(left.Parameters, right.Parameters);
 

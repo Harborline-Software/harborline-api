@@ -181,6 +181,7 @@ public sealed class WorkflowScheduledDefinitionTests
             options.UseSqlite($"Data Source={databasePath};Pooling=False"));
         services.AddSingleton<IWorkflowStore, NodeEfWorkflowStore>();
         services.AddSingleton(searchFactory);
+        TestAuthorization.AddMemberRosterConstraints(services);
         services.AddNodeAuthorizationModel();
         services.AddDurableWorkflowEngine();
         var entityStore = new InMemoryEntityStore(new InMemoryAssetStorage(), clock);

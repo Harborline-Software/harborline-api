@@ -4,10 +4,11 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Authorization;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -26,14 +27,22 @@ public static class SchedulingDefinitionRoutes
     public const string AppointmentRoute = "/api/local-node/scheduling/appointments";
     public const string EventRoute = "/api/local-node/scheduling/events";
     public const string ResourceAvailabilityRoute = "/api/local-node/scheduling/resources/availability";
-    private static readonly Guid LocalSchedulingActor = new("5ced0000-0000-0000-0000-000000000001");
 
+    // T-659 removed the in-process booking fence that stood here. The platform producer now rechecks
+    // capacity and commits under one epoch-conditional write (DES-0025 booking-eng-24, ADR 0095
+    // ruling 8), so the invariant is held where it is owned rather than by a lock whose ceiling was
+    // one host process. The route just calls Book and maps the outcome.
+
+    /// <param name="scopes">
+    /// The host container's scope factory: the platform's <see cref="IBookingService"/> is scoped and
+    /// resolves the requester from the request-bound party seam, so a booking resolves it per request
+    /// rather than closing over one captive instance (T-568).
+    /// </param>
     public static void Map(IEndpointRouteBuilder app, NodeSchedulingDraftStore store,
         SchedulingDraftValidator validator, NodeEfPartyRepository parties, IActiveTeamAccessor activeTeam,
-        ICurrentUser currentUser, IBookingService bookingService,
+        ICurrentUser currentUser, IServiceScopeFactory scopes,
         ICalendarEventStore eventStore, ICalendarStore calendarStore,
-        IResourceAvailabilityStore availabilityStore,
-        IFreeBusyService freeBusyService, TimeProvider timeProvider)
+        IResourceAvailabilityStore availabilityStore, TimeProvider timeProvider)
     {
         // Ticket 205 slice 4: ONE tenant resolution point for this route family. Each guard and the work
         // that follows it read the same request's active-team tenant, resolved per call (never captured).
@@ -88,18 +97,26 @@ public static class SchedulingDefinitionRoutes
         app.MapPost($"{RouteBase}/{{definitionId}}/restore", async (
             string definitionId, SchedulingRestoreRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var admittedAt = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct) is { } denied)
+                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
+                    decision => admittedAt = decision.Request.At) is { } denied)
                 return denied;
             var tenant = Tenant().Value;
             var source = await store.GetRevisionAsync(tenant, definitionId, request.Revision, ct).ConfigureAwait(false);
             if (source is null)
                 return Results.NotFound(new { code = "scheduling.draft.revision_not_found" });
             var head = await store.GetAsync(tenant, definitionId, ct).ConfigureAwait(false);
+            var restoreIssues = validator.Validate(source.Definition);
+            if (restoreIssues.Count != 0)
+                return Results.UnprocessableEntity(new
+                    { code = "scheduling.draft.validation_refused", issues = restoreIssues });
             try
             {
                 var saved = await store.SaveAsync(tenant, definitionId, source.Definition,
-                    head!.Revision, currentUser.UserId, ct).ConfigureAwait(false);
+                    head!.Revision, currentUser.UserId, admittedAt, ct).ConfigureAwait(false);
                 // Lineage is response-only: the audit row has no free field, and adding a column
                 // is the separately-decided store migration (ticket 088's recorded ruling).
                 return Results.Ok(new { definitionId, revision = saved.Revision, restoredFrom = request.Revision });
@@ -113,13 +130,26 @@ public static class SchedulingDefinitionRoutes
         app.MapPut($"{RouteBase}/{{definitionId}}/draft", async (
             string definitionId, SchedulingDraftSaveRequest request, HttpContext http, CancellationToken ct) =>
         {
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // saved revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var admittedAt = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct) is { } denied)
+                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
+                    decision => admittedAt = decision.Request.At) is { } denied)
                 return denied;
+            var issues = validator.Validate(request.Definition);
+            if (issues.Count != 0)
+            {
+                if (request.Definition.ValueKind != JsonValueKind.Object)
+                    return Results.BadRequest(new { code = "scheduling.draft.object_required" });
+                return Results.UnprocessableEntity(new
+                    { code = "scheduling.draft.validation_refused", issues });
+            }
             try
             {
                 var saved = await store.SaveAsync(Tenant().Value, definitionId,
-                    request.Definition, request.ExpectedRevision, currentUser.UserId, ct).ConfigureAwait(false);
+                    request.Definition, request.ExpectedRevision, currentUser.UserId, admittedAt, ct)
+                    .ConfigureAwait(false);
                 return Results.Ok(saved);
             }
             catch (SchedulingDraftConflictException ex)
@@ -199,40 +229,29 @@ public static class SchedulingDefinitionRoutes
                 if (request.StartUtc < leadFloor)
                     return Results.Conflict(new { code = "scheduling.appointment.minimum_lead_time" });
                 endUtc = policy.EndFor(request.StartUtc);
-                var appointmentPadding = policy.Padding;
-                padding = appointmentPadding;
-
-                // Appointment-type fit is stricter than the generic calendar substrate: its entire
-                // setup/body/cleanup footprint must fit a canonical free slot. The generic booking
-                // service intentionally permits padding to spill beyond availability, so enforce the
-                // appointment-type policy here before delegating the actual write.
-                var footprint = new TimeInterval(
-                    request.StartUtc - appointmentPadding.Pre,
-                    endUtc + appointmentPadding.Post);
-                var freeBusy = await freeBusyService
-                    .FreeBusy(tenant, resource, footprint.StartUtc, footprint.EndUtc, ct)
-                    .ConfigureAwait(false);
-                if (!freeBusy.IsFree(footprint))
-                {
-                    var overlapsBusy = freeBusy.BusyIntervals.Any(interval => interval.Overlaps(footprint));
-                    var code = overlapsBusy
-                        ? "scheduling.appointment.slot_conflict"
-                        : "scheduling.appointment.no_availability";
-                    return Results.Conflict(new { code });
-                }
+                // The padding is the buffer that is part of the hold: the platform runtime tests the
+                // buffered footprint against occupancy and the visible slot against supply (T-626). The
+                // former route-level re-derivation of that rule is gone (T-524: one derivation site).
+                padding = policy.Padding;
             }
             else if (endUtc <= request.StartUtc)
             {
                 return Results.BadRequest(new { code = "scheduling.appointment.invalid" });
             }
 
+            // The requester is never taken from the request: the platform's BookingService resolves it
+            // from the request-bound party seam and refuses NO_REQUESTER before any read (T-568, L535).
+            await using var scope = scopes.CreateAsyncScope();
+            var bookingService = scope.ServiceProvider.GetRequiredService<IBookingService>();
             var outcome = await bookingService.Book(
                 tenant, resource, request.Title.Trim(), request.StartUtc,
-                endUtc, LocalSchedulingActor, ParticipantRef.Party(request.SubjectId),
+                endUtc, ParticipantRef.Party(request.SubjectId),
                 padding: padding, ct: ct)
                 .ConfigureAwait(false);
-            return outcome.Success
-                ? Results.Ok(new { eventId = outcome.Event!.Id.Value, status = "booked" })
+            if (outcome.Success)
+                return Results.Ok(new { eventId = outcome.Event!.Id.Value, status = "booked" });
+            return outcome.RejectionReason == BookingOutcome.NoRequester
+                ? Results.Json(new { code = "scheduling.appointment.no_requester" }, statusCode: StatusCodes.Status403Forbidden)
                 : Results.Conflict(new { code = $"scheduling.appointment.{outcome.RejectionReason!.ToLowerInvariant()}" });
         });
 
@@ -316,15 +335,31 @@ public static class SchedulingDefinitionRoutes
                 endTime = TimeOnly.FromDateTime(end.DateTime);
             }
 
+            // The same requester seam the booking contract reads (T-568): no resolvable identity, no event.
+            Guid requester;
+            await using (var scope = scopes.CreateAsyncScope())
+            {
+                try
+                {
+                    requester = await scope.ServiceProvider
+                        .GetRequiredService<Harborline.Foundation.Authorization.IPartyContext>()
+                        .GetCurrentPartyIdAsync(ct).ConfigureAwait(false);
+                }
+                catch (Harborline.Foundation.Authorization.PrincipalPartyResolutionException)
+                {
+                    return Results.Json(new { code = "scheduling.event.no_requester" }, statusCode: StatusCodes.Status403Forbidden);
+                }
+            }
+
             var calendarEvent = CalendarEvent.Create(
                 tenant, request.Title.Trim(),
-                startDate, endDate, LocalSchedulingActor, timezone: timezoneId,
+                startDate, endDate, requester, timezone: timezoneId,
                 startTime: startTime, endTime: endTime, occupancy: Occupancy.Blocking,
-                allDay: request.AllDay);
+                createdAt: timeProvider.GetUtcNow(), allDay: request.AllDay);
             if (targetCalendar is not null)
-                calendarEvent.SetCalendarId(targetCalendar.Id, LocalSchedulingActor);
+                calendarEvent.SetCalendarId(targetCalendar.Id, requester);
             if (resource is not null)
-                calendarEvent.SetResource(resource, LocalSchedulingActor);
+                calendarEvent.SetResource(resource, requester);
             await eventStore.SaveAsync(calendarEvent, ct).ConfigureAwait(false);
             return Results.Ok(new { eventId = calendarEvent.Id.Value, status = "created" });
         });

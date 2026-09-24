@@ -1,0 +1,340 @@
+{
+  "_note": "Ticket 433. Ordinary replaceable Access content for the bounded grant, privileged-review, holder-read, narrow, revoke and pack-replacement journey. Definitions and actions only; no grant instances.",
+  "key": "harborline.access-administration",
+  "version": "1.1.1",
+  "name": "Access administration",
+  "description": "Granting roles, reviewing privileged grants and inspecting access holders.",
+  "scopeTier": "Horizontal",
+  "contents": [
+    {
+      "key": "access.form-submitter",
+      "kind": "RoleDefinition",
+      "version": "1.0.0",
+      "content": { "role": "access-form-submitter", "displayName": "Access form submitter" }
+    },
+    {
+      "key": "access.grant-a-role",
+      "kind": "FormDefinition",
+      "version": "1.0.1",
+      "content": {
+        "overlay": {
+          "fields": {
+            "person": {
+              "label": {
+                "kind": "Literal",
+                "value": "Person"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "Direct"
+            },
+            "role": {
+              "label": {
+                "kind": "Literal",
+                "value": "Role"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "scope": {
+              "label": {
+                "kind": "Literal",
+                "value": "Scope"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "effectiveFrom": {
+              "label": {
+                "kind": "Literal",
+                "value": "Effective from"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "effectiveTo": {
+              "label": {
+                "kind": "Literal",
+                "value": "Effective to"
+              },
+              "controlHint": "text",
+              "piiSensitivity": "None"
+            },
+            "reason": {
+              "label": {
+                "kind": "Literal",
+                "value": "Reason"
+              },
+              "controlHint": "select",
+              "piiSensitivity": "None"
+            },
+            "residency": {
+              "label": {
+                "kind": "Literal",
+                "value": "Residency"
+              },
+              "controlHint": "select",
+              "piiSensitivity": "None"
+            }
+          },
+          "sections": [
+            {
+              "id": "grant",
+              "title": {
+                "kind": "Literal",
+                "value": "Grant a role"
+              },
+              "fields": [
+                "person",
+                "role",
+                "scope",
+                "residency",
+                "effectiveFrom",
+                "effectiveTo",
+                "reason"
+              ],
+              "access": { "readRoles": ["tax.roles/access-form-submitter"], "writeRoles": ["tax.roles/access-form-submitter"] }
+            }
+          ],
+          "rules": [],
+          "title": {
+            "kind": "Literal",
+            "value": "Grant a role"
+          },
+          "description": {
+            "kind": "Literal",
+            "value": "Grant a person a role, in a scope, for a period, with a reason."
+          }
+        },
+        "fieldsMeta": {
+          "person": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "role": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "scope": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "residency": {
+            "type": "select",
+            "required": true,
+            "options": [
+              "cache",
+              "online-only"
+            ]
+          },
+          "effectiveFrom": {
+            "type": "text",
+            "required": true,
+            "options": null
+          },
+          "effectiveTo": {
+            "type": "text",
+            "required": false,
+            "options": null
+          },
+          "reason": {
+            "type": "select",
+            "required": true,
+            "options": [
+              "manual",
+              "invitation",
+              "workflow",
+              "ticket"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "key": "access.privileged-grant-review",
+      "kind": "WorkflowDefinition",
+      "version": "1.0.1",
+      "content": {
+        "key": "access.privileged-grant-review",
+        "version": "1.0.1",
+        "subjectFormRef": { "formId": "access.grant-a-role", "version": "1.0.1" },
+        "postSubmitProjection": "access.privileged-grant-review",
+        "tenant": "00000000-0000-0000-0000-000000000000",
+        "initialState": "requested",
+        "states": [
+          {
+            "id": "requested",
+            "kind": "Normal"
+          },
+          {
+            "id": "approved",
+            "kind": "Terminal"
+          },
+          {
+            "id": "declined",
+            "kind": "Terminal"
+          }
+        ],
+        "triggers": [
+          {
+            "id": "approve",
+            "kind": "HumanAction",
+            "task": "approve"
+          },
+          {
+            "id": "decline",
+            "kind": "HumanAction",
+            "task": "decline"
+          }
+        ],
+        "transitions": [
+          {
+            "id": "approve",
+            "from": "requested",
+            "on": "approve",
+            "to": "approved"
+          },
+          {
+            "id": "decline",
+            "from": "requested",
+            "on": "decline",
+            "to": "declined"
+          }
+        ],
+        "actions": []
+      }
+    },
+    {
+      "key": "access.holders",
+      "kind": "ViewDefinition",
+      "version": "1.0.0",
+      "content": {
+        "key": "access.holders",
+        "version": "1.0.0",
+        "tenant": "bootstrap",
+        "schemaVersion": 1,
+        "viewKind": "views.entity-list/grid",
+        "title": "Access holders",
+        "authorizationCapability": "members:manage",
+        "parameters": {
+          "entityType": "AccessGrant",
+          "dataSource": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.holders.selected.read.v1", "bindings": {} },
+          "fields": [
+            { "id": "principalId", "label": "Person" },
+            { "id": "role", "label": "Role" },
+            { "id": "scope", "label": "Scope" },
+            { "id": "status", "label": "Status" }
+          ],
+          "actions": [
+            {
+              "id": "grant", "label": "Grant a role", "operation": "access.grant.submit",
+              "inputForm": { "formId": "access.grant-a-role", "version": "1.0.1" }, "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "forms.submit.selected.v1", "bindings": {
+                "formId": { "literal": "access.grant-a-role" }, "values": { "source": "input", "pointer": "" },
+                "idempotencyKey": { "source": "invocation", "pointer": "/idempotencyKey" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "privileged-review", "label": "Review privileged grant", "operation": "access.grant.review",
+              "workflow": "access.privileged-grant-review", "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.review.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "holder-read", "label": "Read holder access", "operation": "access.holder.read",
+              "input": { "fieldsMeta": { "recordId": { "type": "text", "required": true } }, "overlay": {} },
+              "result": { "refresh": "none" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "records.read.v1", "bindings": {
+                "id": { "source": "input", "pointer": "/recordId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "narrow", "label": "Narrow grant", "operation": "access.grant.narrow",
+              "input": { "fieldsMeta": { "scope": { "type": "text", "required": true } }, "overlay": {} },
+              "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.narrow-scope.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" }, "scope": { "source": "input", "pointer": "/scope" },
+                "successorId": { "source": "invocation", "pointer": "/id" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "revoke", "label": "Revoke grant", "operation": "access.grant.revoke", "result": { "refresh": "data-source" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "authorization.grant.revoke.v1", "bindings": {
+                "target": { "source": "selection", "pointer": "/grantId" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            },
+            {
+              "id": "replace-pack", "label": "Replace Access pack", "operation": "access.pack.replace",
+              "fileInput": { "accept": ".json" }, "result": { "refresh": "view" },
+              "dispatch": { "schemaVersion": 1, "kind": "request", "descriptorId": "packs.replace.selected.v1", "bindings": {
+                "packKey": { "literal": "harborline.access-administration" }, "artifact": { "source": "file", "pointer": "" },
+                "correlationId": { "source": "invocation", "pointer": "/correlationId" }
+              } }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "key": "access.navigation",
+      "kind": "NavWorkspaceConfig",
+      "version": "1.1.0",
+      "content": {
+        "seedWorkspaces": [
+          {
+            "id": "access",
+            "labelKey": "access.workspace",
+            "groups": [
+              {
+                "id": "access-inspection",
+                "labelKey": "access.holders",
+                "itemIds": [
+                  "access.holders"
+                ],
+                "items": [{ "id": "access.holders", "labelKey": "access.holders" }]
+              }
+            ]
+          }
+        ],
+        "panelSet": [
+          {
+            "id": "access-details",
+            "labelKey": "access.details",
+            "binding": "panels.access-details.toggle",
+            "shortcut": "mod+shift+a",
+            "defaultWidth": 400,
+            "minimumHeight": 300,
+            "defaultOpen": false,
+            "headerForm": "Title",
+            "bodyTemplate": "Fields",
+            "footer": {
+              "kind": "Claim",
+              "labelKey": "access.details.footer"
+            },
+            "traits": [
+              "Scoped"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "exposes": ["access.holders"],
+  "interfaceVersion": 1,
+  "dependencies": [
+    {
+      "key": "harborline.platform",
+      "version": "1.0.0",
+      "declaredDependencyKeys": []
+    }
+  ],
+  "capabilityRequirements": []
+}

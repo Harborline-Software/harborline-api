@@ -40,13 +40,27 @@ public sealed class PackExporter : IPackExporter
     }
 
     /// <inheritdoc />
-    public async ValueTask<PackExportOutcome> ExportAsync(
+    public ValueTask<PackExportOutcome> ExportAsync(
         PackExportRequest request,
         IOperationSigner signer,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(signer);
+        return ExecuteAsync(request, signer, ct);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PackValidationResult> ValidateAsync(
+        PackExportRequest request,
+        CancellationToken ct = default) =>
+        (await ExecuteAsync(request, signer: null, ct).ConfigureAwait(false)).Validation;
+
+    private async ValueTask<PackExportOutcome> ExecuteAsync(
+        PackExportRequest request,
+        IOperationSigner? signer,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
         ct.ThrowIfCancellationRequested();
 
         // (1) Canonicalize + content-address every content source (single source, S-14).
@@ -95,7 +109,9 @@ public sealed class PackExporter : IPackExporter
             DisplayName: PackCardDisplayText.NormalizeNameOrTitleAtExport(request.DisplayName),
             Tagline: PackCardDisplayText.NormalizeFreeTextOrDescriptionAtExport(request.Tagline),
             Category: PackCardDisplayText.NormalizeNameOrTitleAtExport(request.Category),
-            IconRef: request.IconRef);
+            IconRef: request.IconRef,
+            Exposes: request.Exposes,
+            InterfaceVersion: request.InterfaceVersion);
 
         // (4) Validate FIRST — fail-closed. Never sign an invalid pack. Combine the completeness/PII
         //     findings with the DCP gate findings so the caller sees the full picture in ONE result.
@@ -105,6 +121,11 @@ public sealed class PackExporter : IPackExporter
             var combined = validation.Errors.Concat(dcpErrors).ToList();
             var failed = PackValidationResult.Invalid(combined);
             return new PackExportOutcome(Succeeded: false, File: null, FileBytes: null, Validation: failed);
+        }
+
+        if (signer is null)
+        {
+            return new PackExportOutcome(Succeeded: true, File: null, FileBytes: null, Validation: validation);
         }
 
         // (5) Sign the {manifest, epoch} subject. Truncate issuedAt to epoch-ms so the on-disk

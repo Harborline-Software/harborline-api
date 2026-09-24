@@ -5,7 +5,6 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
 
 const cliArguments = process.argv.slice(2)
 const optionValue = option => {
@@ -154,6 +153,6 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/quality-step.mjs')) {
   try { runQualityStep() } catch (error) { console.error(`quality: ${error.message}`); process.exitCode = 1 }
 }

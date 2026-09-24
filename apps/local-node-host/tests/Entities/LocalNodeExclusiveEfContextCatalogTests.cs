@@ -53,6 +53,8 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260701175903_AddSubmissionDraftTable",
         "20260707044248_PacksInitial",
         "20260707100739_CalendarCollectionInitial",
+        // T-659: the per-(tenant, resource) capacity epoch the conditional booking commit compares.
+        "20260920033344_CalendarCapacityEpochs",
         "20260707103037_OrgBrandingInitial",
         "20260707140050_AddFeedChannelSequences",
         "20260712120000_AddSchedulingDefinitionDrafts",
@@ -98,11 +100,16 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260908123000_RosterReceiveTime",
         "20260908150000_RosterReceiveAttestation",
         "20260908160000_RosterDropSignedPermissions",
+        "20260916170000_InvitationInitialRole",
+        "20260919090000_AddConfigurationGenerations",
+        // T-461: the proposed changes, their immutable saved versions and the signed released
+        // packages offered for activation. None of the three is on the effective-generation path.
+        "20260920100000_AddConfigurationProposals",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_53_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_56_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

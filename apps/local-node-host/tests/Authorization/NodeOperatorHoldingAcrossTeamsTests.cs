@@ -45,6 +45,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
         Permission.WorkshopUnlock,
         Permission.PackagesOperate,
         Permission.PackagesAuthor,
+        Permission.ReportsRun,
         // Ticket 205 slice 4 — the record-scoped route families' install-wide acts (a list, a create, a
         // no-effect validate, the install's own authorization configuration).
         Permission.ContactsRead,
@@ -183,6 +184,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
         await active.SetActiveAsync(FirstTeam, CancellationToken.None);
 
         var services = new ServiceCollection();
+        TestAuthorization.AddMemberRosterConstraints(services);
         services.AddAccessGrantModule();
         var provider = services.BuildServiceProvider();
 

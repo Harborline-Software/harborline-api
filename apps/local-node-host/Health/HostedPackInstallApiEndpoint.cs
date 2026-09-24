@@ -8,6 +8,7 @@ using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -59,6 +60,12 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
     private readonly TimeProvider _time;
     private readonly ILogger<HostedPackInstallApiEndpoint> _logger;
     private readonly Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? _platform;
+    private readonly IWebAntiforgeryPolicy? _antiforgery;
+    private readonly AuthorizedActAudit? _acceptedAudit;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? _configuration;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? _proposals;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? _verification;
+    private readonly Harborline.Api.LocalNodeHost.Data.Configuration.ReleasedPackInstaller? _releases;
 
     /// <summary>Constructs the hosted install endpoint. <paramref name="platform"/> is the running
     /// build's compatibility facts — optional for back-compat embedders; when present the installed-pack
@@ -76,9 +83,21 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
         IPackFeatureGraphReadModel graphReadModel,
         TimeProvider timeProvider,
         ILogger<HostedPackInstallApiEndpoint> logger,
-        Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? platform = null)
+        Harborline.Api.Foundation.Packs.Install.Compatibility.IPackPlatformCompatibility? platform = null,
+        IWebAntiforgeryPolicy? antiforgery = null,
+        AuthorizedActAudit? acceptedAudit = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget? configuration = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationProposalStore? proposals = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.VerificationRunner? verification = null,
+        Harborline.Api.LocalNodeHost.Data.Configuration.ReleasedPackInstaller? releases = null)
     {
+        _proposals = proposals;
+        _releases = releases;
+        _verification = verification;
         _platform = platform;
+        _antiforgery = antiforgery;
+        _acceptedAudit = acceptedAudit;
+        _configuration = configuration;
         _sharedApp = sharedApp ?? throw new ArgumentNullException(nameof(sharedApp));
         _installer = installer ?? throw new ArgumentNullException(nameof(installer));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -108,6 +127,21 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
             app, _installer, _store, _trustStore, _revocation, _activeTeam, _gate, _time, _logger,
             authorizingPrincipal, _projector, _platform));
 
+        // T-644: the atomic activation of one prepared configuration generation, beside the per-pack routes.
+        if (_configuration is not null)
+            _sharedApp.MapApiRoutes(app => ConfigurationActivationRoutes.Map(
+                app, _configuration, _activeTeam, _gate, _time, _logger, _verification));
+
+        // T-461: propose, save and release, beside activation and never on its path.
+        if (_proposals is not null)
+            _sharedApp.MapApiRoutes(app => ConfigurationProposalRoutes.Map(
+                app, _proposals, _activeTeam, _gate, _time, _logger, _releases));
+
+        if (_antiforgery is not null)
+            _sharedApp.MapApiRoutes(app => SelectedPackReplacementRoutes.Map(
+                app.MapSelectedSessionProductGroup(), _installer, _store, _trustStore, _revocation,
+                _antiforgery, _time, _acceptedAudit));
+
         // App-layer feature graph (G1) — the read-only GET /packs/graph, same tenant-scoped posture as the
         // sibling install routes. A projection over install state (no store, no mutation); the Apps surface
         // (G3) + install-diff preview (G4) render slices of what it returns.
@@ -123,6 +157,8 @@ internal sealed class HostedPackInstallApiEndpoint : IHostedService
             app.MapDeviceReachableProductDataGroup(),
             _store,
             _activeTeam,
+            _gate,
+            _time,
             _logger));
 
         _logger.LogInformation(

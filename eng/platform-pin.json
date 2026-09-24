@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "ef875832f55c3d882d4cd6b0ee6c0f1e1c1f02b0",
-  "recordedAt": "2026-09-07 (314 slice 1)",
+  "commit": "ae42b2ac17e1216e7255d7f356a7f9c78e959843",
+  "recordedAt": "2026-09-21 (T-656 producer consumption; platform PR 100 merge commit ae42b2ac, verified on platform main. This advances the existing T-463/T-667 package pin without changing the producer inventory and adds the released ViewKindRegistry.Platform contract whose canonical table identity is layout.table. The API consumes that registry instead of restating the producer token.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -14,6 +14,8 @@
     "Harborline.Blocks.Calendar": "Harborline.Blocks.Calendar.dll",
     "Harborline.Blocks.EntityViews": "Harborline.Blocks.EntityViews.dll",
     "Harborline.Blocks.InspectionReview": "Harborline.Blocks.InspectionReview.dll",
+    "Harborline.Blocks.LayoutRuntime": "Harborline.Blocks.LayoutRuntime.dll",
+    "Harborline.Blocks.MeasureCatalogue": "Harborline.Blocks.MeasureCatalogue.dll",
     "Harborline.Blocks.RelativeChains": "Harborline.Blocks.RelativeChains.dll",
     "Harborline.Blocks.Reports": "Harborline.Blocks.Reports.dll",
     "Harborline.Blocks.Scheduling": "Harborline.Blocks.Scheduling.dll",
@@ -22,6 +24,8 @@
     "Harborline.Contracts": "Harborline.Contracts.dll",
     "Harborline.Foundation": "Harborline.Foundation.dll",
     "Harborline.Foundation.Authorization": "Harborline.Foundation.Authorization.dll",
+    "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
+    "Harborline.Foundation.FieldRuntime": "Harborline.Foundation.FieldRuntime.dll",
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
     "Harborline.Foundation.Forms.Engine": "Harborline.Foundation.Forms.Engine.dll",
     "Harborline.Foundation.MultiTenancy": "Harborline.Foundation.MultiTenancy.dll",
@@ -29,6 +33,7 @@
     "Harborline.Foundation.RuleEngine": "Harborline.Foundation.RuleEngine.dll",
     "Harborline.Foundation.Scheduling": "Harborline.Foundation.Scheduling.dll",
     "Harborline.Foundation.Session": "Harborline.Foundation.Session.dll",
+    "Harborline.Kernel.Core": "Harborline.Kernel.Core.dll",
     "Harborline.Kernel.SchemaValidation": "Harborline.Kernel.SchemaValidation.dll",
     "Harborline.Kernel.WorkItems": "Harborline.Kernel.WorkItems.dll",
     "Harborline.UIAdapters.Blazor": "Harborline.UIAdapters.Blazor.dll"

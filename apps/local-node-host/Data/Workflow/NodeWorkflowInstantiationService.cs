@@ -75,7 +75,7 @@ public sealed class NodeWorkflowInstantiationService
         ArgumentException.ThrowIfNullOrEmpty(submissionInstanceId);
         ArgumentNullException.ThrowIfNull(request);
 
-        var instanceId = "access-grant-form:" + submissionInstanceId;
+        var instanceId = AccessGrantInstanceId(submissionInstanceId);
         if (await _store.LoadAsync(instanceId, ct).ConfigureAwait(false) is not null)
         {
             return instanceId;
@@ -94,6 +94,8 @@ public sealed class NodeWorkflowInstantiationService
 
         return instanceId;
     }
+
+    internal static string AccessGrantInstanceId(string submissionInstanceId) => "access-grant-form:" + submissionInstanceId;
 
     // ─────────────────────────────────────────────────────────────────────────
     //  invoice-approval — on the invoice-issued path: create a Process for an invoice

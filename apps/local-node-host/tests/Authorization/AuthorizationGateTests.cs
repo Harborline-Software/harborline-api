@@ -12,6 +12,80 @@ public sealed class AuthorizationGateTests
     private static readonly RoleReference Member = new(RoleVocabularies.Domain, "member");
     private static readonly RoleReference Reviewer = new(RoleVocabularies.Domain, "reviewer");
 
+    [Theory]
+    [InlineData("/records/tenant:acme")]
+    [InlineData("/records/tenant%3aacme")]
+    [InlineData("/records/%73ource")]
+    [InlineData("/records/source/child")]
+    [InlineData("/records/source/")]
+    public void Catalogue_parent_grant_creation_requires_the_same_canonical_encoding_as_checks(string scope)
+        => Assert.ThrowsAny<ArgumentException>(() => PermissionAtom.Parse($"catalogue:read@{scope}"));
+
+    [Theory]
+    [InlineData("%73ource")]
+    [InlineData("source/")]
+    [InlineData("source?x")]
+    [InlineData("source#x")]
+    [InlineData("%FF")]
+    [InlineData("%00")]
+    [InlineData("%2E")]
+    [InlineData("%2E%2E")]
+    [InlineData("tenant%3aacme")]
+    public void Catalogue_target_parser_refuses_noncanonical_encoding(string component)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => CatalogueFieldTarget.Parse(
+            $"/records/{component}/catalogue-fields/1/FormDefinition/1.0.0/title"));
+        Assert.ThrowsAny<ArgumentException>(() => ScopeExpression.Parse(
+            $"/records/{component}/catalogue-fields/1/FormDefinition/1.0.0/title"));
+    }
+
+    [Theory]
+    [InlineData("1.0.0/secret")]
+    [InlineData("01.0.0/title")]
+    [InlineData("latest/title")]
+    [InlineData("1.0.0/title/")]
+    [InlineData("1.0.0/title/extra")]
+    public async Task Invalid_catalogue_field_target_is_rejected_before_closure_read(string suffix)
+    {
+        var calls = new List<string>();
+        var gate = Gate([], calls);
+        await Assert.ThrowsAnyAsync<ArgumentException>(async () =>
+        {
+            var scope = ScopeExpression.Parse($"/records/source/catalogue-fields/1/FormDefinition/{suffix}");
+            await gate.DecideAsync(new AuthorizationGateRequest(
+                new PermissionAtom(AuthorizationOperation.Parse("catalogue:read"), scope), Principal, Tenant,
+                new AuthorizationTarget("catalogue", "source", scope), At));
+        });
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public void Catalogue_target_encoding_round_trips_unicode_literal_percent_and_encoded_slash_without_aliasing()
+    {
+        var target = new CatalogueFieldTarget("FormDefinition", "tenant:acme/été%2F", "2.3.4", "title");
+        Assert.Equal("/records/tenant%3Aacme%2F%C3%A9t%C3%A9%252F/catalogue-fields/1/FormDefinition/2.3.4/title", target.Scope.Value);
+        Assert.Equal(target, CatalogueFieldTarget.Parse(target.Scope.Value));
+        Assert.False(CatalogueFieldTarget.RecordScope("tenant:acme").Contains(target.Scope));
+        Assert.True(CatalogueFieldTarget.RecordScope(target.Id).Contains(target.Scope));
+    }
+
+    [Theory]
+    [InlineData("/", true)]
+    [InlineData("/records/tenant%3Aacme%2Fsource", true)]
+    [InlineData("/records/tenant%3Aacme%2Fsource/catalogue-fields/1/FormDefinition/2.3.4/title", true)]
+    [InlineData("/records/tenant%3Aacme%2Fsource/catalogue-fields/1/FormDefinition/2.3.4/formId", false)]
+    [InlineData("/records/tenant%3Aacme%2Fsource/catalogue-fields/1/FormDefinition/2.3.5/title", false)]
+    [InlineData("/records/tenant%3Aacme%2Fsource/catalogue-fields/1/ViewDefinition/2.3.4/title", false)]
+    [InlineData("/records/other", false)]
+    public async Task Catalogue_field_target_uses_exact_coordinates_and_ordinary_grant_coverage(string grant, bool allowed)
+    {
+        const string target = "/records/tenant%3Aacme%2Fsource/catalogue-fields/1/FormDefinition/2.3.4/title";
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse($"catalogue:read@{target}"), Principal, Tenant,
+            new AuthorizationTarget("catalogue", "tenant:acme/source", ScopeExpression.Parse(target)), At);
+        var decision = await Gate([Derivation($"catalogue:read@{grant}")]).DecideAsync(request);
+        Assert.Equal(allowed ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied, decision.Verdict);
+    }
+
     [Fact]
     public async Task DecideAsync_ResolvesExactlyFourStagesInL670Order()
     {

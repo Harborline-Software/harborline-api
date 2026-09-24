@@ -59,7 +59,7 @@ public sealed class AdminTeamAccessAuthorityTests
         using var capture = new RosterDecisionCapture();
         await using var fixture = await Fixture.CreateAsync(allowed ? PermissionCompositions.Admin : PermissionCompositions.Member, refusalAudit: capture.Audit);
         Assert.Equal(allowed, await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId) is not null);
-        Assert.Equal("principal-admin", capture.AssertSingle(allowed).Roster!.PartyId);
+        Assert.Equal("party-admin", capture.AssertSingle(allowed).Roster!.PartyId);
         await capture.AssertAuditAsync(new TenantId(TenantId));
     }
 
@@ -143,6 +143,26 @@ public sealed class AdminTeamAccessAuthorityTests
         // The revoked member no longer appears in the member list.
         var after = await fixture.Authority.ListMembersAsync(fixture.Handle, TenantId);
         Assert.DoesNotContain(after!.Members, m => m.PartyId == "party-web");
+        Assert.NotNull(result.AuditId);
+        var replay = await fixture.Authority.RevokeMemberGrantAsync(fixture.Handle, TenantId, WebGrantId);
+        Assert.Equal(result.AuditId, replay!.AuditId);
+    }
+
+    [Fact]
+    public async Task Grant_only_revocation_never_enters_the_roster_writer_and_preserves_other_grants()
+    {
+        var captures = new BoundaryCaptures();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, captures: captures);
+        var tenant = new TenantId(TenantId);
+        var store = new NodeEfGrantStore(fixture.GrantFactory);
+        var before = (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId).ToArray();
+        var result = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            new AuthorizationWriteContext(new ActorId("principal-admin"), tenant, Now));
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, result!.Status);
+        Assert.Empty(captures.RosterWriterDecisions);
+        Assert.Empty(captures.RosterAudit.Records);
+        Assert.Same(Assert.Single(captures.GrantWriterDecisions), Assert.Single(captures.GrantAudit.Decisions));
+        Assert.Equal(before, (await store.SnapshotAsync(tenant)).Where(grant => grant.GrantId.ToString() != WebGrantId));
     }
 
     [Fact]
@@ -158,6 +178,7 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Same(sentinel, Assert.Single(captures.RosterWriterDecisions));
         Assert.Same(sentinel, Assert.Single(captures.GrantAudit.Decisions));
         Assert.Same(sentinel, Assert.Single(captures.RosterAudit.Decisions));
+        Assert.Equal(Assert.Single(captures.GrantAudit.Records).AuditId, result!.AuditId);
     }
 
     [Fact]
@@ -621,10 +642,9 @@ public sealed class AdminTeamAccessAuthorityTests
         await PromoteToAdministratorAsync(fixture, WebGrantId);
         var principal = new ActorId("principal-web");
         var inputs = EffectiveMemberPermissions.Read(roster, "party-web", principal);
-        var decision = await TestAuthorization.AllowGate().DecideAsync(
+        var decision = await TestAuthorization.GateWithRoster(allowed: true, roster: inputs).DecideAsync(
             new AuthorizationWriteContext(principal, new TenantId(TenantId), Now)
-                .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "ejection")
-                with { Roster = inputs });
+                .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "ejection"));
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
         Assert.True(decision.Evidence.Roster!.Ejected);
 
@@ -767,9 +787,6 @@ public sealed class AdminTeamAccessAuthorityTests
             var partyReader = new MapPartyReader(parties);
             var store = new AccountSetupInvitationStore(identityFactory);
             var selectedSessionStore = new WebSelectedSessionStore(sessionFactory);
-            var issuer = new AccountSetupInvitationIssuer(
-                sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
-                new FixedRosterReader(roster), store, TestAuthorization.AllowGate(), new FixedTimeProvider(Now));
             var grantStore = new NodeEfGrantStore(grantFactory);
             // Ticket 293 slice 4 — the gate decides from GRANTS, never from a roster permission set.
             // Each admitted party's admission conferred a grant carrying the permissions the roster edge
@@ -781,13 +798,18 @@ public sealed class AdminTeamAccessAuthorityTests
                 ["principal-admin"] = callerPermissions,
             };
             if (successorPermissions is not null) conferred["principal-third"] = successorPermissions;
-            var grantDerivedGate = TestAuthorization.Gate(request =>
-                (conferred.TryGetValue(request.Principal.Value, out var set)
-                    && set.Permissions.Contains(request.Act.Operation.Value))
-                || grantStore.SnapshotAsync(request.Tenant, CancellationToken.None)
-                    .GetAwaiter().GetResult()
-                    .Any(grant => grant.Subject == request.Principal
-                        && LastAdministratorGuard.IsAdministratorInForce(grant, request.At)));
+            var grantDerivedGate = TestAuthorization.Gate(
+                request =>
+                    (conferred.TryGetValue(request.Principal.Value, out var set)
+                        && set.Permissions.Contains(request.Act.Operation.Value))
+                    || grantStore.SnapshotAsync(request.Tenant, CancellationToken.None)
+                        .GetAwaiter().GetResult()
+                        .Any(grant => grant.Subject == request.Principal
+                            && LastAdministratorGuard.IsAdministratorInForce(grant, request.At)),
+                new NodeAuthorizationRosterConstraintReader(partyReader, new FixedRosterReader(roster)));
+            var issuer = new AccountSetupInvitationIssuer(
+                sessionFactory, selectedSessionStore, identityFactory, grantFactory, partyReader,
+                new FixedRosterReader(roster), store, grantDerivedGate, new FixedTimeProvider(Now));
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
             IAuthorizedAuditTrail grantAudit = new InMemoryAuditTrail();
@@ -999,6 +1021,23 @@ public sealed class AdminTeamAccessAuthorityTests
         IAuthorizedGrantRevocationWriter inner,
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
+        public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
+            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken);
+        }
+
+        public Task<GrantScopeNarrowing?> NarrowScopeAsync(
+            TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
+            GrantRevocation revocation, AuthorizationDecision admittedDecision,
+            CancellationToken cancellationToken = default)
+        {
+            decisions.Add(admittedDecision);
+            return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
+                admittedDecision, cancellationToken);
+        }
+
         public Task<AccessGrant?> RevokeAsync(
             TenantId tenant,
             GrantId grant,

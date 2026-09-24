@@ -7,8 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.AccessGrant;
-using Harborline.Api.Blocks.Calendar.Models;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;

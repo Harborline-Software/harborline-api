@@ -1,6 +1,6 @@
-# License and SBOM scan. Guarded like the other workflows: it runs only once Actions is switched on
-# for this repository (`gh variable set ACTIONS_ENABLED --body true`). Until then the same checks run
-# locally through the repository gate.
+# License and SBOM scan. `sbom` is a required context and carries no condition (T-633: a job skipped
+# by its own `if` counts as a successful required check). Only the optional dependency-review job
+# keeps the ACTIONS_ENABLED switch.
 name: license-sbom
 on:
   push:
@@ -12,7 +12,6 @@ permissions:
   pull-requests: read
 jobs:
   sbom:
-    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -40,3 +39,5 @@ jobs:
       - uses: actions/dependency-review-action@v5
         with:
           deny-licenses: GPL-2.0-only, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0, BUSL-1.1
+          # ADR-0086 clause 5: the audit bar is high and critical; moderate findings are recorded, not blocking.
+          fail-on-severity: high

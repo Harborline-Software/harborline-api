@@ -1,8 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Authorization;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.People;
 using Harborline.Api.LocalNodeHost.Data.Scheduling;
@@ -13,9 +14,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 public sealed class HostedSchedulingApiEndpoint(
     SharedHostedWebApp sharedApp, NodeSchedulingDraftStore store, SchedulingDraftValidator validator,
     NodeEfPartyRepository parties, IActiveTeamAccessor activeTeam,
-    ICurrentUser currentUser, IBookingService bookingService, ICalendarEventStore eventStore,
+    ICurrentUser currentUser, IServiceScopeFactory scopes, ICalendarEventStore eventStore,
     ICalendarStore calendarStore, IResourceAvailabilityStore availabilityStore,
-    IFreeBusyService freeBusyService,
     TimeProvider timeProvider,
     ILogger<HostedSchedulingApiEndpoint> logger) : IHostedService
 {
@@ -23,8 +23,8 @@ public sealed class HostedSchedulingApiEndpoint(
     {
         sharedApp.MapApiRoutes(app => SchedulingDefinitionRoutes.Map(
             app.MapDeviceReachableProductDataGroup(),
-            store, validator, parties, activeTeam, currentUser, bookingService, eventStore,
-            calendarStore, availabilityStore, freeBusyService, timeProvider));
+            store, validator, parties, activeTeam, currentUser, scopes, eventStore,
+            calendarStore, availabilityStore, timeProvider));
         logger.LogInformation("Scheduling draft API registered at {RouteBase}.", SchedulingDefinitionRoutes.RouteBase);
         return Task.CompletedTask;
     }

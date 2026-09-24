@@ -1,0 +1,384 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+using Microsoft.Extensions.DependencyInjection;
+
+using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Packs.Install;
+using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.RuleEngine.Compilation;
+using Harborline.Api.Foundation.RuleEngine.Graph;
+using Harborline.Api.Foundation.RuleEngine.Model;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Blocks.BuilderDefinitions;
+
+namespace Harborline.Api.LocalNodeHost.Data.Configuration;
+
+/// <summary>
+/// The candidate generation's own declared behaviour, read once per run and then replayed into a
+/// clean world per case. Nothing here is the effective configuration: every definition is resolved
+/// from the exact package version and content digest the candidate names, through the same pack
+/// content admission the installer projects with, so what a run examines is the candidate and only
+/// the candidate.
+/// </summary>
+/// <remarks>
+/// The candidate carries three kinds of declaration this runner interprets: a form definition (its
+/// business rules and its per-section and per-field write roles), a role definition (a name the
+/// package ships) and a capability binding (the roles that package offers for one operation). Pack
+/// content that declares anything else is not this runner's to interpret and is passed over; it is
+/// not silently treated as absent, because an assertion that needed it reads a JSON null and fails.
+/// </remarks>
+internal sealed class VerificationCandidateWorld
+{
+    private readonly IReadOnlyDictionary<string, FormDefinition> _forms;
+    private readonly IReadOnlyList<RoleDefinition> _roles;
+    private readonly IReadOnlyList<AuthorizationCapabilityDefinition> _bindings;
+    private readonly TenantId _tenant;
+
+    private VerificationCandidateWorld(TenantId tenant, IReadOnlyDictionary<string, FormDefinition> forms,
+        IReadOnlyList<RoleDefinition> roles, IReadOnlyList<AuthorizationCapabilityDefinition> bindings)
+    {
+        _tenant = tenant;
+        _forms = forms;
+        _roles = roles;
+        _bindings = bindings;
+    }
+
+    /// <summary>
+    /// Resolves every definition the candidate owns. The candidate states one owning package per
+    /// content key and the exact revision of each package, so a content key claimed by two packages
+    /// resolves to the one the candidate chose rather than to whichever was read first.
+    /// </summary>
+    internal static VerificationCandidateWorld? Resolve(DurablePackInstallStore packs, TenantId tenant,
+        ConfigurationGeneration candidate, out IReadOnlyList<VerificationRefusal> refusals)
+    {
+        var found = new List<VerificationRefusal>();
+        var references = candidate.References;
+        var revisions = references.GetProperty("packages").EnumerateArray().ToDictionary(
+            package => package.GetProperty("reference").GetProperty("key").GetString()!,
+            package => package.GetProperty("reference").GetProperty("revision").GetString()!,
+            StringComparer.Ordinal);
+        var forms = new Dictionary<string, FormDefinition>(StringComparer.Ordinal);
+        var roles = new List<RoleDefinition>();
+        var bindings = new List<AuthorizationCapabilityDefinition>();
+
+        foreach (var owner in references.GetProperty("ownership").EnumerateArray())
+        {
+            var definitionKey = owner.GetProperty("definitionKey").GetString()!;
+            var packageKey = owner.GetProperty("packageKey").GetString()!;
+            if (!revisions.TryGetValue(packageKey, out var revision))
+            {
+                found.Add(new("verification-candidate-package-missing", definitionKey,
+                    $"The candidate owns {definitionKey} through {packageKey}, which it does not itself name."));
+                continue;
+            }
+            var pack = packs.GetVersion(tenant, packageKey, revision);
+            var item = pack?.SeedItems.FirstOrDefault(seed => seed.Key == definitionKey);
+            if (item is null)
+            {
+                found.Add(new("verification-candidate-content-missing", definitionKey,
+                    $"{packageKey}@{revision} does not hold {definitionKey}, so the candidate cannot be executed."));
+                continue;
+            }
+            switch (item.Kind)
+            {
+                case PackContentKind.FormDefinition:
+                    if (TryForm(tenant, packageKey, item, out var form, out var why)) forms[definitionKey] = form!;
+                    else found.Add(new("verification-candidate-form-malformed", definitionKey,
+                        $"{definitionKey} is not a form definition this host can project: {why}"));
+                    break;
+                case PackContentKind.RoleDefinition:
+                    if (PackAuthorizationContentAdmission.TryParseRoleDefinition(packageKey, item.ParseContent(), out var role))
+                        roles.Add(role!);
+                    else found.Add(new("verification-candidate-role-malformed", definitionKey,
+                        $"{definitionKey} is not a role definition this host can project."));
+                    break;
+                case PackContentKind.AuthorizationCapabilityBinding:
+                    if (PackAuthorizationContentAdmission.TryParseCapabilityBinding(packageKey, item.ParseContent(), out var binding))
+                        bindings.Add(binding!);
+                    else found.Add(new("verification-candidate-binding-malformed", definitionKey,
+                        $"{definitionKey} is not a capability binding this host can project."));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        refusals = found;
+        return found.Count > 0 ? null : new VerificationCandidateWorld(tenant, forms, roles, bindings);
+    }
+
+    /// <summary>
+    /// Opens one clean authority world for one fixture. It is in-memory, it is built from the
+    /// candidate's own declarations plus the fixture's declared grants and nothing else, and it is
+    /// disposed with the case: no grant, role or binding a case installs can reach the next one.
+    /// </summary>
+    internal async ValueTask<VerificationAuthorityWorld> OpenAsync(VerificationFixture fixture,
+        CancellationToken cancellationToken)
+    {
+        // Nothing here constructs a gate or reads a closure: the module composes the REAL gate over
+        // its own real readers, and the only thing registered ahead of it is the roster fact the
+        // fixture declares. Ticket 199's fence says production may not mint an authorization closure
+        // of its own, and a verification world has no business being the one exception.
+        var services = new ServiceCollection();
+        services.AddSingleton<IAuthorizationRosterConstraintReader>(new VerificationRosterConstraintReader());
+        var provider = services.AddAccessGrantModule().BuildServiceProvider();
+        try
+        {
+            // The world is bootstrapped the way an install bootstraps: the released founding
+            // definitions, through the seed's own path, into a world whose grant history is empty.
+            // That is what makes grant:permissions below a real decision rather than an assertion.
+            // It confers nothing on the fixture's actor: the seed offers records:write to the member
+            // and node-operator roles, and the actor holds a grant for neither.
+            await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
+                .InstallAsync(_tenant, fixture.Instant, AuthorizationSeedProfile.Production, cancellationToken)
+                .ConfigureAwait(false);
+
+            var vocabulary = provider.GetRequiredService<IRoleVocabularyStore>();
+            foreach (var role in _roles) await vocabulary.InstallAsync(role, cancellationToken).ConfigureAwait(false);
+
+            var grants = provider.GetRequiredService<IGrantStore>();
+            var issued = fixture.Instant.AddTicks(-1);
+
+            // Installing the candidate's declarations is composition, and the principal that performs
+            // it is NOT the fixture's actor: it holds this world's Administrator grant, the actor
+            // holds only what the fixture declared, and the two never meet. The definition writer
+            // then decides grant:permissions through the same real gate every case is measured by,
+            // so even composition is an admitted act rather than an asserted one.
+            var composer = new ActorId("verification:candidate-authority");
+            await grants.AppendAsync(_tenant, Grant(composer, RoleReference.Administrator,
+                ScopeExpression.Parse("/"), issued), "verification:composition", cancellationToken)
+                .ConfigureAwait(false);
+
+            // The candidate's capability bindings, through the ordinary admitted write stages: a
+            // pack's offered roles are the publisher ceiling and are bounded by every rule
+            // AuthorizationDefinitionAdmission holds, exactly as they are at install.
+            var writer = provider.GetRequiredService<AuthorizationDefinitionWriter>();
+            var installer = new AuthorizationWriteContext(composer, _tenant, fixture.Instant);
+            foreach (var binding in _bindings)
+                await writer.WriteAsync(new InstallAuthorizationDefinition(binding), installer, cancellationToken)
+                    .ConfigureAwait(false);
+
+            // The fixture's declared authority, and only it. An actor with an empty grants list is an
+            // actor that holds nothing, which is a declared input rather than an oversight.
+            var actor = new ActorId(fixture.Actor);
+            foreach (var grant in fixture.Grants)
+                await grants.AppendAsync(_tenant,
+                    Grant(actor, Role(grant.RoleKey), ScopeExpression.Parse(Scope(grant.Scope)), issued),
+                    // One source reference per declared grant: the store treats a repeated reference as
+                    // an attempt to replace immutable evidence, and a fixture may declare two roles.
+                    $"{fixture.FixtureId}:{grant.RoleKey}@{grant.Scope}", cancellationToken).ConfigureAwait(false);
+
+            // The REAL gate the module composed over its own readers, resolved rather than built.
+            return new VerificationAuthorityWorld(
+                provider, provider.GetRequiredService<AuthorizationGate>(), _tenant);
+        }
+        catch
+        {
+            await provider.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The submitted fields the candidate's own form definition governs and the roles the gate
+    /// derived do not cover, in the candidate's declared field order so a refusal names the same
+    /// field on every run. The rule is the released one: a field no section references is
+    /// un-governed and writable; a governed field needs both a section whose write roles the actor
+    /// holds and, where the field narrows it further, that field's own write roles too.
+    /// </summary>
+    internal IReadOnlyList<string> WriteDeniedFields(string recordType, JsonObject values,
+        IReadOnlySet<RoleReference> held)
+    {
+        if (Form(recordType) is not { } form) return [];
+        var names = held.Select(role => role.Name).Concat(held.Select(role => $"{role.Vocabulary}/{role.Name}"))
+            .ToHashSet(StringComparer.Ordinal);
+        var sections = form.Overlay.Sections
+            .Select(section => (section.Access, Keys: section.Fields.ToHashSet(StringComparer.Ordinal)))
+            .ToArray();
+        var denied = new List<string>();
+        foreach (var property in values)
+        {
+            var governed = false;
+            var writable = false;
+            form.Overlay.Fields.TryGetValue(property.Key, out var field);
+            foreach (var (access, keys) in sections)
+            {
+                if (!keys.Contains(property.Key)) continue;
+                governed = true;
+                if (!Intersects(names, access.WriteRoles)) continue;
+                if (field?.FieldWriteRoles is { Count: > 0 } narrowed && !Intersects(names, narrowed)) continue;
+                writable = true;
+                break;
+            }
+            if (governed && !writable) denied.Add(property.Key);
+        }
+        denied.Sort(StringComparer.Ordinal);
+        return denied;
+    }
+
+    /// <summary>
+    /// The record the act produces: the submitted values with every value the candidate's own rules
+    /// computed merged over them. A rule set that cannot compile throws rather than degrading, and a
+    /// rule that errors or leaves a value pending closes the save gate, which is the released
+    /// behaviour — a computed value that failed is not quietly absent.
+    /// </summary>
+    /// <param name="blocked">
+    /// Why the released save gate closed, or null when it did not. The code is the rule engine's
+    /// OWN released code (<c>rule.div_by_zero</c>, <c>rule.type_error</c>, a failing rule's id, …):
+    /// the runner does not author a second vocabulary for a fault the engine already names, and the
+    /// pointer addresses the cell the engine named.
+    /// </param>
+    /// <param name="clock">
+    /// The fixture's virtual instant, as a clock. Every <c>date.*</c> the candidate's rules read
+    /// resolves here. The runner never makes one: ticket 216 puts every clock in the host
+    /// composition root, and this one arrives from there through the runner's own factory.
+    /// </param>
+    internal JsonObject Evaluate(string recordType, JsonObject values, TimeProvider clock,
+        out VerificationRuleBlock? blocked)
+    {
+        var record = values.DeepClone().AsObject();
+        blocked = null;
+        if (Form(recordType) is not { Overlay.Rules.Count: > 0 } form) return record;
+        var graph = new FormRuleGraph(RuleCompiler.Compile([.. form.Overlay.Rules]), clock: clock);
+        var result = graph.EvaluateInstance(RuleInstance.FromJson(record.DeepClone().AsObject()));
+        foreach (var (key, computed) in result.Values)
+        {
+            if (!key.StartsWith("field:", StringComparison.Ordinal)) continue;
+            if (computed.State != ValueState.Resolved) continue;
+            record[key["field:".Length..]] = computed.Value?.DeepClone();
+        }
+        if (!result.IsSaveBlocked) return record;
+
+        // Ordinal by cell so the same defect names the same cell on every run. A failed validation
+        // is reported ahead of an errored value: it is the verdict the released gate acts on.
+        var validation = result.Validations
+            .Where(outcome => outcome.Validity?.Error is not null)
+            .OrderBy(outcome => outcome.Target.Key, StringComparer.Ordinal).FirstOrDefault();
+        if (validation is not null)
+        {
+            blocked = new(validation.Validity!.Error!.Code, Cell(validation.Target.Key));
+            return record;
+        }
+        var faulted = result.Values.Where(pair => pair.Value.State != ValueState.Resolved)
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+        blocked = faulted.Length == 0
+            ? new("rule.pending", "/record")
+            : new(faulted[0].Value.Error?.Code ?? "rule.pending", Cell(faulted[0].Key));
+        return record;
+    }
+
+    /// <summary>A cell key as an RFC 6901 pointer into the record; a non-field cell addresses the whole.</summary>
+    private static string Cell(string key) => key.StartsWith("field:", StringComparison.Ordinal)
+        ? "/" + VerificationRunner.Escape(key["field:".Length..])
+        : "/record";
+
+    /// <summary>The candidate's form definition for a record type, by content key or its last segment.</summary>
+    private FormDefinition? Form(string recordType)
+    {
+        if (_forms.TryGetValue(recordType, out var exact)) return exact;
+        return _forms.FirstOrDefault(entry =>
+            entry.Key.EndsWith('/' + recordType, StringComparison.Ordinal)).Value;
+    }
+
+    // One declared holding, as the released grant shape: a manual grant by a named granter, valid
+    // from just before the fixture's instant so it is in force for the act and not a moment earlier.
+    private AccessGrant Grant(ActorId holder, RoleReference role, ScopeExpression scope,
+        DateTimeOffset issued) => new(GrantId.New(), _tenant, holder, role, scope, GrantResidency.Cache,
+        new GrantValidity(issued), GranterKind.Person, new ActorId("verification:fixture"), issued,
+        new GrantProvenance(GrantSourceKind.Manual, new GrantReason(GrantReasonCodes.Manual),
+            new ActorId("verification:fixture")), issued);
+
+    private static bool Intersects(IReadOnlySet<string> held, IReadOnlyList<string>? required) =>
+        required is { Count: > 0 } && required.Any(held.Contains);
+
+    // A fixture declares a role key in its own terms. A key that already names a vocabulary is taken
+    // as written; a bare key is a domain role, which is the only vocabulary a package may ship into.
+    private static RoleReference Role(string roleKey)
+    {
+        var separator = roleKey.IndexOf('/', StringComparison.Ordinal);
+        return separator > 0 && separator < roleKey.Length - 1
+            ? new(roleKey[..separator], roleKey[(separator + 1)..])
+            : new(RoleVocabularies.Domain, roleKey);
+    }
+
+    // A fixture's scope is a declared input, so an authored value is used exactly; a bare name is
+    // read as one scope segment rather than being widened to the install root.
+    private static string Scope(string scope) =>
+        string.IsNullOrWhiteSpace(scope) ? "/" : scope[0] == '/' ? scope : "/" + scope;
+
+    private static bool TryForm(TenantId tenant, string packageKey, PackSeedItem item, out FormDefinition? form,
+        out string why)
+    {
+        form = null;
+        if (!PackFormDefinitionContent.TryParse(item.CanonicalJson, out var request, out _, out why)) return false;
+        try
+        {
+            var built = FormDefinitionRoutes.BuildDefinition(new FormDefinitionId(item.Key),
+                SemanticVersion.Parse(item.Version), tenant, IdentityRef.System,
+                new SchemaId($"verification:{packageKey}:{item.Key}"), request.Overlay,
+                DateTimeOffset.UnixEpoch, request.CatalogueFieldSource);
+            // Pack content has vendor authority: an omitted access gate means NO gate, never the
+            // authoring route's operator-role fallback. The installer draws the same distinction, and
+            // drawing it differently here would make a verification run disagree with the install.
+            form = built with
+            {
+                Overlay = built.Overlay with
+                {
+                    Sections = [.. built.Overlay.Sections.Select((section, index) =>
+                        request.Overlay.Sections[index].Access is null
+                            ? section with { Access = new SectionAccess([], []) }
+                            : section)],
+                },
+            };
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or JsonException
+            or InvalidOperationException)
+        {
+            why = exception.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The roster facts of the declared world. A fixture states its acting persona and the authority
+    /// that persona holds, and the gate's fail-closed floor for a composition with no roster is an
+    /// EJECTED subject whose atoms are cleared — which would refuse every case for the absence of a
+    /// roster the fixture does not have and does not need. So the declared actor is a member of the
+    /// declared world and is not ejected. That is the fixture's own input, restated where the gate
+    /// reads it; what the actor may DO is still decided entirely by its declared grants and the
+    /// candidate's own capability bindings, and an actor with no grants still holds nothing.
+    /// </summary>
+    private sealed class VerificationRosterConstraintReader : IAuthorizationRosterConstraintReader
+    {
+        public ValueTask<AuthorizationRosterInputs?> ReadAsync(ActorId principal, TenantId tenant,
+            DateTimeOffset at, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<AuthorizationRosterInputs?>(
+                new(principal.Value, Member: true, Ejected: false) { RegistryMember = true });
+    }
+}
+
+/// <summary>Why the released save gate closed: the engine's own code, and the cell it named.</summary>
+internal sealed record VerificationRuleBlock(string Code, string Pointer);
+
+/// <summary>One case's clean authority world, disposed with the case.</summary>
+internal sealed class VerificationAuthorityWorld(ServiceProvider provider, AuthorizationGate gate, TenantId tenant)
+    : IAsyncDisposable
+{
+    /// <summary>The real gate the access-grant module composed over this world's own readers.</summary>
+    internal AuthorizationGate Gate { get; } = gate;
+
+    /// <summary>The tenant every decision in this world is scoped to.</summary>
+    internal TenantId Tenant { get; } = tenant;
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync() => provider.DisposeAsync();
+}

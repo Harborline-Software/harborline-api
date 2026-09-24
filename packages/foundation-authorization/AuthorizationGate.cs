@@ -9,7 +9,8 @@ namespace Harborline.Api.Foundation.Authorization;
 public sealed class AuthorizationGate(
     IAuthorizationClosureSnapshotReader closure,
     IRecordStandingResolver standings,
-    IAuthorizationDefinitionAtomReader definitions)
+    IAuthorizationDefinitionAtomReader definitions,
+    IAuthorizationRosterConstraintReader rosterConstraints)
 {
     private static readonly ActivitySource Decisions = new("Harborline.AuthorizationGate");
 
@@ -19,6 +20,14 @@ public sealed class AuthorizationGate(
             ["records"] = "record",
             ["ledger"] = "journal-entry",
         };
+
+    internal AuthorizationGate(
+        IAuthorizationClosureSnapshotReader closure,
+        IRecordStandingResolver standings,
+        IAuthorizationDefinitionAtomReader definitions)
+        : this(closure, standings, definitions, TestMemberAuthorizationRosterConstraintReader.Shared)
+    {
+    }
 
     /// <summary>
     /// The install-root grant derivation the roster inputs used to carry: the principal's atoms whose scope
@@ -38,11 +47,82 @@ public sealed class AuthorizationGate(
 
     public async ValueTask<AuthorizationDecision> DecideAsync(
         AuthorizationGateRequest request,
+        CancellationToken ct = default) =>
+        await DecideCoreAsync(
+            request, prospectiveAdministrator: false, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Decides membership admission, where the acting principal must have a verified live roster edge in
+    /// addition to grant coverage. The dedicated entry point prevents caller-supplied roster switches from
+    /// weakening or manufacturing this constraint.
+    /// </summary>
+    public async ValueTask<AuthorizationDecision> DecideMembershipAdmissionAsync(
+        AuthorizationGateRequest request,
         CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Act.Operation.Value != TeamRolePermissions.MembersManage
+            || request.Target.RecordKind != "members")
+        {
+            throw new ArgumentException(
+                "Membership admission authority is valid only for members management acts.",
+                nameof(request));
+        }
+        return await DecideCoreAsync(
+            request, prospectiveAdministrator: false, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Decides the one transition where a verified non-member is about to receive Administrator.
+    /// The dedicated entry point prevents a request flag from manufacturing prospective authority.
+    /// </summary>
+    public async ValueTask<AuthorizationDecision> DecideProspectiveAdministratorAsync(
+        AuthorizationGateRequest request,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Act.Operation.Value != TeamRolePermissions.MembersManage
+            || request.Target.RecordKind != "members"
+            || request.Target.RecordId != "handover")
+            throw new ArgumentException(
+                "Prospective Administrator authority is valid only for the members handover act.",
+                nameof(request));
+        return await DecideCoreAsync(
+            request, prospectiveAdministrator: true, ct).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AuthorizationDecision> DecideCoreAsync(
+        AuthorizationGateRequest request,
+        bool prospectiveAdministrator,
+        CancellationToken ct)
     {
         using var activity = Decisions.StartActivity("decide");
         Validate(request);
         ct.ThrowIfCancellationRequested();
+
+        var derivedRoster = await rosterConstraints
+            .ReadAsync(request.Principal, request.Tenant, request.At, ct)
+            .ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        derivedRoster ??= new AuthorizationRosterInputs(
+            request.Principal.Value, Member: false, Ejected: true) { RegistryMember = false };
+        var requireRosterMember = !prospectiveAdministrator
+            && request.Act.Operation.Value == TeamRolePermissions.MembersManage
+            && request.Target.RecordKind == "members";
+        request = request with
+        {
+            // Caller-supplied roster facts and policy switches are never consulted. The gate records
+            // the verified facts and its own fixed constraints on the immutable decision request.
+            Roster = derivedRoster with
+            {
+                ProspectiveAdministratorGrant = prospectiveAdministrator,
+                RequireMember = requireRosterMember,
+                RequireGrantCoverage = requireRosterMember,
+                RequiredPermissions = PermissionSet.Empty,
+            },
+            // A caller cannot manufacture a kernel denial code. Only the attenuation read below may set it.
+            GrantRefusal = null,
+        };
 
         var resolution = new List<AuthorizationResolutionStep>(4)
         {
@@ -56,6 +136,17 @@ public sealed class AuthorizationGate(
         ct.ThrowIfCancellationRequested();
         var derivations = snapshot.Derivations.ToImmutableArray();
         var effectiveRecordRoles = derivations.Select(item => item.Role).ToImmutableHashSet();
+        if (requireRosterMember && effectiveRecordRoles.Contains(RoleReference.Administrator))
+        {
+            // An install-wide Administrator grant is the established non-roster administration path.
+            // The gate derives this exception from its own closure; a caller cannot request it by
+            // clearing RequireMember on the legacy roster observation.
+            requireRosterMember = false;
+            request = request with
+            {
+                Roster = request.Roster! with { RequireMember = false },
+            };
+        }
         resolution.Add(new AuthorizationResolutionStep(
             AuthorizationResolutionStage.EffectiveRecordRoles,
             derivations.Select(DescribeDerivation).Order(StringComparer.Ordinal).ToArray(),
@@ -86,8 +177,8 @@ public sealed class AuthorizationGate(
         if (request.Roster is { } roster)
         {
             var grantAllowed = atomCoverageAllowed;
-            // Ticket 294 slice 2a — the prospective-Administrator rule. When the caller declares that the
-            // Administrator role is ABOUT to be conferred on this subject, the decision is made against the
+            // Ticket 294 slice 2a — the prospective-Administrator rule. When the dedicated gate entry point
+            // declares that the Administrator role is ABOUT to be conferred, the decision is made against the
             // atoms that role confers ONLY where the subject holds no roster edge. Where a roster edge
             // exists it is the authority the signed plane already published, so the decision is made
             // against the subject's OWN conferred grants and the prospective atoms are not added — a
@@ -99,7 +190,7 @@ public sealed class AuthorizationGate(
             {
                 atoms = [];
             }
-            else if (roster is { ProspectiveAdministratorGrant: true, Member: false })
+            else if (prospectiveAdministrator && !roster.Member)
             {
                 atoms = atoms
                     .Concat(PermissionSet.From(TeamRolePermissions.ForRole(TeamRole.Admin))
@@ -115,18 +206,47 @@ public sealed class AuthorizationGate(
             namedRoleUnionAllowed = atomCoverageAllowed;
         }
 
+        AuthorizationGrantAttenuationEvidence? attenuation = null;
+        if (request.RequiredGrantAtoms is { } requiredAtoms)
+        {
+            var evaluated = ImmutableArray.CreateBuilder<AuthorizationGrantAtomEvidence>();
+            foreach (var required in requiredAtoms.Atoms)
+            {
+                // The delegated atom can cover a different scope from the members:manage act. Read
+                // that scope through the gate's own closure; a narrow grant cannot confer a root role.
+                var requiredSnapshot = await closure.ReadAsync(request with
+                {
+                    Act = required,
+                    Target = new AuthorizationTarget(RecordKindFor(required.Operation),
+                        request.Target.RecordId, required.Scope),
+                    RequiredGrantAtoms = null,
+                }, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                var covered = requiredSnapshot.Derivations.Any(item => item.Atom.Covers(required));
+                evaluated.Add(new AuthorizationGrantAtomEvidence(required, covered,
+                    requiredSnapshot.Derivations.OrderBy(DescribeAttenuationDerivation, StringComparer.Ordinal).ToImmutableArray(),
+                    requiredSnapshot.Excluded.OrderBy(item => DescribeAttenuationDerivation(item.Binding), StringComparer.Ordinal)
+                        .ThenBy(item => item.Reason).ToImmutableArray()));
+                if (!covered)
+                {
+                    request = request with { GrantRefusal = request.GrantRefusal ?? "authorization.grant.attenuation_failed" };
+                }
+            }
+            attenuation = new AuthorizationGrantAttenuationEvidence(evaluated.ToImmutable());
+        }
         var verdict = atomCoverageAllowed && request.GrantRefusal is null ? AuthorizationVerdict.Allowed : AuthorizationVerdict.Denied;
         var verdictName = verdict.ToString().ToLowerInvariant();
         resolution.Add(new AuthorizationResolutionStep(
             AuthorizationResolutionStage.NamedRoleUnionVerdict,
             namedRoleUnion.Select(role => role.ToString()).Order(StringComparer.Ordinal)
                 .Concat(namedRoleAtoms.Select(item => $"compare:{item.Role}:{item.Atom}->{request.Act}"))
+                .Concat(request.RequiredGrantAtoms?.Atoms.Select(atom => $"grant-required:{atom}") ?? [])
                 .ToArray(),
             [$"atom-coverage:{verdictName}", $"named-role-union:{verdictName}"]));
 
         ct.ThrowIfCancellationRequested();
         var decision = new AuthorizationDecision(
-            request, verdict, atoms, derivations, standingSnapshot, resolution, snapshot.Excluded);
+            request, verdict, atoms, derivations, standingSnapshot, resolution, snapshot.Excluded, attenuation);
         activity?.SetCustomProperty("authorization.evidence", decision.Evidence);
         return decision;
     }
@@ -171,6 +291,14 @@ public sealed class AuthorizationGate(
         if (!exactPackTarget
             && !string.Equals(request.Target.RecordKind, expectedRecordKind, StringComparison.Ordinal))
             throw new ArgumentException("The requested operation does not belong to the target record kind.", nameof(request));
+        if (request.Act.Operation.Value == Permission.CatalogueRead
+            && request.Target.Scope.Value.Contains("/catalogue-fields/", StringComparison.Ordinal))
+        {
+            var field = CatalogueFieldTarget.Parse(request.Target.Scope.Value);
+            if (field.Id != request.Target.RecordId || !request.Act.Scope.Equals(field.Scope))
+                throw new ArgumentException("The requested catalogue field and target disagree.", nameof(request));
+            return;
+        }
         var canonicalScope = CanonicalTargetScope(request.Tenant, request.Target.RecordKind, request.Target.RecordId);
         if (!request.Target.Scope.Equals(canonicalScope) || !request.Act.Scope.Equals(canonicalScope))
             throw new ArgumentException("The requested act and target must use the canonical target scope.", nameof(request));
@@ -194,6 +322,7 @@ public sealed class AuthorizationGate(
 
     internal static ScopeExpression CanonicalTargetScope(TenantId tenant, string recordKind, string recordId)
     {
+        if (recordKind == "catalogue") return CatalogueFieldTarget.RecordScope(recordId);
         if (string.Equals(recordKind, "tenant", StringComparison.Ordinal))
         {
             if (!string.Equals(recordId, tenant.Value, StringComparison.Ordinal))
@@ -246,6 +375,9 @@ public sealed class AuthorizationGate(
 
     private static string DescribeDerivation(AuthorizationAtomDerivation item) =>
         $"role:{item.Role};atom:{item.Atom};grant:{item.GrantId}@{item.GrantOwnerVersion};definition:{item.DefinitionId};valid:{item.ValidFrom:O}..{item.ValidUntil:O}";
+
+    private static string DescribeAttenuationDerivation(AuthorizationAtomDerivation item) =>
+        $"{DescribeDerivation(item)};scope:{item.GrantScope};in-force:{item.InForce}";
 
     private static string DescribeStanding(RecordStanding item) =>
         $"role:{item.Role};rule:{item.RuleId};evidence:{item.EvidenceVersion}";

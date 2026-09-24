@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 // Compares quality finding sets without treating a line-only move as a new diagnostic.
 import {existsSync, readFileSync} from 'node:fs'
-import path from 'node:path'
-import {fileURLToPath} from 'node:url'
 
 const emptySnippet = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 const document = file => JSON.parse(readFileSync(file, 'utf8')).findings ?? []
@@ -56,17 +54,25 @@ export const compareFindings = (head, base, diff = '') => {
       index = remaining(row => identity(row) === identity(finding) && line(row) !== null && movedLine(moved.get(finding.path), line(row)) === line(finding))
       method = 'moved-line'
     }
+    // Last resort: the same rule, in the same file, in the same project, still there. A finding
+    // whose whole neighbourhood was rewritten has no fingerprint, no anchor and no mappable line --
+    // movedLine returns null for anything INSIDE a hunk -- so without this a refactor reports its
+    // own untouched diagnostics as new, and an equal number as resolved. Ticket 121 did exactly
+    // that on main: 8 new and 9 resolved, while the per-rule, per-file counts were identical.
+    // This pairs them one-for-one, so a genuinely ADDED diagnostic of the same rule in the same
+    // file still has no partner left to match and stays new.
+    if (index < 0) { index = remaining(row => identity(row) === identity(finding)); method = 'identity' }
     if (index >= 0) { used.add(index); matches.push({head: finding, base: base[index], method}) }
   }
   const matched = new Set(matches.map(match => match.head))
   return {newFindings: head.filter(row => !matched.has(row)), resolved: base.filter((_, index) => !used.has(index)), matches}
 }
 
-export const loadBaseline = (artifact, committed) => existsSync(artifact)
-  ? {findings: document(artifact), source: 'merge-base artifact'}
-  : {findings: document(committed), source: 'committed fallback'}
+// Ticket 436: one source, a tracked file. The per-commit artifact this used to prefer is gone --
+// see eng/quality-baseline-landing.sh for the measurement that retired it.
+export const loadBaseline = committed => ({findings: document(committed), source: 'committed baseline'})
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/quality-baseline-compare.mjs')) {
   const [candidate, baseline, diff = ''] = process.argv.slice(2)
   if (!candidate || !baseline) throw new Error('usage: quality-baseline-compare.mjs <candidate> <baseline> [diff]')
   const result = compareFindings(document(candidate), document(baseline), diff && existsSync(diff) ? readFileSync(diff, 'utf8') : '')

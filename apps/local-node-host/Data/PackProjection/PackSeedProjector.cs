@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Packs.Graph;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
@@ -154,10 +155,16 @@ public sealed record PackSeedProjectionSummary(
     int WorkflowDefinitionsRetracted = 0) : IPackProjectionRefusalReport
 {
     /// <inheritdoc />
-    /// <remarks>Any content-grain refusal leaves the admission incomplete, so the next boot re-runs the
-    /// pass. Pack-grain platform refusals are a steady state the host reacts to elsewhere, not a
-    /// half-applied projection, so they do not hold the admission open.</remarks>
-    public bool ProjectionRefused => Refusals.Count > 0;
+    public bool ProjectionRefused => Refusals.Count > 0 || PlatformRefusals.Count > 0
+        || AssetTypesSkippedInvalid > 0 || TemplatesSkippedInvalid > 0
+        || FormDefinitionsSkippedInvalid > 0 || WorkflowDefinitionsSkippedInvalid > 0
+        || FormDefinitionsDeferred > 0 || WorkflowDefinitionsDeferred > 0
+        || AssetTypesContestedUnresolved > 0;
+
+    /// <inheritdoc />
+    public PackInstallRefusal? FirstRefusal => Refusals.Count > 0
+        ? new(Refusals[0].Code, Refusals[0].Pointer)
+        : ProjectionRefused ? new(PackInstallCodes.ActivateProjectionRefused, "/") : null;
 
     /// <summary>Stable, locale-independent refusal codes produced by this pass.</summary>
     public IReadOnlyList<PackSeedProjectionRefusal> Refusals { get; init; }
@@ -286,6 +293,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         new(PackContentKind.NavWorkspaceConfig, Array.Empty<string>()),
         new(PackContentKind.TemplateDefinition, Array.Empty<string>()),
         new(PackContentKind.TaxonomyDefinition, Array.Empty<string>()),
+        new(PackContentKind.CascadeDefaults, Array.Empty<string>()),
         new(PackContentKind.ReportDefinition, Array.Empty<string>()),
         new(PackContentKind.DataExchangeDefinition, Array.Empty<string>()),
         new(PackContentKind.ScheduleDefinition, Array.Empty<string>()),
@@ -293,6 +301,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         new(PackContentKind.StandingRuleDefinition, Array.Empty<string>()),
         new(PackContentKind.RoleDefinition, Array.Empty<string>()),
         new(PackContentKind.AuthorizationCapabilityBinding, Array.Empty<string>()),
+        new(PackContentKind.TerminologyOverride, Array.Empty<string>()),
     ];
 
     private readonly IPackInstallStore _store;
@@ -301,12 +310,17 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IDocumentTemplateRegistry? _templates;
     private readonly IPackContentEdgeIndexProvider? _edgeIndex;
     private readonly IFormDefinitionStore? _forms;
+    private readonly CatalogueFieldSourceAdmission _catalogueFields;
+    private readonly CatalogueDetailTemplates? _catalogueDetails;
+    private readonly TerminologyProjection? _terminology;
     private readonly AuthorizedFormDefinitionLifecycle? _authorizedForms;
     private readonly ISchemaRegistry? _schemas;
     private readonly IWorkflowDefinitionStore? _workflows;
     private readonly AuthorizedWorkflowDefinitionLifecycle? _authorizedWorkflows;
     private readonly WorkflowCatalogueLintReports? _workflowLintReports;
+    private readonly ExposedViewAuthorizationReachabilityReports? _viewReachabilityReports;
     private readonly ITaxonomyRegistry? _taxonomies;
+    private readonly ActiveCascadeDefaultsProjection? _defaults;
     private readonly IReportDefinitionRegistry? _reportDefinitions;
     private readonly IDataExchangeDefinitionRegistry? _dataExchangeDefinitions;
     private readonly IScheduleDefinitionRegistry? _scheduleDefinitions;
@@ -318,9 +332,37 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     private readonly IStandingRuleDefinitionStore? _standingRules;
     private readonly IRoleVocabularyStore? _roleVocabulary;
     private readonly AuthorizationDefinitionWriter? _authorizationDefinitions;
+    private readonly IAuthorizationDefinitionCatalogueReader? _authorizationDefinitionCatalogue;
     private readonly IPackPlatformCompatibility? _platform;
     private readonly TimeProvider _time;
     private static readonly ConcurrentDictionary<Guid, byte> ConsumedAuthorities = new();
+    private PackProjectionTransaction? _projectionTransaction;
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        transaction.Enlist(_types);
+        transaction.Enlist(_templates);
+        transaction.Enlist(_forms);
+        transaction.Enlist(_authorizedForms);
+        transaction.Enlist(_schemas);
+        transaction.Enlist(_workflows);
+        transaction.Enlist(_authorizedWorkflows);
+        transaction.Enlist(_taxonomies);
+        transaction.Enlist(_defaults);
+        transaction.Enlist(_reportDefinitions);
+        transaction.Enlist(_dataExchangeDefinitions);
+        transaction.Enlist(_scheduleDefinitions);
+        transaction.Enlist(_viewDefinitions);
+        transaction.Enlist(_renderPlans);
+        transaction.Enlist(_standingRules);
+        transaction.Enlist(_roleVocabulary);
+        transaction.Enlist(_authorizationDefinitions);
+        transaction.Enlist(_catalogueDetails);
+        transaction.Enlist(_terminology);
+        transaction.Finally(() => _projectionTransaction = null);
+        _projectionTransaction = transaction;
+        return static () => { };
+    });
 
     /// <summary>
     /// Constructs the projector over the pack install store + runtime registries. The form and schema stores
@@ -363,19 +405,30 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         AuthorizedWorkflowDefinitionLifecycle? authorizedWorkflows = null,
         IRoleVocabularyStore? roleVocabulary = null,
         AuthorizationDefinitionWriter? authorizationDefinitions = null,
-        WorkflowCatalogueLintReports? workflowLintReports = null)
+        WorkflowCatalogueLintReports? workflowLintReports = null,
+        ExposedViewAuthorizationReachabilityReports? viewReachabilityReports = null,
+        IAuthorizationDefinitionCatalogueReader? authorizationDefinitionCatalogue = null,
+        CatalogueFieldSourceAdmission? catalogueFields = null,
+        CatalogueDetailTemplates? catalogueDetails = null,
+        TerminologyProjection? terminology = null,
+        ActiveCascadeDefaultsProjection? defaults = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _defaults = defaults;
         _types = types ?? throw new ArgumentNullException(nameof(types));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _templates = templates;
         _edgeIndex = edgeIndex;
         _forms = forms;
+        _catalogueFields = catalogueFields ?? new CatalogueFieldSourceAdmission();
+        _catalogueDetails = catalogueDetails;
+        _terminology = terminology;
         _authorizedForms = authorizedForms;
         _schemas = schemas;
         _workflows = workflows;
         _authorizedWorkflows = authorizedWorkflows;
         _workflowLintReports = workflowLintReports;
+        _viewReachabilityReports = viewReachabilityReports;
         _taxonomies = taxonomies;
         _reportDefinitions = reportDefinitions;
         _dataExchangeDefinitions = dataExchangeDefinitions;
@@ -387,6 +440,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // REFUSED (fail-closed, never skipped) — the same posture every other optional registry takes.
         _roleVocabulary = roleVocabulary;
         _authorizationDefinitions = authorizationDefinitions;
+        _authorizationDefinitionCatalogue = authorizationDefinitionCatalogue;
         // Ticket 160: when the host wires platform-compatibility facts, every projection pass (boot
         // re-projection included) re-runs the SAME requirement check install/activate use. Null keeps
         // back-compat embedders (and pre-160 tests) on the unchecked path — the OPPOSITE default from
@@ -411,6 +465,30 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     public async Task<PackSeedProjectionSummary> ProjectActivePacksAsync(
         PackProjectionAuthority authority,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        authority.EnsureUsable();
+        PackProjectionTransaction? current;
+        using (PackProjectionActivationBarrier.Read(cancellationToken)) current = _projectionTransaction;
+        if (current is not null)
+            return await ProjectCoreAsync(authority, cancellationToken).ConfigureAwait(false);
+        PackSeedProjectionSummary result;
+        var transaction = new PackProjectionTransaction(cancellationToken);
+        using (transaction)
+        {
+            transaction.Enlist(this);
+            result = await ProjectCoreAsync(authority, cancellationToken).ConfigureAwait(false);
+            if (!result.ProjectionRefused && result.PlatformRefusals.Count == 0) transaction.Commit();
+        }
+        var diagnostics = await transaction.ReactAsync().ConfigureAwait(false);
+        if (diagnostics is not null)
+            _logger.LogWarning(diagnostics, "Pack projection committed with post-commit observer or cleanup failures.");
+        return result;
+    }
+
+    private async Task<PackSeedProjectionSummary> ProjectCoreAsync(
+        PackProjectionAuthority authority,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(authority);
         authority.EnsureUsable();
@@ -442,6 +520,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         var workflowsRetracted = 0;
         var refusals = new List<PackSeedProjectionRefusal>();
         var platformRefusals = new List<PackPlatformProjectionRefusal>();
+        var pendingDefaults = new List<ProjectedCascadeDefaults>();
 
         var installed = _store.ListInstalled(tenant);
 
@@ -557,6 +636,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 _store.GetKeyOwnership(tenant))
             .ToDictionary(c => c.ContentKey, StringComparer.Ordinal);
 
+        _terminology?.BeginProjection(tenant, authority.PackId, authority.PackVersion, installed
+            .Where(pack => pack.Lifecycle == PackLifecycleState.Active && !platformRefused.Contains(pack))
+            .SelectMany(pack => pack.SeedItems.Where(item => item.Kind == PackContentKind.TerminologyOverride
+                    && DecideContested(pack, item, collisions) == ContestedDecision.Project)
+                .Select(item => (pack.PackKey, pack.Version, item.Key))).ToHashSet());
+
         // Role names retract LAST — the exact reverse of the projection order below, which puts them
         // FIRST. Withdrawing a role-gated form or workflow re-runs the role-gate admission, so a role
         // name removed ahead of the definitions gated on it makes their withdrawal unresolvable and
@@ -568,6 +653,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // (L633) One item's reverse projection, shared by the two retraction loops below: every kind the
         // projector parses retracts, so a replacement can never leave the replaced package's copy live.
         var retractedByKind = new Dictionary<PackContentKind, int>();
+        _defaults?.Reconcile(tenant, installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active
+                && !platformRefused.Contains(pack))
+            .SelectMany(pack => pack.SeedItems.Where(item => item.Kind == PackContentKind.CascadeDefaults
+                    && DecideContested(pack, item, collisions) == ContestedDecision.Project)
+                .Select(item => (pack.PackKey, pack.Version, item.Key))).ToHashSet());
         async Task RetractItemAsync(InstalledPack pack, PackSeedItem item)
         {
             var result = item.Kind switch
@@ -637,12 +727,60 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             // kind, at any depth — admits NOTHING and (refusals being non-empty) removes nothing either.
             // The kind half of the prohibition needs no code: PackContentKind has no grant member and
             // PackFileCodec refuses an undefined kind, so the shape is the only door left to close.
-            var seedItems = pack.SeedItems.Select(Overlaid).ToArray();
+            var seedItems = pack.SeedItems
+                .Select(Overlaid)
+                .Select(item => ReleasedViewKindCompatibility.Project(pack.PackKey, pack.Version, item))
+                .ToArray();
+            var defaultRows = new List<ProjectedCascadeDefaults>();
+            var defaultSeeds = new List<CascadeDeclaration>();
+            var defaultCoordinates = new HashSet<(string? Type, string? Field)>();
+            foreach (var item in seedItems.Where(item => item.Kind == PackContentKind.CascadeDefaults))
+            {
+                if (DecideContested(pack, item, collisions) != ContestedDecision.Project) continue;
+                if (_defaults is null)
+                    refusals.Add(new(item.Key, item.Kind, "pack.defaults.registry_not_wired", ContentPointer(pack, item)));
+                else if (!PackCascadeDefaultsContent.TryParse(item.CanonicalJson, out var content, out var code, out var pointer))
+                    refusals.Add(new(item.Key, item.Kind, code, ContentPointer(pack, item) + pointer));
+                else if (!PackCascadeDefaultsContent.TryParse(pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson,
+                             out var seedDefaults, out var seedCode, out var seedPointer))
+                    refusals.Add(new(item.Key, item.Kind, seedCode, ContentPointer(pack, item) + seedPointer));
+                else if (content!.Defaults.Any(declaration => !defaultCoordinates.Add((declaration.RecordType, declaration.Field))))
+                    refusals.Add(new(item.Key, item.Kind, PackCascadeDefaultsContent.Malformed, ContentPointer(pack, item) + "/defaults"));
+                else
+                {
+                    defaultSeeds.AddRange(seedDefaults!.Defaults);
+                    defaultRows.Add(new(new(tenant, pack.PackKey, pack.Version, item.Key, item.Version,
+                        item.CanonicalJson != pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson), content));
+                }
+            }
+            if (defaultRows.Count > 0 && !CascadeDefaultsRestrictionCheck.Preserves(new(1, "", defaultSeeds),
+                    new(1, "", defaultRows.SelectMany(row => row.Content.Defaults).ToArray())))
+                refusals.Add(new(defaultRows[0].Source.ContentKey, PackContentKind.CascadeDefaults, CascadeDefaultsRestrictionCheck.Refused,
+                    ContentPointer(pack, seedItems.Single(seed => seed.Key == defaultRows[0].Source.ContentKey)) + "/defaults"));
+            var composedItems = seedItems.Select(item =>
+                new Harborline.Api.Foundation.Packs.Install.Admission.PackComposedItem(
+                    pack.PackKey, item.Key, item.Kind, item.Version, item.CanonicalJson,
+                    pack.CapabilityRequirements, pack.SeedItems.Single(seed => seed.Key == item.Key).CanonicalJson)).ToArray();
+            var contentRefusals = _catalogueFields.Validate(composedItems)
+                .Concat(Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyContent.Validate(composedItems, tenant)).ToArray();
+            if (contentRefusals.Length > 0)
+            {
+                _defaults?.Replace(tenant, pack.PackKey, []);
+                foreach (Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionRefusal refusal in contentRefusals)
+                {
+                    var item = seedItems.Single(seed => seed.Key == refusal.ContentKey);
+                    if (item.Kind == PackContentKind.FormDefinition) formsInvalid++;
+                    else invalid++;
+                    refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, refusal.Code, ContentPointer(pack, item)));
+                }
+                continue;
+            }
             var smuggled = seedItems
                 .Where(i => PackAuthorizationContentAdmission.IsGrantInstance(TryParseContent(i)))
                 .ToArray();
             if (smuggled.Length > 0)
             {
+                _defaults?.Replace(tenant, pack.PackKey, []);
                 foreach (var item in smuggled)
                 {
                     _logger.LogError(
@@ -678,6 +816,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     ContentPointer(pack, item)));
             }
 
+            pendingDefaults.AddRange(defaultRows);
+
             // Role names before the bindings that offer them: admission resolves every offered role
             // against the vocabulary, so a binding declared ahead of its role would be refused.
             // The platform pack's descriptor catalogue points at the one compiled descriptor set. It is
@@ -690,6 +830,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             {
                 switch (item.Kind)
                 {
+                    case PackContentKind.CascadeDefaults:
+                        // Parsed above; publication waits for every projection and retraction refusal.
+                        break;
                     case PackContentKind.TemplateDefinition:
                         switch (DecideContested(pack, item, collisions))
                         {
@@ -706,8 +849,11 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                             template.RefusalCode ?? PackSeedProjectionRefusalCodes.TemplateProjectionFailedCode,
                                             ContentPointer(pack, item)));
                                         break;
+                                    case TemplateOutcome.Deferred:
+                                        refusals.Add(new(item.Key, item.Kind, "pack.template.registry_not_wired", ContentPointer(pack, item)));
+                                        break;
                                     default:
-                                        // Deferred or exact replay — recognized, but no new publication.
+                                        // Exact replay — recognized, but no new publication.
                                         break;
                                 }
 
@@ -1023,6 +1169,19 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         // mutable runtime registry for this reconciler to update.
                         break;
 
+                    case PackContentKind.TerminologyOverride:
+                        var terminologyDecision = DecideContested(pack, item, collisions);
+                        if (terminologyDecision == ContestedDecision.OwnedByOtherPack) break;
+                        var terminologyItem = composedItems.Single(candidate => candidate.Key == item.Key);
+                        var terminologyRefusal = terminologyDecision == ContestedDecision.Project
+                            ? _terminology is null
+                                ? Harborline.Api.Foundation.Packs.Install.Admission.PackAdmissionCodes.NotWired
+                                : _terminology.AdmitTerminology(tenant, pack.Version, terminologyItem)
+                            : Harborline.Api.Foundation.Packs.Install.Admission.PackTerminologyCodes.OwnershipUnresolved;
+                        if (terminologyRefusal is not null)
+                            refusals.Add(new PackSeedProjectionRefusal(item.Key, item.Kind, terminologyRefusal, ContentPointer(pack, item)));
+                        break;
+
                     default:
                         _logger.LogWarning(
                             "PackSeedProjector: content kind {Kind} ('{Key}', pack {Pack} v{Version}) is not yet "
@@ -1198,26 +1357,48 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         // G1 side-effect: rebuild the app-layer feature-graph content-edge-index off the fresh install
         // state, so a reader of GET /packs/graph gets a warm cache. Never fails a projection — the graph is
         // derived state and the read-model self-heals if this is skipped.
-        try
+        _projectionTransaction!.AfterCommit(() =>
         {
             _edgeIndex?.Rebuild(tenant);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(
-                ex, "PackSeedProjector: rebuilding the feature-graph content-edge-index for tenant {Tenant} "
-                + "failed — the graph read-model will rebuild it lazily on next read.",
-                tenant);
-        }
+            return Task.CompletedTask;
+        });
 
         // T-397: activation remains successful even when this lint finds an unreachable state. The
         // diagnostic reads the compiled, published workflow catalogue only after this pass is complete.
         if (_authorizedWorkflows is not null && _workflowLintReports is not null)
         {
-            await _workflowLintReports.RefreshAsync(
-                    _authorizedWorkflows, tenant, installed, cancellationToken)
-                .ConfigureAwait(false);
+            _projectionTransaction.AfterCommit(async () =>
+            {
+                // A newer activation may have committed before this deferred callback runs. Read one
+                // current pack/catalogue snapshot and publish its diagnostics before allowing another.
+                using var read = PackProjectionActivationBarrier.Read();
+                await _workflowLintReports.RefreshAsync(
+                    _authorizedWorkflows, tenant, _store.ListInstalled(tenant), CancellationToken.None)
+                    .ConfigureAwait(false);
+            });
         }
+
+        // T-398: this whole-catalogue pass is deliberately diagnostic. It observes only the compiled
+        // view and authorization catalogues after projection; a finding never enters Refusals and can
+        // therefore never reverse an otherwise successful lifecycle transition.
+        if (_viewDefinitions is not null
+            && _authorizationDefinitionCatalogue is not null
+            && _roleVocabulary is not null
+            && _viewReachabilityReports is not null)
+        {
+            _projectionTransaction.AfterCommit(async () =>
+            {
+                using var read = PackProjectionActivationBarrier.Read();
+                await _viewReachabilityReports.RefreshAsync(
+                    tenant, _store.ListInstalled(tenant), _viewDefinitions, _authorizationDefinitionCatalogue, _roleVocabulary,
+                    CancellationToken.None).ConfigureAwait(false);
+            });
+        }
+
+        // Other content kinds and replacement retractions can refuse after Defaults parsing.
+        // Publish once, only after the entire admission has succeeded; a refused pass leaves no row.
+        _defaults?.Replace(tenant, authority.PackId,
+            refusals.Count == 0 && platformRefusals.Count == 0 ? pendingDefaults : []);
 
         return new PackSeedProjectionSummary(
             seeded, present, invalid, formsDeferred, templatesPublished, templatesInvalid, otherSkipped,
@@ -1853,6 +2034,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
            && StringComparer.Ordinal.Equals(existing.Version, expected.Version)
            && StringComparer.Ordinal.Equals(existing.ViewKind, expected.ViewKind)
            && StringComparer.Ordinal.Equals(existing.Title, expected.Title)
+           && StringComparer.Ordinal.Equals(
+               existing.AuthorizationCapability,
+               expected.AuthorizationCapability)
            && Equals(existing.ShapeRoles, expected.ShapeRoles)
            && StringComparer.Ordinal.Equals(
                existing.Parameters.GetRawText(),
@@ -1864,6 +2048,18 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         PackSeedItem item,
         List<PackSeedProjectionRefusal> refusals)
     {
+        if (_catalogueDetails is not null && item.Kind == PackContentKind.FormDefinition)
+        {
+            var coordinate = new CatalogueFieldCoordinate(1, "FormDefinition", item.Key, item.Version, "formId");
+            if (_authorizedForms?.CatalogueSources.Resolve(tenant, coordinate) is { } handle)
+            {
+                using var content = JsonDocument.Parse(item.CanonicalJson);
+                var hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(item.CanonicalJson)));
+                _catalogueDetails.Store(content.RootElement, handle.Identity,
+                    new CatalogueFieldSourceBinding(hash, new CatalogueFieldProvenance("pack", pack.PackKey, pack.Version)));
+            }
+        }
         if (_renderPlans is null)
         {
             // Compatibility embedders may project definitions without composing the catalogue read family.
@@ -2246,7 +2442,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     RetractionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
-                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
+                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority, request.CatalogueFieldSource);
 
             FormDefinition existing;
             try
@@ -2339,7 +2535,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     FormDefinitionOutcome.Invalid, PackSeedProjectionRefusalCodes.FormPinnedTupleConflictCode);
             }
             var expected = BuildProjectedFormDefinition(
-                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority);
+                id, version, tenant, registeredSchema.Id, request.Overlay, envelope, pack, authority, request.CatalogueFieldSource);
 
             FormDefinitionPublishAdmission.ValidateOrThrow(expected);
 
@@ -2436,6 +2632,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                     FormDefinitionOutcome.Invalid,
                     PackProjectionAuthorityCodes.SourceMismatch);
             }
+            if (_catalogueDetails is not null)
+                await _authorizedForms!.PublishAsync(expected, authority, cancellationToken).ConfigureAwait(false);
             return new FormProjectionResult(FormDefinitionOutcome.AlreadyPresent);
         }
 
@@ -2490,7 +2688,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
 
         var existingOverlay = JsonSerializer.SerializeToNode(existing.Overlay);
         var expectedOverlay = JsonSerializer.SerializeToNode(expected.Overlay);
-        return System.Text.Json.Nodes.JsonNode.DeepEquals(existingOverlay, expectedOverlay);
+        return System.Text.Json.Nodes.JsonNode.DeepEquals(existingOverlay, expectedOverlay)
+            && JsonNode.DeepEquals(JsonSerializer.SerializeToNode(existing.CatalogueFieldSource),
+                JsonSerializer.SerializeToNode(expected.CatalogueFieldSource));
     }
 
     private FormDefinition BuildProjectedFormDefinition(
@@ -2501,7 +2701,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         OverlayDto overlay,
         DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>? envelope,
         InstalledPack pack,
-        PackProjectionAuthority authority)
+        PackProjectionAuthority authority,
+        CatalogueFieldSource? catalogueFieldSource = null)
     {
         var definition = FormDefinitionRoutes.BuildDefinition(
             id,
@@ -2510,7 +2711,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             IdentityRef.System,
             schemaRef,
             overlay,
-            authority.ActivationInstant);
+            authority.ActivationInstant,
+            catalogueFieldSource);
         // The HTTP authoring route supplies its operator-role compatibility fallback when access is
         // omitted. Pack content has vendor authority and must not inherit those platform roles: an
         // omitted pack gate means no gate, while an explicitly authored gate remains fully admitted.

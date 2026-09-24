@@ -122,7 +122,8 @@ public static class FormDefinitionRoutes
         IActiveTeamAccessor activeTeam,
         TimeProvider timeProvider,
         IRestrictingDefinitionKindValidator? restrictingKinds = null,
-        ICatalogue? catalogue = null)
+        ICatalogue? catalogue = null,
+        IFormFieldTypeCatalogue? fieldTypes = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -130,6 +131,7 @@ public static class FormDefinitionRoutes
         ArgumentNullException.ThrowIfNull(activeTeam);
         ArgumentNullException.ThrowIfNull(timeProvider);
         restrictingKinds ??= RestrictingDefinitionKindValidator.Shared;
+        fieldTypes ??= FormFieldTypeCatalogue.Shared;
         // The definition family stays the legacy wire while its published-list read is a projection
         // of the common catalogue. The fallback preserves the direct route-test composition seam.
         catalogue ??= new ProjectedCatalogue(store);
@@ -232,12 +234,16 @@ public static class FormDefinitionRoutes
             // act — forms:author — decided BEFORE any schema synthesis or persistence. A draft save
             // is still authoring, so the gate covers it too.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: ONE kernel-clock read for the whole act. The guard already read it to date its
+            // decision, so the revision is stamped with that SAME admitted instant instead of a second
+            // read that the act never decided on (ADR 0081, DES-0029 ck-9).
+            var now = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
+                    decision => now = decision.Request.At) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
@@ -247,8 +253,17 @@ public static class FormDefinitionRoutes
             SaveFormDefinitionRequest? request;
             try
             {
-                request = await JsonSerializer.DeserializeAsync<SaveFormDefinitionRequest>(
-                    http.Request.Body, JsonOptions, ct).ConfigureAwait(false);
+                using var document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct).ConfigureAwait(false);
+                var source = CatalogueFieldSourceAdmission.ParseContent(document.RootElement);
+                var catalogueAdmission = http.RequestServices.GetService<CatalogueFieldSourceAdmission>()
+                    ?? new CatalogueFieldSourceAdmission();
+                if (catalogueAdmission.ValidateSupport(source) is { } refusal)
+                    return Results.UnprocessableEntity(new { code = refusal });
+                request = document.RootElement.Deserialize<SaveFormDefinitionRequest>(JsonOptions);
+            }
+            catch (CatalogueFieldSourceException ex)
+            {
+                return Results.BadRequest(new { code = ex.Code });
             }
             catch (JsonException)
             {
@@ -265,24 +280,42 @@ public static class FormDefinitionRoutes
             // Visibility, silently replacing a restriction with a permitting presentation rule.
             foreach (var rule in request.Overlay.Rules ?? Array.Empty<RuleDto>())
             {
-                var refusal = restrictingKinds.Validate(
-                    RestrictingDefinitionKindFamily.RuleAction,
-                    formId,
-                    rule.Action,
-                    nestedDefinitionId: rule.Id);
-                if (refusal is not null)
+                foreach (var (family, value) in new[]
                 {
-                    return Results.UnprocessableEntity(new
+                    (RestrictingDefinitionKindFamily.RuleTier, rule.Tier),
+                    (RestrictingDefinitionKindFamily.RuleScope, rule.Scope),
+                    (RestrictingDefinitionKindFamily.RuleAction, rule.Action),
+                })
+                {
+                    var refusal = restrictingKinds.Validate(
+                        family, formId, value, nestedDefinitionId: rule.Id);
+                    if (refusal is not null)
                     {
-                        code = refusal.Code,
-                        detail = new
+                        return Results.UnprocessableEntity(new
                         {
-                            target = rule.Id,
-                            definition = refusal.DefinitionId,
-                            unknownKind = refusal.UnknownKind,
-                        },
-                    });
+                            code = refusal.Code,
+                            detail = new
+                            {
+                                target = rule.Id,
+                                definition = refusal.DefinitionId,
+                                unknownKind = refusal.UnknownKind,
+                            },
+                        });
+                    }
                 }
+            }
+
+            try
+            {
+                _ = ResolvePiiSensitivities(request.Overlay, request.FieldsMeta, fieldTypes);
+            }
+            catch (FormFieldProtectionAdmissionException ex)
+            {
+                return Results.UnprocessableEntity(new
+                {
+                    code = ex.Code,
+                    detail = new { field = ex.Field, offendingValue = ex.OffendingValue },
+                });
             }
 
             // Ticket 156 (L1539): a DRAFT save may be partial — a half-finished definition
@@ -351,7 +384,8 @@ public static class FormDefinitionRoutes
             FormDefinition definition;
             try
             {
-                definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now);
+                definition = BuildDefinition(id, version, tenant, owner, schemaRef, request.Overlay, now,
+                    request.CatalogueFieldSource, request.FieldsMeta, fieldTypes);
             }
             catch (GateReferenceShapeException ex)
             {
@@ -503,12 +537,15 @@ public static class FormDefinitionRoutes
         {
             // Ticket 151: restore REGISTERS a new draft revision — the same authoring permission gates it.
             var tenant = NodeTenant.Resolve(activeTeam);
+            // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
+            // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
+            var now = default(DateTimeOffset);
             if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct) is { } denied)
+                    http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
+                    decision => now = decision.Request.At) is { } denied)
                 return denied;
 
             var id = new FormDefinitionId(formId);
-            var now = timeProvider.GetUtcNow();
             var authority = new AuthorizationWriteContext(
                 new ActorId(NodeCallerParty.Resolve(http).Value),
                 tenant,
@@ -675,17 +712,20 @@ public static class FormDefinitionRoutes
         IdentityRef owner,
         SchemaId schemaRef,
         OverlayDto overlay,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        CatalogueFieldSource? catalogueFieldSource = null,
+        IReadOnlyDictionary<string, FieldMetaDto>? fieldsMeta = null,
+        IFormFieldTypeCatalogue? fieldTypes = null)
     {
+        var sensitivities = ResolvePiiSensitivities(
+            overlay, fieldsMeta, fieldTypes ?? FormFieldTypeCatalogue.Shared);
         var fields = overlay.Fields.ToDictionary(
             kv => kv.Key,
             kv => new FieldOverlay(
                 Label: kv.Value.Label.ToModel(kv.Key),
                 HelpText: kv.Value.HelpText?.ToModel(),
                 ControlHint: kv.Value.ControlHint,
-                PiiSensitivity: string.Equals(kv.Value.PiiSensitivity, "Sensitive", StringComparison.OrdinalIgnoreCase)
-                    ? PiiSensitivity.Sensitive
-                    : PiiSensitivity.None,
+                PiiSensitivity: sensitivities[kv.Key],
                 FieldReadRoles: kv.Value.ReadRoles,
                 FieldWriteRoles: kv.Value.WriteRoles,
                 // F-17: persist the per-control config through to the stored overlay so
@@ -769,7 +809,46 @@ public static class FormDefinitionRoutes
                 Aspects: overlay.Aspects?.ToModel()),
             Lineage: null,
             CreatedAt: now,
-            UpdatedAt: now);
+            UpdatedAt: now)
+        {
+            CatalogueFieldSource = catalogueFieldSource,
+        };
+    }
+
+    private static IReadOnlyDictionary<string, PiiSensitivity> ResolvePiiSensitivities(
+        OverlayDto overlay,
+        IReadOnlyDictionary<string, FieldMetaDto>? fieldsMeta,
+        IFormFieldTypeCatalogue fieldTypes)
+    {
+        var result = new Dictionary<string, PiiSensitivity>(StringComparer.Ordinal);
+        foreach (var (field, authored) in overlay.Fields)
+        {
+            if (!string.IsNullOrWhiteSpace(authored.PiiSensitivity))
+            {
+                // "Direct" is the released access-pack spelling for directly identifying data. It is
+                // a named compatibility value, not a catch-all: every other unrecognised value refuses.
+                var recognized = string.Equals(authored.PiiSensitivity, "Direct", StringComparison.OrdinalIgnoreCase)
+                    ? PiiSensitivity.Sensitive
+                    : Enum.TryParse<PiiSensitivity>(authored.PiiSensitivity, ignoreCase: true, out var parsed)
+                        && Enum.IsDefined(parsed)
+                            ? parsed
+                            : (PiiSensitivity?)null;
+                if (recognized is not { } explicitValue)
+                    throw new FormFieldProtectionAdmissionException(
+                        "form_definition.pii_sensitivity_unknown", field, authored.PiiSensitivity);
+                result[field] = explicitValue;
+                continue;
+            }
+
+            var fieldType = fieldsMeta?.GetValueOrDefault(field)?.Type
+                ?? authored.ControlHint
+                ?? "text";
+            if (!fieldTypes.TryResolvePiiDefault(fieldType, out var catalogueDefault))
+                throw new FormFieldProtectionAdmissionException(
+                    "form_definition.field_type_unknown", field, fieldType);
+            result[field] = catalogueDefault;
+        }
+        return result;
     }
 }
 
@@ -779,7 +858,7 @@ public static class FormDefinitionRoutes
 /// </summary>
 internal static class FormDefinitionPublishAdmission
 {
-    private static readonly IPolicyAdmissionValidator ClassificationAdmission = BuildClassificationAdmission();
+    private static readonly PolicyAdmissionValidator ClassificationAdmission = BuildClassificationAdmission();
 
     /// <summary>
     /// The builder client's placeholder-label FAMILY (ticket 157 / L1543, patterns.md §20:
@@ -847,7 +926,7 @@ internal static class FormDefinitionPublishAdmission
         }
     }
 
-    private static IPolicyAdmissionValidator BuildClassificationAdmission()
+    private static PolicyAdmissionValidator BuildClassificationAdmission()
     {
         var registry = new InMemoryPolicyRegistry();
         return new PolicyAdmissionValidator(new AspectResolver(registry), registry);
@@ -1386,7 +1465,8 @@ internal static class BuilderSchemaSynthesizer
 public sealed record SaveFormDefinitionRequest(
     [property: JsonPropertyName("overlay")] OverlayDto Overlay,
     [property: JsonPropertyName("fieldsMeta")] IReadOnlyDictionary<string, FieldMetaDto>? FieldsMeta,
-    [property: JsonPropertyName("draft"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Draft = null);
+    [property: JsonPropertyName("draft"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Draft = null,
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null);
 
 /// <summary>Per-field schema-synthesis metadata the overlay intentionally omits
 /// (type / required / validations / enum values live below the overlay, on the
@@ -1454,7 +1534,8 @@ public sealed record FormDefinitionDto(
     // /versions/{v} serves a draft revision) — plus, on a published head, the version of a
     // NEWER draft when one exists (see FormDefinitionSummaryDto).
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("latestDraftVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LatestDraftVersion = null)
+    [property: JsonPropertyName("latestDraftVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LatestDraftVersion = null,
+    [property: JsonPropertyName("catalogueFieldSource"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CatalogueFieldSource? CatalogueFieldSource = null)
 {
     public static FormDefinitionDto From(FormDefinition def, string? latestDraftVersion = null) => new(
         def.Id.Value,
@@ -1462,7 +1543,8 @@ public sealed record FormDefinitionDto(
         OverlayDto.From(def.Overlay),
         def.Envelope.CascadeLayer.ToString(),
         def.Status.ToString(),
-        latestDraftVersion);
+        latestDraftVersion,
+        def.CatalogueFieldSource);
 }
 
 /// <summary>One revision in a form's version history (GET .../versions) — F-22, item 7.

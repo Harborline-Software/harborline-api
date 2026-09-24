@@ -58,8 +58,21 @@ public sealed record AuthorizationCounterfactual(
     public static AuthorizationCounterfactual From(AuthorizationDecisionEvidence evidence)
     {
         ArgumentNullException.ThrowIfNull(evidence);
-        if (evidence.Roster is not null)
-            return None("the verdict also consumes roster membership and ejection inputs");
+        if (evidence.GrantAttenuation is not null)
+            return None("the verdict also consumes scoped grant attenuation requirements");
+        // Every decision records derived roster facts, but only membership-dependent acts consume them as
+        // a verdict constraint. A binding-only counterfactual remains valid for an unconstrained act; once
+        // roster membership, grant coverage, or a prospective handover participates, no single binding
+        // change describes the whole verdict.
+        if (evidence.Roster is { } roster
+            && (roster.Ejected
+                || roster.RequireMember
+                || roster.RequireGrantCoverage
+                || roster.ProspectiveAdministratorGrant
+                || roster.RequiredPermissions.Permissions.Count != 0))
+        {
+            return None("the verdict also consumes roster membership or ejection inputs");
+        }
         if (evidence.Kind is not AuthorizationEvidenceKind.Gate)
         {
             return None(

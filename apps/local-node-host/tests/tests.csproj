@@ -14,6 +14,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../../../tooling/conformance/access-replacement/AccessReplacementFixture.cs" Link="Packs/AccessReplacementFixture.cs" />
+    <None Include="../../../_shared/conformance/terminology/v1.json"
+          Link="Terminology/v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Authorization/authorization-trace.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Parse the roster SQL ownership fence with the compiler shipped in the selected SDK. -->
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)/Roslyn/bincore/Microsoft.CodeAnalysis.dll" />
@@ -25,8 +28,6 @@
          (the canary overlay) via AddJsonFile and bind LocalNodeOptions, so the test proves the actual
          config-LAYERING that turns the cutover on for the dev/reference build (not just the bool gate). -->
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
-    <PackageReference Include="bunit" />
-    <PackageReference Include="AngleSharp" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
@@ -97,7 +98,6 @@
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="..\..\..\src\Harborline.Api.Contracts\Harborline.Api.Contracts.csproj" />
     <ProjectReference Include="..\..\node-operator-cli\Harborline.NodeOperatorCli.csproj" />
-    <ProjectReference Include="..\..\..\packages\ui-adapters-blazor\Harborline.UIAdapters.Blazor.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj" />
@@ -135,7 +135,7 @@
     <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24): the durable-store + route tests
          construct CalendarEvent / ResourceAvailability / ParticipantRef directly + reference the block's
          query/free-busy services. -->
-    <ProjectReference Include="..\..\..\packages\blocks-calendar\Harborline.Blocks.Calendar.csproj" />
+    <PackageReference Include="Harborline.Blocks.Calendar" />
   </ItemGroup>
 
   <!-- Issue 2089: use the same digest gate and RID-specific output staging as the production host. -->

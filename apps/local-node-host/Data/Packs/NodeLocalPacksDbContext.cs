@@ -55,6 +55,24 @@ public sealed class NodeLocalPacksDbContext : DbContext
     /// <summary>The update-feed per-channel anti-rollback high-water rows (F2 — update-feed §7.2).</summary>
     internal DbSet<FeedChannelSequenceRow> FeedChannelSequences => Set<FeedChannelSequenceRow>();
 
+    /// <summary>The effective configuration-generation pointer per tenant (T-644).</summary>
+    internal DbSet<ConfigurationEffectiveGenerationRow> EffectiveGenerations => Set<ConfigurationEffectiveGenerationRow>();
+
+    /// <summary>Isolated prepared candidate projections (T-644); inert until a switch commits.</summary>
+    internal DbSet<ConfigurationPreparedProjectionRow> PreparedProjections => Set<ConfigurationPreparedProjectionRow>();
+
+    /// <summary>The evidence outbox committed with every activation (T-644).</summary>
+    internal DbSet<ConfigurationEvidenceOutboxRow> EvidenceOutbox => Set<ConfigurationEvidenceOutboxRow>();
+
+    /// <summary>Proposed changes: one working state per isolated proposal (T-461). Never effective.</summary>
+    internal DbSet<ConfigurationProposalRow> Proposals => Set<ConfigurationProposalRow>();
+
+    /// <summary>Immutable Saved versions of a Proposed change, with authorship and rationale (T-461).</summary>
+    internal DbSet<ConfigurationSavedVersionRow> SavedVersions => Set<ConfigurationSavedVersionRow>();
+
+    /// <summary>Signed Released packages, offered for activation by their own artifact digest (T-461).</summary>
+    internal DbSet<ConfigurationReleasedPackageRow> ReleasedPackages => Set<ConfigurationReleasedPackageRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -126,6 +144,101 @@ public sealed class NodeLocalPacksDbContext : DbContext
             e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
             e.Property(r => r.ChannelId).HasColumnName("channel_id").HasMaxLength(256);
             e.Property(r => r.HighWaterSequence).HasColumnName("high_water_sequence");
+        });
+
+        modelBuilder.Entity<ConfigurationEffectiveGenerationRow>(e =>
+        {
+            e.ToTable("configuration_effective_generations");
+            e.HasKey(r => r.Tenant);
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.Digest).HasColumnName("digest").HasMaxLength(64);
+            e.Property(r => r.ReferencesJson).HasColumnName("references_json");
+            e.Property(r => r.Principal).HasColumnName("principal").HasMaxLength(512);
+            e.Property(r => r.ActivatedAt).HasColumnName("activated_at");
+            e.Property(r => r.DecisionId).HasColumnName("decision_id").HasMaxLength(64);
+            e.Property(r => r.EvidenceIntentId).HasColumnName("evidence_intent_id").HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<ConfigurationPreparedProjectionRow>(e =>
+        {
+            e.ToTable("configuration_prepared_projections");
+            e.HasKey(r => new { r.Tenant, r.CandidateDigest });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.CandidateDigest).HasColumnName("candidate_digest").HasMaxLength(64);
+            e.Property(r => r.Revision).HasColumnName("revision").HasMaxLength(64);
+            e.Property(r => r.ProjectionDigest).HasColumnName("projection_digest").HasMaxLength(64);
+            e.Property(r => r.ReferencesJson).HasColumnName("references_json");
+            e.Property(r => r.BaselineDigest).HasColumnName("baseline_digest").HasMaxLength(64);
+            e.Property(r => r.DestinationDigest).HasColumnName("destination_digest").HasMaxLength(64);
+            e.Property(r => r.PreparedAt).HasColumnName("prepared_at");
+        });
+
+        modelBuilder.Entity<ConfigurationEvidenceOutboxRow>(e =>
+        {
+            e.ToTable("configuration_evidence_outbox");
+            e.HasKey(r => new { r.Tenant, r.IntentId });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.IntentId).HasColumnName("intent_id").HasMaxLength(256);
+            e.Property(r => r.Reason).HasColumnName("reason");
+            e.Property(r => r.InputsDigest).HasColumnName("inputs_digest").HasMaxLength(64);
+            e.Property(r => r.DecisionId).HasColumnName("decision_id").HasMaxLength(64);
+            e.Property(r => r.DecisionJson).HasColumnName("decision_json");
+            e.Property(r => r.PriorDigest).HasColumnName("prior_digest").HasMaxLength(64);
+            e.Property(r => r.NewDigest).HasColumnName("new_digest").HasMaxLength(64);
+            e.Property(r => r.Principal).HasColumnName("principal").HasMaxLength(512);
+            e.Property(r => r.CommittedAt).HasColumnName("committed_at");
+            e.Property(r => r.PublishedAt).HasColumnName("published_at");
+            e.HasIndex(r => new { r.Tenant, r.PublishedAt });
+        });
+
+        modelBuilder.Entity<ConfigurationProposalRow>(e =>
+        {
+            e.ToTable("configuration_proposals");
+            e.HasKey(r => new { r.Tenant, r.ProposalId });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.ProposalId).HasColumnName("proposal_id").HasMaxLength(256);
+            e.Property(r => r.BaselineDigest).HasColumnName("baseline_digest").HasMaxLength(64);
+            e.Property(r => r.EditsJson).HasColumnName("edits_json");
+            e.Property(r => r.StartedBy).HasColumnName("started_by").HasMaxLength(512);
+            e.Property(r => r.StartedAt).HasColumnName("started_at");
+            e.Property(r => r.AutosavedAt).HasColumnName("autosaved_at");
+            e.Property(r => r.SavedVersionCount).HasColumnName("saved_version_count");
+            e.Property(r => r.CheckedDigest).HasColumnName("checked_digest").HasMaxLength(64);
+            e.Property(r => r.CheckReceiptId).HasColumnName("check_receipt_id").HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<ConfigurationSavedVersionRow>(e =>
+        {
+            e.ToTable("configuration_saved_versions");
+            e.HasKey(r => new { r.Tenant, r.ProposalId, r.Ordinal });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.ProposalId).HasColumnName("proposal_id").HasMaxLength(256);
+            e.Property(r => r.Ordinal).HasColumnName("ordinal");
+            e.Property(r => r.Digest).HasColumnName("digest").HasMaxLength(64);
+            e.Property(r => r.BaselineDigest).HasColumnName("baseline_digest").HasMaxLength(64);
+            e.Property(r => r.Author).HasColumnName("author").HasMaxLength(512);
+            e.Property(r => r.Rationale).HasColumnName("rationale");
+            e.Property(r => r.SavedAt).HasColumnName("saved_at");
+            e.Property(r => r.EditsJson).HasColumnName("edits_json");
+        });
+
+        modelBuilder.Entity<ConfigurationReleasedPackageRow>(e =>
+        {
+            e.ToTable("configuration_released_packages");
+            e.HasKey(r => new { r.Tenant, r.Digest });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.Digest).HasColumnName("digest").HasMaxLength(64);
+            e.Property(r => r.ProposalId).HasColumnName("proposal_id").HasMaxLength(256);
+            e.Property(r => r.SavedVersionDigest).HasColumnName("saved_version_digest").HasMaxLength(64);
+            e.Property(r => r.BaselineDigest).HasColumnName("baseline_digest").HasMaxLength(64);
+            e.Property(r => r.PackageKey).HasColumnName("package_key").HasMaxLength(256);
+            e.Property(r => r.Revision).HasColumnName("revision").HasMaxLength(64);
+            e.Property(r => r.Document).HasColumnName("document");
+            e.Property(r => r.SignatureJson).HasColumnName("signature_json");
+            e.Property(r => r.ReleasedBy).HasColumnName("released_by").HasMaxLength(512);
+            e.Property(r => r.CheckReceiptId).HasColumnName("check_receipt_id").HasMaxLength(256);
+            e.Property(r => r.ReleasedAt).HasColumnName("released_at");
+            e.HasIndex(r => new { r.Tenant, r.ProposalId });
         });
     }
 }

@@ -38,10 +38,23 @@ function recordReceipt() {
 test('records every required verification step as per-run evidence', () => {
   const receipt = recordReceipt()
   assert.equal(receipt.repository, 'harborline-api')
-  assert.equal(receipt.steps.length, 15)
+  assert.equal(receipt.steps.length, 17)
   assert.deepEqual(receipt.steps.map(step => typeof step === 'string' ? step : step.id), [
-    'boundaries', 'identity-r3', 'codegen-check', 'codegen-guard-suite', 'contracts-typescript',
+    'boundaries', 'dependency-ledger', 'identity-r3', 'codegen-check', 'codegen-guard-suite', 'contracts-typescript',
     'contracts-csharp', 'localfirst-csharp', 'rule-engine-conformance', 'contracts-rust',
-    'operator-cli-headless', 'install-artefact', 'exact-clone', 'quality', 'quality-baseline', 'packages',
+    'operator-cli-headless', 'install-artefact', 'removal-exercise', 'exact-clone', 'quality', 'quality-baseline', 'packages',
   ])
+})
+
+test('a lane requires exactly its own steps, and the two lanes together are the whole gate', async () => {
+  const {requiredStepIds, hostStepIds, stepIdsForLane} = await import('../verify-receipt.mjs')
+  const quality = {HARBORLINE_GATE_QUALITY: '1'}
+  assert.deepEqual(stepIdsForLane('all'), requiredStepIds)
+  assert.deepEqual(stepIdsForLane('host', quality), hostStepIds)
+  // No step may fall between the lanes: a gap is a step CI stops running without telling anyone.
+  assert.deepEqual([...stepIdsForLane('shared'), ...stepIdsForLane('host', quality)].sort(), [...requiredStepIds].sort())
+  // quality reads the SARIF exact-clone writes, so it belongs to the host that produces it.
+  assert.equal(stepIdsForLane('shared').includes('exact-clone'), false)
+  assert.equal(stepIdsForLane('shared').includes('quality'), false)
+  assert.deepEqual(stepIdsForLane('host', {}), ['exact-clone'])
 })

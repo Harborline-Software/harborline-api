@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {execFileSync, spawnSync} from 'node:child_process'
@@ -28,11 +28,11 @@ test('builder accepts the full manifest and refuses a second producer before pac
     rmSync(directory, {recursive: true, force: true})
   }
 })
-test('the checked-in platform pin parses and names a 40-hex commit and 24 producers', () => {
+test('the checked-in platform pin parses and names a 40-hex commit and 29 producers', () => {
   const pin = readPin()
   assert.match(pin.commit, /^[a-f0-9]{40}$/)
   assert.equal(pin.repository, 'Harborline-Software/harborline-platform')
-  assert.equal(Object.keys(pin.producers).length, 24)
+  assert.equal(Object.keys(pin.producers).length, 29)
 })
 test('nuget.config declares the built local feed beside nuget.org', () => {
   assertFeed()
@@ -40,7 +40,25 @@ test('nuget.config declares the built local feed beside nuget.org', () => {
   assert.match(config, /key="nuget.org" value="https:\/\/api.nuget.org\/v3\/index.json"/)
 })
 
-test('nested and sibling layouts plan the same 24 packages and version without enclosing build targets', () => {
+test('the local-node host consumes Views from the pinned package without a platform project reference', () => {
+  const project = readFileSync(path.join(root, 'apps/local-node-host/Harborline.LocalNodeHost.csproj'), 'utf8')
+  assert.match(project, /<PackageReference Include="Harborline\.Blocks\.EntityViews"\s*\/>/)
+  assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|blocks\.entity-views)/i)
+})
+
+test('the local-node host consumes Data Exchange from the pinned package without a platform project reference', () => {
+  const project = readFileSync(path.join(root, 'apps/local-node-host/Harborline.LocalNodeHost.csproj'), 'utf8')
+  assert.match(project, /<PackageReference Include="Harborline\.Foundation\.DataExchange"\s*\/>/)
+  assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|foundation\.data-exchange)/i)
+})
+
+test('the local-node host consumes the T-460 activation contracts from the pinned BuilderDefinitions package without a platform project reference', () => {
+  const project = readFileSync(path.join(root, 'apps/local-node-host/Harborline.LocalNodeHost.csproj'), 'utf8')
+  assert.match(project, /<PackageReference Include="Harborline\.Blocks\.BuilderDefinitions"\s*\/>/)
+  assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|builder-definitions)/i)
+})
+
+test('nested and sibling layouts plan the same 29 packages and version without enclosing build targets', () => {
   // Dry-run the real builder, then evaluate its pack properties with real MSBuild (no restore).
   const directory = mkdtempSync(path.join(tmpdir(), 'platform-layout-'))
   const api = path.join(directory, 'api')
@@ -50,7 +68,18 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     mkdirSync(path.dirname(path.join(base, file)), {recursive: true})
     writeFileSync(path.join(base, file), content)
   }
-  const git = (...args) => execFileSync('git', ['-C', sibling, ...args], {encoding: 'utf8'}).trim()
+  const git = (repository, ...args) => execFileSync('git', ['-C', repository, ...args], {encoding: 'utf8'}).trim()
+  const commitFixture = repository => {
+    git(repository, 'init', '-q')
+    git(repository, 'add', '.')
+    execFileSync('git', ['-C', repository, '-c', 'user.name=Feed test',
+      '-c', 'user.email=feed-test@example.invalid', '-c', 'commit.gpgsign=false',
+      'commit', '--no-verify', '-qm', 'layout fixture'], {
+      encoding: 'utf8',
+      env: {...process.env, GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z'},
+    })
+    return git(repository, 'rev-parse', 'HEAD')
+  }
   try {
     const pin = readPin()
     write(sibling, 'Directory.Build.props', '<Project><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n')
@@ -60,14 +89,17 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     for (const [id, assembly] of Object.entries(pin.producers)) {
       write(sibling, `projects/${id}/${id}.csproj`, `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsPackable>true</IsPackable><PackageId>${id}</PackageId><AssemblyName>${assembly.slice(0, -4)}</AssemblyName></PropertyGroup></Project>\n`)
     }
-    git('init', '-q')
-    git('add', '.')
-    git('-c', 'user.name=Feed test', '-c', 'user.email=feed-test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-qm', 'layout fixture')
-    write(api, 'eng/platform-pin.json', JSON.stringify({...pin, commit: git('rev-parse', 'HEAD')}))
+    const siblingCommit = commitFixture(sibling)
+    write(api, 'eng/platform-pin.json', JSON.stringify({...pin, commit: siblingCommit}))
     for (const file of ['eng/build-local-feed.mjs', 'nuget.config', 'Directory.Build.targets', 'Directory.Packages.props']) {
       write(api, file, readFileSync(path.join(root, file)))
     }
-    cpSync(sibling, nested, {recursive: true})
+    // Never copy a live repository's metadata: git may remove transient object files between
+    // cpSync enumerating and reading them. Copy only the working tree, then create the independent
+    // repository the builder needs for its pin check. Ticket T-443.
+    cpSync(sibling, nested, {recursive: true, filter: source => path.basename(source) !== '.git'})
+    assert.equal(existsSync(path.join(nested, '.git')), false, 'fixture copy must exclude .git')
+    assert.equal(commitFixture(nested), siblingCommit, 'fixture repositories must have the same deterministic commit')
     const plans = [sibling, nested].map(platform => {
       const result = spawnSync(process.execPath, [path.join(api, 'eng/build-local-feed.mjs'), '--dry-run'], {
         encoding: 'utf8', env: {...process.env, HARBORLINE_PLATFORM_REPO: platform},
@@ -81,7 +113,7 @@ test('nested and sibling layouts plan the same 24 packages and version without e
     assert.equal(plans[1].packedVersion, plans[0].packedVersion)
     for (const [index, platform] of [sibling, nested].entries()) {
       const plan = plans[index]
-      assert.equal(plan.commands.length, 24)
+      assert.equal(plan.commands.length, 29)
       assert.deepEqual(plan.commands.map(args => path.basename(args[1], '.csproj')).sort(), Object.keys(pin.producers).sort())
       for (const args of plan.commands) assert.ok(args.includes(`-p:HarborlinePackedVersion=${plan.packedVersion}`))
       const [, project, ...args] = plan.commands[0]

@@ -945,7 +945,7 @@ public sealed class RoleGateAdmissionTests
         installStore.Activate(Tenant, "vendor-a", "1.0.0");
         var projector = new PackSeedProjector(
             installStore,
-            Substitute.For<IEntityTypeRegistry>(),
+            new InMemoryEntityTypeRegistry(new Harborline.Api.Blocks.Assets.Registry.Audit.InMemoryRegistryAuditLog()),
             NullLogger<PackSeedProjector>.Instance,
             forms: store,
             schemas: new InMemorySchemaRegistry(TimeProvider.System),
@@ -1138,8 +1138,10 @@ public sealed class RoleGateAdmissionTests
         }
     }
 
-    private sealed class OrderedEntityStore(IEntityMutationStore inner, List<string> order) : IEntityMutationStore
+    private sealed class OrderedEntityStore(IEntityMutationStore inner, List<string> order) : IEntityMutationStore, IPackProjectionParticipant
     {
+        public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(inner);
+
         public Task<Entity?> GetAsync(EntityId id, VersionSelector version = default, CancellationToken ct = default) =>
             inner.GetAsync(id, version, ct);
 

@@ -18,6 +18,8 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Authorization;
 
 using Xunit;
 
@@ -28,6 +30,17 @@ public sealed class PackNavigationRouteTests
 {
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000002045");
     private static readonly PrincipalId Signer = PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]);
+
+    [Fact]
+    public async Task Selected_navigation_reads_only_selected_tenant_not_ambient_team()
+    {
+        var store = new FakeStore();
+        var selectedTenant = new TenantId("43300000-0000-4000-8000-000000000000");
+        using var response = await GetAsync(store, selectedTenant);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(selectedTenant, store.LastReadTenant);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+    }
 
     [Fact(DisplayName = "GET navigation returns the migration fallback signal when no Active pack contributes")]
     public async Task No_active_navigation_returns_not_configured()
@@ -251,23 +264,170 @@ public sealed class PackNavigationRouteTests
         Assert.Equal("pack.nav.bounds_exceeded", json.RootElement.GetProperty("code").GetString());
     }
 
-    private static async Task<HttpResponseMessage> GetAsync(FakeStore store)
+    /// <summary>
+    /// T-657 — the configuration entry's AUDIENCE is the selected-session-product audience of the
+    /// configuration activation routes, and its PERMISSION is <c>packages:operate</c>, resolved install-wide
+    /// (no record target). A caller in that audience holding it is shown the entry; the same caller without
+    /// the permission, and a LAN-device caller outside the audience, are not. Every other workspace is
+    /// unaffected, because this scopes one entry, not the projection.
+    /// </summary>
+    [Theory(DisplayName = "The configuration entry is projected only to the selected-session-product audience holding packages:operate install-wide")]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    public async Task Configuration_entry_audience_is_selected_session_product_holding_packages_operate(
+        bool inAudience, bool holdsPackagesOperate, bool projected)
+    {
+        Assert.Equal("packages:operate", PackNavigationRoutes.ConfigurationNavigationAudience.Operation.Value);
+        var store = new FakeStore(Pack("harborline.platform", PackLifecycleState.Active,
+            Nav("platform.workshop", Workspace("workshop", "workshop.workspace", "forms")),
+            Nav("platform.configuration", Workspace(
+                PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId,
+                "configuration.workspace",
+                PackNavigationRoutes.ConfigurationNavigationAudience.ItemId))));
+
+        using var response = await GetAsync(store,
+            gate: holdsPackagesOperate ? TestPackGate.AllowAll() : TestPackGate.Denying(),
+            inAudience: inAudience);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(json.RootElement.GetProperty("configured").GetBoolean());
+        var workspaces = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces")
+            .EnumerateArray().Select(workspace => workspace.GetProperty("id").GetString()).ToArray();
+        Assert.Contains("workshop", workspaces);
+        Assert.Equal(projected, workspaces.Contains(PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId));
+        if (!projected) return;
+        var items = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray()
+            .Single(workspace => workspace.GetProperty("id").GetString() == PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId)
+            .GetProperty("groups").EnumerateArray().SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+            .Select(item => item.GetString()).ToArray();
+        Assert.Equal(PackNavigationRoutes.ConfigurationNavigationAudience.ItemId, Assert.Single(items));
+    }
+
+    /// <summary>
+    /// T-668 — the proposed-change entry's AUDIENCE is the same selected-session-product audience as the
+    /// activation entry's, because <c>ConfigurationProposalRoutes</c> maps on the same group; its PERMISSION
+    /// is <c>packages:author</c>, resolved install-wide (no record target), because reaching a proposed
+    /// change is the AUTHOR side of the ck-8 split those routes already draw.
+    ///
+    /// The two entries share the <c>configuration</c> workspace and do not share a permission, so the
+    /// filter is per entry: an author who cannot operate is served the workspace carrying only the proposed
+    /// change, an operator who cannot author only the activation, a caller holding neither is served no
+    /// configuration workspace at all, and a LAN-device caller out of audience is served none of it however
+    /// it is granted. Every other workspace is unaffected.
+    /// </summary>
+    [Theory(DisplayName = "Each configuration entry is projected only to the selected-session-product audience holding that entry's own operation")]
+    [InlineData(true, true, true, "configuration.proposal,configuration.activation")]
+    [InlineData(true, true, false, "configuration.proposal")]
+    [InlineData(true, false, true, "configuration.activation")]
+    [InlineData(true, false, false, "")]
+    [InlineData(false, true, true, "")]
+    public async Task Proposal_entry_audience_is_selected_session_product_holding_packages_author(
+        bool inAudience, bool holdsAuthor, bool holdsOperate, string projectedItemIds)
+    {
+        Assert.Equal("packages:author", PackNavigationRoutes.ConfigurationNavigationAudience.ProposalOperation.Value);
+        Assert.Equal(
+            new[] { "configuration.activation", "configuration.proposal" },
+            PackNavigationRoutes.ConfigurationNavigationAudience.Entries.Keys.Order(StringComparer.Ordinal));
+        var store = new FakeStore(Pack("harborline.platform", PackLifecycleState.Active,
+            Nav("platform.workshop", Workspace("workshop", "workshop.workspace", "forms")),
+            Nav("platform.configuration", ConfigurationWorkspace())));
+
+        using var response = await GetAsync(store, gate: Gate(holdsAuthor, holdsOperate), inAudience: inAudience);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var workspaces = json.RootElement.GetProperty("pack").GetProperty("seedWorkspaces").EnumerateArray().ToArray();
+        Assert.Contains(workspaces, workspace => workspace.GetProperty("id").GetString() == "workshop");
+        var configuration = workspaces
+            .Where(workspace => workspace.GetProperty("id").GetString()
+                == PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId)
+            .ToArray();
+        if (projectedItemIds.Length == 0)
+        {
+            Assert.Empty(configuration);
+            return;
+        }
+
+        var workspaceElement = Assert.Single(configuration);
+        // A group whose only entry is refused is dropped whole, so the surviving groups and the surviving
+        // items agree — the shell never renders an empty rail group.
+        Assert.Equal(
+            projectedItemIds.Split(','),
+            workspaceElement.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+                .Select(item => item.GetString()));
+        Assert.Equal(
+            projectedItemIds.Split(','),
+            workspaceElement.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("items").EnumerateArray())
+                .Select(item => item.GetProperty("id").GetString()));
+    }
+
+    /// <summary>The platform pack's configuration workspace: one group per entry, in released order.</summary>
+    private static object ConfigurationWorkspace() => new
+    {
+        id = PackNavigationRoutes.ConfigurationNavigationAudience.WorkspaceId,
+        labelKey = "configuration.workspace",
+        groups = new[]
+        {
+            Group("configuration-proposal", PackNavigationRoutes.ConfigurationNavigationAudience.ProposalItemId),
+            Group("configuration-activation", PackNavigationRoutes.ConfigurationNavigationAudience.ItemId),
+        },
+    };
+
+    private static object Group(string id, string itemId) => new
+    {
+        id,
+        labelKey = itemId,
+        itemIds = new[] { itemId },
+        items = new[] { new { id = itemId, labelKey = itemId } },
+    };
+
+    /// <summary>A gate holding both pack operations, one of them, or neither.</summary>
+    private static AuthorizationGate Gate(bool holdsAuthor, bool holdsOperate) => (holdsAuthor, holdsOperate) switch
+    {
+        (true, true) => TestPackGate.AllowAll(),
+        (true, false) => TestPackGate.Only(PackNavigationRoutes.ConfigurationNavigationAudience.ProposalOperation),
+        (false, true) => TestPackGate.Only(PackNavigationRoutes.ConfigurationNavigationAudience.Operation),
+        _ => TestPackGate.Denying(),
+    };
+
+    private static async Task<HttpResponseMessage> GetAsync(
+        FakeStore store,
+        TenantId? selectedTenant = null,
+        AuthorizationGate? gate = null,
+        bool inAudience = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_NAVIGATION_TEST_URL") ?? "http://127.0.0.1:0");
         var app = builder.Build();
+        if (selectedTenant is { } selected)
+            app.Use(async (http, next) =>
+            {
+                http.Features.Set(new SelectedSessionRequestPrincipal("account", selected,
+                    new PrincipalUserId("holder"), new CanonicalPartyReference("party"),
+                    "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination"));
+                await next(http);
+            });
         var team = new TeamId(Guid.Parse(Tenant.Value));
         var activeTeam = new FixedActiveTeamAccessor(new TeamContext(
             team, "Navigation Test", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         app.Use(async (http, next) =>
         {
-            http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            // A LAN device caller reaches this route's own (wider) audience but not the configuration
+            // entry's; the desktop plane reaches both.
+            if (inAudience) http.Features.Set(DesktopPlaneRequestFeature.Instance);
+            else http.Features.Set(LanListenerRequestFeature.Instance);
             await next(http);
         });
         PackNavigationRoutes.Map(
             app.MapDeviceReachableProductDataGroup(),
             store,
             activeTeam,
+            gate ?? TestPackGate.AllowAll(),
+            TimeProvider.System,
             NullLogger.Instance);
 
         await app.StartAsync();
@@ -331,7 +491,8 @@ public sealed class PackNavigationRouteTests
         public InstalledPack? GetVersion(TenantId tenant, string packKey, string version)
             => _packs.FirstOrDefault(p => p.PackKey == packKey && p.Version == version);
 
-        public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) => _packs;
+        public TenantId? LastReadTenant { get; private set; }
+        public IReadOnlyList<InstalledPack> ListInstalled(TenantId tenant) { LastReadTenant = tenant; return _packs; }
         public bool AnyInstalled() => _packs.Count > 0;
         public PackInstallWatermark? GetWatermark(TenantId tenant, string packKey) => null;
         public IReadOnlyList<PackTenantOverride> GetOverrides(TenantId tenant, string packKey) => [];

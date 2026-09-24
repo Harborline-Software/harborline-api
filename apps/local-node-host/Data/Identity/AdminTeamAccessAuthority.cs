@@ -93,7 +93,12 @@ public enum AdminRevokeMemberStatus
 
 /// <summary>The result of an admin member (grant) revocation.</summary>
 /// <param name="SuccessorGrantId">The Administrator grant minted by a handover; null otherwise.</param>
-public sealed record AdminRevokeMemberResult(AdminRevokeMemberStatus Status, string? SuccessorGrantId = null);
+public sealed record AdminRevokeMemberResult(AdminRevokeMemberStatus Status, string? SuccessorGrantId = null)
+{
+    /// <summary>The server-appended audit receipt, reused when the same revocation is observed again.</summary>
+    public Guid? AuditId { get; init; }
+    public Guid? CorrelationId { get; init; }
+}
 
 /// <summary>Outcome of an administrator narrowing a member's admission-conferred grant (ticket 362).</summary>
 public enum AdminNarrowMemberGrantStatus
@@ -121,7 +126,11 @@ public enum AdminNarrowMemberGrantStatus
 /// <summary>The result of an administrator narrowing a member's grant.</summary>
 /// <param name="NarrowedGrantId">The reissued narrower grant's id; null on every refusal.</param>
 public sealed record AdminNarrowMemberGrantResult(
-    AdminNarrowMemberGrantStatus Status, string? NarrowedGrantId = null);
+    AdminNarrowMemberGrantStatus Status, string? NarrowedGrantId = null)
+{
+    public Guid? AuditId { get; init; }
+    public Guid? CorrelationId { get; init; }
+}
 
 /// <summary>
 /// The members:manage-gated authority behind the admin Team &amp; access surface (MTW-2 #2617): list
@@ -130,6 +139,22 @@ public sealed record AdminNarrowMemberGrantResult(
 /// </summary>
 public interface IAdminTeamAccessAuthority
 {
+    /// <summary>Records an ordinary grant review under the selected administrator's carried decision.</summary>
+    Task<AdminGrantReviewResult?> ReviewGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Revokes only the identified grant; roster membership and other grants are unchanged.</summary>
+    Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Replaces a live grant at a strictly narrower scope, preserving its role and subject.</summary>
+    Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
+        string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
+        GrantId successorId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Lists the tenant's members (signed roster UNIONed with grant-anchored web members).</summary>
     Task<AdminTeamMembersResult?> ListMembersAsync(
         string selectedSessionHandle,
@@ -150,6 +175,15 @@ public interface IAdminTeamAccessAuthority
         string idempotencyKey,
         AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Issues an invitation whose initial role is selected by the administrator.</summary>
+    Task<AdminIssuedInvitation?> IssueRoleInvitationAsync(
+        string selectedSessionHandle, string tenantId, IReadOnlyCollection<string> requestedPermissions,
+        string idempotencyKey, string? initialRole, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) => initialRole is null
+            ? IssueInvitationAsync(selectedSessionHandle, tenantId, requestedPermissions, idempotencyKey,
+                authority, cancellationToken)
+            : Task.FromResult<AdminIssuedInvitation?>(null);
 
     /// <summary>Revokes a grant-anchored web member's access by revoking the identified grant.</summary>
     /// <param name="successorPrincipalId">
@@ -198,7 +232,7 @@ public interface IAdminTeamAccessAuthority
 /// Issuance is delegated to <see cref="IAccountSetupInvitationIssuer"/>, which independently runs the
 /// identical gate + the requested-permissions subset check.
 /// </remarks>
-internal sealed class AdminTeamAccessAuthority(
+internal sealed partial class AdminTeamAccessAuthority(
     IDbContextFactory<NodeLocalWebSessionDbContext> sessionFactory,
     WebSelectedSessionStore selectedSessionStore,
     IDbContextFactory<NodeLocalInstallationIdentityDbContext> identityFactory,
@@ -372,17 +406,24 @@ internal sealed class AdminTeamAccessAuthority(
     }
 
     /// <inheritdoc />
-    public async Task<AdminIssuedInvitation?> IssueInvitationAsync(
+    public Task<AdminIssuedInvitation?> IssueInvitationAsync(
         string selectedSessionHandle,
         string tenantId,
         IReadOnlyCollection<string> requestedPermissions,
         string idempotencyKey,
         AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) =>
+        IssueRoleInvitationAsync(selectedSessionHandle, tenantId, requestedPermissions, idempotencyKey,
+            null, authority, cancellationToken);
+
+    public async Task<AdminIssuedInvitation?> IssueRoleInvitationAsync(
+        string selectedSessionHandle, string tenantId, IReadOnlyCollection<string> requestedPermissions,
+        string idempotencyKey, string? initialRole, AuthorizationWriteContext authority,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(selectedSessionHandle) ||
             !Guid.TryParse(tenantId, out var parsedTenant) ||
-            requestedPermissions is null || requestedPermissions.Count == 0 ||
+            requestedPermissions is null || (requestedPermissions.Count == 0 && initialRole is null) ||
             string.IsNullOrWhiteSpace(idempotencyKey))
         {
             return null;
@@ -395,7 +436,8 @@ internal sealed class AdminTeamAccessAuthority(
                 new AccountSetupInvitationIssueRequest(
                     parsedTenant.ToString("D"),
                     requestedPermissions,
-                    idempotencyKey),
+                    idempotencyKey,
+                    initialRole),
                 authority,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -409,13 +451,25 @@ internal sealed class AdminTeamAccessAuthority(
     }
 
     /// <inheritdoc />
-    public async Task<AdminRevokeMemberResult?> RevokeMemberGrantAsync(
+    public Task<AdminRevokeMemberResult?> RevokeGrantAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default) =>
+        SerializedGrantActionAsync(() => RevokeGrantCoreAsync(selectedSessionHandle, tenantId, grantId,
+            authority, null, false, cancellationToken), cancellationToken);
+
+    public Task<AdminRevokeMemberResult?> RevokeMemberGrantAsync(
         string selectedSessionHandle,
         string tenantId,
         string grantId,
         AuthorizationWriteContext authority,
         string? successorPrincipalId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        RevokeGrantCoreAsync(selectedSessionHandle, tenantId, grantId, authority,
+            successorPrincipalId, true, cancellationToken);
+
+    private async Task<AdminRevokeMemberResult?> RevokeGrantCoreAsync(
+        string selectedSessionHandle, string tenantId, string grantId, AuthorizationWriteContext authority,
+        string? successorPrincipalId, bool revokeMembership, CancellationToken cancellationToken)
     {
         EnsureAuthorityTenant(tenantId, authority);
         var coverage = await _gate.DecideAsync(
@@ -456,6 +510,15 @@ internal sealed class AdminTeamAccessAuthority(
         if (!string.Equals(context.Session.TenantPrincipalId, authority.Principal.Value, StringComparison.Ordinal))
             throw new ArgumentException("The selected-session principal does not match the write authority.", nameof(authority));
 
+        if (!revokeMembership)
+        {
+            _ = await CorrelatedGrantReplayAsync(decision, MemberRevocationReasons.Offboarding,
+                AuditEventType.CapabilityRevoked, cancellationToken).ConfigureAwait(false);
+            if (existing.Status == GrantStatus.Revoked && await OriginalGrantAuditAsync(decision,
+                AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding, cancellationToken).ConfigureAwait(false) is { } replay)
+                return new(AdminRevokeMemberStatus.Revoked) { AuditId = replay.AuditId, CorrelationId = AuditCorrelation(replay) };
+            if (existing.Status == GrantStatus.Revoked) return new(AdminRevokeMemberStatus.NotFound);
+        }
         var revocation = new GrantRevocation(
             new ActorId(context.Session.TenantPrincipalId), authority.At,
             new GrantReason(GrantReasonCodes.RevocationOffboarding, target.ToString()));
@@ -491,9 +554,10 @@ internal sealed class AdminTeamAccessAuthority(
             }
         }
 
-        var revokedParty = await _partyReader.ResolveAsync(
-                tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
-            .ConfigureAwait(false);
+        var revokedParty = revokeMembership
+            ? await _partyReader.ResolveAsync(tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
+                .ConfigureAwait(false)
+            : null;
         // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
         if (revokedParty is not null)
         {
@@ -510,11 +574,72 @@ internal sealed class AdminTeamAccessAuthority(
                 .ConfigureAwait(false);
             if (revoked is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
         }
-        await AppendGrantAuditAsync(
+        var correlationId = authority.CorrelationId ?? Guid.NewGuid();
+        var auditId = await AppendGrantAuditAsync(
                 tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
-                Guid.NewGuid(), successorGrant: null, cancellationToken)
+                correlationId, successorGrant: null, cancellationToken)
             .ConfigureAwait(false);
-        return new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked);
+        return new AdminRevokeMemberResult(AdminRevokeMemberStatus.Revoked) { AuditId = auditId, CorrelationId = correlationId };
+    }
+
+    public Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeAsync(
+        string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
+        GrantId successorId, AuthorizationWriteContext authority, CancellationToken cancellationToken = default) =>
+        SerializedGrantActionAsync(() => NarrowMemberScopeCoreAsync(selectedSessionHandle, tenantId, grantId,
+            narrowedScope, successorId, authority, cancellationToken), cancellationToken);
+
+    private async Task<AdminNarrowMemberGrantResult?> NarrowMemberScopeCoreAsync(
+        string selectedSessionHandle, string tenantId, string grantId, ScopeExpression narrowedScope,
+        GrantId successorId, AuthorizationWriteContext authority,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthorityTenant(tenantId, authority);
+        var request = authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", grantId);
+        var coverage = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
+        if (refusalAudit is not null) await refusalAudit.RecordAsync(coverage, cancellationToken).ConfigureAwait(false);
+        coverage.RequireAllowed();
+        var context = await ResolveAdminAsync(selectedSessionHandle, tenantId, authority.At, cancellationToken,
+            requireGrantCoverage: true, request).ConfigureAwait(false);
+        if (context is null) return null;
+        if (!Guid.TryParse(grantId, out var parsed) || successorId.Value == Guid.Empty || successorId.Value == parsed)
+            return new(AdminNarrowMemberGrantStatus.NotFound);
+        if (context.Session.PinnedGrantOwnerVersions.Any(pin =>
+            string.Equals(pin.GrantId, parsed.ToString("D"), StringComparison.OrdinalIgnoreCase)))
+            return new(AdminNarrowMemberGrantStatus.SelfNarrowRefused);
+        if (!string.Equals(context.Session.TenantPrincipalId, authority.Principal.Value, StringComparison.Ordinal))
+            throw new ArgumentException("The selected-session principal does not match the write authority.", nameof(authority));
+        var tenant = new TenantId(context.CanonicalTenantId);
+        var target = new GrantId(parsed);
+        if (await CorrelatedGrantReplayAsync(context.Decision, "member-scope-narrowed",
+            AuditEventType.CapabilityDelegated, cancellationToken).ConfigureAwait(false) is { } replay)
+        {
+            var prior = await _grantStore.FindAsync(tenant, successorId, cancellationToken).ConfigureAwait(false);
+            if (AuditText(replay, "successor_grant_id") != successorId.ToString() || prior?.Scope != narrowedScope)
+                throw new GrantActionReplayConflictException();
+            return new(AdminNarrowMemberGrantStatus.Narrowed, successorId.ToString())
+            { AuditId = replay.AuditId, CorrelationId = AuditCorrelation(replay) };
+        }
+        var existing = await _grantStore.FindAsync(tenant, target, cancellationToken).ConfigureAwait(false);
+        if (existing?.Status == GrantStatus.Revoked && authority.CorrelationId is not null)
+            _ = await OriginalGrantAuditAsync(context.Decision, AuditEventType.CapabilityDelegated,
+                "member-scope-narrowed", cancellationToken).ConfigureAwait(false);
+        if (existing is null || !existing.IsActiveAt(authority.At)
+            || await _grantStore.FindAsync(tenant, successorId, cancellationToken).ConfigureAwait(false) is not null)
+            return new(AdminNarrowMemberGrantStatus.NotFound);
+        if (existing.Scope == narrowedScope || !existing.Scope.Contains(narrowedScope))
+            return new(AdminNarrowMemberGrantStatus.NotASubset);
+        var correlation = authority.CorrelationId ?? Guid.NewGuid();
+        var revocation = new GrantRevocation(authority.Principal, authority.At,
+            new GrantReason(GrantReasonCodes.RevocationReview, correlation.ToString("D")));
+        var narrowed = await _grantRevocations.NarrowScopeAsync(tenant, target, narrowedScope, successorId,
+            revocation, context.Decision, cancellationToken).ConfigureAwait(false);
+        if (narrowed is null) return new(AdminNarrowMemberGrantStatus.NotFound);
+        await AppendGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityRevoked,
+            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
+        var auditId = await AppendGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityDelegated,
+            "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
+        return new(AdminNarrowMemberGrantStatus.Narrowed, narrowed.Reissued.GrantId.ToString())
+        { AuditId = auditId, CorrelationId = correlation };
     }
 
     /// <inheritdoc />
@@ -666,7 +791,7 @@ internal sealed class AdminTeamAccessAuthority(
         // rather than handed a role that does nothing.
         var successorInputs = successorParty is null ? null : EffectiveMemberPermissions.Read(
             context.Roster, successorPrincipal.Value, successorPrincipal);
-        var successorDecision = successorInputs is null ? null : await _gate.DecideAsync(
+        var successorDecision = successorInputs is null ? null : await _gate.DecideProspectiveAdministratorAsync(
             new AuthorizationWriteContext(successorPrincipal, tenant, at)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
                 // Ticket 294 slice 2a — the flag is the whole question; the gate answers it. The caller no
@@ -730,7 +855,7 @@ internal sealed class AdminTeamAccessAuthority(
     /// One permanent audit row for one leg of a grant act, carrying the SAME admitted decision the act was
     /// gated on. <paramref name="correlationId"/> ties the two legs of a handover (L618) together.
     /// </summary>
-    private async ValueTask AppendGrantAuditAsync(
+    private async ValueTask<Guid> AppendGrantAuditAsync(
         TenantId tenant,
         GrantId grantId,
         AuthorizationDecision admittedDecision,
@@ -750,13 +875,13 @@ internal sealed class AdminTeamAccessAuthority(
                 .Request(operation, "members", recordId);
             admittedDecision.RequireAllowedReaction(
                 operation, tenant, reaction.Target.RecordKind, reaction.Target.RecordId);
-            if (eventType != RevocationRefused)
+            if (eventType != RevocationRefused && eventType != GrantReviewRecorded)
             {
                 await foreach (var existing in _audit.QueryAsync(
                                    new AuditQuery(tenant, eventType), cancellationToken)
                                    .ConfigureAwait(false))
                 {
-                    if (existing.Target == reaction.Target) return;
+                    if (existing.Target == reaction.Target) return existing.AuditId;
                 }
             }
             var payload = await _signer.SignAsync(new AuditPayload(new Dictionary<string, object?>
@@ -766,11 +891,13 @@ internal sealed class AdminTeamAccessAuthority(
                 ["correlation_id"] = correlationId.ToString("D"),
                 ["successor_grant_id"] = successorGrant?.Value.ToString("D"),
             }), admittedDecision.DecidedAt, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
+            var auditId = Guid.NewGuid();
             await _audit.AppendAuthorizedAsync(new AuditRecord(
-                Guid.NewGuid(), tenant, eventType,
+                auditId, tenant, eventType,
                 admittedDecision.DecidedAt, payload,
                 ImmutableArray<AttestingSignature>.Empty, Actor: admittedDecision.Request.Principal,
                 Target: reaction.Target, Act: reaction.Act), admittedDecision, cancellationToken).ConfigureAwait(false);
+            return auditId;
         }
         finally
         {
@@ -950,5 +1077,6 @@ internal sealed class AdminTeamAccessAuthority(
     public void Dispose()
     {
         _grantAuditGate.Dispose();
+        _grantActionGate.Dispose();
     }
 }

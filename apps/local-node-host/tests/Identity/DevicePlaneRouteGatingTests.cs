@@ -86,7 +86,7 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
             new FixedLanDeviceSessionAuthority(),
             new LanConnectionRateLimiter(TimeProvider.System));
 
-        var store = new NodeSchedulingDraftStore(_factory, TimeProvider.System);
+        var store = new NodeSchedulingDraftStore(_factory);
         SchedulingDefinitionRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             store,
@@ -94,11 +94,10 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
             parties: null!,
             activeTeam,
             new FixedCurrentUser(),
-            bookingService: null!,
+            scopes: null!,
             eventStore: null!,
             calendarStore: null!,
             availabilityStore: null!,
-            freeBusyService: null!,
             TimeProvider.System);
 
         await _app.StartAsync(CancellationToken.None);

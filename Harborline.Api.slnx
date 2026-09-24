@@ -28,7 +28,6 @@
     <Project Path="packages/blocks-access-grant/Harborline.Blocks.AccessGrant.csproj" />
     <Project Path="packages/blocks-assets-registry/Harborline.Blocks.Assets.Registry.csproj" />
     <Project Path="packages/blocks-banking/Harborline.Blocks.Banking.csproj" />
-    <Project Path="packages/blocks-calendar/Harborline.Blocks.Calendar.csproj" />
     <Project Path="packages/blocks-docs/Harborline.Blocks.Docs.csproj" />
     <Project Path="packages/blocks-financial-ap/Harborline.Blocks.FinancialAp.csproj" />
     <Project Path="packages/blocks-financial-ar/Harborline.Blocks.FinancialAr.csproj" />
@@ -99,7 +98,6 @@
     <Project Path="packages/kernel-signatures/Harborline.Kernel.Signatures.csproj" />
     <Project Path="packages/kernel-sync/Harborline.Kernel.Sync.csproj" />
     <Project Path="packages/kernel/Harborline.Kernel.csproj" />
-    <Project Path="packages/ui-adapters-blazor/Harborline.UIAdapters.Blazor.csproj" />
     <Project Path="packages/ui-core/Harborline.UICore.csproj" />
   </Folder>
   <Folder Name="/tooling/">

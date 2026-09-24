@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
@@ -27,6 +28,8 @@ using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.Foundation.Authorization;
 
 using Xunit;
 
@@ -49,6 +52,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     private HttpClient _unattributedClient = null!;
     private KeyPair _key = null!;
     private InMemoryPackInstallStore _store = null!;
+    private SelectedSessionRequestPrincipal? _selected;
 
     public async Task InitializeAsync()
     {
@@ -88,12 +92,12 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         // projection — the AssetTypeDefinition→registry projection is covered by PackSeedProjectionRouteTests —
         // but the activate route now invokes it, so it must be present).
         var registryServices = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
-        var projector = new PackSeedProjector(
-            _store, registryServices.GetRequiredService<IEntityTypeRegistry>(), NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System);
+        var projector = PackProjectionTestFixture.Create(_store, registryServices.GetRequiredService<IEntityTypeRegistry>());
 
         var authz = TestPackGate.AllowAll();
         _app.Use(async (http, next) =>
         {
+            if (_selected is not null) http.Features.Set(_selected);
             if (http.Request.Headers.ContainsKey("X-Test-Desktop"))
             {
                 http.Features.Set(DesktopPlaneRequestFeature.Instance);
@@ -143,6 +147,23 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList());
         Assert.Equal("acme.pack", entry.GetProperty("packKey").GetString());
         Assert.Equal("Active", entry.GetProperty("lifecycle").GetString());
+    }
+
+    [Fact]
+    public async Task Selected_pack_inventory_does_not_read_ambient_tenant()
+    {
+        var bytes = await ExportAsync(FormPackBody());
+        using var installed = await PostBytesAsync(PackInstallRoutes.InstallRoute, bytes);
+        Assert.Equal(HttpStatusCode.OK, installed.StatusCode);
+        _selected = new SelectedSessionRequestPrincipal("account",
+            new("43300000-0000-4000-8000-000000000000"), new PrincipalUserId("selected-admin"),
+            new CanonicalPartyReference("party"), "membership", 1,
+            [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var response = await _client.GetAsync(PackInstallRoutes.ListInstalledRoute);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        var rows = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Empty(rows.EnumerateArray());
     }
 
     [Fact(DisplayName = "nothing installed exposes only install; first install restores the full pack surface")]
@@ -224,6 +245,46 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Single(_store.ListInstalled(NodeTenantFor()));
     }
 
+    [Fact(DisplayName = "check collects independent refusal codes and RFC 6901 pointers without a catalogue write")]
+    public async Task Check_collects_independent_refusals_without_mutating()
+    {
+        var packBytes = await ExportAsync(UnsupportedKindsPackBody());
+        var before = CatalogueHash();
+
+        var check = await PostBytesAsync(PackInstallRoutes.CheckRoute, packBytes);
+
+        Assert.Equal(HttpStatusCode.OK, check.StatusCode);
+        using var document = JsonDocument.Parse(await check.Content.ReadAsStringAsync());
+        var refusals = document.RootElement.GetProperty("refusals").EnumerateArray().ToList();
+        Assert.Equal(4, refusals.Count);
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedStandardsCatalog, refusals[0].GetProperty("code").GetString());
+        Assert.Equal("/contents/0/contentBase64", refusals[0].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedCascadeDefaults, refusals[1].GetProperty("code").GetString());
+        Assert.Equal("/contents/1/contentBase64", refusals[1].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedAdmission, refusals[2].GetProperty("code").GetString());
+        Assert.Equal("/contents/1/contentBase64", refusals[2].GetProperty("pointer").GetString());
+        Assert.Equal(PackInstallCodes.RefusedAdmission, refusals[3].GetProperty("code").GetString());
+        Assert.Equal("/contents/2/contentBase64", refusals[3].GetProperty("pointer").GetString());
+        Assert.Equal(before, CatalogueHash());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
+    [Fact(DisplayName = "check accepts a valid pack without installing or activating it")]
+    public async Task Check_accepts_valid_pack_without_mutating()
+    {
+        var packBytes = await ExportAsync(FormPackBody());
+        var before = CatalogueHash();
+
+        var check = await PostBytesAsync(PackInstallRoutes.CheckRoute, packBytes);
+
+        Assert.Equal(HttpStatusCode.OK, check.StatusCode);
+        using var document = JsonDocument.Parse(await check.Content.ReadAsStringAsync());
+        Assert.Equal("WouldInstall", document.RootElement.GetProperty("verdict").GetString());
+        Assert.Empty(document.RootElement.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(before, CatalogueHash());
+        Assert.Empty(_store.ListInstalled(NodeTenantFor()));
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)
@@ -254,7 +315,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
                 key = "intake",
                 kind = "FormDefinition",
                 version = "1.0.0",
-                content = new { title = "Intake", assignee = "role:approver" },
+                content = PackProjectionTestFixture.FormContent("Intake"),
             },
         },
         dependencies = Array.Empty<object>(),
@@ -288,6 +349,26 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         dependencies = Array.Empty<object>(),
         capabilityRequirements = new[] { "workflow.durable" },
     };
+
+    private static object UnsupportedKindsPackBody() => new
+    {
+        key = "acme.check",
+        version = "1.0.0",
+        name = "Check diagnostics pack",
+        description = "three independently unsupported content kinds",
+        scopeTier = "Vertical",
+        contents = new[]
+        {
+            new { key = "standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
+            new { key = "cascade", kind = "CascadeDefaults", version = "1.0.0", content = new { } },
+            new { key = "terms", kind = "TerminologyOverride", version = "1.0.0", content = new { } },
+        },
+        dependencies = Array.Empty<object>(),
+        capabilityRequirements = Array.Empty<string>(),
+    };
+
+    private string CatalogueHash() => Convert.ToHexString(
+        SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(_store.ListInstalled(NodeTenantFor()))));
 
     private static Harborline.Foundation.Assets.Common.TenantId NodeTenantFor()
         => Harborline.Api.LocalNodeHost.Data.Financial.NodeTenant.Resolve(

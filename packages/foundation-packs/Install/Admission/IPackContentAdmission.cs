@@ -14,18 +14,26 @@ namespace Harborline.Api.Foundation.Packs.Install.Admission;
 /// <param name="Kind">The declarative kind (routes to the right validator; only effecting kinds gate).</param>
 /// <param name="Version">The pinned content version (identity stamping for the validator).</param>
 /// <param name="CanonicalJson">The composed content's JSON — what would become live if installed.</param>
+/// <param name="CapabilityRequirements">Requirements from the verified signed manifest.</param>
+/// <param name="SeedCanonicalJson">Verified original bytes before tenant override composition.</param>
 public sealed record PackComposedItem(
     string PackageKey,
     string Key,
     PackContentKind Kind,
     string Version,
-    string CanonicalJson);
+    string CanonicalJson,
+    IReadOnlyList<string>? CapabilityRequirements = null,
+    string? SeedCanonicalJson = null);
 
 /// <summary>One admission refusal — the offending content key + a stable code + a locator/message.</summary>
 /// <param name="ContentKey">The content key that failed admission.</param>
 /// <param name="Code">The stable admission-violation code (e.g. an ADR 0143 <c>workflow.admission.*</c>).</param>
 /// <param name="Message">A developer-facing message; a localizing client keys off <paramref name="Code"/>.</param>
-public sealed record PackAdmissionRefusal(string ContentKey, string Code, string Message);
+public sealed record PackAdmissionRefusal(string ContentKey, string Code, string Message)
+{
+    /// <summary>JSON pointer within the content body, when known.</summary>
+    public string Pointer { get; init; } = string.Empty;
+}
 
 /// <summary>Published content-admission refusal codes.</summary>
 public static class PackAdmissionCodes
@@ -64,6 +72,12 @@ public interface IPackContentAdmission
     PackAdmissionResult Admit(IReadOnlyList<PackComposedItem> composed, TenantId tenant);
 }
 
+/// <summary>Host admission attests that the supported Defaults model has a runtime consumer.</summary>
+public interface IPackCascadeDefaultsAdmission
+{
+    bool ConsumesCascadeDefaults { get; }
+}
+
 /// <summary>
 /// The FAIL-CLOSED foundation default <see cref="IPackContentAdmission"/>: it admits a pack that carries
 /// NO effecting (workflow) content, and REFUSES any pack that carries a <see cref="PackContentKind.WorkflowDefinition"/>
@@ -90,6 +104,19 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
         ArgumentNullException.ThrowIfNull(composed);
         var refusals = _restricting.Validate(composed).ToList();
         refusals.AddRange(PackNavigationContentAdmission.Validate(composed, tenant));
+        refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.CascadeDefaults)
+            .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                "CascadeDefaults requires the governance projection and its admission validator.")));
+        refusals.AddRange(composed.Where(item => item.Kind == PackContentKind.TerminologyOverride)
+            .Select(item => new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                "Terminology requires its runtime consumer and versioned admission.")));
+        foreach (var item in composed.Where(c => c.Kind == PackContentKind.FormDefinition))
+        {
+            if (DeclaresCatalogueFieldSource(item.CanonicalJson)
+                || (item.SeedCanonicalJson is { } seed && DeclaresCatalogueFieldSource(seed)))
+                refusals.Add(new PackAdmissionRefusal(item.Key, PackAdmissionCodes.NotWired,
+                    "Catalogue field sources require registered install admission and field-reader support."));
+        }
         refusals.AddRange(composed
             .Where(c => c.Kind == PackContentKind.WorkflowDefinition)
             .Select(c => new PackAdmissionRefusal(
@@ -99,5 +126,17 @@ public sealed class WorkflowRefusingPackContentAdmission : IPackContentAdmission
                 + "definition (S-9).")));
 
         return refusals.Count == 0 ? PackAdmissionResult.Admissible : new PackAdmissionResult(refusals);
+    }
+
+    private static bool DeclaresCatalogueFieldSource(string json)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && document.RootElement.EnumerateObject().Any(p =>
+                    string.Equals(p.Name, "catalogueFieldSource", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (System.Text.Json.JsonException) { return true; }
     }
 }

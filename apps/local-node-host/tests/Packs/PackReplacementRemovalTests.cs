@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Install.Audit;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
@@ -45,6 +46,69 @@ public sealed class PackReplacementRemovalTests
     private const string ViewKey = "access.who-holds-what";
     private const string ReportKey = "access.held-by-person";
     private const string ItemVersion = "1.0.0";
+
+    [Fact]
+    public async Task Competing_replacements_validate_expected_old_version_inside_activation_lease()
+    {
+        using var platform = new RendezvousPlatform();
+        var world = new World(platform);
+        await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
+        await world.ProjectAsync();
+        world.Install("1.1.0", withView: true, withReport: false);
+        world.Install("1.2.0", withView: false, withReport: true);
+        world.AttachProjector();
+        platform.Enabled = true;
+        var outcomes = await Task.WhenAll(
+            Task.Run(() => world.Installer.Activate(world.Context, PackKey, "1.1.0")),
+            Task.Run(() => world.Installer.Activate(world.Context, PackKey, "1.2.0")))
+            .WaitAsync(TimeSpan.FromSeconds(15));
+        var winner = Assert.Single(outcomes, row => row.Activated);
+        var refused = Assert.Single(outcomes, row => !row.Activated);
+        Assert.Equal(PackInstallCodes.ActivateConcurrentChange, refused.Error);
+        Assert.Equal(winner.Version, world.ActiveVersion);
+        Assert.Equal(winner.Version == "1.1.0", await world.ReadViewAsync() is not null);
+        Assert.Equal(winner.Version == "1.2.0", await world.ReadReportAsync() is not null);
+    }
+
+    private sealed class RendezvousPlatform : IPackPlatformCompatibility, IDisposable
+    {
+        private readonly Barrier rendezvous = new(2);
+        public bool Enabled { get; set; }
+        public string PlatformVersion => "1.0.0";
+        public IReadOnlySet<string> Provides
+        {
+            get
+            {
+                if (Enabled && !rendezvous.SignalAndWait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("Both activations must capture the same old pointer.");
+                return new HashSet<string>(StringComparer.Ordinal) { "atomic.rendezvous" };
+            }
+        }
+        public void Dispose() => rendezvous.Dispose();
+    }
+
+    [Fact]
+    public async Task Retirement_throw_restores_the_removed_definition_and_old_active_pointer()
+    {
+        var world = new World();
+        await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
+        await world.ProjectAsync();
+        var beforeView = await world.ReadViewAsync();
+        var beforeReport = await world.ReadReportAsync();
+        world.Install("1.1.0", withView: false, withReport: true);
+        world.AttachProjector();
+        world.Views.ThrowAfterRemove = true;
+        var failed = world.Installer.Activate(world.Context, PackKey, "1.1.0");
+        Assert.False(failed.Activated);
+        Assert.Equal("1.0.0", world.ActiveVersion);
+        Assert.Same(beforeView, await world.ReadViewAsync());
+        Assert.Same(beforeReport, await world.ReadReportAsync());
+        world.Views.ThrowAfterRemove = false;
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
+        Assert.Equal("1.1.0", world.ActiveVersion);
+        Assert.Null(await world.ReadViewAsync());
+        Assert.NotNull(await world.ReadReportAsync());
+    }
 
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000000208");
     private static readonly DateTimeOffset Now = new(2026, 9, 7, 12, 0, 0, TimeSpan.Zero);
@@ -122,17 +186,16 @@ public sealed class PackReplacementRemovalTests
         Assert.NotNull(await world.ReadReportAsync());
     }
 
-    [Fact(DisplayName = "208 s2: a crash mid-admit is repaired by the next boot")]
-    public async Task Crash_Mid_Admit_Is_Repaired_By_The_Next_Boot()
+    [Fact(DisplayName = "208 s2: cancellation mid-admit discards the replacement and permits an explicit retry")]
+    public async Task Cancellation_Mid_Admit_Is_Rolled_Back_And_Allows_Explicit_Retry()
     {
         var world = new World();
         await world.InstallAndActivateAsync("1.0.0", withView: false, withReport: true);
         await world.ProjectAsync();
         Assert.NotNull(await world.ReadReportAsync());
 
-        // The replacement drops the report and ships the view. The node is torn down inside the pass,
-        // while admitting the view — which now runs FIRST, so the replaced report is still standing when
-        // the process dies. Either way the admission stays incomplete and the next boot re-runs the pass.
+        // The replacement drops the report and ships the view. Cancellation while admitting the view
+        // must discard the whole replacement, including its admission and any staged retirements.
         world.Views.TearDownOnRegister = true;
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
@@ -141,14 +204,15 @@ public sealed class PackReplacementRemovalTests
 
         Assert.NotNull(await world.ReadReportAsync());              // still standing: nothing was removed …
         Assert.Null(await world.ReadViewAsync());                   // … and the replacement never landed.
-        Assert.NotEmpty(world.IncompleteAdmissions());              // the durable intent the boot completes.
+        Assert.DoesNotContain(world.IncompleteAdmissions(), row => row.PackVersion == "1.1.0");
 
-        // Next boot: the process restart clears the projector's in-process replay guard (a crashed
-        // authority is only replayable across a restart, which is exactly the case under test), then the
-        // same reconciliation the host's startup hosted service runs re-runs the whole pass.
+        // Restart reconciliation must not activate the canceled draft. Only an explicit retry may
+        // replace the old projection after the cancellation source is removed.
         world.Views.TearDownOnRegister = false;
-        World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
+        Assert.Null(await world.ReadViewAsync());
+        Assert.NotNull(await world.ReadReportAsync());
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
 
         Assert.NotNull(await world.ReadViewAsync());
         Assert.Null(await world.ReadReportAsync());
@@ -171,7 +235,7 @@ public sealed class PackReplacementRemovalTests
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
-        Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
+        Assert.False(activation.Activated);
 
         var summary = Assert.IsType<PackSeedProjectionSummary>(activation.ProjectionResult);
         Assert.Single(summary.Refusals);
@@ -179,13 +243,15 @@ public sealed class PackReplacementRemovalTests
         Assert.Empty(summary.RetractedByKind);                      // zero removals.
         Assert.Same(reportBefore, await world.ReadReportAsync());   // the replaced package's copy, untouched.
         Assert.Null(await world.ReadViewAsync());
-        Assert.NotEmpty(world.IncompleteAdmissions());              // refused, not complete.
+        Assert.DoesNotContain(world.IncompleteAdmissions(), row => row.PackVersion == "1.1.0");
 
         // The refusal is what holds the admission open: once the registry admits, the next boot's
         // reconciliation completes the same pass — the view lands and only then does the report go.
         world.Views.RefuseOnRegister = false;
-        World.SimulateProcessRestart();
         world.Reconciler.ReconcilePending();
+        Assert.Null(await world.ReadViewAsync());
+        Assert.Same(reportBefore, await world.ReadReportAsync());
+        Assert.True(world.Installer.Activate(world.Context, PackKey, "1.1.0").Activated);
 
         Assert.NotNull(await world.ReadViewAsync());
         Assert.Null(await world.ReadReportAsync());
@@ -205,7 +271,7 @@ public sealed class PackReplacementRemovalTests
         world.Install("1.1.0", withView: true, withReport: false);
         world.AttachProjector();
         var activation = world.Installer.Activate(world.Context, PackKey, "1.1.0");
-        Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
+        Assert.False(activation.Activated);
         Assert.Same(reportBefore, await world.ReadReportAsync());
 
         // What AccessAdministrationPreloadHostedService does next: the refused activation is reversed.
@@ -213,7 +279,8 @@ public sealed class PackReplacementRemovalTests
         // empty admitted set — 1.1.0 now Inactive, 1.0.0 still Superseded — and retract the replaced
         // package's every definition. Removal belongs to an ACTIVE replacement only.
         var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.1.0", Now, "test-operator");
-        Assert.True(deactivation.Deactivated, deactivation.Error);
+        Assert.False(deactivation.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, deactivation.Error);
         await world.ProjectAsync();
 
         Assert.Same(reportBefore, await world.ReadReportAsync());
@@ -223,6 +290,7 @@ public sealed class PackReplacementRemovalTests
     /// <summary>One tenant, one pack key, the real installer, and the two registries under test.</summary>
     private sealed class World
     {
+        private readonly bool _rendezvous;
         private readonly KeyPair _keyPair = KeyPair.Generate();
         private readonly PackFileCodec _codec = new();
         private readonly InMemoryPackInstallStore _store = new();
@@ -231,8 +299,9 @@ public sealed class PackReplacementRemovalTests
             .AddInMemoryAssetTypeSystem()
             .BuildServiceProvider();
 
-        public World()
+        public World(IPackPlatformCompatibility? platform = null)
         {
+            _rendezvous = platform is not null;
             Views = new TearDownableViewRegistry();
             Reports = new InMemoryReportDefinitionRegistry(new AcceptAllReports());
             Installer = new PackInstaller(
@@ -240,7 +309,7 @@ public sealed class PackReplacementRemovalTests
                 _store,
                 new WorkflowRefusingPackContentAdmission(),
                 new InMemoryPackInstallAudit(),
-                Authorization.TestAuthorization.AllowGate());
+                Authorization.TestAuthorization.AllowGate(), platform);
             Projector = new PackSeedProjector(
                 _store,
                 _services.GetRequiredService<IEntityTypeRegistry>(),
@@ -268,19 +337,11 @@ public sealed class PackReplacementRemovalTests
 
         public PackInstallContext Context { get; }
 
+        public string? ActiveVersion => _store.GetActive(Tenant, PackKey)?.Version;
+
         public IPackProjectionReconciler Reconciler => Installer;
 
         public void AttachProjector() => Reconciler.AttachProjector(Projector);
-
-        /// <summary>Clears <c>PackSeedProjector.ConsumedAuthorities</c> — the per-process replay guard,
-        /// which a real node restart empties. Test-only; nothing production reaches this field.</summary>
-        public static void SimulateProcessRestart()
-        {
-            var field = typeof(PackSeedProjector).GetField(
-                "ConsumedAuthorities",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-            ((System.Collections.Concurrent.ConcurrentDictionary<Guid, byte>)field.GetValue(null)!).Clear();
-        }
 
         public IReadOnlyList<PackProjectionAdmission> IncompleteAdmissions() =>
             [.. ((IPackProjectionAdmissionStore)_store).ListIncompleteProjectionAdmissions()];
@@ -315,7 +376,7 @@ public sealed class PackReplacementRemovalTests
                         Version = ItemVersion,
                         Tenant = Tenant.Value,
                         SchemaVersion = 1,
-                        ViewKind = "views.entity-list/grid",
+                        ViewKind = Harborline.Blocks.EntityViews.ViewKindIds.Table,
                         Title = "Who holds what",
                         Parameters = JsonSerializer.SerializeToElement(new { groupBy = "role", pageSize = 25 }),
                         CascadeLayer = CascadeLayer.Tenant,
@@ -357,7 +418,7 @@ public sealed class PackReplacementRemovalTests
                         ScopeTier: PackScopeTier.Horizontal,
                         Contents: contents,
                         Dependencies: Array.Empty<PackDependencyRef>(),
-                        CapabilityRequirements: Array.Empty<string>(),
+                        CapabilityRequirements: _rendezvous ? ["atomic.rendezvous"] : [],
                         Epoch: 1,
                         Dcp: DomainComplianceProfile.General("access-administration-test-author")),
                     new Ed25519Signer(_keyPair))
@@ -379,11 +440,14 @@ public sealed class PackReplacementRemovalTests
     /// the one exception family the projector deliberately does NOT convert to a refusal, so it leaves
     /// the pass exactly where an abrupt process exit would — after the removal, before the admission.
     /// </summary>
-    private sealed class TearDownableViewRegistry : IViewDefinitionRegistry
+    private sealed class TearDownableViewRegistry : IViewDefinitionRegistry, IPackProjectionParticipant
     {
         private readonly InMemoryViewDefinitionRegistry _inner = new(new AcceptAllViews());
 
+        public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(_inner);
+
         public bool TearDownOnRegister { get; set; }
+        public bool ThrowAfterRemove { get; set; }
 
         /// <summary>Refuses the registration the way real governance does — a refusal the projector turns
         /// into a summary row, not an exception that aborts the pass.</summary>
@@ -397,9 +461,13 @@ public sealed class PackReplacementRemovalTests
                     ? throw new ViewDefinitionGovernanceException("view_definition.descriptor_refused")
                     : _inner.RegisterAsync(definition, cancellationToken);
 
-        public ValueTask<bool> RemoveAsync(
+        public async ValueTask<bool> RemoveAsync(
             string tenant, string key, string version, CancellationToken cancellationToken = default)
-            => _inner.RemoveAsync(tenant, key, version, cancellationToken);
+        {
+            var removed = await _inner.RemoveAsync(tenant, key, version, cancellationToken);
+            if (ThrowAfterRemove) throw new IOException("retirement failed after staging removal");
+            return removed;
+        }
 
         public ValueTask<ViewDefinition?> GetDefinitionAsync(
             string tenant, string key, string version, CancellationToken cancellationToken = default)

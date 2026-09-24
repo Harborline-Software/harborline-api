@@ -49,6 +49,7 @@ public sealed class HostedDataExchangeDefinitionApiEndpoint : IHostedService
             // a property of the group, not of the route.
             var desktopPlaneOnly = app.MapDesktopPlaneOnlyGroup();
             DataExchangeDefinitionRoutes.Map(desktopPlaneOnly, _registry, _activeTeam);
+            DataExchangePlatformRoutes.Map(desktopPlaneOnly);
         });
 
         _logger.LogInformation(

@@ -249,6 +249,8 @@ internal static class LocalNodeHostedComponentCatalog
             .Where(item => item.Descriptor.ServiceType == typeof(IHostedService))
             .Where(item => item.ImplementationType?.FullName !=
                 "Microsoft.AspNetCore.Hosting.GenericWebHostService")
+            .Where(item => item.ImplementationType?.FullName !=
+                "OpenTelemetry.Extensions.Hosting.Implementation.TelemetryHostedService")
             .ToArray();
 
         var opaque = observed.Where(item => item.ImplementationType is null).ToArray();

@@ -1,5 +1,27 @@
 # Quality baseline identity re-pin
 
+**How to re-pin (ticket 436).** This file is the ONLY baseline the gate compares against. Re-pin it
+in an explicit pull request, never from CI: take the `quality-findings-<sha>` artifact that main's
+own verify publishes, confirm it reports `0 new` against the current committed baseline, copy it over
+this directory's `quality-baseline.json`, and add a dated entry below saying which run measured it.
+A re-pin that reports new findings is not a re-pin; it is a landing that needs review.
+
+2026-09-15 (re-pin to e3b7dbba, in the reach batch PR itself) — T-451 deleted `packages/ui-adapters-blazor`
+and the lit side of `packages/ui-core`, which carried 1,273 of the committed rows. Measured by the
+branch's own `eng/verify.sh` run at `e3b7dbba` on winbox (artifacts/quality/findings.json, both engines
+ok): **0 new, 1,282 resolved**, 2,341 rows to 1,059. A pure shrink. The landing gate's resolved bound
+(more than 50 and more than a tenth of the baseline) refused the shrink as a suspected engine failure,
+which is why the re-pin rides in the same PR instead of a follow-up: the next main verify would
+otherwise refuse every landing until someone re-pinned by hand.
+
+2026-09-14 (re-pin to 06fedbd6) — First re-pin after ticket 436 made the committed file the only
+baseline. Measured by main's verify at `06fedbd6` (run 34870684582, artifact
+`quality-findings-06fedbd6f00ad867b7...`). Compared against the outgoing `4e179067` pin with ticket
+142's matcher: **0 new, 6 resolved** — SYSLIB1054 x2 and CA2101 in BootstrapClaimRedemption.cs,
+CA1873 in HostedAssetRegistryApiEndpoint.cs, CA1826 in PackInstaller.cs, CA1859 in
+InstallationFounderBootstrapCeremony.cs. 2,347 rows to 2,341. A pure shrink, which is the only
+direction this file is permitted to move.
+
 2026-09-12 (re-pin to 4e179067) — Routine drift re-pin, not an identity change.
 The committed baseline was pinned at `ac088ab3` (2,350 rows). Six landings later
 the PR gate reported `38 new, 41 resolved` against it and main's own verify went

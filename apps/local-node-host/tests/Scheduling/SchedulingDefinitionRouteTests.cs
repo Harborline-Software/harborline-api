@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -12,8 +14,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.People.Foundation.Data;
-using Harborline.Api.Blocks.Calendar.Services;
-using Harborline.Api.Blocks.Calendar.Models;
+using Harborline.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.Models;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Assets.Common;
@@ -49,6 +51,8 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
     private MutablePrincipal _principal = null!;
     private NodeEfPartyRepository _parties = null!;
     private readonly MutableTimeProvider _clock = new(DateTimeOffset.Parse("2026-07-13T12:00:00Z"));
+    private readonly MutableRequester _requester = new(Guid.Parse("52400000-0000-0000-0000-0000000000a1"));
+    private readonly SchedulingDraftValidator _validator = new(["admitted.capacity"]);
 
     public async Task InitializeAsync()
     {
@@ -73,6 +77,10 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         builder.Services.AddDbContextFactory<NodeLocalCalendarDbContext>(db =>
             db.UseSqlite($"Data Source={_calendarPath};Pooling=False", sqlite =>
                 sqlite.MigrationsHistoryTable(NodeLocalCalendarDbContext.MigrationsHistoryTableName)));
+        // T-568 / T-524: the platform's BookingService takes the requester from this seam, never from the
+        // request. The fixture supplies it directly (AddNodeCalendar's registration is TryAdd), so a test
+        // can be the authenticated operator, a second operator, or nobody at all.
+        builder.Services.AddScoped<Harborline.Foundation.Authorization.IPartyContext>(_ => _requester);
         builder.Services.AddNodeCalendar();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(db =>
             db.UseSqlite($"Data Source={_peoplePath};Pooling=False"));
@@ -85,7 +93,7 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
             await db.Database.EnsureCreatedAsync();
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _principal = new MutablePrincipal("server-actor");
-        var store = new NodeSchedulingDraftStore(_factory, TimeProvider.System);
+        var store = new NodeSchedulingDraftStore(_factory);
         _parties = new NodeEfPartyRepository(peopleFactory, TimeProvider.System);
         _app.Use(async (http, next) =>
         {
@@ -94,12 +102,11 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         });
         SchedulingDefinitionRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
-            store, new SchedulingDraftValidator(), _parties, _activeTeam, _principal,
-            _app.Services.GetRequiredService<IBookingService>(),
+            store, _validator, _parties, _activeTeam, _principal,
+            _app.Services.GetRequiredService<IServiceScopeFactory>(),
             _app.Services.GetRequiredService<ICalendarEventStore>(),
             _app.Services.GetRequiredService<ICalendarStore>(),
-            _app.Services.GetRequiredService<IResourceAvailabilityStore>(),
-            _app.Services.GetRequiredService<IFreeBusyService>(), _clock);
+            _app.Services.GetRequiredService<IResourceAvailabilityStore>(), _clock);
 
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
@@ -347,6 +354,44 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
             (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Empty(await DraftsAsync());
         Assert.Empty(await AuditsAsync());
+    }
+
+    [Fact]
+    public async Task Draft_save_runs_full_validation_and_does_not_persist_an_invalid_definition()
+    {
+        _principal.Grant(Permission.SchedulingAuthor);
+        var invalid = Definition("Invalid");
+        var body = JsonNode.Parse(invalid.GetRawText())!.AsObject();
+        body.Remove("timezone");
+
+        var response = await SaveAsync("invalid-definition", 0,
+            JsonDocument.Parse(body.ToJsonString()).RootElement.Clone());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("scheduling.draft.validation_refused", refusal.GetProperty("code").GetString());
+        Assert.Contains(refusal.GetProperty("issues").EnumerateArray(), issue =>
+            issue.GetProperty("path").GetString() == "timezone");
+        Assert.Empty(await DraftsAsync());
+        Assert.Empty(await AuditsAsync());
+    }
+
+    [Fact]
+    public async Task Draft_save_checks_every_named_module_and_refuses_an_unknown_later_entry()
+    {
+        _principal.Grant(Permission.SchedulingAuthor);
+        var body = JsonNode.Parse(Definition("Modules").GetRawText())!.AsObject();
+        body["modules"] = new JsonArray("admitted.capacity", "unknown.routing");
+
+        var response = await SaveAsync("invalid-module", 0,
+            JsonDocument.Parse(body.ToJsonString()).RootElement.Clone());
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var issue = Assert.Single(refusal.GetProperty("issues").EnumerateArray(), item =>
+            item.GetProperty("code").GetString() == "scheduling.validation.module_unsupported");
+        Assert.Equal("modules.1", issue.GetProperty("path").GetString());
+        Assert.Empty(await DraftsAsync());
     }
 
     [Fact]
@@ -709,15 +754,115 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         Assert.Single(await _app.Services.GetRequiredService<ICalendarEventStore>()
             .ListAsync(NodeTenant.Resolve(_activeTeam)));
 
-        var spillsPastAvailability = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.AppointmentRoute,
+        // T-524: supply containment is tested on the VISIBLE interval, occupancy on the buffered
+        // footprint (DES-0033 open question 8, T-626). 18:30 New York is past the resource's 18:00
+        // close, so the visible slot itself is outside supply.
+        var outsideSupply = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.AppointmentRoute,
             new { subjectId = "subject-3", definitionId = "buffered-visit", resource, title = "Late visit",
-                startUtc = "2026-07-13T21:30:00Z", endUtc = "2026-07-13T22:00:00Z" });
-        Assert.Equal(HttpStatusCode.Conflict, spillsPastAvailability.StatusCode);
+                startUtc = "2026-07-13T22:30:00Z", endUtc = "2026-07-13T23:00:00Z" });
+        Assert.Equal(HttpStatusCode.Conflict, outsideSupply.StatusCode);
         Assert.Equal("scheduling.appointment.no_availability",
-            (await spillsPastAvailability.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+            (await outsideSupply.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Single(await _app.Services.GetRequiredService<ICalendarEventStore>()
             .ListAsync(NodeTenant.Resolve(_activeTeam)));
+
+        // The same booking whose 15-minute AFTER-buffer alone spills past the close is admitted: the
+        // route no longer re-derives a stricter rule than the runtime's (the deleted third derivation).
+        var bufferSpillsPastClose = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.AppointmentRoute,
+            new { subjectId = "subject-4", definitionId = "buffered-visit", resource, title = "Closing visit",
+                startUtc = "2026-07-13T21:30:00Z", endUtc = "2026-07-13T22:00:00Z" });
+        Assert.Equal(HttpStatusCode.OK, bufferSpillsPastClose.StatusCode);
     }
+
+    [Fact]
+    public async Task Appointment_is_attributed_to_the_authenticated_requester_not_a_fixed_local_actor()
+    {
+        var resource = await BookableResourceAsync();
+
+        Assert.Equal(HttpStatusCode.OK, (await BookAsync(resource, "subject-1", "15:00", "15:30")).StatusCode);
+        var first = Assert.Single(await EventsAsync());
+        Assert.Equal(_requester.PartyId, first.CreatedBy);
+
+        // A second, different authenticated requester is recorded distinctly (L535).
+        _requester.PartyId = Guid.Parse("52400000-0000-0000-0000-0000000000b2");
+        Assert.Equal(HttpStatusCode.OK, (await BookAsync(resource, "subject-2", "16:00", "16:30")).StatusCode);
+        var second = Assert.Single(await EventsAsync(), e => e.Id != first.Id);
+        Assert.Equal(_requester.PartyId, second.CreatedBy);
+        Assert.NotEqual(first.CreatedBy, second.CreatedBy);
+    }
+
+    [Fact]
+    public async Task Appointment_with_no_authenticated_requester_is_refused_and_writes_nothing()
+    {
+        var resource = await BookableResourceAsync();
+        _requester.PartyId = null;
+
+        var response = await BookAsync(resource, "subject-1", "15:00", "15:30");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("scheduling.appointment.no_requester",
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Empty(await EventsAsync());
+    }
+
+    [Fact]
+    public void The_booking_route_holds_no_in_process_fence()
+    {
+        // T-659: the per-(tenant, resource) SemaphoreSlim map that used to make the platform call one
+        // unit on this node is gone. The producer commits under an epoch-conditional write, so a lock
+        // whose ceiling is one host process must not come back here by habit.
+        var fences = typeof(SchedulingDefinitionRoutes)
+            .GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(f => typeof(SemaphoreSlim).IsAssignableFrom(f.FieldType)
+                || f.FieldType.GetGenericArguments().Any(a => typeof(SemaphoreSlim).IsAssignableFrom(a)))
+            .Select(f => f.Name)
+            .ToList();
+
+        Assert.Empty(fences);
+    }
+
+    [Fact]
+    public async Task Two_concurrent_bookings_of_one_exclusive_slot_yield_one_success()
+    {
+        var resource = await BookableResourceAsync();
+
+        // The same slot, both in flight. The pre-T-524 check-then-write admitted both because each read
+        // capacity before either wrote; T-524 fenced that with an in-process lock; T-659 deleted the
+        // lock and the platform producer refuses the stale claim on its capacity epoch instead.
+        var both = await Task.WhenAll(
+            BookAsync(resource, "subject-1", "15:00", "15:30"),
+            BookAsync(resource, "subject-2", "15:00", "15:30"));
+
+        Assert.Equal(1, both.Count(r => r.StatusCode == HttpStatusCode.OK));
+        var loser = Assert.Single(both, r => r.StatusCode != HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.Conflict, loser.StatusCode);
+        Assert.Equal("scheduling.appointment.slot_conflict",
+            (await loser.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Single(await EventsAsync());
+    }
+
+    /// <summary>Grants the booking permissions, publishes a 30-minute definition and a weekday-available party.</summary>
+    private async Task<string> BookableResourceAsync()
+    {
+        _principal.Grant(Permission.SchedulingAuthor, Permission.SchedulingOperate);
+        await SaveAsync("visit", 0, Definition("Visit", durationMinutes: 30));
+        var party = await _parties.CreateAsync(
+            NodeTenant.Resolve(_activeTeam), PartyKind.Person, "Bookable staff", new PartyId("server-actor"),
+            new Instant(System.TimeProvider.System.GetUtcNow()).Value);
+        var resource = $"party:{party.Id.Value}";
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            SchedulingDefinitionRoutes.ResourceAvailabilityRoute,
+            new { resource, timezone = "America/New_York" })).StatusCode);
+        return resource;
+    }
+
+    private Task<HttpResponseMessage> BookAsync(string resource, string subjectId, string fromUtc, string toUtc) =>
+        _client.PostAsJsonAsync(SchedulingDefinitionRoutes.AppointmentRoute,
+            new { subjectId, definitionId = "visit", resource, title = $"Visit {subjectId}",
+                startUtc = $"2026-07-13T{fromUtc}:00Z", endUtc = $"2026-07-13T{toUtc}:00Z" });
+
+    private Task<IReadOnlyList<CalendarEvent>> EventsAsync() =>
+        _app.Services.GetRequiredService<ICalendarEventStore>().ListAsync(NodeTenant.Resolve(_activeTeam));
 
     [Fact]
     public void Scheduling_authoring_is_off_by_default_and_explicitly_on_in_dogfood_overlay()
@@ -814,5 +959,19 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
     {
         public DateTimeOffset Now { get; set; } = now;
         public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    /// <summary>
+    /// The authenticated requester the platform booking contract reads (T-568). <c>null</c> is a caller
+    /// with no resolvable identity, which the node's own party seam signals the same way.
+    /// </summary>
+    private sealed class MutableRequester(Guid? partyId) : Harborline.Foundation.Authorization.IPartyContext
+    {
+        public Guid? PartyId { get; set; } = partyId;
+
+        public ValueTask<Guid> GetCurrentPartyIdAsync(CancellationToken cancellationToken = default) =>
+            PartyId is { } id
+                ? ValueTask.FromResult(id)
+                : throw Harborline.Foundation.Authorization.PrincipalPartyResolutionException.NoAuthenticatedPrincipal();
     }
 }

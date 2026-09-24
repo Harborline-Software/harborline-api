@@ -22,6 +22,7 @@ export const SCHEMA_VERSION = 1
 // commenting a step out of verify.sh does not silently narrow the evidence it records.
 export const requiredStepIds = [
   'boundaries',
+  'dependency-ledger',
   'identity-r3',
   'codegen-check',
   'codegen-guard-suite',
@@ -32,11 +33,28 @@ export const requiredStepIds = [
   'contracts-rust',
   'operator-cli-headless',
   'install-artefact',
+  'removal-exercise',
   'exact-clone',
   'quality',
   'quality-baseline',
   'packages',
 ]
+
+// The host-specific steps. Ticket 421 splits CI into a `shared` lane that runs everything else once
+// on any free runner, and a `host` lane per runner. `all` is still the whole gate and is what a
+// developer gets by running eng/verify.sh with no lane set.
+//
+// quality and quality-baseline are host steps because they read what exact-clone writes into
+// artifacts/quality, and only the host carrying HARBORLINE_GATE_QUALITY=1 produces it -- so only
+// that host's receipt is expected to carry them.
+export const hostStepIds = ['exact-clone', 'quality', 'quality-baseline']
+export const stepIdsForLane = (lane, env = process.env) => {
+  if (lane === 'host') {
+    return env.HARBORLINE_GATE_QUALITY === '1' ? hostStepIds : ['exact-clone']
+  }
+  if (lane === 'shared') return requiredStepIds.filter(id => !hostStepIds.includes(id))
+  return requiredStepIds
+}
 
 // Importing must not run git or record anything, so everything below is the entry-point body.
 if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/verify-receipt.mjs')) {
@@ -71,13 +89,20 @@ if (process.argv.includes('--record')) {
     process.exit(1)
   }
   const passed = recordArgs.slice(recordArgs.indexOf('--record') + 1).filter(id => !id.startsWith('-'))
-  const missing = requiredStepIds.filter(id => !passed.includes(id))
+  const laneIndex = recordArgs.indexOf('--lane')
+  const lane = laneIndex >= 0 ? recordArgs[laneIndex + 1] : 'all'
+  if (!['all', 'shared', 'host'].includes(lane)) {
+    console.error(`unknown lane: ${lane}`)
+    process.exit(1)
+  }
+  const missing = stepIdsForLane(lane).filter(id => !passed.includes(id))
   if (missing.length > 0) {
-    console.error(`refusing to record a receipt missing: ${missing.join(', ')}`)
+    console.error(`refusing to record a ${lane} receipt missing: ${missing.join(', ')}`)
     process.exit(1)
   }
   writeFileSync(receiptPath, JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
+    lane,
     repository: REPOSITORY,
     hostBaseline,
     coverage: receiptCoverage(root),

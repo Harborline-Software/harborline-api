@@ -155,7 +155,7 @@ public sealed partial class ComposedHostBootSmokeTests
             await installed.Content.ReadAsStringAsync(host.Deadline));
         var accessPack = Assert.Single(installedDocument.RootElement.EnumerateArray(), pack =>
             pack.GetProperty("packKey").GetString() == "harborline.access-administration");
-        Assert.Equal("1.1.1", accessPack.GetProperty("version").GetString());
+        Assert.Equal("1.1.3", accessPack.GetProperty("version").GetString());
         Assert.Equal("Active", accessPack.GetProperty("lifecycle").GetString());
 
         using var export = await client.PostAsJsonAsync(
@@ -216,20 +216,35 @@ public sealed partial class ComposedHostBootSmokeTests
         var pack = document.RootElement.GetProperty("pack");
         Assert.Equal("harborline.active-pack-composition", pack.GetProperty("packId").GetString());
         var workspaces = pack.GetProperty("seedWorkspaces").EnumerateArray().ToArray();
-        Assert.Equal(new[] { "access", "workshop", "ticket-229-workspace" },
+        // T-657, extended by T-668: the shipping host serves the configuration workspace to THIS caller,
+        // whose ordinary seeded holding is what admitted the install and activation above. The node
+        // operator is offered `packages:author` and `packages:operate` on the same row
+        // (AccessGrantAuthorizationSeed), so both entries reach it. That is the entries' audience end to
+        // end; PackNavigationRouteTests proves the refusing cases, including the author who cannot operate.
+        Assert.Equal(new[] { "access", "configuration", "workshop", "ticket-229-workspace" },
             workspaces.Select(workspace => workspace.GetProperty("id").GetString()));
+        var configuration = workspaces[1];
+        Assert.Equal("configuration.workspace", configuration.GetProperty("labelKey").GetString());
+        Assert.Equal(
+            new[] { "configuration.proposal", "configuration.activation" },
+            configuration.GetProperty("groups").EnumerateArray()
+                .SelectMany(group => group.GetProperty("itemIds").EnumerateArray())
+                .Select(item => item.GetString()));
         var access = workspaces[0];
         Assert.Equal("access.workspace", access.GetProperty("labelKey").GetString());
         var group = Assert.Single(access.GetProperty("groups").EnumerateArray());
         Assert.Equal("access-inspection", group.GetProperty("id").GetString());
         Assert.Equal("access.holders", group.GetProperty("labelKey").GetString());
         Assert.Equal("access.holders", Assert.Single(group.GetProperty("itemIds").EnumerateArray()).GetString());
-        var workshop = workspaces[1];
+        var workshop = workspaces[2];
         Assert.Equal("workshop.workspace", workshop.GetProperty("labelKey").GetString());
         var workshopGroup = Assert.Single(workshop.GetProperty("groups").EnumerateArray());
         Assert.Equal("definitions", workshopGroup.GetProperty("id").GetString());
         Assert.Contains(workshopGroup.GetProperty("itemIds").EnumerateArray(), item => item.GetString() == "forms");
-        var panel = Assert.Single(pack.GetProperty("panelSet").EnumerateArray());
+        var panels = pack.GetProperty("panelSet").EnumerateArray().ToArray();
+        var panel = Assert.Single(
+            panels,
+            candidate => candidate.GetProperty("id").GetString() == "access-details");
         Assert.Equal("access-details", panel.GetProperty("id").GetString());
         Assert.Equal("access.details", panel.GetProperty("labelKey").GetString());
         Assert.Equal("panels.access-details.toggle", panel.GetProperty("binding").GetString());
@@ -237,6 +252,20 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.Equal(400, panel.GetProperty("defaultWidth").GetInt32());
         Assert.Equal(300, panel.GetProperty("minimumHeight").GetInt32());
         Assert.False(panel.GetProperty("defaultOpen").GetBoolean());
+        var inspector = Assert.Single(
+            panels,
+            candidate => candidate.GetProperty("id").GetString() == "inspector");
+        Assert.Equal("panels.inspector", inspector.GetProperty("labelKey").GetString());
+        Assert.Equal("panels.inspector.toggle", inspector.GetProperty("binding").GetString());
+        Assert.Equal("mod+shift+i", inspector.GetProperty("shortcut").GetString());
+        Assert.Equal(360, inspector.GetProperty("defaultWidth").GetInt32());
+        Assert.Equal(180, inspector.GetProperty("minimumHeight").GetInt32());
+        Assert.False(inspector.GetProperty("defaultOpen").GetBoolean());
+        Assert.Equal("Title", inspector.GetProperty("headerForm").GetString());
+        Assert.Equal("Fields", inspector.GetProperty("bodyTemplate").GetString());
+        Assert.Equal("Claim", inspector.GetProperty("footer").GetProperty("kind").GetString());
+        Assert.Equal("panels.inspector.footerClaim", inspector.GetProperty("footer").GetProperty("labelKey").GetString());
+        Assert.Equal("Scoped", Assert.Single(inspector.GetProperty("traits").EnumerateArray()).GetString());
     }
 
     /// <summary>

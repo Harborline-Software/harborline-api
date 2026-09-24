@@ -91,7 +91,6 @@ public sealed class PackNarrowingSurvivesReplayTests
         Assert.True(narrowing.Recorded, narrowing.RefusalCode);
 
         // (1) Live after the next ordinary pass — no new pipeline ran.
-        World.SimulateProcessRestart();
         Assert.Empty((await world.ProjectAsync()).Refusals);
         Assert.Equal(RoleBindingSet.Empty, await world.EffectiveRolesAsync());
 
@@ -100,13 +99,11 @@ public sealed class PackNarrowingSurvivesReplayTests
         //     transaction.
         await world.InstallAndActivateAsync("1.1.0");
         Assert.Equal(BindingKey, Assert.Single(world.Overrides()).ContentKey);
-        World.SimulateProcessRestart();
         Assert.Empty((await world.ProjectAsync()).Refusals);
         Assert.Equal(RoleBindingSet.Empty, await world.EffectiveRolesAsync());
 
         // (3) Still live after a REPLAY of the pass over the same persisted state — the overrides are
         //     read fresh every pass, so replay cannot restore the publisher's wider offer.
-        World.SimulateProcessRestart();
         Assert.Empty((await world.ProjectAsync()).Refusals);
         Assert.Equal(RoleBindingSet.Empty, await world.EffectiveRolesAsync());
     }
@@ -133,7 +130,6 @@ public sealed class PackNarrowingSurvivesReplayTests
         Assert.DoesNotContain(world.Overrides(), o => o.ContentKey == BindingKey);
         // And the definition it narrowed is gone with the replacement (slice 2): its binding is empty,
         // so no live capability is left carrying either the seed's offer or a dangling overlay.
-        World.SimulateProcessRestart();
         Assert.Empty((await world.ProjectAsync()).Refusals);
         Assert.Equal(RoleBindingSet.Empty, await world.EffectiveRolesAsync());
     }
@@ -276,16 +272,6 @@ public sealed class PackNarrowingSurvivesReplayTests
         {
             var definitions = await Definitions.ListAsync(Tenant);
             return definitions.Count == 0 ? RoleBindingSet.Empty : definitions[0].EffectiveRoles;
-        }
-
-        /// <summary>Clears <c>PackSeedProjector.ConsumedAuthorities</c> — the per-process replay guard,
-        /// which a real node restart empties. Test-only; nothing production reaches this field.</summary>
-        public static void SimulateProcessRestart()
-        {
-            var field = typeof(PackSeedProjector).GetField(
-                "ConsumedAuthorities",
-                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
-            ((System.Collections.Concurrent.ConcurrentDictionary<Guid, byte>)field.GetValue(null)!).Clear();
         }
 
         public Task<PackSeedProjectionSummary> ProjectAsync() =>

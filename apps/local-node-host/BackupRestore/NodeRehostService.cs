@@ -32,6 +32,13 @@ public interface ITrusteeKeyRecovery
 /// <summary>A roster-authorized, signed grant admitting one replacement node.</summary>
 public sealed record RosterSignedRehostGrant(string SerializedGrant);
 
+/// <summary>A signed re-host envelope refusal that occurs outside authorization policy.</summary>
+public sealed class RehostGrantRefusedException(string code) : InvalidOperationException(code)
+{
+    /// <summary>The stable signed-grant refusal code.</summary>
+    public string Code { get; } = code;
+}
+
 /// <summary>Obtains roster authorization for a trustee-attested replacement identity.</summary>
 public interface IRosterRehostGrantProvider
 {

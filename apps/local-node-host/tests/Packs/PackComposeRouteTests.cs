@@ -222,7 +222,7 @@ public sealed class PackComposeRouteTests : IAsyncLifetime
         Assert.Contains(meta.Validations!, validation => validation.Code == "minLength" && validation.Param == "3");
 
         var category = request.FieldsMeta["category"];
-        Assert.Equal("select", category.Type);
+        Assert.Equal("radio", category.Type);
         Assert.Equal(new[] { "standard", "priority" }, category.Options);
 
         var quantity = request.FieldsMeta["quantity"];

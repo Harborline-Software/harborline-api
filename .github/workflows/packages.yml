@@ -1,31 +1,27 @@
 name: packages
 
 # ---------------------------------------------------------------------------
-# ACTIONS_ENABLED - the switch that decides whether this workflow may run.
+# ACTIONS_ENABLED - the switch for the OPTIONAL jobs in this workflow (build-and-test, publish).
 #
-# Every job below is guarded by `if: vars.ACTIONS_ENABLED == 'true'`. The variable is UNSET, so
-# every job reports "skipped" and GitHub allocates no runner and bills no minutes. The condition is
-# evaluated before runner allocation, which is why this keeps working while the account is over its
-# Actions limit - a guarded job never reaches the point where billing refuses it.
-#
-# Why it exists: this org is on the free plan with private repos, and Actions minutes ran out on
-# 2026-08-24. Until the repositories are public (where Actions is free), CI here is a duplicate of
-# work that already happens locally, and a red check that never ran teaches people to ignore checks.
+# T-633: the three required contexts here (protocol-lane-conformance, operator-cli-headless,
+# pack-consume) carry no condition. GitHub counts a job skipped by its own `if` as a SUCCESSFUL
+# required check, so while every job was guarded by `vars.ACTIONS_ENABLED == 'true'` deleting one
+# repository variable turned every required context green without running anything, and the merge
+# queue admitted whatever was in front of it. The variable was in fact unset from 2026-08-24 (free
+# plan, private repositories, minutes exhausted) until the repositories went public on 2026-09-07.
 #
 # Verification does NOT depend on this flag. Run locally instead:
-#     bash eng/verify-packages.sh   # boundaries + pack + clean-consumer smoke
-#     dotnet test                   # the host suite the build-and-test job runs
+#     bash eng/verify.sh
 #
-# To turn it back on, per repository:
+# To switch the optional jobs, per repository:
 #     gh variable set ACTIONS_ENABLED --body true
-# and to turn it off again:
 #     gh variable delete ACTIONS_ENABLED
 # ---------------------------------------------------------------------------
 on:
   pull_request:
   merge_group:
   push:
-    branches: [main]
+    # T-577: no push-to-main run; the merge group already proved the landing commit.
     tags: ["v*-preview.*", "v*-alpha.*", "v*-beta.*", "v*-rc.*"]
   workflow_dispatch:
     inputs:
@@ -54,14 +50,13 @@ jobs:
   # the first. One red lane reads as a broken projection; three red lanes read as a regeneration
   # that was never run.
   protocol-lane-conformance:
-    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.1.3
       - uses: ./.github/actions/platform-feed
@@ -101,7 +96,6 @@ jobs:
         run: cargo test --manifest-path packages/contracts/rust/Cargo.toml
 
   operator-cli-headless:
-    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -130,7 +124,9 @@ jobs:
   # A bare `dotnet test` is NOT the gate: the baseline-aware runner is eng/run-exact-clone.mjs,
   # which takes its verdict from baseline comparison rather than exit code and retries named flakes.
   build-and-test:
-    if: vars.ACTIONS_ENABLED == 'true'
+    # T-577: not a required context, so it runs where the result is used: the merge group, a
+    # release tag and a manual dispatch. The three required jobs above keep their pull_request runs.
+    if: vars.ACTIONS_ENABLED == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -142,7 +138,7 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.1.3
       - uses: actions/setup-node@v7
@@ -152,15 +148,24 @@ jobs:
           # so this job needs Node and that install or the row cannot run. 24 matches the
           # protocol-lane-conformance job; nothing in the repo pins a version.
           node-version: 24
-          cache: npm
-          cache-dependency-path: apps/capability-host/package-lock.json
+          cache: pnpm
+          cache-dependency-path: apps/capability-host/pnpm-lock.yaml
       - name: Install the capability-host node toolchain
         # Nothing here needs `npm run build`: the interop fixture's only api-contracts import is
         # type-only, so vitest never loads that package's dist at runtime.
         working-directory: apps/capability-host
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Build and test
         run: node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.ubuntu.json
+      - name: Retain failed host-test evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: host-test-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .claude/gate-evidence/host-tests.trx
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: warn
 
   # Packs the three shipped projects and restores them into tests/package-consumer the way an
   # external consumer would. Deliberately does NOT `needs: build-and-test`: proving the packed
@@ -168,7 +173,6 @@ jobs:
   # suite is precisely what hid a restore-breaking NU1015 in Directory.Build.props. Distribution
   # still requires both -- see the publish job.
   pack-consume:
-    if: vars.ACTIONS_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}
@@ -208,7 +212,7 @@ jobs:
         run: bash eng/verify-packages.sh
       # The npm contracts package rides the same artifact as the nupkgs, stamped with the same
       # immutable prerelease version, so one publish run ships one version across both registries.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.1.3
       - uses: actions/setup-node@v7

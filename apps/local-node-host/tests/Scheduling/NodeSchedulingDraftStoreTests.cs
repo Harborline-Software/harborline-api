@@ -47,7 +47,7 @@ public sealed class NodeSchedulingDraftStoreTests : IAsyncLifetime
     public async Task Save_survives_new_store_and_records_server_actor_audit()
     {
         var first = Store();
-        var saved = await first.SaveAsync("tenant-a", "protocol-a", Json("""{"title":"Draft"}"""), 0, "actor-a", default);
+        var saved = await first.SaveAsync("tenant-a", "protocol-a", Json("""{"title":"Draft"}"""), 0, "actor-a", At, default);
         Assert.Equal(1, saved.Revision);
 
         var restarted = Store();
@@ -64,9 +64,9 @@ public sealed class NodeSchedulingDraftStoreTests : IAsyncLifetime
     public async Task Expected_revision_conflict_writes_neither_revision_nor_audit()
     {
         var store = Store();
-        await store.SaveAsync("tenant-a", "p", Json("{}"), 0, "actor", default);
+        await store.SaveAsync("tenant-a", "p", Json("{}"), 0, "actor", At, default);
         var conflict = await Assert.ThrowsAsync<SchedulingDraftConflictException>(() =>
-            store.SaveAsync("tenant-a", "p", Json("{}"), 0, "actor", default));
+            store.SaveAsync("tenant-a", "p", Json("{}"), 0, "actor", At, default));
         Assert.Equal(1, conflict.CurrentRevision);
         await using var db = await _factory.CreateDbContextAsync();
         Assert.Equal(1, await db.Drafts.CountAsync());
@@ -78,7 +78,7 @@ public sealed class NodeSchedulingDraftStoreTests : IAsyncLifetime
     {
         var invalid = Json("{}");
         Assert.NotEmpty(new SchedulingDraftValidator().Validate(invalid));
-        var saved = await Store().SaveAsync("tenant-a", "p", invalid, 0, "actor", default);
+        var saved = await Store().SaveAsync("tenant-a", "p", invalid, 0, "actor", At, default);
         Assert.Equal(1, saved.Revision);
         _ = new SchedulingDraftValidator().Validate(Json("{}"));
         await using var db = await _factory.CreateDbContextAsync();
@@ -90,14 +90,15 @@ public sealed class NodeSchedulingDraftStoreTests : IAsyncLifetime
     public async Task Same_id_is_isolated_by_tenant_for_get_and_list()
     {
         var store = Store();
-        await store.SaveAsync("tenant-a", "p", Json("""{"title":"A"}"""), 0, "a", default);
-        await store.SaveAsync("tenant-b", "p", Json("""{"title":"B"}"""), 0, "b", default);
+        await store.SaveAsync("tenant-a", "p", Json("""{"title":"A"}"""), 0, "a", At, default);
+        await store.SaveAsync("tenant-b", "p", Json("""{"title":"B"}"""), 0, "b", At, default);
         Assert.Equal("A", (await store.GetAsync("tenant-a", "p", default))!.Definition.GetProperty("title").GetString());
         Assert.Equal("B", (await store.GetAsync("tenant-b", "p", default))!.Definition.GetProperty("title").GetString());
         Assert.Single(await store.ListAsync("tenant-a", default));
     }
 
-    private NodeSchedulingDraftStore Store() => new(_factory, TimeProvider.System);
+    private static readonly DateTimeOffset At = new(2026, 7, 23, 2, 0, 0, TimeSpan.Zero);
+    private NodeSchedulingDraftStore Store() => new(_factory);
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
     private sealed class TestFactory(DbContextOptions<NodeLocalSchedulingDbContext> options)
         : IDbContextFactory<NodeLocalSchedulingDbContext>

@@ -46,7 +46,10 @@ public static class AccessGrantServiceCollectionExtensions
             sp.GetRequiredService<DefinitionJoinedAuthorizationReader>());
         services.TryAddSingleton<IAuthorizationClosureSnapshotReader>(sp =>
             sp.GetRequiredService<DefinitionJoinedAuthorizationReader>());
+        services.TryAddSingleton<IAuthorizationInstallRootReader, AuthorizationInstallRootReader>();
         services.TryAddSingleton<IRecordStandingResolver, EmptyRecordStandingResolver>();
+        services.TryAddSingleton<IAuthorizationRosterConstraintReader>(
+            RefusingAuthorizationRosterConstraintReader.Shared);
         services.TryAddSingleton<AuthorizationGate>();
         services.TryAddSingleton<AuthorizationDefinitionWriter>();
         services.TryAddSingleton<AccessGrantAuthorizationSeed>();

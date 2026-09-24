@@ -35,6 +35,10 @@
     <!-- B-1b install engine: TemplateMerger three-way re-attach primitive (ADR 0011 follow-up #1 /
          fold A2). Reused, not re-implemented — no second JSON-merge path (A4-drift avoidance). -->
     <ProjectReference Include="..\foundation-catalog\Harborline.Foundation.Catalog.csproj" />
+    <!-- T-655 / ADR 0096: the raise-only safety-floor reattachment rule has ONE producer, the platform's
+         PackageSafetyFloorReattachment. Consumed from the released package (central pin, Justification
+         "platform") - never copied into this repository. -->
+    <PackageReference Include="Harborline.Blocks.BuilderDefinitions" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>

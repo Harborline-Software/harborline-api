@@ -66,9 +66,6 @@ public sealed class AllowListVacuityArchTests
         new("RouteFenceMetadataArchTests", "FenceHelperPaths",
             RouteFenceMetadataArchTests.FenceHelperPathRows,
             RouteFenceMetadataArchTests.DiscoveredMarkerOperationFiles),
-        new("BlazorStaticWebAssetUrlFenceTests", "ForeignAssetOwners",
-            () => [.. BlazorStaticWebAssetUrlFenceTests.ForeignAssetOwnerRows],
-            BlazorStaticWebAssetUrlFenceTests.DiscoveredContentUrlOwners),
         new("RetiredFamilySpellingFenceTests", "TwinAllowList",
             RetiredFamilySpellingFenceTests.TwinAllowListRows,
             RetiredFamilySpellingFenceTests.DiscoveredRetiredSpellingSites),
@@ -159,10 +156,22 @@ public sealed class AllowListVacuityArchTests
             "the IL opcode table the disassembler reads (OpCode carries a Name), not an allow-list",
         ["RawMutationPortSymbolInventoryTests.MultiByteOpCodes"] =
             "the IL opcode table the disassembler reads (OpCode carries a Name), not an allow-list",
+        ["AdmissionGateReachabilityArchTests.UncomposedPlatformGates"] =
+            "the composition probe asserts exact equality between these reasoned platform-gate allowances "
+            + "and the live unreachable-gate discovery in both directions, so a vacuous row is already red there",
         ["AdministratorAuthorityBoundaryArchTests.ExcludedSegments"] =
             "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
         ["MemberPermissionsSingleWriterFenceTests.ExcludedSegments"] =
             "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
+        ["AccessClaimAndRecoveryPathArchTests.ExcludedSegments"] =
+            "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
+        ["AccessClaimAndRecoveryPathArchTests.ClaimRouteFamilies"] =
+            "the inventory of Access claim families the T-585 fence scans FOR, with the ONE route each is "
+            + "allowed; a route it does not hold is reported, not excused, and a second route in a family "
+            + "fails naming both",
+        ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
+            "an exact inventory compared with SequenceEqual against the discovered callers, both "
+            + "directions, so a row that excused nothing would be red as a stale expectation",
         ["AllowListVacuityArchTests.SelfVerifying"] =
             "this classification map itself; the stale-entry assertion below keeps it exact",
         ["AuthorizationGateArchTests.ReflectedReadAllowList"] =
@@ -173,8 +182,6 @@ public sealed class AllowListVacuityArchTests
             "a projection of InlineRoleConstructionOwners, which is registered above",
         ["AuthorizationModelArchTests.QualifiedRoleCollectionAllowlistRows"] =
             "a projection of QualifiedRoleCollectionAllowlist, which is registered above",
-        ["BlazorStaticWebAssetUrlFenceTests.ForeignAssetOwnerRows"] =
-            "a projection of ForeignAssetOwners, which is registered above",
         ["BootstrapAuthorityArchTests.IssuerSymbols"] =
             "an inventory of the issuer types the fence searches for, not an exception list",
         ["RetiredFamilySpellingFenceTests.RetiredIdentifiers"] =

@@ -21,7 +21,9 @@ internal sealed record AccountSetupInvitationSeed(
     string RequestedPermissionsJson,
     string CommandFingerprint,
     DateTimeOffset IssuedAtUtc,
-    DateTimeOffset AbsoluteExpiresAtUtc);
+    DateTimeOffset AbsoluteExpiresAtUtc,
+    string InitialRole = InvitationInitialRole.Default,
+    string? InitialRoleDigest = null);
 
 internal sealed record AccountSetupInvitationIssueResult(
     string InvitationId,
@@ -55,7 +57,9 @@ internal sealed record AccountSetupInvitationConsumeResult(
     string InviterPartyId,
     string RequestedPermissionsJson,
     string CommandFingerprint,
-    long OwnerVersion);
+    long OwnerVersion,
+    string InitialRole = InvitationInitialRole.Default,
+    string? InitialRoleDigest = null);
 
 /// <summary>
 /// Persists only a digest of each 256-bit setup code. Raw material is returned from issue exactly
@@ -89,6 +93,8 @@ internal sealed class AccountSetupInvitationStore(
             InviterGrantOwnerVersion = seed.InviterGrantOwnerVersion,
             InviterAuthorizationEpoch = seed.InviterAuthorizationEpoch,
             RequestedPermissionsJson = seed.RequestedPermissionsJson,
+            InitialRole = seed.InitialRole,
+            InitialRoleDigest = seed.InitialRoleDigest,
             TokenDigest = Digest(rawCode),
             Purpose = WebSetupInvitationPurpose.AccountSetup,
             CommandFingerprint = seed.CommandFingerprint,
@@ -122,7 +128,9 @@ internal sealed class AccountSetupInvitationStore(
                 seed.TenantId,
                 seed.InviterAccountId,
                 seed.InviterPartyId,
-                seed.RequestedPermissionsJson),
+                seed.RequestedPermissionsJson,
+                seed.InitialRole,
+                seed.InitialRoleDigest ?? "legacy"),
             occurredAtUtc: seed.IssuedAtUtc,
             cancellationToken).ConfigureAwait(false);
         try
@@ -397,7 +405,9 @@ internal sealed class AccountSetupInvitationStore(
                 row.InvitationId,
                 row.TenantId,
                 row.InviterAccountId,
-                row.TokenDigest),
+                row.TokenDigest,
+                row.InitialRole,
+                row.InitialRoleDigest ?? "legacy"),
             occurredAtUtc: now,
             cancellationToken).ConfigureAwait(false);
         try
@@ -432,7 +442,9 @@ internal sealed class AccountSetupInvitationStore(
             InviterPartyId: row.InviterPartyId,
             RequestedPermissionsJson: row.RequestedPermissionsJson,
             CommandFingerprint: row.CommandFingerprint,
-            OwnerVersion: row.OwnerVersion);
+            OwnerVersion: row.OwnerVersion,
+            InitialRole: row.InitialRole,
+            InitialRoleDigest: row.InitialRoleDigest);
 
     private static string RandomHex(int byteCount) =>
         Convert.ToHexString(RandomNumberGenerator.GetBytes(byteCount)).ToLowerInvariant();
@@ -447,6 +459,9 @@ internal sealed class AccountSetupInvitationStore(
         ArgumentException.ThrowIfNullOrWhiteSpace(seed.InviterMembershipId);
         ArgumentException.ThrowIfNullOrWhiteSpace(seed.InviterGrantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(seed.RequestedPermissionsJson);
+        if (InvitationInitialRole.Parse(seed.InitialRole) is null ||
+            (seed.InitialRole != InvitationInitialRole.Default && string.IsNullOrWhiteSpace(seed.InitialRoleDigest)))
+            throw new ArgumentException("An installed initial role and its closure digest are required.", nameof(seed));
         ArgumentException.ThrowIfNullOrWhiteSpace(seed.CommandFingerprint);
         if (seed.InviterMembershipOwnerVersion <= 0 || seed.InviterGrantOwnerVersion <= 0 ||
             seed.InviterAuthorizationEpoch <= 0 || seed.AbsoluteExpiresAtUtc <= seed.IssuedAtUtc)

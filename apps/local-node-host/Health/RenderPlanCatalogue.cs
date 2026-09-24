@@ -4,8 +4,10 @@ using System.Text;
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
+using Harborline.Api.Foundation.ViewDefinitions;
 
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -42,13 +44,25 @@ public sealed record RenderPlan(
     JsonElement ErrorState);
 
 /// <summary>Stores emitted plans by definition hash and indexes them by definition coordinates.</summary>
-public sealed class InMemoryRenderPlanCatalogue
+public sealed class InMemoryRenderPlanCatalogue : IPackProjectionParticipant
 {
-    private readonly ConcurrentDictionary<(string Tenant, string Hash), RenderPlan> plans = new();
-    private readonly ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string> hashes = new();
+    private ConcurrentDictionary<(string Tenant, string Hash), RenderPlan> plans = new();
+    private ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string> hashes = new();
+
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var oldPlans = plans;
+        var oldHashes = hashes;
+        var nextPlans = new ConcurrentDictionary<(string Tenant, string Hash), RenderPlan>(plans);
+        var nextHashes = new ConcurrentDictionary<(string Tenant, PackContentKind Kind, string Id, string Version), string>(hashes);
+        plans = nextPlans;
+        hashes = nextHashes;
+        return () => { plans = oldPlans; hashes = oldHashes; };
+    });
 
     public void Store(TenantId tenant, PackContentKind kind, RenderPlan plan)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         ArgumentNullException.ThrowIfNull(plan);
         var detached = Detach(plan);
         plans[(tenant.Value, detached.DefinitionHash)] = detached;
@@ -57,6 +71,7 @@ public sealed class InMemoryRenderPlanCatalogue
 
     public RenderPlan? Get(TenantId tenant, PackContentKind kind, string definitionId, string definitionVersion)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read();
         if (!hashes.TryGetValue((tenant.Value, kind, definitionId, definitionVersion), out var hash)
             || !plans.TryGetValue((tenant.Value, hash), out var plan))
         {
@@ -150,7 +165,7 @@ public static class RenderPlanCompiler
                 JsonSerializer.SerializeToElement(new { code = "definition-unavailable" }));
             return true;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or ViewDefinitionGovernanceException)
         {
             refusalCode = PackRenderPlanCodes.BindingUnresolved;
             return false;
@@ -176,13 +191,15 @@ public static class RenderPlanCompiler
             }
         }
 
-        return JsonSerializer.SerializeToElement(new { fields });
+        var overlay = ReadOrEmpty(root, "overlay");
+        return JsonSerializer.SerializeToElement(new { fields, overlay });
     }
 
     private static JsonElement? ViewBindings(JsonElement root, out string refusalCode)
     {
         refusalCode = string.Empty;
-        if (!TryGetProperty(root, "viewKind", out var kind) || kind.GetString() != "views.entity-list/grid"
+        if (!TryGetProperty(root, "viewKind", out var kind)
+            || kind.GetString() != Harborline.Blocks.EntityViews.ViewKindIds.Table
             || !TryGetProperty(root, "parameters", out var parameters) || parameters.ValueKind != JsonValueKind.Object
             || !TryGetProperty(parameters, "entityType", out var entityType) || entityType.ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(entityType.GetString()))
@@ -191,11 +208,64 @@ public static class RenderPlanCompiler
             return null;
         }
 
-        return JsonSerializer.SerializeToElement(new { entityType = entityType.GetString(), parameters });
+        var actions = new List<object>();
+        if (TryGetProperty(parameters, "actions", out var declarations))
+        {
+            if (declarations.ValueKind != JsonValueKind.Array)
+            {
+                refusalCode = PackRenderPlanCodes.BindingUnresolved;
+                return null;
+            }
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var action in declarations.EnumerateArray())
+            {
+                if (action.ValueKind != JsonValueKind.Object
+                    || !TryGetProperty(action, "id", out var id) || id.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(id.GetString()) || !ids.Add(id.GetString()!)
+                    || !TryGetProperty(action, "label", out var label) || label.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(label.GetString())
+                    || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
+                    || (!action.TryGetProperty("dispatch", out _) && !IsSupportedOperation(operation.GetString())))
+                {
+                    refusalCode = PackRenderPlanCodes.BindingUnresolved;
+                    return null;
+                }
+                if (action.TryGetProperty("dispatch", out var dispatch))
+                {
+                    _ = ViewRequestPresentationAdmission.Admit(action);
+                    var request = HostViewRequestDescriptors.Resolve(dispatch);
+                    JsonElement? input = null;
+                    if (action.TryGetProperty("input", out var authoredInput))
+                    {
+                        input = FormBindings(authoredInput, out refusalCode);
+                        if (input is null) return null;
+                    }
+                    actions.Add(new
+                    {
+                        id = id.GetString(), label = label.GetString(), operation = operation.GetString(),
+                        dispatch = new { schemaVersion = 1, kind = "request", descriptor = request.Descriptor, bindings = request.Bindings },
+                        input,
+                        inputForm = action.TryGetProperty("inputForm", out var form) ? form : (JsonElement?)null,
+                        fileInput = action.TryGetProperty("fileInput", out var file) ? file : (JsonElement?)null,
+                        result = action.TryGetProperty("result", out var result) ? result : (JsonElement?)null,
+                    });
+                }
+                else actions.Add(new { id = id.GetString(), label = label.GetString() });
+            }
+        }
+        var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.ResolveDataSource(source) : null;
+        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
+            JsonSerializerOptions.Web);
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"
         or "select" or "date" or "currency" or "email" or "phone" or "url" or "textarea";
+
+    private static bool IsSupportedOperation(string? operation) => operation is
+        "pack.validate" or "pack.export" or "pack.verify" or "pack.install" or "pack.activate"
+        or "record.create" or "record.read"
+        or "access.grant.submit" or "access.grant.review" or "access.holder.read"
+        or "access.grant.narrow" or "access.grant.revoke" or "access.pack.replace";
 
     private static JsonElement ReadOrEmpty(JsonElement root, string name) => TryGetProperty(root, name, out var value)
         ? value.Clone()

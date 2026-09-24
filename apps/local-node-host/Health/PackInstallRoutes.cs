@@ -13,6 +13,9 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -31,6 +34,9 @@ internal static class PackInstallRoutes
 
     /// <summary>Route: preview an install (no mutation) — the D8 moment-of-trust surface.</summary>
     public const string PreviewRoute = "/api/local-node/packs/preview";
+
+    /// <summary>Route: run complete non-mutating admission diagnostics for a pack.</summary>
+    public const string CheckRoute = "/api/local-node/packs/check";
 
     /// <summary>Route: activate an installed version (Draft/Inactive → Active).</summary>
     public const string ActivateRoute = "/api/local-node/packs/activate";
@@ -128,6 +134,31 @@ internal static class PackInstallRoutes
             return Results.Ok(ToPreviewDto(preview));
         }).WithMetadata(postInstallRoutes);
 
+        // POST /packs/check — the compiler-style admission diagnostic pass. It has the same operate
+        // authorization as preview, delegates to the installer once, and cannot activate or install.
+        selectedSession.MapPost(CheckRoute, async (HttpContext http, CancellationToken ct) =>
+        {
+            var tenant = NodeTenant.Resolve(activeTeam);
+            var refusal = await PackRouteAuthorization
+                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .ConfigureAwait(false);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
+
+            var bytes = await ReadBodyAsync(http.Request, ct).ConfigureAwait(false);
+            var check = installer.Check(
+                bytes, new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge));
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation(
+                    "Pack CHECK (tenant {Tenant}, pack {Key} v{Version}) → {Verdict} [{Codes}].",
+                    tenant, check.PackKey, check.Version, check.Verdict, string.Join(",", check.RefusalCodes));
+            }
+            return Results.Ok(ToPreviewDto(check));
+        });
+
         // POST /packs/install — verify → atomic seed layer (Draft). Optional break-glass via query.
         // OPERATE-side (council A-1): `packages:operate`.
         selectedSession.MapPost(InstallRoute, async (HttpContext http, CancellationToken ct) =>
@@ -213,28 +244,45 @@ internal static class PackInstallRoutes
 
             // Ticket 151 cluster: the pointer flip carries the same server-derived acting principal
             // the install path does (never a client-asserted value) — the principal this request was
-            // decided about, not the node's signing key id (ticket 379).
+            // decided about, not the node's signing key id (ticket 379). T-644 / ADR 0081: the act's
+            // admitted instant is the one the authority was resolved at, observed exactly once above.
             var context = new PackInstallContext(
-                tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge,
+                tenant, trustStore, revocation, authority.At, RevocationMaxAge,
                 Principal: authority.Principal.Value,
                 OwnershipResolutions: (request.Resolutions ?? Array.Empty<CollisionResolutionDto>())
                     .Where(r => !string.IsNullOrWhiteSpace(r.ContentKey) && !string.IsNullOrWhiteSpace(r.OwningPackKey))
                     .ToDictionary(r => r.ContentKey, r => r.OwningPackKey, StringComparer.Ordinal));
-            var outcome = installer.Activate(context, request.PackKey, request.Version);
+            // T-644 retired the post-commit-diagnostics warning that stood here: the installer projects
+            // inside the same transaction that flips the pointer, so a committed activation has no
+            // post-commit projection to report and nothing to warn about.
+            var outcome = await installer.ActivateAsync(context, request.PackKey, request.Version, ct).ConfigureAwait(false);
             logger.LogInformation(
                 "Pack ACTIVATE (tenant {Tenant}, pack {Key} v{Version}) → activated={Activated} [{Error}].",
                 tenant, request.PackKey, request.Version, outcome.Activated, outcome.Error);
 
             if (!outcome.Activated)
             {
-                return Results.UnprocessableEntity(new { activated = false, error = outcome.Error, detail = outcome.Detail });
+                return Results.UnprocessableEntity(new
+                {
+                    activated = false,
+                    error = outcome.Error,
+                    detail = outcome.Detail,
+                    projectionRefusals = outcome.ProjectionResult is PackSeedProjectionSummary refusedProjection
+                        ? refusedProjection.Refusals.Select(r => new ProjectionRefusalDto(r.ContentKey, r.ContentKind.ToString(), r.Code, r.Pointer)).ToArray()
+                        : Array.Empty<ProjectionRefusalDto>(),
+                    platformRefusals = outcome.ProjectionResult is PackSeedProjectionSummary refusedPlatform
+                        ? ToPlatformRefusalDtos(refusedPlatform)
+                        : Array.Empty<PlatformProjectionRefusalDto>(),
+                    refusals = outcome.Refusal is null
+                        ? Array.Empty<PackRefusalDto>()
+                        : new[] { new PackRefusalDto(outcome.Refusal.Code, outcome.Refusal.Pointer) },
+                });
             }
 
             // Draft→Active is when a pack's declarative content becomes live — project its seed layer into
             // the runtime registries the read APIs consume (asset types → the Type Manager dropdown), so an
             // installed+activated pack actually populates the surface instead of only appearing in the pack
-            // list. Idempotent + additive-kind-safe; a projection hiccup must not un-activate the pack, so
-            // failures are logged, not propagated.
+            // list. The installer publishes only a complete projection; refused preparation returns above.
             IReadOnlyList<ProjectionRefusalDto> projectionRefusals = Array.Empty<ProjectionRefusalDto>();
             IReadOnlyList<PlatformProjectionRefusalDto> platformRefusals =
                 Array.Empty<PlatformProjectionRefusalDto>();
@@ -359,7 +407,12 @@ internal static class PackInstallRoutes
         // GET /packs/installed — list installed versions for the tenant. OPERATE-side: `packages:operate`.
         deviceReachable.MapGet(ListInstalledRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            http.Response.Headers.CacheControl = "no-store";
+            var selected = http.Features.Get<SelectedSessionRequestPrincipal>();
+            if (selected?.TenantId.IsSystemSentinel == true || selected is null &&
+                (NodeCallerAttributionScope.HasBoundWebPrincipal || http.Request.Cookies.ContainsKey(WebSessionCookieNames.Selected)))
+                return Results.Unauthorized();
+            var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // The installed-pack LIST is an install-wide read — it names no one pack.
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
@@ -378,7 +431,8 @@ internal static class PackInstallRoutes
                     PlatformRefused: platform is null
                         ? null
                         : p.Lifecycle == PackLifecycleState.Active
-                            && PackPlatformRequirementCheck.FindUnmet(p, platform).Count > 0))
+                            && PackPlatformRequirementCheck.FindUnmet(p, platform).Count > 0,
+                    p.Exposes ?? Array.Empty<string>(), p.InterfaceVersion))
                 .ToList();
             return Results.Ok(installed);
         }).WithMetadata(postInstallRoutes);
@@ -555,4 +609,5 @@ public sealed record AdmissionRefusalDto(string ContentKey, string Code, string 
 /// host runs without platform facts (unknowable, not false).</summary>
 public sealed record InstalledPackDto(
     string PackKey, string Version, string Lifecycle, DateTimeOffset InstalledAtUtc,
-    string SignerKeyId, long Epoch, string VouchingScope, bool? PlatformRefused = null);
+    string SignerKeyId, long Epoch, string VouchingScope, bool? PlatformRefused = null,
+    IReadOnlyList<string>? Exposes = null, int? InterfaceVersion = null);

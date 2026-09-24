@@ -1,4 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Blocks.AccessGrant;
 
@@ -22,6 +23,11 @@ public interface IGrantStore
     Task<AccessGrant?> ChangeValidityAsync(TenantId tenantId, GrantId grantId, GrantValidity validity, ActorId changedBy, GrantReason reason, CancellationToken ct = default);
     Task<AccessGrant?> RecordReviewAsync(TenantId tenantId, GrantId grantId, DateTimeOffset reviewedAt, ActorId reviewedBy, CancellationToken ct = default);
     Task<AccessGrant?> RevokeAsync(TenantId tenantId, GrantId grantId, GrantRevocation revocation, CancellationToken ct = default);
+
+    /// <summary>Atomically replaces a live grant with the same role/subject at a strictly narrower scope.</summary>
+    Task<GrantScopeNarrowing?> NarrowScopeAsync(
+        TenantId tenantId, GrantId currentGrantId, ScopeExpression narrowed, GrantId successorId,
+        GrantRevocation revocation, CancellationToken ct = default);
 
     /// <summary>
     /// Ledger L618 — appends <paramref name="successor"/> and revokes <paramref name="currentGrantId"/> as ONE

@@ -20,9 +20,15 @@ public interface IPackInstaller
     PackInstallPreview Preview(ReadOnlySpan<byte> packBytes, PackInstallContext context);
 
     /// <summary>
+    /// Runs admission as an authoring check. Unlike <see cref="Preview"/>, this reports every
+    /// non-terminal refusal that can be evaluated from one verified pack, and never commits a seed layer.
+    /// </summary>
+    PackInstallPreview Check(ReadOnlySpan<byte> packBytes, PackInstallContext context);
+
+    /// <summary>
     /// Installs a VERIFIED pack: verify-gate → revocation → scope → projector support → S-8 watermark →
     /// ADR 0143 admission → S-10 re-attach → ATOMIC seed-layer commit → durable audit. The seed layer is created in
-    /// <see cref="PackLifecycleState.Draft"/>; call <see cref="Activate(PackInstallContext, string, string)"/> to make it live. A watermark
+    /// <see cref="PackLifecycleState.Draft"/>; call <see cref="ActivateAsync"/> to make it live. A watermark
     /// refusal (downgrade / floor-weakening) proceeds ONLY with a break-glass ceremony on the context.
     /// </summary>
     PackInstallOutcome Install(ReadOnlySpan<byte> packBytes, PackInstallContext context);
@@ -32,7 +38,8 @@ public interface IPackInstaller
     /// version is Superseded but its immutable seed layer is retained (S-2). The pointer flip makes seed
     /// content LIVE, so the domain layer requires the authority carried by <see cref="PackInstallContext"/>.
     /// </summary>
-    PackActivationOutcome Activate(PackInstallContext context, string packKey, string version);
+    Task<PackActivationOutcome> ActivateAsync(
+        PackInstallContext context, string packKey, string version, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deactivates the named Active version through a reversible pointer flip. No seed layer, tenant override,

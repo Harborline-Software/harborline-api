@@ -10,8 +10,8 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-using Harborline.Api.Blocks.Calendar.DependencyInjection;
-using Harborline.Api.Blocks.Calendar.Services;
+using Harborline.Blocks.Calendar.DependencyInjection;
+using Harborline.Blocks.Calendar.Services;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;

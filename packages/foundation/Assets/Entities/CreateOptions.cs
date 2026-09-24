@@ -28,6 +28,11 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 /// <param name="Binding">
 /// Optional immutable definition-and-engine provenance to co-commit with the entity.
 /// </param>
+/// <param name="RequireNew">
+/// When true, an existing identifier raises <see cref="IdempotencyConflictException"/> even for an
+/// equal body. The caller must validate its own replay context before adopting the existing entity.
+/// The check and insert are atomic; false preserves ordinary equal-body idempotent adoption.
+/// </param>
 public sealed record CreateOptions(
     string Scheme,
     string Authority,
@@ -36,4 +41,5 @@ public sealed record CreateOptions(
     TenantId Tenant,
     DateTimeOffset? ValidFrom = null,
     string? ExplicitLocalPart = null,
-    EntityBinding? Binding = null);
+    EntityBinding? Binding = null,
+    bool RequireNew = false);

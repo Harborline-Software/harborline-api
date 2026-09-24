@@ -57,7 +57,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
     public const string PackKey = "harborline.access-administration";
 
     /// <summary>The preloaded package's pinned version.</summary>
-    public const string PackVersion = "1.1.1";
+    public const string PackVersion = "1.1.3";
 
     /// <summary>
     /// The install provenance this preload records: shipped with every installation, and replaceable by
@@ -192,7 +192,9 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             }
         }
 
-        var activated = _installer.Activate(context, PackKey, PackVersion);
+        var activated = await _installer.ActivateAsync(context, PackKey, PackVersion, cancellationToken).ConfigureAwait(false);
+        if (activated.Activated && activated.Detail is not null)
+            _logger.LogWarning("Access pack activation committed with post-commit diagnostics: {Detail}", activated.Detail);
         if (!activated.Activated)
         {
             _logger.LogError(
@@ -265,6 +267,8 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
                 .ToArray(),
             CapabilityRequirements: document.CapabilityRequirements ?? Array.Empty<string>(),
             Epoch: PackComposerRoutes.OwnRosterEpoch,
-            Dcp: DomainComplianceProfile.General(authoringPrincipal));
+            Dcp: DomainComplianceProfile.General(authoringPrincipal),
+            Exposes: document.Exposes,
+            InterfaceVersion: document.InterfaceVersion);
     }
 }

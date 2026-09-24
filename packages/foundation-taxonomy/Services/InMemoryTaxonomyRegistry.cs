@@ -1,3 +1,4 @@
+using Harborline.Api.Foundation.Definitions;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Harborline.Api.Foundation.Assets.Common;
@@ -22,7 +23,7 @@ namespace Harborline.Api.Foundation.Taxonomy.Services;
 /// assert on audit shape, and for non-tenanted host bootstrap where audit
 /// signing isn't yet wired.
 /// </remarks>
-public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
+public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry, IPackProjectionParticipant
 {
     private readonly IAuditTrail? _auditTrail;
     private readonly IOperationSigner? _signer;
@@ -30,8 +31,24 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
 
     // Composite keys: (tenant, definition-id, version) and (tenant, node-id, version).
     // node-id already carries definition-id, so the node key is naturally tenant + node + version.
-    private readonly ConcurrentDictionary<(TenantId Tenant, TaxonomyDefinitionId Id, TaxonomyVersion Version), TaxonomyDefinition> _definitions = new();
-    private readonly ConcurrentDictionary<(TenantId Tenant, TaxonomyNodeId NodeId, TaxonomyVersion Version), TaxonomyNode> _nodes = new();
+    private ConcurrentDictionary<(TenantId Tenant, TaxonomyDefinitionId Id, TaxonomyVersion Version), TaxonomyDefinition> _definitions = new();
+    private ConcurrentDictionary<(TenantId Tenant, TaxonomyNodeId NodeId, TaxonomyVersion Version), TaxonomyNode> _nodes = new();
+
+    private PackProjectionTransaction? projection;
+
+    /// <inheritdoc />
+    public void StageProjection(PackProjectionTransaction transaction) => transaction.Stage(this, () =>
+    {
+        var definitions = _definitions;
+        var nodes = _nodes;
+        var nextDefinitions = new ConcurrentDictionary<(TenantId Tenant, TaxonomyDefinitionId Id, TaxonomyVersion Version), TaxonomyDefinition>(definitions);
+        var nextNodes = new ConcurrentDictionary<(TenantId Tenant, TaxonomyNodeId NodeId, TaxonomyVersion Version), TaxonomyNode>(nodes);
+        transaction.Finally(() => projection = null);
+        _definitions = nextDefinitions;
+        _nodes = nextNodes;
+        projection = transaction;
+        return () => { _definitions = definitions; _nodes = nodes; };
+    });
 
     /// <summary>Creates the registry with audit emission disabled.</summary>
     public InMemoryTaxonomyRegistry(TimeProvider time)
@@ -62,6 +79,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         TaxonomyLineage? derivedFrom,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         id.Validate();
         EnsureAuthoritativeOwner(governance, owner);
@@ -95,6 +113,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         ActorId publishedBy,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
 
         var existing = FindLatestDefinition(tenantId, id) ?? throw new InvalidOperationException($"Taxonomy definition '{id}' has no prior version for tenant '{tenantId}'.");
@@ -125,6 +144,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         ActorId retiredBy,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
 
         var key = (tenantId, id, version);
@@ -160,6 +180,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         ActorId addedBy,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(display);
@@ -204,6 +225,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         ActorId revisedBy,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newDisplay);
         ArgumentException.ThrowIfNullOrWhiteSpace(newDescription);
@@ -252,6 +274,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         ActorId tombstonedBy,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         ArgumentException.ThrowIfNullOrWhiteSpace(deprecationReason);
 
@@ -297,6 +320,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         string reason,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         newId.Validate();
         var at = _time.GetUtcNow();
@@ -317,6 +341,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         string reason,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         newId.Validate();
         var at = _time.GetUtcNow();
@@ -337,6 +362,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
         string reason,
         CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         newId.Validate();
 
@@ -419,6 +445,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
     /// <inheritdoc />
     public Task<TaxonomyDefinition?> GetDefinitionAsync(TenantId tenantId, TaxonomyDefinitionId id, TaxonomyVersion version, CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         _definitions.TryGetValue((tenantId, id, version), out var def);
         return Task.FromResult<TaxonomyDefinition?>(def);
@@ -427,6 +454,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
     /// <inheritdoc />
     public Task<IReadOnlyList<TaxonomyNode>> GetNodesAsync(TenantId tenantId, TaxonomyDefinitionId definition, TaxonomyVersion version, CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         var result = _nodes.Values
             .Where(n => n.Id.Definition == definition && n.DefinitionVersion == version)
@@ -439,6 +467,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
     /// <inheritdoc />
     public Task<TaxonomyNode?> GetNodeAsync(TenantId tenantId, TaxonomyNodeId nodeId, TaxonomyVersion version, CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         _nodes.TryGetValue((tenantId, nodeId, version), out var node);
         return Task.FromResult<TaxonomyNode?>(node);
@@ -447,6 +476,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
     /// <inheritdoc />
     public Task<IReadOnlyList<TaxonomyDefinition>> ListDefinitionsAsync(TenantId tenantId, string? filterByVendor, CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         var query = _definitions
             .Where(kv => kv.Key.Tenant == tenantId)
@@ -463,6 +493,7 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
     /// <inheritdoc />
     public async Task RegisterCorePackageAsync(TenantId tenantId, TaxonomyCorePackage package, CancellationToken ct)
     {
+        using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         ValidateTenant(tenantId);
         ArgumentNullException.ThrowIfNull(package);
 
@@ -540,6 +571,11 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
             return;
         }
 
+        if (projection is { } prepared)
+        {
+            prepared.AfterCommit(() => EmitAsync(tenantId, eventType, payload, occurredAt, CancellationToken.None));
+            return;
+        }
         var signed = await _signer.SignAsync(payload, occurredAt, Guid.NewGuid(), ct).ConfigureAwait(false);
         var record = new AuditRecord(
             AuditId: Guid.NewGuid(),
@@ -553,5 +589,12 @@ public sealed class InMemoryTaxonomyRegistry : ITaxonomyRegistry
 
     // ──────────────────────────── Internal helpers for resolver ──────────────────
 
-    internal IReadOnlyDictionary<(TenantId, TaxonomyNodeId, TaxonomyVersion), TaxonomyNode> NodesSnapshot => _nodes;
+    internal IReadOnlyDictionary<(TenantId, TaxonomyNodeId, TaxonomyVersion), TaxonomyNode> NodesSnapshot
+    {
+        get
+        {
+            using var projectionLease = PackProjectionActivationBarrier.Read();
+            return _nodes;
+        }
+    }
 }
