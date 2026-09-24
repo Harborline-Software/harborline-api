@@ -323,16 +323,17 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
-      - name: Runner identity
-        shell: bash
-        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
-
       - name: Git Bash on PATH for the service account
         # Only C:\Program Files\Git\cmd is on the machine PATH; bash.exe lives in ...\Git\bin.
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
+      - name: Runner identity
+        # After the PATH step: bash is not on the service account's PATH until it runs.
+        shell: bash
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v7
         with:
