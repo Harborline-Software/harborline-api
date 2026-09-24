@@ -67,7 +67,7 @@
       "method": "Harborline.Api.LocalNodeHost.Tests.Installation.InstallIdentityTests",
       "owner": "361",
       "firstSeen": "2026-09-09",
-      "expires": "2026-09-23",
+      "expires": "2026-10-08",
       "verdict": "a-pre-existing-at-sha (load-sensitive)",
       "measuredRate": "red on the macpro merge gate at load 18 (api-batch1b.log, 2026-09-09); green on the rerun at load 3; a Windows knownFlaky row already exists",
       "cause": "a wall-clock lock-window assertion under host contention; the test's own comment says the window should be driven from its deterministic hook (ticket 361 root-causes it)",
