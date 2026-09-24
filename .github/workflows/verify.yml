@@ -78,7 +78,7 @@ jobs:
     steps:
       - name: Runner identity
         shell: bash
-        run: echo "runner: ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Git Bash on PATH for the service account
         # Windows only: C:\Program Files\Git\cmd is on the machine PATH but bash.exe is in ...\Git\bin.
@@ -241,7 +241,7 @@ jobs:
     steps:
       - name: Runner identity
         shell: bash
-        run: echo "runner: ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v7
         with:
@@ -325,7 +325,7 @@ jobs:
     steps:
       - name: Runner identity
         shell: bash
-        run: echo "runner: ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Git Bash on PATH for the service account
         # Only C:\Program Files\Git\cmd is on the machine PATH; bash.exe lives in ...\Git\bin.
