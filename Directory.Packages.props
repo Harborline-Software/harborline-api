@@ -16,22 +16,22 @@
     <PackageVersion Include="Harborline.Blocks.Calendar" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <!-- ADR 0164 D6 — git-tag-derived versioning. Build-time only, never a consumer dependency. -->
     <PackageVersion Include="MinVer" Version="8.0.0" Justification="R-0061"/>
-    <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="11.0.0-preview.7.26381.103" Justification="R-0053"/>
+    <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="11.0.0-rc.1.26425.128" Justification="R-0053"/>
     <PackageVersion Include="xunit" Version="2.9.3" Justification="R-0032"/>
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" Justification="R-0033"/>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" Justification="R-0034"/>
     <PackageVersion Include="coverlet.collector" Version="10.0.1" Justification="R-0036"/>
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0-preview.7.26381.103" Justification="R-0050"/>
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0-preview.7.26381.103" Justification="R-0050"/>
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.7.26381.103" Justification="R-0046"/>
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0-preview.7.26381.103" Justification="R-0047"/>
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="11.0.0-preview.7.26381.103" Justification="R-0048"/>
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0-preview.7.26381.103" Justification="R-0051"/>
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0-rc.1.26425.128" Justification="R-0050"/>
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0-rc.1.26425.128" Justification="R-0050"/>
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-rc.1.26425.128" Justification="R-0046"/>
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0-rc.1.26425.128" Justification="R-0047"/>
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="11.0.0-rc.1.26425.128" Justification="R-0048"/>
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0-rc.1.26425.128" Justification="R-0051"/>
     <PackageVersion Include="NSubstitute" Version="6.2.0" Justification="R-0035"/>
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0" Justification="R-0026"/>
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" Justification="R-0027"/>
     <PackageVersion Include="JsonSchema.Net" Version="9.2.2" Justification="R-0068"/>
-    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-preview.5.26302.115" Justification="R-0031"/>
+    <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-rc.1.26425.128" Justification="R-0031"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-preview.5.26302.115" Justification="R-0040"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0-preview.5.26302.115" Justification="R-0042"/>
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="11.0.0-preview.5.26302.115" Justification="R-0043"/>
@@ -40,17 +40,17 @@
          cross-platform, no revenue gate (unlike QuestPDF — D-1 discipline). Held ONLY by the non-Foundation
          Harborline.Api.Documents.PdfSharp adapter (the ProviderNeutrality analyzer keeps it out of Foundation). -->
     <PackageVersion Include="PDFsharp-MigraDoc" Version="6.2.4" Justification="R-0070"/>
-    <PackageVersion Include="System.Net.Http.Json" Version="11.0.0-preview.5.26302.115" Justification="R-0060"/>
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0-preview.7.26381.103" Justification="R-0052"/>
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="11.0.0-preview.7.26381.103" Justification="R-0049"/>
-    <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="11.0.0-preview.7.26381.103" Justification="R-0072"/>
+    <PackageVersion Include="System.Net.Http.Json" Version="11.0.0-rc.1.26425.128" Justification="R-0060"/>
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0-rc.1.26425.128" Justification="R-0052"/>
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="11.0.0-rc.1.26425.128" Justification="R-0049"/>
+    <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="11.0.0-rc.1.26425.128" Justification="R-0072"/>
     <PackageVersion Include="SmartFormat" Version="3.6.1" Justification="R-0071"/>
     <PackageVersion Include="Microsoft.Build.Framework" Version="18.9.6" Justification="R-0064"/>
     <PackageVersion Include="Microsoft.Build.Utilities.Core" Version="18.9.6" Justification="R-0064"/>
-    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="11.0.0-preview.5.26302.115" Justification="R-0043"/>
+    <PackageVersion Include="Microsoft.Data.Sqlite.Core" Version="11.0.0-rc.1.26425.128" Justification="R-0043"/>
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" Justification="R-0029"/>
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" Justification="R-0028"/>
-    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="11.0.0-preview.5.26302.115" Justification="R-0030"/>
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="11.0.0-rc.1.26425.128" Justification="R-0030"/>
     <PackageVersion Include="YamlDotNet" Version="18.1.0" Justification="R-0069"/>
     <PackageVersion Include="Makaretu.Dns.Multicast.New" Version="0.38.0" Justification="R-0067"/>
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" Justification="R-0037"/>

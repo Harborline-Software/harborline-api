@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "ae42b2ac17e1216e7255d7f356a7f9c78e959843",
-  "recordedAt": "2026-09-21 (T-656 producer consumption; platform PR 100 merge commit ae42b2ac, verified on platform main. This advances the existing T-463/T-667 package pin without changing the producer inventory and adds the released ViewKindRegistry.Platform contract whose canonical table identity is layout.table. The API consumes that registry instead of restating the producer token.)",
+  "commit": "eda5e62976c1e6d8aafe12e06ba0d3bcd2cbc26e",
+  "recordedAt": "2026-09-24 (T-243 RC1: platform main commit eda5e629, T-705 D3, moves the platform SDK and Microsoft package pins to 11.0.100-rc.1.26425.128; the platform at ae42b2ac required the preview.7 SDK, which no runner now carries. Supersedes the T-656 pin at ae42b2ac, which this commit descends from.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
