@@ -60,11 +60,11 @@ jobs:
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    # Ticket 421 step two: the shared lane reads nothing host-specific, so it takes whichever
-    # self-hosted runner is free instead of queueing for one of the two Macs while winbox idles.
+    # Ticket 701: the shared lane reads nothing host-specific, but is pinned to macpro so its
+    # result remains attributable and mac16 can be reserved for the perf-quiet job.
     # exact-clone -- the only step whose answer depends on the host -- is not in this lane; it runs
     # in verify-macos and verify-windows below, each against its own baseline.
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, macOS, ARM64, macpro]
     timeout-minutes: 60
     defaults:
       run:
@@ -76,6 +76,10 @@ jobs:
       # verify-windows below, which is the one host that carries the comparison.
       HARBORLINE_VERIFY_LANE: shared
     steps:
+      - name: Runner identity
+        shell: bash
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Git Bash on PATH for the service account
         # Windows only: C:\Program Files\Git\cmd is on the machine PATH but bash.exe is in ...\Git\bin.
         if: runner.os == 'Windows'
@@ -228,13 +232,17 @@ jobs:
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, macOS]
+    runs-on: [self-hosted, macOS, ARM64, macpro]
     timeout-minutes: 90
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DEVELOPER_DIR: /Library/Developer/CommandLineTools
       HARBORLINE_VERIFY_LANE: host
     steps:
+      - name: Runner identity
+        shell: bash
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -300,7 +308,7 @@ jobs:
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, Windows]
+    runs-on: [self-hosted, Windows, winbox]
     timeout-minutes: 90
     defaults:
       run:
@@ -321,6 +329,11 @@ jobs:
         run: |
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
+      - name: Runner identity
+        # After the PATH step: bash is not on the service account's PATH until it runs.
+        shell: bash
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v7
         with:
@@ -348,7 +361,7 @@ jobs:
             done
           fi
           # This job never detached the quality clone, so it read whatever commit the directory was
-          # left at. verify-shared is unlabelled and lands on this host too, and it detaches this
+          # left at. verify-shared used to be unlabelled and land on this host too, detaching this
           # same directory ($HOME and $USERPROFILE are one path here) to ITS tree's pin -- so the pin
           # from whichever run went last leaked into the next one's boundary check. Measured: PR #203
           # pins ced797c2 and logged "quality-pin 369c247" (left by #202), then boundary-check:FAIL.
