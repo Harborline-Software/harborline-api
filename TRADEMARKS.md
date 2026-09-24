@@ -20,7 +20,7 @@ The source code in this repository is licensed under the Apache License, Version
 
 ## Names of modified versions
 
-If you change the code and ship it, pick your own name. Keep the NOTICE file and the copyright lines; the Apache License requires that. You may say "based on Harborline" or "a fork of Harborline" in your description.
+If you change the code and ship it, pick your own name. Apache-2.0 sections 4(c) and 4(d) require you to retain the applicable copyright, patent, trademark and attribution notices, including the attribution text of the NOTICE file; we ask that you keep the NOTICE file itself as well. You may say "based on Harborline" or "a fork of Harborline" in your description.
 
 ## Contact
 

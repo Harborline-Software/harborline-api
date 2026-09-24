@@ -49,9 +49,12 @@ Query `http://127.0.0.1:<port>/live` for process liveness, `http://127.0.0.1:<po
 Run the bundled client from the same published directory after readiness answers:
 
 ```sh
-./harborline-node --url http://127.0.0.1:<port> --token "$LocalNode__SessionToken" --json health
-./harborline-node --url http://127.0.0.1:<port> --token "$LocalNode__SessionToken" --json tenant list
+export HARBORLINE_NODE_TOKEN="$LocalNode__SessionToken"
+./harborline-node --url http://127.0.0.1:<port> --json health
+./harborline-node --url http://127.0.0.1:<port> --json tenant list
 ```
+
+The token travels in `HARBORLINE_NODE_TOKEN` rather than `--token`, so it does not appear in the process list another local user can read.
 
 On a healthy first start, `health` exits zero and returns a healthy status, while `tenant list` returns the active tenant described in [first start](../install/first-start.md#4-point-the-operator-cli-at-it); record the response’s `teamId` as the tenant identifier, retaining its wire name in diagnostic evidence.
 
