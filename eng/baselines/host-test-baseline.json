@@ -132,7 +132,7 @@
     "apiCommit": "074f8f6dd9792a7276900a7ebd58e772a465d77e (T-656, branch codex/t-656-api-view-kind, one commit ahead of api main at the time of measurement)",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone, with the apps/capability-host node toolchain installed before the host suite runs; platform feed packed from the eng/platform-pin.json commit ae42b2ac17e1216e7255d7f356a7f9c78e959843",
-    "sdk": "11.0.100-preview.7.26381.103",
+    "sdk": "11.0.100-rc.1.26425.128",
     "runs": "Measured by the local all-lane gate at 074f8f6d, whose exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0. This run was NOT quality-enabled: HARBORLINE_GATE_QUALITY was unset, unlike the two preceding entries. The tuple was then reproduced independently from a clean clone of the same commit, which reported the identical 4463 total, 4442 passed, 0 failed and 21 skipped.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
