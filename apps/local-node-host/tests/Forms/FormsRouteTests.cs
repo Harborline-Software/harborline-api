@@ -185,6 +185,23 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         await _app.DisposeAsync();
     }
 
+    [Fact(DisplayName = "T-664: a value-domain field renders the field runtime's editor, not the authored hint")]
+    public async Task Value_domain_field_renders_the_runtime_editor_over_the_authored_hint()
+    {
+        var doc = await _client.GetFromJsonAsync<JsonElement>($"{Base}/{FormId}");
+        var fields = doc.GetProperty("sections")[0].GetProperty("fields").EnumerateArray()
+            .ToDictionary(field => field.GetProperty("name").GetString()!);
+
+        // `result` is authored "text" over a two-value enum. Schema inference would say "select"; the
+        // field runtime chooses a radio group for two readable literals, and that choice is what renders.
+        var result = fields["result"];
+        Assert.Equal(nameof(Harborline.Contracts.Fields.FieldEditorKind.RadioGroup), result.GetProperty("controlHint").GetString());
+        Assert.Equal(["PASS", "FAIL"], result.GetProperty("permittedValues").EnumerateArray().Select(v => v.GetString()));
+        // A field without a value domain keeps its authored control.
+        Assert.Equal("text", fields["station"].GetProperty("controlHint").GetString());
+        Assert.False(fields["station"].TryGetProperty("permittedValues", out _));
+    }
+
     [Fact(DisplayName = "render: GET returns the published form's localized view (PII field redacted)")]
     public async Task Render_Returns_FormView()
     {

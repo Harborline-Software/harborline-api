@@ -210,9 +210,9 @@ public sealed class FormsDevSeeder : IHostedService
                             "The tracked asset's identifier (e.g. metro car or station unit).",
                             "معرّف الأصل المتعقَّب (مثل عربة المترو أو وحدة المحطة)."),
                         ControlHint: "text"),
-                    ["assetType"] = new(
-                        Bilingual("Asset type", "نوع الأصل"),
-                        ControlHint: "select"),
+                    // assetType and status are enums: the field runtime picks their editor, so they carry
+                    // no authored control (T-664 / T-724 ruling 37).
+                    ["assetType"] = new(Bilingual("Asset type", "نوع الأصل")),
                     // ADR 0101 Rev 3.1 Wave 2c: the Harborline App runner renders this hint via a 1..5 grade
                     // picker (ConditionRatingControl), not a bare number input. Wiring a REGISTERED
                     // ConditionRatingFieldBinding for this demo form (so a submission also projects a
@@ -227,9 +227,7 @@ public sealed class FormsDevSeeder : IHostedService
                     ["inspectedOn"] = new(
                         Bilingual("Inspected on", "تاريخ الفحص"),
                         ControlHint: "date"),
-                    ["status"] = new(
-                        Bilingual("Status", "الحالة"),
-                        ControlHint: "select"),
+                    ["status"] = new(Bilingual("Status", "الحالة")),
                     ["followUp"] = new(
                         Bilingual("Follow-up required", "يتطلب متابعة"),
                         ControlHint: "checkbox"),
