@@ -2,6 +2,7 @@ using Harborline.Api.Foundation.Documents.Merge;
 using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.RuleEngine;
+using Harborline.Api.Foundation.RuleEngine.Compilation;
 using Harborline.Api.Foundation.RuleEngine.Context;
 using Harborline.Api.Foundation.RuleEngine.Evaluation;
 using Harborline.Api.Foundation.RuleEngine.Model;
@@ -172,6 +173,15 @@ public sealed class DocumentRenderWalker
             return false;
         }
 
-        return _guards.EvaluateGuard(rule, adapter, RuleEvalScope.Root, ct).Ok;
+        // T-687: the vendored engine throws on a guard that does not compile; the platform seam returns it
+        // as Invalid. Until the api consumes that seam, withhold this one block rather than fault the render.
+        try
+        {
+            return _guards.EvaluateGuard(rule, adapter, RuleEvalScope.Root, ct).Ok;
+        }
+        catch (RuleCompilationException)
+        {
+            return false;
+        }
     }
 }
