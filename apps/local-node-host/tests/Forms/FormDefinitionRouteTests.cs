@@ -141,7 +141,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             fields = new Dictionary<string, object>
             {
                 ["name"] = new { label = Text("Tenant name"), controlHint = "text", piiSensitivity = "None" },
-                ["unit"] = new { label = Text("Unit type"), controlHint = "select", piiSensitivity = "None" },
+                ["unit"] = new { label = Text("Unit type"), piiSensitivity = "None" },
             },
             sections = new[]
             {
@@ -241,6 +241,29 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             .GetProperty("name").GetProperty("piiSensitivity").GetString());
     }
 
+    [Theory(DisplayName = "T-664: an authored control on a value-domain field is refused at admission")]
+    [InlineData(false, "textarea")]
+    [InlineData(true, "textarea")]
+    // The legacy signed-pack shape (controlHint "select" on an option field): admitted from a signed
+    // pack for compatibility (AccessAdministrationPreloadTests), refused on the authoring route.
+    [InlineData(false, "select")]
+    [InlineData(true, "select")]
+    public async Task Authored_control_on_a_value_domain_field_is_refused_at_admission(bool draft, string hint)
+    {
+        // T-724 ruling 37: the runtime picks a value-domain field's editor, so the author may not name one.
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["fields"]!["unit"]!["controlHint"] = hint;
+        body["draft"] = draft;
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/hinted-domain", body);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("form_definition.control_hint_on_value_domain", refusal.GetProperty("code").GetString());
+        Assert.Equal("unit", refusal.GetProperty("detail").GetProperty("target").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{DefBase}/hinted-domain")).StatusCode);
+    }
+
     [Fact]
     public async Task Missing_pii_sensitivity_for_unknown_field_type_is_refused()
     {
@@ -279,8 +302,8 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(2, layout.GetProperty("columns").GetInt32());
         Assert.Equal(2, section.GetProperty("fieldPlacement").GetProperty("unit").GetProperty("colSpan").GetInt32());
 
-        // The control hints survive onto the overlay fields.
-        Assert.Equal("select", overlay.GetProperty("fields").GetProperty("unit").GetProperty("controlHint").GetString());
+        // An authored control on a field without a value domain survives onto the overlay fields.
+        Assert.Equal("text", overlay.GetProperty("fields").GetProperty("name").GetProperty("controlHint").GetString());
     }
 
     [Fact(DisplayName = "save→load: section standing gates round-trip through the real PUT route")]
@@ -1441,7 +1464,7 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         {
             fields = new Dictionary<string, object>
             {
-                ["condition"] = new { label = Text("Condition"), controlHint = "select", piiSensitivity = "None" },
+                ["condition"] = new { label = Text("Condition"), piiSensitivity = "None" },
                 ["photoFront"] = new { label = Text("Photo (front)"), controlHint = "file", piiSensitivity = "None" },
                 ["photoBack"] = new { label = Text("Photo (back)"), controlHint = "file", piiSensitivity = "None" },
                 ["notes"] = new { label = Text("Notes"), controlHint = "textarea", piiSensitivity = "None" },

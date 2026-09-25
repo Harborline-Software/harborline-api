@@ -38,7 +38,7 @@ test('Forms runtime inventory carries the producer field DTO and detects metadat
   const discovered = await discoverRuntimeBoundaries()
   const form = discovered.find(entry => entry.method === 'GET' && entry.source.endsWith('/FormsRoutes.cs'))
   assert.deepEqual(form.responseFieldDtos.FormViewFieldDto,
-    ['name', 'label', 'helpText', 'controlHint', 'isSensitive', 'isReadable', 'value', 'rules', 'options', 'required'])
+    ['name', 'label', 'helpText', 'controlHint', 'isSensitive', 'isReadable', 'value', 'rules', 'options', 'required', 'permittedValues'])
   const inventory = JSON.parse(readFileSync(boundaryInventoryPath, 'utf8'))
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const entry = inventory.boundaries.find(entry => entry.id === form.id)

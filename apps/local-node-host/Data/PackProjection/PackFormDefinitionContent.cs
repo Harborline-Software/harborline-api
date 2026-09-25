@@ -8,9 +8,6 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Contracts.Fields;
-using Harborline.Foundation.FieldRuntime;
-
-using PlatformTenantId = Harborline.Foundation.Assets.Common.TenantId;
 
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
@@ -23,8 +20,6 @@ namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 internal static class PackFormDefinitionContent
 {
     private const string MoneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
-    private static readonly PlatformTenantId ProjectionTenant = new("pack-projection");
-    private static readonly PackLiteralDomain LiteralDomain = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -184,10 +179,10 @@ internal static class PackFormDefinitionContent
         var options = fieldSchema["enum"] is JsonArray values
             ? values.Select(v => v?.GetValue<string>() ?? string.Empty).ToList()
             : null;
-        // ControlHint is legacy authoring data. The runtime owns editor selection, so a
-        // present authored hint is deliberately ignored rather than admitted as authority.
+        // The field runtime owns a value-domain field's editor (T-664); an authored hint is never read here.
+        // The route refuses one at admission; signed pack content that still carries one is not dispatched on.
         var type = options is { Count: > 0 }
-            ? await ResolveDomainControlTypeAsync(options, clock, cancellationToken).ConfigureAwait(false)
+            ? await ResolveDomainControlTypeAsync(key, options, clock, cancellationToken).ConfigureAwait(false)
             : InferControlType(fieldSchema);
         var validations = new List<FieldValidationDto>();
         AddNumericKeyword(fieldSchema, validations, "minLength",
@@ -235,45 +230,14 @@ internal static class PackFormDefinitionContent
     }
 
     private static async ValueTask<string> ResolveDomainControlTypeAsync(
+        string key,
         IReadOnlyList<string> values,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
-        var domains = new ValueDomainRuntime(LiteralDomain, LiteralDomain, clock);
-        var resolved = await domains.ResolveAsync(
-            new ValueDomainDefinition(LiteralValues: values),
-            new FieldDomainScope(ProjectionTenant, "pack-projection"),
-            "/fieldsMeta",
-            cancellationToken).ConfigureAwait(false);
+        var resolved = await FieldEditorChoice.ResolveAsync(values, clock, $"/fieldsMeta/{key}", cancellationToken)
+            .ConfigureAwait(false);
         return resolved.Editor == FieldEditorKind.RadioGroup ? "radio" : "select";
-    }
-
-    private sealed class PackLiteralDomain : IFieldDomainSource, IFieldDomainSnapshot, IFieldDomainReadAuthority
-    {
-        public PlatformTenantId Tenant => ProjectionTenant;
-        public string Revision => "pack-projection";
-        public bool IsComplete => true;
-
-        public ValueTask<IFieldDomainSnapshot> OpenSnapshotAsync(
-            PlatformTenantId tenant,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult<IFieldDomainSnapshot>(this);
-        }
-
-        public IReadOnlyList<FieldDomainMember>? GetTaxonomyScheme(TaxonomySchemeReference scheme) => null;
-        public IReadOnlyList<FieldDomainMember>? GetRecords(string recordTypeId) => null;
-
-        public ValueTask<bool> CanReadAsync(
-            FieldDomainScope scope,
-            ValueDomainDefinition domain,
-            FieldDomainMember member,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(true);
-        }
     }
 
     private static LocatedProperty? FindProperty(JsonObject objectSchema, string key)

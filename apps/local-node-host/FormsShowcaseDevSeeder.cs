@@ -289,7 +289,7 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
                     ["fullName"] = new(Bilingual("Full name", "الاسم الكامل"), ControlHint: "text"),
                     ["email"] = new(Bilingual("Email", "البريد الإلكتروني"), ControlHint: "text"),
                     ["phone"] = new(Bilingual("Phone", "الهاتف"), ControlHint: "text"),
-                    ["enquiryType"] = new(Bilingual("Enquiry type", "نوع الاستفسار"), ControlHint: "select"),
+                    ["enquiryType"] = new(Bilingual("Enquiry type", "نوع الاستفسار")), // enum: the runtime picks the editor (T-664)
                     ["preferredContactDate"] = new(
                         Bilingual("Preferred contact date", "تاريخ التواصل المفضل"), ControlHint: "date"),
                     ["budgetCeiling"] = new(
@@ -357,7 +357,7 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
                 {
                     ["applicantName"] = new(Bilingual("Applicant name", "اسم مقدم الطلب"), ControlHint: "text"),
                     ["applicantEmail"] = new(Bilingual("Email", "البريد الإلكتروني"), ControlHint: "text"),
-                    ["unitType"] = new(Bilingual("Unit type", "نوع الوحدة"), ControlHint: "select"),
+                    ["unitType"] = new(Bilingual("Unit type", "نوع الوحدة")), // enum: the runtime picks the editor (T-664)
                     ["desiredMoveIn"] = new(Bilingual("Desired move-in date", "تاريخ الانتقال المطلوب"), ControlHint: "date"),
                     ["monthlyIncome"] = new(
                         Bilingual("Monthly income (AED)", "الدخل الشهري (درهم)"),
@@ -496,8 +496,8 @@ public sealed class FormsShowcaseDevSeeder : IHostedService
                         ControlHint: "currency",
                         Config: new FieldConfig(CurrencyCode: "AED")),
                     ["occupantName"] = new(Bilingual("Occupant name", "اسم الشاغل"), ControlHint: "text"),
-                    ["occupantRelationship"] = new(
-                        Bilingual("Relationship to lessee", "العلاقة بالمستأجر"), ControlHint: "select"),
+                    // enum: the runtime picks the editor (T-664)
+                    ["occupantRelationship"] = new(Bilingual("Relationship to lessee", "العلاقة بالمستأجر")),
                 },
                 Sections: new[]
                 {

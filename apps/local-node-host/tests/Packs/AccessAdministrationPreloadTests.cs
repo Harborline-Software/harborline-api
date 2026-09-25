@@ -237,6 +237,11 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new ActiveTeamTenantContext(new NoActiveTeam()));
         CatalogueDetailRoutes.Map(_app.MapSelectedSessionProductGroup(),
             new CatalogueDetailRuntime(_authorizedForms.CatalogueSources, _details, TestAuthorization.AllowGate()));
+        // T-664: the production Forms render route over this tenant, so the compatibility test reads the wire.
+        FormsRoutes.Map(_app, _app.Services.GetRequiredService<Harborline.Api.Foundation.Forms.Engine.IFormEngine>(),
+            _app.Services.GetRequiredService<Harborline.Api.Foundation.Forms.Engine.Capabilities.IFormCapabilityIssuer>(),
+            _app.Services.GetRequiredService<Harborline.Api.Foundation.Forms.Engine.Capabilities.IFormCapabilityVerifier>(),
+            new TenantTeam(), [FormsRoutes.NodeOperatorRole], TimeProvider.System);
         await _app.StartAsync();
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
@@ -729,6 +734,40 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new DefinitionCoordinates(Tenant, "access.privileged-grant-review", "1.0.1"), CancellationToken.None));
     }
 
+    [Fact(DisplayName = "T-664: a signed legacy pack with a hint on a value-domain field is admitted; render and export use the runtime's editor")]
+    public async Task Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime()
+    {
+        // The released access-administration content carries controlHint "select" on `reason` and
+        // `residency`, both option fields. The owner's compatibility split (T-664, Q19): signed content
+        // stays admissible, the authoring route refuses the shape, and the runtime's editor is what ships.
+        await PreloadPlatformThenAccessAsync();
+        var form = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.NotNull(form);
+        Assert.Equal("select", form!.Overlay.Fields["reason"].ControlHint);
+        Assert.Equal("select", form.Overlay.Fields["residency"].ControlHint);
+
+        var view = await _client.GetFromJsonAsync<JsonElement>($"{FormsRoutes.RouteBase}/access.grant-a-role");
+        var rendered = view.GetProperty("sections").EnumerateArray()
+            .SelectMany(section => section.GetProperty("fields").EnumerateArray())
+            .ToDictionary(field => field.GetProperty("name").GetString()!);
+        var schema = await _app.Services.GetRequiredService<ISchemaRegistry>().GetAsync(form.SchemaRef);
+        var exported = await PackFormDefinitionContent.ToContentAsync(form, schema!, TimeProvider.System);
+        foreach (var name in new[] { "reason", "residency" })
+        {
+            var values = rendered[name].GetProperty("permittedValues").EnumerateArray().Select(v => v.GetString()!).ToArray();
+            var runtime = await FieldEditorChoice.ResolveAsync(values, TimeProvider.System, $"/{name}", CancellationToken.None);
+            Assert.Equal(runtime.Editor.ToString(), rendered[name].GetProperty("controlHint").GetString());
+            Assert.Equal(
+                runtime.Editor == Harborline.Contracts.Fields.FieldEditorKind.RadioGroup ? "radio" : "select",
+                exported["fieldsMeta"]![name]!["type"]!.GetValue<string>());
+        }
+        // At least one of the two is where the runtime and the authored "select" disagree, so the
+        // assertions above cannot pass by echoing the hint.
+        Assert.Contains(new[] { "reason", "residency" },
+            name => rendered[name].GetProperty("controlHint").GetString() != "select");
+    }
+
     [Fact]
     public void The_grant_form_maps_field_for_field_onto_the_grant_writer()
     {
@@ -966,6 +1005,18 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
 
         public ValueTask<IReadOnlyList<RoleGateFinding>> InspectActiveAsync(CancellationToken ct = default)
             => ValueTask.FromResult<IReadOnlyList<RoleGateFinding>>(Array.Empty<RoleGateFinding>());
+    }
+
+    private sealed class TenantTeam : IActiveTeamAccessor
+    {
+        public TeamContext? Active { get; } = new(new TeamId(Guid.Parse(Tenant.Value)), "Access tenant",
+            new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+
+        public Task SetActiveAsync(TeamId teamId, CancellationToken ct) => Task.CompletedTask;
+
+#pragma warning disable CS0067
+        public event EventHandler<ActiveTeamChangedEventArgs>? ActiveChanged;
+#pragma warning restore CS0067
     }
 
     private sealed class NoActiveTeam : IActiveTeamAccessor
