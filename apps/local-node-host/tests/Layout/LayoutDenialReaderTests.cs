@@ -13,7 +13,7 @@ using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Blocks.LayoutRuntime;
 
-using static Harborline.Api.LocalNodeHost.Tests.Layout.LayoutDenialGateLogTests;
+using static Harborline.Api.LocalNodeHost.Tests.Layout.LayoutDenialTestKit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 
@@ -66,7 +66,7 @@ public sealed class LayoutDenialReaderTests
     private sealed class Harness : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;
-        private readonly KeyPair _keys = KeyPair.Generate();
+        private readonly Pipeline _pipeline = new(new InMemoryAuditTrail());
 
         private Harness(ServiceProvider provider)
         {
@@ -77,10 +77,9 @@ public sealed class LayoutDenialReaderTests
                 provider.GetRequiredService<IAuthorizationClosureSnapshotReader>(),
                 provider.GetRequiredService<IRecordStandingResolver>(),
                 provider.GetRequiredService<IAuthorizationDefinitionAtomReader>());
-            Reader = new LayoutDenialReader(Trail, gate);
+            Reader = new LayoutDenialReader(_pipeline.Trail, gate);
         }
 
-        public InMemoryAuditTrail Trail { get; } = new();
         public LayoutDenialReader Reader { get; }
 
         public static async Task<Harness> CreateAsync()
@@ -104,12 +103,13 @@ public sealed class LayoutDenialReaderTests
         }
 
         /// <summary>Resolves the surface for principal.clerk-4 with the owner denied, through the host trace.</summary>
-        public Task DenyAsync(string requestId)
+        public async Task DenyAsync(string requestId)
         {
-            var trace = new LayoutDenialGateLog(Trail, new Ed25519Signer(_keys), Tenant, new FixedTime(At), NullLogger.Instance);
+            var trace = _pipeline.Trace();
             Resolve(new OutcomeSources(LayoutRelatedResult.Denied("authorization.permission_required", "/records/party-19", Owner)),
                 trace, new LayoutResolutionRequest(requestId, "principal.clerk-4"));
-            return trace.WrittenAsync();
+            await trace.WrittenAsync();
+            await trace.AppendAsync();
         }
 
         private static AccessGrant Grant(ActorId subject, RoleReference role, string scope) => new(
@@ -122,7 +122,7 @@ public sealed class LayoutDenialReaderTests
         public async ValueTask DisposeAsync()
         {
             await _provider.DisposeAsync();
-            _keys.Dispose();
+            _pipeline.Dispose();
         }
     }
 }

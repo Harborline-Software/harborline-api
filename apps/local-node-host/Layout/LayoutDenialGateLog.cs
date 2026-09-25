@@ -14,68 +14,60 @@ namespace Harborline.Api.LocalNodeHost.Layout;
 
 /// <summary>
 /// DES-0052 layout-eng-31 and layout-run-5, host half (T-731): Layout's protected related-binding
-/// decision trace, stored in the authorization gate log T-498 names, which is the unified audit trail
+/// decision trace. Each denial goes, at the act, into the durable local outbox
+/// (<see cref="NodeEfLayoutDenialOutbox"/>), and from there <see cref="LayoutDenialAppender"/> appends it
+/// as a signed record to the authorization gate log T-498 names, which is the unified audit trail
 /// <see cref="Health.AuthorizationRefusalAudit"/> writes refusals to. One instance serves one request.
 /// </summary>
 /// <remarks>
-/// The record is appended inside <see cref="RecordDenial"/>, while the resolver is still running
-/// (ADR 0068 decision 1: recorded at the time of the act, never reconstructed). An append fault is
-/// logged as an error and not thrown, like <see cref="Health.AuthorizationRefusalAudit"/>: a fault only
-/// the denied path can raise would tell the viewer a denied target from a missing one.
+/// Owner ruling 2 of 2026-09-24: never throw, never lose the record. A failed append stays in the outbox
+/// for retry and is reported by <see cref="LayoutDenialHealthCheck"/> (NIST AU-5). Only a failed outbox
+/// write loses a denial; that is counted on <see cref="LayoutDenialAlarms"/> and reported the same way.
+/// Nothing is thrown, because a fault only the denied path can raise would tell the viewer a denied
+/// target from a missing one.
 /// </remarks>
 public sealed class LayoutDenialGateLog(
-    IAuditTrail trail, IOperationSigner signer, TenantId tenant, TimeProvider time, ILogger logger) : ILayoutDecisionTrace
+    NodeEfLayoutDenialOutbox outbox, LayoutDenialAppender appender, LayoutDenialAlarms alarms,
+    TenantId tenant, TimeProvider time, ILogger logger) : ILayoutDecisionTrace
 {
     /// <summary>The event type a related-binding denial is recorded under.</summary>
     public static readonly AuditEventType LayoutRelatedDeniedEventType = new("LayoutRelatedDenied");
 
-    private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
-
-    private readonly List<Task> _appends = [];
+    private readonly List<Task<LayoutDenialOutboxEntry?>> _recorded = [];
 
     /// <inheritdoc />
     public void RecordDenial(LayoutRelatedDenial denial)
     {
         ArgumentNullException.ThrowIfNull(denial);
-        // The append starts here, at the act, and runs synchronously up to its first incomplete await;
-        // the platform trace is synchronous, so the host awaits the rest through WrittenAsync.
-        _appends.Add(AppendAsync(denial));
+        // The outbox write starts here, at the act; the platform trace is synchronous, so the host awaits
+        // the rest through WrittenAsync.
+        _recorded.Add(RecordAsync(new LayoutDenialOutboxEntry(Guid.NewGuid(), tenant, time.GetUtcNow(), denial)));
     }
 
-    /// <summary>Completes every append this request started. The host awaits it before it answers.</summary>
-    public Task WrittenAsync() => Task.WhenAll(_appends);
+    /// <summary>Completes every outbox write this request started. The host awaits it before it answers.</summary>
+    public Task WrittenAsync() => Task.WhenAll(_recorded);
 
-    private async Task AppendAsync(LayoutRelatedDenial denial)
+    /// <summary>Starts the gate-log append of every denial now in the outbox. The host does not await it.</summary>
+    public Task AppendAsync() => Task.WhenAll(_recorded.Select(async recorded =>
+    {
+        if (await recorded.ConfigureAwait(false) is { } entry) await appender.AppendAsync(entry).ConfigureAwait(false);
+    }));
+
+    private async Task<LayoutDenialOutboxEntry?> RecordAsync(LayoutDenialOutboxEntry entry)
     {
         try
         {
-            var at = time.GetUtcNow();
-            // The denied act, typed: reading the target record, by the acting principal, at this instant.
-            var request = new AuthorizationWriteContext(new ActorId(denial.PrincipalId), tenant, at)
-                .Request(RecordsRead, AuthorizationGate.RecordKindFor(RecordsRead), denial.Target.RecordId);
-            var body = new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["requestId"] = denial.RequestId,
-                ["principalId"] = denial.PrincipalId,
-                ["blockId"] = denial.BlockId,
-                ["bindingKind"] = denial.BindingKind,
-                ["relationshipKey"] = denial.RelationshipKey,
-                ["targetRecordTypeId"] = denial.Target.RecordTypeId,
-                ["targetRecordId"] = denial.Target.RecordId,
-                ["code"] = denial.Code,
-                ["pointer"] = denial.Pointer,
-            };
-            var payload = await signer.SignAsync(new AuditPayload(body), at, Guid.NewGuid()).ConfigureAwait(false);
-            await trail.AppendAsync(new AuditRecord(
-                Guid.NewGuid(), tenant, LayoutRelatedDeniedEventType, at, payload, [],
-                Actor: request.Principal, Target: request.Target, Act: request.Act)).ConfigureAwait(false);
+            await outbox.EnqueueAsync(entry).ConfigureAwait(false);
+            return entry;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            alarms.OutboxWriteFailed();
             logger.LogError(ex,
-                "Layout related-binding denial append FAILED (tenant {Tenant}, request {RequestId}, block {BlockId}); "
-                + "the viewer still sees absence but the gate log has no record.",
-                tenant, denial.RequestId, denial.BlockId);
+                "Layout related-binding denial outbox write FAILED (tenant {Tenant}, request {RequestId}, block {BlockId}); "
+                + "the viewer still sees absence but the denial is lost.",
+                tenant, entry.Denial.RequestId, entry.Denial.BlockId);
+            return null;
         }
     }
 
