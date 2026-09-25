@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit.Abstractions;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
@@ -28,7 +29,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// refusal clears by itself once health returns. Before, during and after degradation, a missing and a
 /// denied target give the same response in shape, status and timing.
 /// </summary>
-public sealed class LayoutAuditDegradedModeTests
+public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
 {
     private static readonly ActorId Stranger = new("stranger-731");
 
@@ -82,7 +83,7 @@ public sealed class LayoutAuditDegradedModeTests
         h.Pipeline.Db.Delay = TimeSpan.FromMilliseconds(5);
 
         // Before: a healthy node, the mode on, nothing refused.
-        await AssertPhaseAsync(h, expectRefused: false);
+        await AssertPhaseAsync(h, expectRefused: false, $"{trigger} before");
 
         // Degrade the node's audit health, never through a lookup's own outcome.
         if (trigger == Trigger.GateLogDown)
@@ -98,17 +99,17 @@ public sealed class LayoutAuditDegradedModeTests
         Assert.False(await h.Pipeline.Outbox.IsAuditHealthyAsync());
 
         // During: every related-binding resolution refused, identically.
-        await AssertPhaseAsync(h, expectRefused: true);
+        await AssertPhaseAsync(h, expectRefused: true, $"{trigger} during");
 
         // After: health restored, the refusal clears by itself.
         ((SwitchableTrail)h.Pipeline.Trail).Down = false;
         h.Pipeline.Db.Fault = false;
         await h.Pipeline.Appender.DrainAsync();
         Assert.True(await h.Pipeline.Outbox.IsAuditHealthyAsync());
-        await AssertPhaseAsync(h, expectRefused: false);
+        await AssertPhaseAsync(h, expectRefused: false, $"{trigger} after");
     }
 
-    private static async Task AssertPhaseAsync(Harness h, bool expectRefused)
+    private async Task AssertPhaseAsync(Harness h, bool expectRefused, string phase)
     {
         var host = h.Host(TimeSpan.Zero, degradedMode: true);
         var missing = await h.ObserveAsync(host, ownerExists: false);
@@ -116,9 +117,10 @@ public sealed class LayoutAuditDegradedModeTests
         Assert.Equal(missing, denied);
         Assert.Equal(expectRefused, denied.Contains(LayoutAuditDegradedException.Code, StringComparison.Ordinal));
         await h.Pipeline.Appender.IdleAsync();
-        await TimingParity.AssertSameAsync(
+        var detail = await TimingParity.AssertSameAsync(
             floor => ownerExists => h.ObserveAsync(h.Host(floor, degradedMode: true), ownerExists),
-            h.Pipeline.Appender.IdleAsync);
+            h.Pipeline.Appender.IdleAsync, phase);
+        output.WriteLine($"{phase}: {detail}");
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -235,10 +237,10 @@ internal static class TimingParity
     /// <param name="at">For a floor, a sampler that runs one missing (false) or denied (true) resolution.</param>
     /// <param name="settle">Waits for background work to finish between the calibration and the samples.</param>
     /// <returns>The D statistic, floor and quantiles, for the test output.</returns>
-    public static async Task<string> AssertSameAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle)
+    public static async Task<string> AssertSameAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle, string? label = null)
     {
         var (passed, detail) = await AttemptAsync(at, settle);
-        Assert.True(passed, detail);
+        Assert.True(passed, label is null ? detail : $"{label}: {detail}");
         return detail;
     }
 

@@ -133,23 +133,39 @@ public sealed class LayoutSurfaceHost(
         return resolution;
     }
 
-    /// <summary>How long before the deadline the wait stops sleeping and starts spinning.</summary>
+    /// <summary>The least time before the deadline the wait stops sleeping and starts spinning.</summary>
     internal static readonly TimeSpan SpinWindow = TimeSpan.FromMilliseconds(2);
+
+    /// <summary>The spin window in use: <see cref="SpinWindow"/>, widened to twice the latest timer
+    /// wake-up this process has seen, capped at a quarter of the floor. Process-wide, because timer
+    /// lateness belongs to the OS and the process, not to one host instance.</summary>
+    private static long s_spinWindowTicks = SpinWindow.Ticks;
 
     private async Task PadAsync(long started, CancellationToken ct)
     {
         var remaining = options.ResponseFloor - time.GetElapsedTime(started);
         if (remaining < TimeSpan.Zero) alarms.FloorOverrun();
-        // Sleep to just short of the deadline, then spin onto it. A timer wake-up is late by an amount that
-        // depends on how long the thread slept and how warm its core is, and the denied path sleeps for less
-        // than the missing path; on Linux's precise timers that difference was measurable (run 36155000912).
-        // Ending on a spin puts every path's completion on the same instant, whatever it did before.
-        // ponytail: spins up to SpinWindow plus the timer's lateness per resolution; widen only if a host's
-        // timer wakes later than the window.
-        while (remaining > SpinWindow)
+        // Sleep to short of the deadline, then spin onto it, so every path, the audit-degraded refusal
+        // included, completes on the same instant whatever it did before. A timer wake-up is late by an
+        // amount that can depend on how long the thread slept (macOS coalesces timers in proportion to the
+        // interval), and the denied path sleeps for less than the missing path. A wake-up that lands past
+        // the start of the spin would end that path on the timer instead of the spin, so the window widens
+        // to twice the lateness seen. ponytail: the window only grows; a host whose timer was late once
+        // keeps spinning that long, up to a quarter of the floor.
+        var cap = options.ResponseFloor.Ticks / 4;
+        while (true)
         {
-            await Task.Delay(remaining - SpinWindow, time, ct).ConfigureAwait(false);
+            var window = TimeSpan.FromTicks(Math.Min(Interlocked.Read(ref s_spinWindowTicks), cap));
+            if (remaining <= window) break;
+            var asleep = time.GetTimestamp();
+            await Task.Delay(remaining - window, time, ct).ConfigureAwait(false);
+            var lateness = time.GetElapsedTime(asleep) - (remaining - window);
             remaining = options.ResponseFloor - time.GetElapsedTime(started);
+            for (long seen = Interlocked.Read(ref s_spinWindowTicks), wanted = Math.Min(lateness.Ticks * 2, cap);
+                 wanted > seen && Interlocked.CompareExchange(ref s_spinWindowTicks, wanted, seen) != seen;
+                 seen = Interlocked.Read(ref s_spinWindowTicks))
+            {
+            }
         }
         var spin = new SpinWait();
         while (options.ResponseFloor > time.GetElapsedTime(started))
