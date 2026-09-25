@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -81,101 +80,23 @@ public sealed class LayoutSurfaceHostParityTests
     }
 
     /// <summary>
-    /// The statistical timing check compares the two full distributions with a two-sample
-    /// Kolmogorov-Smirnov test at significance 0.001: 60 interleaved samples a path, so the largest gap
-    /// between the empirical distribution functions must stay under 1.949 * sqrt(2 / 60) = 0.356.
-    /// <para>
-    /// The floor is derived in each attempt the way owner ruling 1 derives the production one: time 100
-    /// denied resolutions with no floor on this host, as loaded as it is now, then double the worst case
-    /// and round up to the 15.6 ms timer tick, never below four ticks. Each local-store operation is
-    /// slowed by 5 ms, so the denied path's extra work is wider than the jitter: without the floor the
-    /// distributions barely overlap and D is near 1 in every attempt.
-    /// </para>
-    /// <para>
-    /// KS assumes independent samples. On a shared, noisy host (GitHub's 4-vCPU ubuntu-latest running the
-    /// whole host suite in parallel, run 36123428135) load arrives in bursts that span many consecutive
-    /// samples, so the real false-alarm rate is well above 0.001. The test therefore makes at most
-    /// <see cref="TimingAttempts"/> independent attempts, each re-measuring its floor, and passes when one
-    /// attempt passes. A leak the floor does not hide fails every attempt, as the floor-removed mutation
-    /// shows (D = 1.000 each time); a noise burst has to fail all three in a row.
-    /// </para>
+    /// The statistical timing check, shared with the audit-degraded tests (<see cref="TimingParity"/>): a
+    /// two-sample Kolmogorov-Smirnov test at alpha 0.001 over 60 interleaved samples a path, with the floor
+    /// measured on this host, at most three independent attempts (run 36123428135: bursty load on a shared
+    /// host breaks KS's independence assumption). Each local-store operation is slowed by 5 ms, so without
+    /// the floor every attempt gives D near 1.
     /// </summary>
     [Theory(DisplayName = "layout-eng-31: an unauthorized caller cannot tell missing from denied by timing (two-sample KS over 60 interleaved samples a path, alpha 0.001, measured floor, at most 3 attempts)")]
     [InlineData(Fault.None)]
     [InlineData(Fault.GateLogDown)]
     public async Task MissingAndDeniedTimingDistributionsAreTheSame(Fault fault)
     {
-        var attempts = new List<string>();
-        for (var attempt = 1; attempt <= TimingAttempts; attempt++)
-        {
-            var (passed, detail) = await TimingAttemptAsync(fault);
-            attempts.Add($"attempt {attempt}: {detail}");
-            if (passed) return;
-        }
-        Assert.Fail(string.Join(Environment.NewLine, attempts));
-    }
-
-    private const int TimingAttempts = 3;
-
-    private static async Task<(bool Passed, string Detail)> TimingAttemptAsync(Fault fault)
-    {
-        const int samples = 60;
-        const double critical = 1.949 * 0.1825741858; // c(0.001) * sqrt((n + m) / (n * m)), n = m = 60
-        const double tick = 15.625;
         await using var h = await Harness.CreateAsync(fault);
         h.Pipeline.Db.Delay = TimeSpan.FromMilliseconds(5);
-
-        var calibration = h.Host(TimeSpan.Zero);
-        for (var i = 0; i < 5; i++) await h.ResolveAsync(calibration, Stranger, ownerExists: true); // JIT warm-up, discarded
-        var worst = 0.0;
-        for (var i = 0; i < 100; i++)
-        {
-            var clock = Stopwatch.StartNew();
-            await h.ResolveAsync(calibration, Stranger, ownerExists: true);
-            worst = Math.Max(worst, clock.Elapsed.TotalMilliseconds);
-        }
-        await h.Pipeline.Appender.IdleAsync();
-        // The worst of 100 stands in for the p99.9; four ticks is the least floor a coarse timer can hold.
-        var floor = TimeSpan.FromMilliseconds(Math.Max(4, Math.Ceiling(2 * worst / tick)) * tick);
-        var host = h.Host(floor);
-
-        var missing = new List<double>();
-        var denied = new List<double>();
-        for (var i = 0; i < samples; i++)
-        {
-            foreach (var ownerExists in i % 2 == 0 ? new[] { false, true } : [true, false])
-            {
-                var clock = Stopwatch.StartNew();
-                await h.ResolveAsync(host, Stranger, ownerExists);
-                (ownerExists ? denied : missing).Add(clock.Elapsed.TotalMilliseconds);
-            }
-        }
-        await h.Pipeline.Appender.IdleAsync();
-
-        var d = KolmogorovSmirnov(missing, denied);
-        return (d <= critical,
-            $"KS D = {d:F3} (limit {critical:F3}) at floor {floor.TotalMilliseconds} ms; missing p50 {Quantile(missing, 0.5):F2} "
-            + $"p90 {Quantile(missing, 0.9):F2} ms, denied p50 {Quantile(denied, 0.5):F2} p90 {Quantile(denied, 0.9):F2} ms");
+        await TimingParity.AssertSameAsync(
+            floor => ownerExists => h.ResolveAsync(h.Host(floor), Stranger, ownerExists),
+            h.Pipeline.Appender.IdleAsync);
     }
-
-    /// <summary>The largest vertical gap between the two empirical distribution functions.</summary>
-    private static double KolmogorovSmirnov(List<double> a, List<double> b)
-    {
-        var x = a.Order().ToArray();
-        var y = b.Order().ToArray();
-        double d = 0;
-        int i = 0, j = 0;
-        while (i < x.Length && j < y.Length)
-        {
-            var t = Math.Min(x[i], y[j]);
-            while (i < x.Length && x[i] <= t) i++;
-            while (j < y.Length && y[j] <= t) j++;
-            d = Math.Max(d, Math.Abs((double)i / x.Length - (double)j / y.Length));
-        }
-        return d;
-    }
-
-    private static double Quantile(List<double> samples, double q) => samples.Order().ElementAt((int)(q * (samples.Count - 1)));
 
     private static string Describe(LayoutBindingResolution resolution) => JsonSerializer.Serialize(new
     {
