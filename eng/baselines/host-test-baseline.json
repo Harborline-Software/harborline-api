@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "074f8f6d",
-  "recordedAt": "2026-09-22T00:29:21Z",
+  "sourcePin": "155623aa",
+  "recordedAt": "2026-09-24T20:10:00Z",
   "totals": {
-    "total": 4463,
-    "passed": 4442,
+    "total": 4473,
+    "passed": 4452,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-731 the host stores and reads Layout denial records: the native Windows exact-clone at 155623aa1b691b25beb3577ffd86cc45434a4f0f measured 4473 total, 4452 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4463-case count inventory. The ten added cases are LayoutDenialGateLogTests (2 facts), LayoutDenialReaderTests (1 fact and the four InlineData rows of AReaderLackingEitherAuthorizationGetsNothing: auditor-731, member-731, auditor-other-record-731, stranger-731) and LayoutSurfaceHostParityTests (3 facts). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set for the dependency ledger and was not quality-enabled.",
     "T-656 the api consumes the canonical platform view kinds: the native Windows exact-clone at 074f8f6dd9792a7276900a7ebd58e772a465d77e measured 4463 total, 4442 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4457-case count inventory. The six added cases are HostViewRequestAdmissionTests.Canonical_platform_table_kind_is_admitted, the two InlineData rows of HostViewRequestAdmissionTests.Non_platform_kind_is_refused_outside_released_pack_compatibility (views.entity-list/grid and views.not-registered), and the three facts of the new ReleasedViewKindCompatibilityTests. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The count was re-measured from a clean clone with the apps/capability-host node toolchain installed first, because TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan skips without it and a measurement that omits that step pins notExecuted at 22 rather than 21. Unlike the entries below, this run was not quality-enabled.",
     "T-650 one admitted instant per act on the form and scheduling definition handlers: the quality-enabled Windows exact-clone at f3223867b59f94bd6eadbf6bce20bc71071ef418, this branch merged with api main db7b079d, measured 4457 total, 4436 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4453-case count inventory. The four added cases are InlineData rows on the existing theory KernelClockIntegrationTests.ProductionComposition_UsesTheAdmittedInstantAfterClockAdvances — form-definition-publish, form-definition-restore, scheduling-draft-save and scheduling-draft-restore — which drive the real form and scheduling definition PUT and restore routes through the production composition and count the act's kernel-clock reads. No test method, class or file is added; no case is removed, renamed or skipped, and no skip identity changes. No inventory moves: the change adds no route, no migration and no package, and the platform pin is untouched at 39b46e35, which this branch inherits from T-463 slice 2b. Three production double reads found by standing these cases up are fixed on this branch (both form definition handlers, NodeSchedulingDraftStore.SaveAsync, and the node forms retention resolver); none of them adds or removes a case. This tuple was measured TWICE and the first number was DISCARDED rather than adjusted: an earlier run of this branch measured 4456/4435 against the pre-T-463-slice-2b base of 4452/4431, and when main moved the base to 4453/4432 the branch was merged and re-measured from scratch on the merged tree. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged. A fresh committed-head gate must confirm the tuple.",
     "T-463 slice 2b, the api runs the pinned platform corpus: the quality-enabled Windows exact-clone at 2daddbea93b73da877b2124e1520fda7be9601a8 measured 4453 total, 4432 passed, zero failed and 21 skipped, with newFailures empty and nothing rescued by the knownFlaky retry. Its only failing check was the previous 4452-case count inventory; every other exact-clone step reported ok. The one added case is VerificationRunnerTests.The_suite_this_host_runs_is_the_pinned_platform_corpus, which asserts that the suite this host executes IS the platform-owned corpus the pinned package carries: the parsed digest against the document's own suiteDigest, every fixture grant scope at the install root, and this host's own expectation table (the row-id set, each row's record.number:/total, and the four approval-authority expected values) against what the document declares. It is the test that fails if the two ever disagree again, proved by mutation. Nothing is removed, renamed or skipped: the ~60 lines of hand-written suite this file used to declare were deleted, but they were helper methods, not cases.",
@@ -117,23 +118,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4457,
-      "passed": 4436,
+      "total": 4463,
+      "passed": 4442,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4457 -> 4463; passed 4436 -> 4442; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-656 adds six cases and removes, renames and skips none. HostViewRequestAdmissionTests gains Canonical_platform_table_kind_is_admitted plus the two InlineData rows of Non_platform_kind_is_refused_outside_released_pack_compatibility (views.entity-list/grid and views.not-registered), and the new ReleasedViewKindCompatibilityTests adds Exact_released_predecessor_projects_the_canonical_kind_without_mutating_its_seed, Unknown_pack_version_receives_no_retired_kind_compatibility and Canonical_kind_is_not_rewritten_even_for_a_released_predecessor. They cover registry-backed view-kind admission and the released-predecessor compatibility projection this ticket introduces. No test method or file is removed, no case is renamed or skipped, and no skip identity changes: notExecuted stays 21.",
-    "detectedBy": "The native Windows exact-clone gate at 074f8f6d, whose host-baseline-match reported failed 0 and newFailures empty against a stale 4457-case inventory. Re-measured from a clean clone of 074f8f6d built from the commit alone, with the apps/capability-host node toolchain installed first, because TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan skips without it and would otherwise have pinned notExecuted at 22.",
-    "arithmeticCrossCheck": "4457 + 6 = 4463; passed = total - notExecuted = 4463 - 21 = 4442."
+    "change": "total 4463 -> 4473; passed 4442 -> 4452; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-731 adds ten cases and removes, renames and skips none: LayoutDenialGateLogTests (2 facts), LayoutDenialReaderTests (1 fact and the four InlineData rows of AReaderLackingEitherAuthorizationGetsNothing: auditor-731, member-731, auditor-other-record-731, stranger-731) and LayoutSurfaceHostParityTests (3 facts). They cover DES-0052 layout-eng-31 and layout-run-5 on the host: the gate-log write, the dual-authorized reader, and missing/denied parity in shape, fault classification and timing. AuthoritySnapshotTests gains one allow-list row and no case.",
+    "detectedBy": "The native Windows all-lane gate at 155623aa, whose exact-clone host-baseline-match reported failed 0 and newFailures empty against the stale 4463-case inventory.",
+    "arithmeticCrossCheck": "4463 + 10 = 4473; passed = total - notExecuted = 4473 - 21 = 4452."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "074f8f6dd9792a7276900a7ebd58e772a465d77e (T-656, branch codex/t-656-api-view-kind, one commit ahead of api main at the time of measurement)",
+    "apiCommit": "155623aa1b691b25beb3577ffd86cc45434a4f0f (T-731, branch t-731-layout-denial-store, five commits ahead of api main e81d52fa at the time of measurement)",
     "platform": "native Windows",
-    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone, with the apps/capability-host node toolchain installed before the host suite runs; platform feed packed from the eng/platform-pin.json commit ae42b2ac17e1216e7255d7f356a7f9c78e959843",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Measured by the local all-lane gate at 074f8f6d, whose exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0. This run was NOT quality-enabled: HARBORLINE_GATE_QUALITY was unset, unlike the two preceding entries. The tuple was then reproduced independently from a clean clone of the same commit, which reported the identical 4463 total, 4442 passed, 0 failed and 21 skipped.",
+    "runs": "Measured by the local all-lane gate at 155623aa, whose exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0. Not quality-enabled.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
