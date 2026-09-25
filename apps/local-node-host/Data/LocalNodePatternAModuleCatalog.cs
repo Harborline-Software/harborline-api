@@ -16,6 +16,7 @@ using Harborline.Api.LocalNodeHost.Data.AssetRegistry;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
+using Harborline.Api.LocalNodeHost.Data.Layout;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 
 namespace Harborline.Api.LocalNodeHost.Data;
@@ -139,6 +140,7 @@ internal static class LocalNodePatternAModuleCatalog
             Describe<DocsEntityModule>(),
             Describe<AuditEventEntityModule>(),
             Describe<FormSubmitOutboxEntityModule>(),
+            Describe<LayoutDenialOutboxEntityModule>(),
             Describe<HomeEpochEntityModule>(),
             Describe<WorkflowEntityModule>(),
             Describe<SpatialFrameEntityModule>());
