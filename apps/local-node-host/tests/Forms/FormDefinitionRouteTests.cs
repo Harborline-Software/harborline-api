@@ -242,13 +242,17 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     }
 
     [Theory(DisplayName = "T-664: an authored control on a value-domain field is refused at admission")]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Authored_control_on_a_value_domain_field_is_refused_at_admission(bool draft)
+    [InlineData(false, "textarea")]
+    [InlineData(true, "textarea")]
+    // The legacy signed-pack shape (controlHint "select" on an option field): admitted from a signed
+    // pack for compatibility (AccessAdministrationPreloadTests), refused on the authoring route.
+    [InlineData(false, "select")]
+    [InlineData(true, "select")]
+    public async Task Authored_control_on_a_value_domain_field_is_refused_at_admission(bool draft, string hint)
     {
         // T-724 ruling 37: the runtime picks a value-domain field's editor, so the author may not name one.
         var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
-        body["overlay"]!["fields"]!["unit"]!["controlHint"] = "textarea";
+        body["overlay"]!["fields"]!["unit"]!["controlHint"] = hint;
         body["draft"] = draft;
 
         using var response = await _client.PutAsJsonAsync($"{DefBase}/hinted-domain", body);
