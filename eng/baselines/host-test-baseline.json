@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1dde3688",
-  "recordedAt": "2026-09-25T13:59:34Z",
+  "sourcePin": "08c328e7",
+  "recordedAt": "2026-09-25T12:17:00Z",
   "totals": {
-    "total": 4487,
-    "passed": 4466,
+    "total": 4480,
+    "passed": 4459,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
-    "T-664 the host takes the field runtime's editor choice: the native Windows exact-clone of PR 214 CI run 36140242677 at 1dde368889258344f41392271c5e4064beccc40a (head 24f2ee30 merged with main 766cf519) measured 4487 total, 4466 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4479-case count inventory. The eight added cases are FormsRouteTests.Value_domain_field_renders_the_runtime_editor_over_the_authored_hint, the four InlineData rows of FormDefinitionRouteTests.Authored_control_on_a_value_domain_field_is_refused_at_admission (draft and publish, hints textarea and select), CatalogueFieldSourceContractTests.T664_an_authored_hint_cannot_remove_a_validation_from_the_projected_definition, ControlHintDispatchFenceTests.Every_production_read_of_the_control_hint_is_an_allowed_pass_through and AccessAdministrationPreloadTests.Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime (T-724 ruling 64). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The macOS lane passed on the same run and uses named comparison, so its baseline is not updated. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged.",
+    "T-687 an uncompilable document block guard withholds its block instead of faulting render: the native Windows exact-clone at 08c328e7947217b8c69d5286b5c38b6a7a2a9374 measured 4480 total, 4459 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4479-case count inventory. The one added case is NodeDocumentTemplateRouteActingMemberPlacerTests.Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set and was not quality-enabled.",
     "T-731 owner rulings of 2026-09-24 (T-724 rulings 42-46): the quality-enabled native Windows exact-clone at 94cc7c2df62203253d616cf6f2c801131eaa52ee measured 4479 total, 4458 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4473-case count inventory. The Layout cases go from 10 to 16: LayoutDenialGateLogTests gains three facts (a failed append stays in the outbox, alerts and drains once; a crash between append and mark does not append twice; a failed outbox write alerts), LayoutSurfaceHostParityTests.MissingAndDeniedReturnTheSameResolution becomes a three-row theory (None, GateLogDown, OutboxDown) replacing the fact and the separate append-fault fact, the new fact AnOverrunOfTheFloorRaisesTheHealthAlert is added, and the timing fact becomes the two-row theory MissingAndDeniedTimingDistributionsAreTheSame (None, GateLogDown). The removed facts are MissingAndDeniedTakeTheSameTime and AnAppendFaultDoesNotChangeTheResolution, both replaced by the theories named above; no skip identity changes.",
     "T-731 the host stores and reads Layout denial records: the native Windows exact-clone at 155623aa1b691b25beb3577ffd86cc45434a4f0f measured 4473 total, 4452 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4463-case count inventory. The ten added cases are LayoutDenialGateLogTests (2 facts), LayoutDenialReaderTests (1 fact and the four InlineData rows of AReaderLackingEitherAuthorizationGetsNothing: auditor-731, member-731, auditor-other-record-731, stranger-731) and LayoutSurfaceHostParityTests (3 facts). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set for the dependency ledger and was not quality-enabled.",
     "T-656 the api consumes the canonical platform view kinds: the native Windows exact-clone at 074f8f6dd9792a7276900a7ebd58e772a465d77e measured 4463 total, 4442 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4457-case count inventory. The six added cases are HostViewRequestAdmissionTests.Canonical_platform_table_kind_is_admitted, the two InlineData rows of HostViewRequestAdmissionTests.Non_platform_kind_is_refused_outside_released_pack_compatibility (views.entity-list/grid and views.not-registered), and the three facts of the new ReleasedViewKindCompatibilityTests. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The count was re-measured from a clean clone with the apps/capability-host node toolchain installed first, because TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan skips without it and a measurement that omits that step pins notExecuted at 22 rather than 21. Unlike the entries below, this run was not quality-enabled.",
@@ -125,19 +125,19 @@
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4479 -> 4487; passed 4458 -> 4466; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-664 (PR 214): one render-wire fact, a four-row admission-refusal theory, one export validation fact, one ControlHint fence fact and one signed-pack compatibility fact. Net +8 cases. No other test changes.",
-    "detectedBy": "PR 214 verify-windows (CI run 36140242677, winbox), whose exact-clone host-baseline-match reported failed 0 and newFailures empty against the stale 4479-case inventory.",
-    "arithmeticCrossCheck": "4479 + 8 = 4487; passed = total - notExecuted = 4487 - 21 = 4466."
+    "change": "total 4479 -> 4480; passed 4458 -> 4459; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "T-687 an uncompilable document block guard withholds its block instead of faulting render: NodeDocumentTemplateRouteActingMemberPlacerTests gains one fact, Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes.",
+    "detectedBy": "verify-windows host-baseline-match on api PR 212 (run 36130672958, job 108056943580); re-measured by the native Windows exact-clone at 08c328e7.",
+    "arithmeticCrossCheck": "4479 + 1 = 4480; passed = total - notExecuted = 4480 - 21 = 4459."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "1dde368889258344f41392271c5e4064beccc40a (T-664, PR 214 head 24f2ee30 merged with main)",
+    "apiCommit": "08c328e7947217b8c69d5286b5c38b6a7a2a9374 (T-687, branch t-687-documents-guard)",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Measured by CI verify-windows run 36140242677 on winbox; exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0.",
-    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files; the macOS lane passed on the same run."
+    "runs": "Measured by eng/run-exact-clone.mjs at 08c328e7 with HARBORLINE_CONTROL_REPO set and without HARBORLINE_GATE_QUALITY; exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0. Another lane's filtered api host test runs were active on the same machine during part of the run.",
+    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
     "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",
