@@ -32,6 +32,13 @@
 # `vars.ACTIONS_ENABLED == 'true'` turns green the moment the variable is deleted. The lanes keep
 # the switch (they cost self-hosted machine time); the context cannot be skipped and is green only
 # when every lane it stands for ran and passed.
+#
+# Owner decision 2026-09-25: a draft PR no longer starts verify-shared, verify-macos or
+# verify-windows. Drafts were queuing behind the merge-queue's own runs on macpro (and winbox),
+# delaying every ready-for-review PR behind work nobody had asked to be checked yet. Marking a PR
+# ready for review (or opening it non-draft) now triggers the full run; the `verify` aggregator
+# stays unconditional and required (T-633/T-660) so a draft's skipped lanes report a failure with an
+# explicit message, not a false-green required check.
 name: verify
 
 on:
@@ -39,6 +46,7 @@ on:
   # push run would be the third full measurement of one tree. Required contexts still run on
   # pull_request because the queue admits a PR only after its required checks pass on the PR itself.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   schedule:
     - cron: '17 6 * * *'   # nightly Windows datapoint against main (verify-windows below)
@@ -59,7 +67,8 @@ jobs:
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
     # Ticket 701: the shared lane reads nothing host-specific, but is pinned to macpro so its
     # result remains attributable and mac16 can be reserved for the perf-quiet job.
     # exact-clone -- the only step whose answer depends on the host -- is not in this lane; it runs
@@ -212,6 +221,10 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
+          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "::error::draft PR: self-hosted lanes are not run; mark ready for review to verify"
+            exit 1
+          fi
           echo "$NEEDS"
           jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
 
@@ -231,7 +244,8 @@ jobs:
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
     runs-on: [self-hosted, macOS, ARM64, macpro]
     timeout-minutes: 90
     env:
@@ -307,7 +321,8 @@ jobs:
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'merge_group' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
     runs-on: [self-hosted, Windows, winbox]
     timeout-minutes: 90
     defaults:
