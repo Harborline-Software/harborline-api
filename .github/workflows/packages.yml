@@ -157,6 +157,20 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build and test
         run: node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.ubuntu.json
+      - name: T-731 TEMPORARY Linux timing probe (removed before merge)
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        run: |
+          probe() {
+            for i in 1 2 3 4 5; do
+              dotnet test apps/local-node-host/tests/tests.csproj --filter "FullyQualifiedName~LayoutSurfaceHostParityTests.MissingAndDeniedTimingDistributionsAreTheSame" --logger "console;verbosity=detailed" 2>&1                 | grep -E "(None|GateLogDown): KS|Total tests|Passed:|Failed:" || true
+            done
+          }
+          echo "== AFTER: this branch's host"
+          probe
+          git show origin/main:apps/local-node-host/Layout/LayoutSurfaceHost.cs > apps/local-node-host/Layout/LayoutSurfaceHost.cs
+          echo "== BEFORE: origin/main's host, same single-attempt test"
+          probe
+          git checkout -- apps/local-node-host/Layout/LayoutSurfaceHost.cs
       - name: Retain failed host-test evidence
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
