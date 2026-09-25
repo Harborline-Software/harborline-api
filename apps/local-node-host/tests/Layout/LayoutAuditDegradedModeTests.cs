@@ -223,28 +223,23 @@ public sealed class LayoutAuditDegradedModeTests
 /// significance 0.001 over 60 interleaved samples a path (D must stay under 1.949 * sqrt(2 / 60) =
 /// 0.356), with the floor measured on this host the way owner ruling 1 derives the production one (the
 /// worst of 100 denied runs with no floor, doubled, rounded up to the 15.6 ms tick, at least four ticks).
-/// KS assumes independent samples; bursty load on a shared host breaks that, so the check makes at most
-/// three independent attempts and passes when one does. A leak the floor does not hide fails all three.
+/// One attempt, no retries (PR 219): the host finishes all denial-side work inside the floor and ends every
+/// resolution on a spin onto the deadline, so a failure is a real difference, not noise.
 /// </summary>
 internal static class TimingParity
 {
-    private const int Attempts = 3;
     private const int Samples = 60;
     private const double Critical = 1.949 * 0.1825741858; // c(0.001) * sqrt((n + m) / (n * m)), n = m = 60
     private const double Tick = 15.625;
 
     /// <param name="at">For a floor, a sampler that runs one missing (false) or denied (true) resolution.</param>
     /// <param name="settle">Waits for background work to finish between the calibration and the samples.</param>
-    public static async Task AssertSameAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle)
+    /// <returns>The D statistic, floor and quantiles, for the test output.</returns>
+    public static async Task<string> AssertSameAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle)
     {
-        var details = new List<string>();
-        for (var attempt = 1; attempt <= Attempts; attempt++)
-        {
-            var (passed, detail) = await AttemptAsync(at, settle);
-            details.Add($"attempt {attempt}: {detail}");
-            if (passed) return;
-        }
-        Assert.Fail(string.Join(Environment.NewLine, details));
+        var (passed, detail) = await AttemptAsync(at, settle);
+        Assert.True(passed, detail);
+        return detail;
     }
 
     private static async Task<(bool, string)> AttemptAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle)
@@ -278,7 +273,8 @@ internal static class TimingParity
         var d = KolmogorovSmirnov(missing, denied);
         return (d <= Critical,
             $"KS D = {d:F3} (limit {Critical:F3}) at floor {floor.TotalMilliseconds} ms; missing p50 {Quantile(missing, 0.5):F2} "
-            + $"p90 {Quantile(missing, 0.9):F2} ms, denied p50 {Quantile(denied, 0.5):F2} p90 {Quantile(denied, 0.9):F2} ms");
+            + $"p90 {Quantile(missing, 0.9):F2} p99 {Quantile(missing, 0.99):F2} ms, denied p50 {Quantile(denied, 0.5):F2} "
+            + $"p90 {Quantile(denied, 0.9):F2} p99 {Quantile(denied, 0.99):F2} ms");
     }
 
     private static double KolmogorovSmirnov(List<double> a, List<double> b)

@@ -65,9 +65,9 @@ public sealed class LayoutAuditDegradedException()
 /// </para>
 /// <para>
 /// Timing parity is by construction: every resolution completes no earlier than
-/// <see cref="LayoutSurfaceOptions.ResponseFloor"/> after it starts, so the gate decision and the outbox
-/// write that only a denial costs are hidden inside the floor. The gate-log append runs after the answer,
-/// from the outbox. A resolution that finishes after the floor has leaked its path's timing; it is counted
+/// <see cref="LayoutSurfaceOptions.ResponseFloor"/> after it starts, and ends on a spin onto that
+/// deadline. The gate decision, the outbox write and the gate-log append that only a denial costs all
+/// finish inside the floor, so nothing path-dependent happens after it. A resolution that finishes after the floor has leaked its path's timing; it is counted
 /// on <see cref="LayoutDenialAlarms"/>, which <see cref="LayoutDenialHealthCheck"/> reports.
 /// </para>
 /// </remarks>
@@ -124,24 +124,38 @@ public sealed class LayoutSurfaceHost(
         var resolution = resolver.Resolve(definition,
             new AuthorizedRelatedSources(values, relationships, decisions, undecided: null), root, trace, request, ct);
         await trace.WrittenAsync().ConfigureAwait(false);
+        // Every piece of denial-side work, the signed gate-log append included, finishes inside the floor.
+        // Nothing path-dependent runs after the deadline. The append never throws; a failure stays in the
+        // outbox for the drain.
+        await trace.AppendAsync().ConfigureAwait(false);
 
         await PadAsync(started, ct).ConfigureAwait(false);
-        // The signed append runs from the outbox only once the floor has passed, so its work never lands
-        // inside a denied resolution's own timing window. It never throws; a failure is retried by the drain.
-        _ = trace.AppendAsync();
         return resolution;
     }
+
+    /// <summary>How long before the deadline the wait stops sleeping and starts spinning.</summary>
+    internal static readonly TimeSpan SpinWindow = TimeSpan.FromMilliseconds(2);
 
     private async Task PadAsync(long started, CancellationToken ct)
     {
         var remaining = options.ResponseFloor - time.GetElapsedTime(started);
         if (remaining < TimeSpan.Zero) alarms.FloorOverrun();
-        // A coarse timer can wake early, so wait until the deadline has really passed: every path then ends
-        // at the same deadline, never before it.
-        while (remaining > TimeSpan.Zero)
+        // Sleep to just short of the deadline, then spin onto it. A timer wake-up is late by an amount that
+        // depends on how long the thread slept and how warm its core is, and the denied path sleeps for less
+        // than the missing path; on Linux's precise timers that difference was measurable (run 36155000912).
+        // Ending on a spin puts every path's completion on the same instant, whatever it did before.
+        // ponytail: spins up to SpinWindow plus the timer's lateness per resolution; widen only if a host's
+        // timer wakes later than the window.
+        while (remaining > SpinWindow)
         {
-            await Task.Delay(remaining, time, ct).ConfigureAwait(false);
+            await Task.Delay(remaining - SpinWindow, time, ct).ConfigureAwait(false);
             remaining = options.ResponseFloor - time.GetElapsedTime(started);
+        }
+        var spin = new SpinWait();
+        while (options.ResponseFloor > time.GetElapsedTime(started))
+        {
+            ct.ThrowIfCancellationRequested();
+            spin.SpinOnce(sleep1Threshold: -1);
         }
     }
 
