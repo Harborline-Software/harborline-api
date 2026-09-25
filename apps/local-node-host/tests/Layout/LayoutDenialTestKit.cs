@@ -139,7 +139,8 @@ internal static class LayoutDenialTestKit
         public LocalNodeDb Db { get; } = new();
         public IAuditTrail Trail { get; } = trail;
         public LayoutDenialAlarms Alarms { get; } = new();
-        public NodeEfLayoutDenialOutbox Outbox => new(Db);
+        public NodeEfLayoutDenialOutbox Outbox => _outbox ??= new(Db, NullLogger<NodeEfLayoutDenialOutbox>.Instance);
+        private NodeEfLayoutDenialOutbox? _outbox;
         public LayoutDenialAppender Appender => _appender ??= new(Outbox, Trail, new Ed25519Signer(_keys), NullLogger.Instance);
         private LayoutDenialAppender? _appender;
 

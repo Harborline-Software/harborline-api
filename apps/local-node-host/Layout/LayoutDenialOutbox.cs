@@ -24,8 +24,17 @@ public sealed record LayoutDenialOutboxEntry(Guid Id, TenantId Tenant, DateTimeO
 /// on the form-submit outbox pattern (<see cref="Data.Forms.NodeEfFormSubmitOutbox"/>). A denial leaves the
 /// outbox only when its signed record is in the gate log.
 /// </summary>
-public sealed class NodeEfLayoutDenialOutbox(IDbContextFactory<LocalNodeDbContext> contextFactory)
+public sealed class NodeEfLayoutDenialOutbox(
+    IDbContextFactory<LocalNodeDbContext> contextFactory, ILogger<NodeEfLayoutDenialOutbox> logger)
 {
+    /// <summary>The audit-health probe could not read the outbox: logged once, when health turns bad.</summary>
+    public static readonly EventId AuditHealthProbeFailedEvent = new(7312, "LayoutAuditHealthProbeFailed");
+
+    /// <summary>The audit-health probe reads the outbox again after a failure: logged once.</summary>
+    public static readonly EventId AuditHealthProbeRecoveredEvent = new(7313, "LayoutAuditHealthProbeRecovered");
+
+    private int _probeFailing;
+
     /// <summary>Records <paramref name="entry"/> as <see cref="LayoutDenialOutboxState.Pending"/>.</summary>
     public async Task EnqueueAsync(LayoutDenialOutboxEntry entry, CancellationToken ct = default)
     {
@@ -77,11 +86,18 @@ public sealed class NodeEfLayoutDenialOutbox(IDbContextFactory<LocalNodeDbContex
         try
         {
             await using var db = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-            return !await db.Set<LayoutDenialOutboxRow>()
+            var healthy = !await db.Set<LayoutDenialOutboxRow>()
                 .AnyAsync(row => row.State == LayoutDenialOutboxState.Failed, ct).ConfigureAwait(false);
+            if (Interlocked.Exchange(ref _probeFailing, 0) == 1)
+                logger.LogInformation(AuditHealthProbeRecoveredEvent, "Layout audit-health probe reads the denial outbox again.");
+            return healthy;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Logged on the transition only, so a probe run on every resolution cannot flood the log.
+            if (Interlocked.Exchange(ref _probeFailing, 1) == 0)
+                logger.LogError(AuditHealthProbeFailedEvent, ex,
+                    "Layout audit-health probe cannot read the denial outbox; node audit health is bad until it can.");
             return false;
         }
     }

@@ -53,6 +53,26 @@ public sealed class LayoutAuditDegradedModeTests
         Assert.Equal(HealthStatus.Degraded, (await h.Pipeline.HealthAsync()).Status);
     }
 
+    [Fact(DisplayName = "layout-run-5: an audit-health probe that cannot read the outbox logs the exception once when health turns bad, not on every probe, and one line on recovery")]
+    public async Task AFailingAuditHealthProbeLogsOnceWithTheCause()
+    {
+        var log = new CapturingLogger();
+        using var db = new LocalNodeDb();
+        var outbox = new NodeEfLayoutDenialOutbox(db, new TypedLogger<NodeEfLayoutDenialOutbox>(log));
+        db.Fault = true;
+
+        for (var i = 0; i < 3; i++) Assert.False(await outbox.IsAuditHealthyAsync());
+
+        var failure = Assert.Single(log.Entries, entry => entry.Event == NodeEfLayoutDenialOutbox.AuditHealthProbeFailedEvent);
+        Assert.Equal(LogLevel.Error, failure.Level);
+        Assert.Equal("the local store is down", failure.Exception?.Message);
+
+        db.Fault = false;
+        Assert.True(await outbox.IsAuditHealthyAsync());
+        Assert.True(await outbox.IsAuditHealthyAsync());
+        Assert.Single(log.Entries, entry => entry.Event == NodeEfLayoutDenialOutbox.AuditHealthProbeRecoveredEvent);
+    }
+
     [Theory(DisplayName = "layout-eng-31: in audit-degraded mode, missing and denied give the same response in shape, status and timing before, during and after degradation, and the refusal clears on recovery")]
     [InlineData(Trigger.GateLogDown)]
     [InlineData(Trigger.OutboxDown)]
@@ -175,9 +195,17 @@ public sealed class LayoutAuditDegradedModeTests
         public override DateTimeOffset GetUtcNow() => At;
     }
 
+    private sealed class TypedLogger<T>(ILogger inner) : ILogger<T>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+        public bool IsEnabled(LogLevel logLevel) => inner.IsEnabled(logLevel);
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => inner.Log(logLevel, eventId, state, exception, formatter);
+    }
+
     private sealed class CapturingLogger : ILogger
     {
-        public List<(LogLevel Level, EventId Event)> Entries { get; } = [];
+        public List<(LogLevel Level, EventId Event, Exception? Exception)> Entries { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -185,7 +213,7 @@ public sealed class LayoutAuditDegradedModeTests
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            lock (Entries) Entries.Add((logLevel, eventId));
+            lock (Entries) Entries.Add((logLevel, eventId, exception));
         }
     }
 }
