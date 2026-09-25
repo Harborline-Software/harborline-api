@@ -148,7 +148,13 @@ public sealed class GuardEvaluator : IGuardEvaluator
     {
         ArgumentNullException.ThrowIfNull(rule);
         ArgumentNullException.ThrowIfNull(adapter);
-        var compiled = RuleCompiler.Compile(new[] { rule }, _limits);
+        CompiledGraph compiled;
+        // T-687, mirrored by hand from harborline-platform #126 (344a8d66, hlp.foundation.rule-runtime
+        // Evaluators.cs): a rule that does not compile is a withheld guard carrying the compile code, like
+        // an evaluation fault, so callers need not hand-roll the fail-closed guarantee. The message (which
+        // can quote the expression) stays out of the result.
+        try { compiled = RuleCompiler.Compile(new[] { rule }, _limits); }
+        catch (RuleCompilationException ex) { return Validity.Invalid(RuleError.Of(ex.Code)); }
         if (compiled.RuleCount == 0) return Validity.Valid; // Tier-1 guard: nothing for this engine to check.
 
         var cr = compiled.Rules[0];

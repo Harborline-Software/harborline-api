@@ -205,29 +205,26 @@ internal static class SubmitValidationGate
                 }
 
                 var guardId = $"page-guard:{page.Id}";
-                bool visible;
-                try
+                var guardRule = new RuleDefinition(
+                    Id: guardId,
+                    Tier: RuleTier.JsonLogic,
+                    Scope: RuleScope.Schema,
+                    ScopeTarget: string.Empty,
+                    Expression: guard,
+                    Action: RuleActionKind.Validate);
+                var verdict = guardEvaluator.EvaluateGuard(guardRule, contextBag, ct);
+                // T-687: the seam returns a compile fault as Invalid(rule.compile.*) rather than throwing.
+                // Same refusal path (and admission constant) as the rule-set compile fault: an
+                // uncompilable guard is an uninterpretable restriction, not a hidden page.
+                if (verdict.Error?.Code is { } compileCode && compileCode.StartsWith("rule.compile.", StringComparison.Ordinal))
                 {
-                    var guardRule = new RuleDefinition(
-                        Id: guardId,
-                        Tier: RuleTier.JsonLogic,
-                        Scope: RuleScope.Schema,
-                        ScopeTarget: string.Empty,
-                        Expression: guard,
-                        Action: RuleActionKind.Validate);
-                    visible = guardEvaluator.EvaluateGuard(guardRule, contextBag, ct).Ok;
-                }
-                catch (RuleCompilationException ex)
-                {
-                    // Same refusal path (and admission constant) as the rule-set compile fault:
-                    // an uncompilable guard is an uninterpretable restriction, not a hidden page.
                     return GateResult.Empty with
                     {
                         RuleErrors = new[]
                         {
                             new ValidationError(
                                 string.Empty,
-                                $"page '{page.Id}' has a VisibleWhen guard that cannot be interpreted ({ex.Code}); "
+                                $"page '{page.Id}' has a VisibleWhen guard that cannot be interpreted ({compileCode}); "
                                 + "the write is refused (fail closed).",
                                 ValidationErrorKind.Schema,
                                 Code: FormDefinitionCodes.RulesGuardUncompilable,
@@ -235,12 +232,13 @@ internal static class SubmitValidationGate
                                 {
                                     ["page"] = page.Id,
                                     ["rule"] = guardId,
-                                    ["code"] = ex.Code,
+                                    ["code"] = compileCode,
                                 }),
                         },
                     };
                 }
 
+                var visible = verdict.Ok;
                 if (!visible)
                 {
                     hiddenPages.Add(page.Id);
