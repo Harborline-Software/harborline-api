@@ -137,7 +137,7 @@ public static class FormsRoutes
                 var view = await engine
                     .RenderAsync(new Harborline.Api.Foundation.Forms.Models.FormDefinitionId(formId), instanceId, token, ct)
                     .ConfigureAwait(false);
-                return Results.Ok(FormViewDto.From(view));
+                return Results.Ok(await FieldEditorChoice.ApplyAsync(FormViewDto.From(view), timeProvider, ct).ConfigureAwait(false));
             }
             catch (FormDefinitionNotFoundException)
             {
@@ -585,7 +585,10 @@ public sealed record FormViewFieldDto(
     [property: JsonPropertyName("value")] JsonElement? Value,
     [property: JsonPropertyName("rules")] FormViewFieldRulesDto? Rules = null,
     [property: JsonPropertyName("options")] IReadOnlyList<string>? Options = null,
-    [property: JsonPropertyName("required")] bool Required = false)
+    [property: JsonPropertyName("required")] bool Required = false,
+    // T-664: the field runtime's readable values for a value-domain field, beside its editor in
+    // `controlHint` (FieldEditorChoice). Omitted for every other field.
+    [property: JsonPropertyName("permittedValues"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? PermittedValues = null)
 {
     /// <summary>Projects an engine <see cref="FormViewField"/> onto the wire DTO.</summary>
     public static FormViewFieldDto From(FormViewField f) => new(

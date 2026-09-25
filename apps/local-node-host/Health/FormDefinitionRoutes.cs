@@ -275,6 +275,21 @@ public static class FormDefinitionRoutes
                 return Results.BadRequest(new { code = "form_definition.overlay_required" });
             }
 
+            // T-664 / T-724 ruling 37: the field runtime picks a value-domain field's editor (DES-0002 §15,
+            // DES-0030 decision 3), so an authored control on one is a declaration the author may not make.
+            // Refused for a draft and a publish alike, before anything registers.
+            foreach (var (name, field) in request.Overlay.Fields)
+            {
+                if (string.IsNullOrWhiteSpace(field.ControlHint)
+                    || request.FieldsMeta?.GetValueOrDefault(name) is not { Type: "select" or "radio", Options.Count: > 0 })
+                    continue;
+                return Results.UnprocessableEntity(new
+                {
+                    code = "form_definition.control_hint_on_value_domain",
+                    detail = new { target = name },
+                });
+            }
+
             // L1145 / ADR 0038: validate the raw discriminator BEFORE schema registration or any
             // definition-store write. BuildDefinition historically lowered an unknown action to
             // Visibility, silently replacing a restriction with a permitting presentation rule.
@@ -840,9 +855,8 @@ public static class FormDefinitionRoutes
                 continue;
             }
 
-            var fieldType = fieldsMeta?.GetValueOrDefault(field)?.Type
-                ?? authored.ControlHint
-                ?? "text";
+            // The authored field type, never the control hint (T-664: no host code maps a hint to a type).
+            var fieldType = fieldsMeta?.GetValueOrDefault(field)?.Type ?? "text";
             if (!fieldTypes.TryResolvePiiDefault(fieldType, out var catalogueDefault))
                 throw new FormFieldProtectionAdmissionException(
                     "form_definition.field_type_unknown", field, fieldType);

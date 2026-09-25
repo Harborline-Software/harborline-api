@@ -1242,7 +1242,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             fields = new Dictionary<string, object>
             {
                 ["name"] = new { label = FormText("Applicant"), controlHint = "text", piiSensitivity = "None" },
-                ["unit"] = new { label = FormText("Unit type"), controlHint = "select", piiSensitivity = "None" },
+                ["unit"] = new { label = FormText("Unit type"), piiSensitivity = "None" },
             },
             sections = new[]
             {

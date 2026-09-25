@@ -817,7 +817,13 @@ export interface FormViewField {
   required?: boolean
   label: InternationalizedText
   helpText?: InternationalizedText | null
+  /**
+   * The control to render. For a field with a value domain (non-empty `options`) this is the
+   * field runtime's editor choice (`RadioGroup`, `ChoiceList`, …), never an authored hint (T-664).
+   */
   controlHint?: string | null
+  /** The field runtime's readable values for a value-domain field; absent for every other field. */
+  permittedValues?: readonly string[] | null
   /** True when the field is PII-classified — its value is never populated. */
   isSensitive: boolean
   /** True when the active token's roles may read this field's section and it is not PII. */

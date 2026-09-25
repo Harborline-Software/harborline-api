@@ -654,7 +654,8 @@
           "value",
           "rules",
           "options",
-          "required"
+          "required",
+          "permittedValues"
         ]
       },
       "status": "deferred"

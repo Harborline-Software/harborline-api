@@ -169,6 +169,11 @@ public sealed class AllowListVacuityArchTests
             "the inventory of Access claim families the T-585 fence scans FOR, with the ONE route each is "
             + "allowed; a route it does not hold is reported, not excused, and a second route in a family "
             + "fails naming both",
+        ["ControlHintDispatchFenceTests.ExcludedSegments"] =
+            "a directory filter on the file walk (tests/obj/bin/...), not a per-row exception",
+        ["ControlHintDispatchFenceTests.AllowedReads"] =
+            "an exact inventory of ControlHint reads with counts, compared both directions against the "
+            + "discovered reads, so a row that excuses nothing is red as a stale allow row (T-664)",
         ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
             "an exact inventory compared with SequenceEqual against the discovered callers, both "
             + "directions, so a row that excused nothing would be red as a stale expectation",

@@ -94,6 +94,38 @@ public sealed class CatalogueFieldSourceContractTests
     }
 
     [Fact]
+    public async Task T664_an_authored_hint_cannot_remove_a_validation_from_the_projected_definition()
+    {
+        // The export used to drop `pattern` when the resolved type was `currency`, so an author writing
+        // ControlHint "currency" removed a validation. A date field is the case where the schema alone
+        // infers `date` and keeps the pattern; only a hint that still dispatched could drop it.
+        const string moneyPattern = @"^$|^-?[0-9]+(\.[0-9]+)?$";
+        var content = Content(false);
+        content["overlay"]!["fields"]!["title"]!["controlHint"] = "currency";
+        content["fieldsMeta"]!["title"] = new JsonObject
+        {
+            ["type"] = "date",
+            ["required"] = false,
+            ["validations"] = new JsonArray(new JsonObject { ["code"] = "pattern", ["param"] = moneyPattern }),
+        };
+        Assert.True(PackFormDefinitionContent.TryParse(content, out var request, out var error), error);
+        var schema = await new InMemorySchemaRegistry(TimeProvider.System)
+            .RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request, new FormDefinitionId("hint-validation")));
+        var definition = FormDefinitionRoutes.BuildDefinition(new FormDefinitionId("hint-validation"),
+            new SemanticVersion(1, 0, 0), new TenantId("test"), IdentityRef.System, schema.Id,
+            request.Overlay, DateTimeOffset.UnixEpoch);
+
+        var exported = await PackFormDefinitionContent.ToContentAsync(
+            FormDefinitionFreezer.Freeze(definition), schema, TimeProvider.System);
+
+        var meta = exported["fieldsMeta"]!["title"]!;
+        Assert.Equal("date", meta["type"]!.GetValue<string>());
+        var validation = Assert.Single(meta["validations"]!.AsArray());
+        Assert.Equal("pattern", validation!["code"]!.GetValue<string>());
+        Assert.Equal(moneyPattern, validation["param"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Legacy_content_does_not_synthesize_or_serialize_a_mapping()
     {
         Assert.True(PackFormDefinitionContent.TryParse(Content(false), out var request, out var error), error);
