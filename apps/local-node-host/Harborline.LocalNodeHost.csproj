@@ -54,6 +54,7 @@
     <PackageReference Include="Harborline.Foundation.FieldRuntime" />
     <PackageReference Include="Harborline.Kernel.WorkItems" />
     <PackageReference Include="Harborline.Blocks.BuilderDefinitions" />
+    <PackageReference Include="Harborline.Blocks.LayoutRuntime" />
   </ItemGroup>
 
   <ItemGroup>

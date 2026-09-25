@@ -3,6 +3,7 @@ using System;
 using Harborline.Api.LocalNodeHost.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,14 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Migrations;
 
 [DbContext(typeof(LocalNodeDbContext))]
-partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
+[Migration("20260925011629_AddLayoutDenialOutbox")]
+partial class _20260925011629_AddLayoutDenialOutbox
 {
-    // If you encounter a merge conflict in the line below, it means you need to
-    // discard one of the migration branches and recreate its migrations on top of
-    // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260925011629_AddLayoutDenialOutbox";
-
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
@@ -857,6 +855,29 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .HasDatabaseName("ix_recurring_invoice_schedules_tenant_status");
 
                 b.ToTable("recurring_invoice_schedules", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Data.TenantChartMappingRow", b =>
+            {
+                b.Property<string>("TenantId")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("LegalEntityId")
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ChartId")
+                    .IsRequired()
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.HasKey("TenantId", "LegalEntityId");
+
+                b.HasIndex("TenantId")
+                    .HasDatabaseName("ix_tenant_chart_mappings_tenant_id");
+
+                b.ToTable("tenant_chart_mappings", (string)null);
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.ChartOfAccounts", b =>
@@ -2110,29 +2131,6 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .HasDatabaseName("ix_workflow_step_idempotency_instance");
 
                 b.ToTable("workflow_step_idempotency", (string)null);
-            });
-
-        modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Data.TenantChartMappingRow", b =>
-            {
-                b.Property<string>("TenantId")
-                    .HasMaxLength(256)
-                    .HasColumnType("TEXT");
-
-                b.Property<string>("LegalEntityId")
-                    .HasMaxLength(128)
-                    .HasColumnType("TEXT");
-
-                b.Property<string>("ChartId")
-                    .IsRequired()
-                    .HasMaxLength(128)
-                    .HasColumnType("TEXT");
-
-                b.HasKey("TenantId", "LegalEntityId");
-
-                b.HasIndex("TenantId")
-                    .HasDatabaseName("ix_tenant_chart_mappings_tenant_id");
-
-                b.ToTable("tenant_chart_mappings", (string)null);
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.AssetRegistry.SpatialFrameDescriptorRow", b =>

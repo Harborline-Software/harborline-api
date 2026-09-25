@@ -22,6 +22,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "harborline.local-node.audit",
         "harborline.local-node.form-submit-outbox",
         "harborline.local-node.home-epoch",
+        "harborline.local-node.layout-denial-outbox",
         "harborline.local-node.spatial-frames",
         "harborline.local-node.workflow",
     ];
@@ -42,6 +43,7 @@ public sealed class LocalNodePatternAModuleCatalogTests
         "20260805220357_AddSpatialFrameTables",
         "20260806010037_WidenSpatialFrameGovernedColumns",
         "20260818083559_AddFormSubmitOutbox",
+        "20260925011629_AddLayoutDenialOutbox",
     ];
 
     [Fact]
