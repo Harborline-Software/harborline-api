@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit.Abstractions;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Blocks.AccessGrant.DependencyInjection;
@@ -28,7 +29,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// timing, on the ordinary path and on both outbox fault paths. Related traversals go through the REAL gate
 /// over the seeded production definitions. In-process: T-735 wires the HTTP route.
 /// </summary>
-public sealed class LayoutSurfaceHostParityTests
+public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
 {
     private static readonly ActorId Stranger = new("stranger-731");
     private static readonly ActorId Member = new("member-731");
@@ -85,37 +86,28 @@ public sealed class LayoutSurfaceHostParityTests
     /// Kolmogorov-Smirnov test at significance 0.001: 60 interleaved samples a path, so the largest gap
     /// between the empirical distribution functions must stay under 1.949 * sqrt(2 / 60) = 0.356.
     /// <para>
-    /// The floor is derived in each attempt the way owner ruling 1 derives the production one: time 100
+    /// The floor is derived the way owner ruling 1 derives the production one: time 100
     /// denied resolutions with no floor on this host, as loaded as it is now, then double the worst case
     /// and round up to the 15.6 ms timer tick, never below four ticks. Each local-store operation is
     /// slowed by 5 ms, so the denied path's extra work is wider than the jitter: without the floor the
-    /// distributions barely overlap and D is near 1 in every attempt.
+    /// distributions barely overlap and D is near 1.
     /// </para>
     /// <para>
-    /// KS assumes independent samples. On a shared, noisy host (GitHub's 4-vCPU ubuntu-latest running the
-    /// whole host suite in parallel, run 36123428135) load arrives in bursts that span many consecutive
-    /// samples, so the real false-alarm rate is well above 0.001. The test therefore makes at most
-    /// <see cref="TimingAttempts"/> independent attempts, each re-measuring its floor, and passes when one
-    /// attempt passes. A leak the floor does not hide fails every attempt, as the floor-removed mutation
-    /// shows (D = 1.000 each time); a noise burst has to fail all three in a row.
+    /// One attempt, no retries. Run 36155000912 on hosted Ubuntu failed all of #213's three attempts
+    /// (D = 0.483, 0.400, 0.383 with the gate log down): the difference was real, not noise. The host now
+    /// finishes every denial-side step inside the floor and ends each resolution on a spin onto the
+    /// deadline, so one attempt holds.
     /// </para>
     /// </summary>
-    [Theory(DisplayName = "layout-eng-31: an unauthorized caller cannot tell missing from denied by timing (two-sample KS over 60 interleaved samples a path, alpha 0.001, measured floor, at most 3 attempts)")]
+    [Theory(DisplayName = "layout-eng-31: an unauthorized caller cannot tell missing from denied by timing (two-sample KS over 60 interleaved samples a path, alpha 0.001, measured floor)")]
     [InlineData(Fault.None)]
     [InlineData(Fault.GateLogDown)]
     public async Task MissingAndDeniedTimingDistributionsAreTheSame(Fault fault)
     {
-        var attempts = new List<string>();
-        for (var attempt = 1; attempt <= TimingAttempts; attempt++)
-        {
-            var (passed, detail) = await TimingAttemptAsync(fault);
-            attempts.Add($"attempt {attempt}: {detail}");
-            if (passed) return;
-        }
-        Assert.Fail(string.Join(Environment.NewLine, attempts));
+        var (passed, detail) = await TimingAttemptAsync(fault);
+        output.WriteLine($"{fault}: {detail}");
+        Assert.True(passed, detail);
     }
-
-    private const int TimingAttempts = 3;
 
     private static async Task<(bool Passed, string Detail)> TimingAttemptAsync(Fault fault)
     {
@@ -155,7 +147,7 @@ public sealed class LayoutSurfaceHostParityTests
         var d = KolmogorovSmirnov(missing, denied);
         return (d <= critical,
             $"KS D = {d:F3} (limit {critical:F3}) at floor {floor.TotalMilliseconds} ms; missing p50 {Quantile(missing, 0.5):F2} "
-            + $"p90 {Quantile(missing, 0.9):F2} ms, denied p50 {Quantile(denied, 0.5):F2} p90 {Quantile(denied, 0.9):F2} ms");
+            + $"p90 {Quantile(missing, 0.9):F2} p99 {Quantile(missing, 0.99):F2} ms, denied p50 {Quantile(denied, 0.5):F2} p90 {Quantile(denied, 0.9):F2} p99 {Quantile(denied, 0.99):F2} ms");
     }
 
     /// <summary>The largest vertical gap between the two empirical distribution functions.</summary>
