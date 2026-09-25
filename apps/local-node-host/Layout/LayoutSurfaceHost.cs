@@ -30,6 +30,26 @@ public sealed class LayoutSurfaceOptions
 
     /// <summary>The minimum time a resolution takes. A resolution that overruns it raises an alarm.</summary>
     public TimeSpan ResponseFloor { get; set; } = DefaultResponseFloor;
+
+    /// <summary>
+    /// Owner ruling of 2026-09-25, off by default: node-wide audit-degraded mode. While node audit health
+    /// (<see cref="NodeEfLayoutDenialOutbox.IsAuditHealthyAsync"/>) is bad, every resolution of a surface
+    /// that declares a related binding is refused with one <see cref="LayoutAuditDegradedException"/>,
+    /// before any target is looked up, and it clears by itself once audit health returns. When off, a
+    /// failed outbox write changes nothing the caller sees; it only raises the alert.
+    /// </summary>
+    public bool AuditDegradedMode { get; set; }
+}
+
+/// <summary>
+/// The one refusal audit-degraded mode gives for every related-binding resolution, whatever the targets.
+/// T-735 maps it to the route's response.
+/// </summary>
+public sealed class LayoutAuditDegradedException()
+    : Exception("Related records are unavailable while this node's audit trail is degraded.")
+{
+    /// <summary>The stable code of the refusal.</summary>
+    public const string Code = "layout.audit.degraded";
 }
 
 /// <summary>
@@ -71,6 +91,15 @@ public sealed class LayoutSurfaceHost(
         CancellationToken ct = default)
     {
         var started = time.GetTimestamp();
+        // Audit-degraded mode reads node audit health only: the decision is made before any target is
+        // looked up, from the definition and the node, never from this request's lookups.
+        if (options.AuditDegradedMode && DeclaresRelatedBinding(definition.Blocks)
+            && !await outbox.IsAuditHealthyAsync(ct).ConfigureAwait(false))
+        {
+            await PadAsync(started, ct).ConfigureAwait(false);
+            throw new LayoutAuditDegradedException();
+        }
+
         var context = new AuthorizationWriteContext(principal, tenant, time.GetUtcNow());
         var resolver = new LayoutBindingResolver(new GuardEvaluator(time));
         var request = new LayoutResolutionRequest(requestId, principal.Value);
@@ -96,20 +125,28 @@ public sealed class LayoutSurfaceHost(
             new AuthorizedRelatedSources(values, relationships, decisions, undecided: null), root, trace, request, ct);
         await trace.WrittenAsync().ConfigureAwait(false);
 
+        await PadAsync(started, ct).ConfigureAwait(false);
+        // The signed append runs from the outbox only once the floor has passed, so its work never lands
+        // inside a denied resolution's own timing window. It never throws; a failure is retried by the drain.
+        _ = trace.AppendAsync();
+        return resolution;
+    }
+
+    private async Task PadAsync(long started, CancellationToken ct)
+    {
         var remaining = options.ResponseFloor - time.GetElapsedTime(started);
         if (remaining < TimeSpan.Zero) alarms.FloorOverrun();
-        // A coarse timer can wake early, so wait until the deadline has really passed: both paths then end
+        // A coarse timer can wake early, so wait until the deadline has really passed: every path then ends
         // at the same deadline, never before it.
         while (remaining > TimeSpan.Zero)
         {
             await Task.Delay(remaining, time, ct).ConfigureAwait(false);
             remaining = options.ResponseFloor - time.GetElapsedTime(started);
         }
-        // The signed append runs from the outbox only once the floor has passed, so its work never lands
-        // inside a denied resolution's own timing window. It never throws; a failure is retried by the drain.
-        _ = trace.AppendAsync();
-        return resolution;
     }
+
+    private static bool DeclaresRelatedBinding(IEnumerable<LayoutBlock>? blocks)
+        => (blocks ?? []).Any(block => block.RelatedRelationship is { Length: > 0 } || DeclaresRelatedBinding(block.Children));
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
 

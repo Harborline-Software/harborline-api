@@ -68,6 +68,24 @@ public sealed class NodeEfLayoutDenialOutbox(IDbContextFactory<LocalNodeDbContex
             JsonSerializer.Deserialize<LayoutRelatedDenial>(row.DenialJson)!), row.State)).ToArray();
     }
 
+    /// <summary>
+    /// Node audit health for audit-degraded mode: the outbox can be read and no denial is waiting on a
+    /// failed gate-log append. It looks at the node only, never at a request's lookups.
+    /// </summary>
+    public async Task<bool> IsAuditHealthyAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await using var db = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            return !await db.Set<LayoutDenialOutboxRow>()
+                .AnyAsync(row => row.State == LayoutDenialOutboxState.Failed, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
     private async Task UpdateAsync(
         Guid entryId,
         Action<Microsoft.EntityFrameworkCore.Query.UpdateSettersBuilder<LayoutDenialOutboxRow>> setters,
