@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "PENDING",
+  "sourcePin": "ca64514d",
   "recordedAt": "2026-09-25T14:57:35Z",
   "totals": {
     "total": 4491,
@@ -11,7 +11,7 @@
     "notExecuted": 21
   },
   "policy": [
-    "T-731 audit-degraded mode (owner ruling of 2026-09-25, PR 215), merged over T-664 PR 214: three cases are added on top of main 4488, the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. Provisional until the Windows CI measurement on the merged head confirms it.",
+    "T-731 audit-degraded mode (owner ruling of 2026-09-25, PR 215), merged over T-664 PR 214: three cases are added on top of main 4488, the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. Confirmed by the Windows CI job verify-windows (run 36172079654, job 108193803320) on the merged head ca64514d (CI merge commit e3c025a), whose exact-clone host-baseline-match passed against 4491 total and 0 failed, with newFailures empty.",
     "T-664 the host takes the field runtime's editor choice: the native Windows exact-clone of PR 214 CI run 36149723542 at 47ce6084d8042049142ea0268a1be30604db8acc (branch merged with main c8f40318, after T-687 PR 212 and T-731 PR 213) measured 4488 total, 4467 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4480-case count inventory. The eight added cases are FormsRouteTests.Value_domain_field_renders_the_runtime_editor_over_the_authored_hint, the four InlineData rows of FormDefinitionRouteTests.Authored_control_on_a_value_domain_field_is_refused_at_admission (draft and publish, hints textarea and select), CatalogueFieldSourceContractTests.T664_an_authored_hint_cannot_remove_a_validation_from_the_projected_definition, ControlHintDispatchFenceTests.Every_production_read_of_the_control_hint_is_an_allowed_pass_through and AccessAdministrationPreloadTests.Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime (T-724 ruling 64). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. This tuple was measured TWICE and the first number was DISCARDED rather than adjusted: run 36140242677 measured 4487/4466 against the pre-T-687 base of 4479, and when main moved the base to 4480 the branch was merged and re-measured. The macOS lane uses named comparison, so its baseline is not updated. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged.",
     "T-687 an uncompilable document block guard withholds its block instead of faulting render: the native Windows exact-clone at 08c328e7947217b8c69d5286b5c38b6a7a2a9374 measured 4480 total, 4459 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4479-case count inventory. The one added case is NodeDocumentTemplateRouteActingMemberPlacerTests.Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set and was not quality-enabled.",
     "T-731 owner rulings of 2026-09-24 (T-724 rulings 42-46): the quality-enabled native Windows exact-clone at 94cc7c2df62203253d616cf6f2c801131eaa52ee measured 4479 total, 4458 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4473-case count inventory. The Layout cases go from 10 to 16: LayoutDenialGateLogTests gains three facts (a failed append stays in the outbox, alerts and drains once; a crash between append and mark does not append twice; a failed outbox write alerts), LayoutSurfaceHostParityTests.MissingAndDeniedReturnTheSameResolution becomes a three-row theory (None, GateLogDown, OutboxDown) replacing the fact and the separate append-fault fact, the new fact AnOverrunOfTheFloorRaisesTheHealthAlert is added, and the timing fact becomes the two-row theory MissingAndDeniedTimingDistributionsAreTheSame (None, GateLogDown). The removed facts are MissingAndDeniedTakeTheSameTime and AnAppendFaultDoesNotChangeTheResolution, both replaced by the theories named above; no skip identity changes.",
@@ -129,17 +129,17 @@
     },
     "change": "total 4488 -> 4491; passed 4467 -> 4470; failed unchanged at 0; notExecuted 21 -> 21",
     "cause": "T-731 audit-degraded mode adds three cases and removes, renames and skips none: the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown).",
-    "detectedBy": "Provisional: 4488 on main plus the three added cases; to be confirmed by the Windows CI run on the merged head.",
+    "detectedBy": "Measured by the Windows CI job verify-windows (run 36172079654, job 108193803320) on the merged head ca64514d (CI merge commit e3c025a), whose exact-clone host-baseline-match passed against 4491 total and 0 failed, with newFailures empty; the match requires total and failed to equal the baseline exactly.",
     "arithmeticCrossCheck": "4488 + 3 = 4491; passed = total - notExecuted = 4491 - 21 = 4470."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "PENDING",
-    "platform": "native Windows",
-    "configuration": "destination exact-clone in the verify-windows CI lane",
+    "apiCommit": "ca64514d (T-731, branch t-731-audit-degraded-mode, merged with main 485a74cc after T-664 #214); CI merge commit e3c025a",
+    "platform": "native Windows (winbox self-hosted runner)",
+    "configuration": "destination exact-clone in the verify-windows CI lane, quality-enabled",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
-    "note": "This measured tuple describes native Windows only."
+    "runs": "CI run 36172079654, job verify-windows 108193803320: exact-clone PASS, host-baseline-match ok against 4491 total and 0 failed, newFailures empty; All 3 steps passed.",
+    "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither is changed here."
   },
   "verdictVocabulary": {
     "note": "No prose definition of these verdict letters exists anywhere in this repository; they were used in this file and in hull-test-baseline.json without a key. Recorded here so the next reader is not guessing.",
