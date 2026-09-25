@@ -79,6 +79,8 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     private const string IssueRoute = "/api/local-node/document-templates/issue";
     private const string TemplateKey = "test.invoice.3380";
     private const string TemplateVersion = "1.0.0";
+    private const string BadGuardTemplateKey = "test.invoice.687";
+    private const string BadGuardExpression = "{not json";
 
     /// <summary>The install-constant tenant the routes resolve (mirrors the node's active-team projection).</summary>
     private static readonly TenantId LocalTenantId =
@@ -88,6 +90,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     private HttpClient _client = null!;
     private string _dir = null!;
     private ILegalHoldStore _holds = null!;
+    private readonly StubPdfWriter _renderWriter = new();
 
     public async Task InitializeAsync()
     {
@@ -125,6 +128,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
 
         var registry = new InMemoryDocumentTemplateRegistry();
         registry.Publish(BuildTemplate());
+        registry.Publish(BuildTemplate(BadGuardTemplateKey, DocumentBlockGuard.Inline(BadGuardExpression)));
 
         var issuance = new DocumentIssuanceService(
             new DocumentRenderWalker(TimeProvider.System),
@@ -156,7 +160,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             _app.MapSelectedSessionProductGroup(),
             issuance,
             registry,
-            new StubPdfWriter(),
+            _renderWriter,
             invoices,
             new NodeEfPartyRepository(factory, TimeProvider.System),
             NodeTestActiveTeam.Accessor,
@@ -212,6 +216,20 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         var placer = await PlacerOfAsync(holdId);
 
         Assert.Equal(NodeCallerParty.OperatorParty.Value, placer.Value);
+    }
+
+    // T-687: the vendored engine still throws on an uncompilable guard until the api consumes the platform
+    // seam; the walker withholds the one block rather than letting the fault escape the render route.
+    [Fact(DisplayName =
+        "Document render: a block guard that does not compile withholds that block, and the rest renders")]
+    public async Task Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock()
+    {
+        using var response = await _client.PostAsJsonAsync("/api/local-node/document-templates/render",
+            new { templateKey = BadGuardTemplateKey, templateVersion = TemplateVersion });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(BadGuardExpression, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Single(_renderWriter.Last!.Blocks);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────────
@@ -296,15 +314,15 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     }
 
     /// <summary>A minimal published template — this card is about the recorded actor, not the render grammar.</summary>
-    private static TemplateDefinition BuildTemplate() => new(
-        Key: TemplateKey,
+    private static TemplateDefinition BuildTemplate(string key = TemplateKey, DocumentBlockGuard? guardedBlock = null) => new(
+        Key: key,
         Version: TemplateVersion,
         DocumentType: "invoice",
         RecordType: new RecordTypeBinding("invoice", "1"),
         Locale: DocumentLocalePolicy.Fixed("en-US"),
         Style: new DocumentStyleRef(BrandName: "Harborline Software"),
-        Structure: new List<DocumentBlock>
-        {
+        Structure:
+        [
             new()
             {
                 Kind = DocumentBlockKind.Header,
@@ -317,7 +335,16 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
                     }),
                 },
             },
-        });
+            .. (guardedBlock is null ? Array.Empty<DocumentBlock>() : new[]
+            {
+                new DocumentBlock
+                {
+                    Kind = DocumentBlockKind.Header,
+                    ShowWhen = guardedBlock,
+                    Lines = new List<DocumentLine> { new(new[] { DocumentInline.OfLiteral("guarded") }) },
+                },
+            }),
+        ]);
 
     /// <summary>The real ADR 0142 legal-hold + recovery-crypto host (mirrors the D2 keystone's composition).</summary>
     private static ServiceProvider BuildRecoveryHost()
@@ -337,7 +364,12 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     /// <summary>Deterministic byte writer — the PDF library is not the seam under test.</summary>
     private sealed class StubPdfWriter : IPdfExportWriter
     {
-        public ValueTask<byte[]> WriteAsync(RenderedDocument document, CancellationToken ct = default) =>
-            ValueTask.FromResult("%PDF-1.7 stub"u8.ToArray());
+        public RenderedDocument? Last { get; private set; }
+
+        public ValueTask<byte[]> WriteAsync(RenderedDocument document, CancellationToken ct = default)
+        {
+            Last = document;
+            return ValueTask.FromResult("%PDF-1.7 stub"u8.ToArray());
+        }
     }
 }

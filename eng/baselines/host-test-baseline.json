@@ -2,16 +2,17 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "1b3959e9",
-  "recordedAt": "2026-09-25",
+  "sourcePin": "0022bcee+main",
+  "recordedAt": "2026-09-25T12:17:00Z",
   "totals": {
-    "total": 4482,
-    "passed": 4461,
+    "total": 4483,
+    "passed": 4462,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
-    "T-731 audit-degraded mode (owner ruling of 2026-09-25): three cases are added, the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The native Windows exact-clone at 1b3959e93f46b485e85f2dde2fbc40cda9759352 (eng/run-exact-clone.mjs, HARBORLINE_CONTROL_REPO set, not quality-enabled) measured 4482 total, 4461 passed, zero failed and 21 skipped, with newFailures empty; its only failing check was the previous 4479-case inventory.",
+    "T-731 audit-degraded mode (owner ruling of 2026-09-25), merged over T-687: three cases are added on top of main 4480, the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The branch alone measured 4482 on the native Windows exact-clone at 1b3959e9 (over main 4479); the merged count is taken from CI on the merged head. Provisional until the Windows CI measurement on the merged head confirms it.",
+    "T-687 an uncompilable document block guard withholds its block instead of faulting render: the native Windows exact-clone at 08c328e7947217b8c69d5286b5c38b6a7a2a9374 measured 4480 total, 4459 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4479-case count inventory. The one added case is NodeDocumentTemplateRouteActingMemberPlacerTests.Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set and was not quality-enabled.",
     "T-731 owner rulings of 2026-09-24 (T-724 rulings 42-46): the quality-enabled native Windows exact-clone at 94cc7c2df62203253d616cf6f2c801131eaa52ee measured 4479 total, 4458 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4473-case count inventory. The Layout cases go from 10 to 16: LayoutDenialGateLogTests gains three facts (a failed append stays in the outbox, alerts and drains once; a crash between append and mark does not append twice; a failed outbox write alerts), LayoutSurfaceHostParityTests.MissingAndDeniedReturnTheSameResolution becomes a three-row theory (None, GateLogDown, OutboxDown) replacing the fact and the separate append-fault fact, the new fact AnOverrunOfTheFloorRaisesTheHealthAlert is added, and the timing fact becomes the two-row theory MissingAndDeniedTimingDistributionsAreTheSame (None, GateLogDown). The removed facts are MissingAndDeniedTakeTheSameTime and AnAppendFaultDoesNotChangeTheResolution, both replaced by the theories named above; no skip identity changes.",
     "T-731 the host stores and reads Layout denial records: the native Windows exact-clone at 155623aa1b691b25beb3577ffd86cc45434a4f0f measured 4473 total, 4452 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4463-case count inventory. The ten added cases are LayoutDenialGateLogTests (2 facts), LayoutDenialReaderTests (1 fact and the four InlineData rows of AReaderLackingEitherAuthorizationGetsNothing: auditor-731, member-731, auditor-other-record-731, stranger-731) and LayoutSurfaceHostParityTests (3 facts). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set for the dependency ledger and was not quality-enabled.",
     "T-656 the api consumes the canonical platform view kinds: the native Windows exact-clone at 074f8f6dd9792a7276900a7ebd58e772a465d77e measured 4463 total, 4442 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4457-case count inventory. The six added cases are HostViewRequestAdmissionTests.Canonical_platform_table_kind_is_admitted, the two InlineData rows of HostViewRequestAdmissionTests.Non_platform_kind_is_refused_outside_released_pack_compatibility (views.entity-list/grid and views.not-registered), and the three facts of the new ReleasedViewKindCompatibilityTests. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The count was re-measured from a clean clone with the apps/capability-host node toolchain installed first, because TypescriptLoopbackTransportCorrelationIdAppearsInProductionNodeSpan skips without it and a measurement that omits that step pins notExecuted at 22 rather than 21. Unlike the entries below, this run was not quality-enabled.",
@@ -120,15 +121,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4479,
-      "passed": 4458,
+      "total": 4480,
+      "passed": 4459,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4479 -> 4482; passed 4458 -> 4461; failed unchanged at 0; notExecuted 21 -> 21",
+    "change": "total 4480 -> 4483; passed 4459 -> 4462; failed unchanged at 0; notExecuted 21 -> 21",
     "cause": "T-731 audit-degraded mode adds three cases and removes, renames and skips none: the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown).",
-    "detectedBy": "The native Windows exact-clone run at 1b3959e9, whose host-baseline-match reported failed 0 and newFailures empty against the stale 4479-case inventory.",
-    "arithmeticCrossCheck": "4479 + 3 = 4482; passed = total - notExecuted = 4482 - 21 = 4461."
+    "detectedBy": "Provisional: 4480 on main plus the three added cases; to be confirmed by the Windows CI run on the merged head.",
+    "arithmeticCrossCheck": "4480 + 3 = 4483; passed = total - notExecuted = 4483 - 21 = 4462."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
@@ -136,7 +137,7 @@
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "One run of node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json at 1b3959e9: every step ok except the host-baseline-match count inventory, with failed 0 and newFailures empty. Not quality-enabled.",
+    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files, and neither was run for this slice."
   },
   "verdictVocabulary": {
