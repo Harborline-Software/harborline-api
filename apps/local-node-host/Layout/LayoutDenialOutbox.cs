@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
@@ -136,18 +135,25 @@ public sealed class LayoutDenialAppender(
     NodeEfLayoutDenialOutbox outbox, IAuditTrail trail, IOperationSigner signer, ILogger logger)
 {
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
-    private readonly ConcurrentDictionary<Guid, Lazy<Task>> _inFlight = new();
+    private readonly Dictionary<Guid, Task> _inFlight = [];
 
     /// <summary>Appends one entry, or joins the append already running for it.</summary>
     public Task AppendAsync(LayoutDenialOutboxEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var run = _inFlight.GetOrAdd(entry.Id, _ => new Lazy<Task>(() => RunAsync(entry)));
-        return run.Value;
+        lock (_inFlight)
+        {
+            // RunAsync yields before its body runs, so the entry is registered before it can be removed.
+            if (!_inFlight.TryGetValue(entry.Id, out var run)) _inFlight[entry.Id] = run = RunAsync(entry);
+            return run;
+        }
     }
 
-    /// <summary>Completes every append now running. Tests and the drain wait on it.</summary>
-    public Task IdleAsync() => Task.WhenAll(_inFlight.Values.Select(run => run.Value));
+    /// <summary>Completes every append now running. Tests wait on it.</summary>
+    public Task IdleAsync()
+    {
+        lock (_inFlight) return Task.WhenAll(_inFlight.Values.ToArray());
+    }
 
     /// <summary>Retries every denial not yet in the gate log. T-735 schedules it, as the form-submit
     /// reconciler daemon schedules its sweep.</summary>
@@ -203,7 +209,7 @@ public sealed class LayoutDenialAppender(
         }
         finally
         {
-            _inFlight.TryRemove(entry.Id, out _);
+            lock (_inFlight) _inFlight.Remove(entry.Id);
         }
     }
 

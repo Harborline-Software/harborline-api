@@ -80,7 +80,9 @@ public sealed class LayoutDenialOutboxEntityModule : IHarborlineEntityModule
             entity.Property(row => row.Attempts).IsRequired();
             entity.Property(row => row.LastError).HasMaxLength(4096);
             entity.HasIndex(row => row.EntryId).IsUnique().HasDatabaseName("ux_layout_denial_outbox_entry_id");
-            entity.HasIndex(row => new { row.State, row.Sequence }).HasDatabaseName("ix_layout_denial_outbox_state_sequence");
+            // SQLite keys every index entry by rowid, which is Sequence, so this index serves the drain's
+            // state filter in oldest-first order.
+            entity.HasIndex(row => row.State).HasDatabaseName("ix_layout_denial_outbox_state");
         });
     }
 }

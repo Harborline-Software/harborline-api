@@ -2536,8 +2536,8 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_layout_denial_outbox_entry_id");
 
-                b.HasIndex("State", "Sequence")
-                    .HasDatabaseName("ix_layout_denial_outbox_state_sequence");
+                b.HasIndex("State")
+                    .HasDatabaseName("ix_layout_denial_outbox_state");
 
                 b.ToTable("layout_denial_outbox", (string)null);
             });

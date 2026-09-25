@@ -31,9 +31,9 @@ public partial class _20260925011629_AddLayoutDenialOutbox : Migration
             });
 
         migrationBuilder.CreateIndex(
-            name: "ix_layout_denial_outbox_state_sequence",
+            name: "ix_layout_denial_outbox_state",
             table: "layout_denial_outbox",
-            columns: new[] { "State", "Sequence" });
+            column: "State");
 
         migrationBuilder.CreateIndex(
             name: "ux_layout_denial_outbox_entry_id",

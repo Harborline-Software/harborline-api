@@ -33,7 +33,8 @@ public sealed class LayoutDenialGateLog(
     /// <summary>The event type a related-binding denial is recorded under.</summary>
     public static readonly AuditEventType LayoutRelatedDeniedEventType = new("LayoutRelatedDenied");
 
-    private readonly List<Task<LayoutDenialOutboxEntry?>> _recorded = [];
+    private readonly List<Task> _writes = [];
+    private readonly List<LayoutDenialOutboxEntry> _written = [];
 
     /// <inheritdoc />
     public void RecordDenial(LayoutRelatedDenial denial)
@@ -41,24 +42,25 @@ public sealed class LayoutDenialGateLog(
         ArgumentNullException.ThrowIfNull(denial);
         // The outbox write starts here, at the act; the platform trace is synchronous, so the host awaits
         // the rest through WrittenAsync.
-        _recorded.Add(RecordAsync(new LayoutDenialOutboxEntry(Guid.NewGuid(), tenant, time.GetUtcNow(), denial)));
+        _writes.Add(RecordAsync(new LayoutDenialOutboxEntry(Guid.NewGuid(), tenant, time.GetUtcNow(), denial)));
     }
 
     /// <summary>Completes every outbox write this request started. The host awaits it before it answers.</summary>
-    public Task WrittenAsync() => Task.WhenAll(_recorded);
+    public Task WrittenAsync() => Task.WhenAll(_writes);
 
-    /// <summary>Starts the gate-log append of every denial now in the outbox. The host does not await it.</summary>
-    public Task AppendAsync() => Task.WhenAll(_recorded.Select(async recorded =>
+    /// <summary>Starts the gate-log append of every denial written to the outbox, after
+    /// <see cref="WrittenAsync"/> has completed. The host does not await it.</summary>
+    public Task AppendAsync()
     {
-        if (await recorded.ConfigureAwait(false) is { } entry) await appender.AppendAsync(entry).ConfigureAwait(false);
-    }));
+        lock (_written) return Task.WhenAll(_written.Select(appender.AppendAsync).ToArray());
+    }
 
-    private async Task<LayoutDenialOutboxEntry?> RecordAsync(LayoutDenialOutboxEntry entry)
+    private async Task RecordAsync(LayoutDenialOutboxEntry entry)
     {
         try
         {
             await outbox.EnqueueAsync(entry).ConfigureAwait(false);
-            return entry;
+            lock (_written) _written.Add(entry);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -67,7 +69,6 @@ public sealed class LayoutDenialGateLog(
                 "Layout related-binding denial outbox write FAILED (tenant {Tenant}, request {RequestId}, block {BlockId}); "
                 + "the viewer still sees absence but the denial is lost.",
                 tenant, entry.Denial.RequestId, entry.Denial.BlockId);
-            return null;
         }
     }
 
