@@ -49,7 +49,7 @@ public sealed class LayoutDenialGateLog(
     public Task WrittenAsync() => Task.WhenAll(_writes);
 
     /// <summary>Starts the gate-log append of every denial written to the outbox, after
-    /// <see cref="WrittenAsync"/> has completed. The host does not await it.</summary>
+    /// <see cref="WrittenAsync"/> has completed. The host awaits it inside the response floor.</summary>
     public Task AppendAsync()
     {
         lock (_written) return Task.WhenAll(_written.Select(appender.AppendAsync).ToArray());
