@@ -33,10 +33,10 @@
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" Justification="R-0027"/>
     <PackageVersion Include="JsonSchema.Net" Version="9.2.2" Justification="R-0068"/>
     <PackageVersion Include="System.Formats.Cbor" Version="11.0.0-rc.1.26425.128" Justification="R-0031"/>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-preview.5.26302.115" Justification="R-0040"/>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0-preview.5.26302.115" Justification="R-0042"/>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="11.0.0-preview.5.26302.115" Justification="R-0043"/>
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-preview.5" Justification="R-0044"/>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="11.0.0-rc.1.26425.128" Justification="R-0040"/>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0-rc.1.26425.128" Justification="R-0042"/>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite.Core" Version="11.0.0-rc.1.26425.128" Justification="R-0043"/>
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="11.0.0-rc.1.1" Justification="R-0044"/>
     <!-- PDFsharp-MigraDoc (MIT, empira): the Documents pillar (#111) default PDF render adapter. Pure-managed,
          cross-platform, no revenue gate (unlike QuestPDF — D-1 discipline). Held ONLY by the non-Foundation
          Harborline.Api.Documents.PdfSharp adapter (the ProviderNeutrality analyzer keeps it out of Foundation). -->
@@ -65,7 +65,7 @@
     <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15" Justification="R-0063"/>
   </ItemGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="11.0.0-preview.5.26302.115" Justification="R-0041"/>
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="11.0.0-rc.1.26425.128" Justification="R-0041"/>
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" Justification="R-0073"/>
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" Justification="R-0074"/>
   </ItemGroup>
