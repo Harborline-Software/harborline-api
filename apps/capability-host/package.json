@@ -38,6 +38,8 @@
     "@harborline-software/api-contracts": "file:../../packages/contracts"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "@types/node": "24.13.3",
     "@typescript/native": "npm:typescript@7.0.2",
     "eslint": "10.9.1",
@@ -52,6 +54,8 @@
     "eslint": "R-0084",
     "typescript": "R-0086",
     "typescript-eslint": "R-0084",
-    "vitest": "R-0083"
+    "vitest": "R-0083",
+    "@stryker-mutator/core": "R-0083",
+    "@stryker-mutator/vitest-runner": "R-0083"
   }
 }
