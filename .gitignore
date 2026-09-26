@@ -30,3 +30,8 @@ __pycache__/
 # session and lane artefacts (gate evidence included); the three s293 logs tracked by accident are untracked here
 .claude/
 .codex/
+
+# StrykerJS (eng/strykerjs.mjs): sandbox, in-place backups, setup files left by an aborted run, reports.
+.stryker-tmp/
+stryker-setup-*.js
+**/reports/mutation/

@@ -234,7 +234,10 @@ try {
     ? path.join(apiRoot, 'artifacts', 'quality', 'coverage', 'host')
     : path.join(clone, 'TestResults', 'host')
   const hostTests = run('dotnet-host-tests', 'dotnet',
+    // Owner ruling Q38: tests tagged Lane=perf (the Layout timing-parity collection) measure wall-clock
+    // timing and run only in verify-perf, alone on mac16 (perf-quiet); every host lane excludes them.
     ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
+      '--filter', 'Lane!=perf',
       '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', hostResultsDirectory,
       ...(collectCoverage ? ['--settings', 'eng/coverage.runsettings', '--collect:XPlat Code Coverage'] : [])], clone, {expectNonZero: true})
   run('analyzer-canary', 'bash', ['eng/verify-analyzer-canary.sh'], clone)

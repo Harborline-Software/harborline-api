@@ -1,0 +1,27 @@
+{
+  "why": "Owner ruling 2026-09-26: each package's break starts at the floor of its lowest observed score and is raised as test-improvement tickets land; PROC-0002's high 80 / low 60 stay the target. Owner ruling Q43: only the scheduled full run compares a package's score to its break; a PR run reports the survivors on its changed lines. Every mutated package has an entry; eng/strykerjs.mjs check refuses a missing or pending entry and a break below its baseline.",
+  "packages": {
+    "apps/capability-host": {
+      "baseline": 50,
+      "break": 50,
+      "observed": [
+        50.67
+      ],
+      "measured": "2026-09-26, winbox, every mutable file (--all), StrykerJS 10.0.0 vitest-runner, 15 workers, sandboxed",
+      "tested": 3072,
+      "score": 50.67,
+      "report": "C:/hl-ab/wt-strykerjs/api-reports/capability-host/mutation.json"
+    },
+    "packages/contracts": {
+      "baseline": 54,
+      "break": 54,
+      "score": 54.91,
+      "tested": 2498,
+      "observed": [
+        54.91
+      ],
+      "report": "C:/hl-ab/wt-strykerjs/api-reports/contracts/mutation.json",
+      "measured": "2026-09-26, winbox, every mutable file (--all), StrykerJS 10.0.0 vitest-runner, 15 workers, sandboxed, after the move to vitest 4.1.11"
+    }
+  }
+}

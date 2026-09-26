@@ -1,0 +1,7 @@
+# StrykerJS 10.0.0 false survivors, patched until upstream releases the fixes. core: a static mutant (a module-level
+# constant) was activated after import whenever testFiles is set, so tests never saw it (stryker-js#6144, fix PR #6145).
+# vitest-runner: a mutant that makes a test file fail to load was reported Survived with zero tests (#6150, fix PR #6217).
+# Drop each patch when a release contains its fix; pnpm refuses the install if a patch no longer applies.
+patchedDependencies:
+  '@stryker-mutator/core@10.0.0': patches/@stryker-mutator__core@10.0.0.patch
+  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

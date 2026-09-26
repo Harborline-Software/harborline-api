@@ -16,6 +16,13 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directory: "/packages/contracts"
+    # T-720: vitest stays on 4.x to match capability-host and the StrykerJS 10 vitest runner, which completed
+    # zero tests per mutant on vitest 5.0.1. Re-vet the major (ADR-0084) when StrykerJS supports vitest 5.
+    ignore:
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/*"
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: "weekly"
       day: "monday"

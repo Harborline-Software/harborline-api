@@ -33,6 +33,9 @@ public sealed class LayoutDenialGateLog(
     /// <summary>The event type a related-binding denial is recorded under.</summary>
     public static readonly AuditEventType LayoutRelatedDeniedEventType = new("LayoutRelatedDenied");
 
+    /// <summary>The event id of a lost denial: the outbox write itself failed.</summary>
+    public static readonly EventId OutboxWriteFailedEvent = new(7311, "LayoutDenialOutboxWriteFailed");
+
     private readonly List<Task> _writes = [];
     private readonly List<LayoutDenialOutboxEntry> _written = [];
 
@@ -65,9 +68,12 @@ public sealed class LayoutDenialGateLog(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             alarms.OutboxWriteFailed();
-            logger.LogError(ex,
+            // Critical, with a stable event id: this is the independent operational channel. The host's
+            // logging pipeline carries it to the Windows Event Log where that sink is available (the
+            // ResilientWindowsEventLog registration), apart from the gate log and the local store.
+            logger.LogCritical(OutboxWriteFailedEvent, ex,
                 "Layout related-binding denial outbox write FAILED (tenant {Tenant}, request {RequestId}, block {BlockId}); "
-                + "the viewer still sees absence but the denial is lost.",
+                + "the viewer still sees absence but this denial record may be lost.",
                 tenant, entry.Denial.RequestId, entry.Denial.BlockId);
         }
     }
