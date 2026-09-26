@@ -47,6 +47,35 @@ public sealed class SchemaValidationErrorFlatteningTests
     }
 
     /// <summary>
+    /// CodeRabbit 4113220972 (follow-up on 4112934954): a root-level <c>not</c> failure and an
+    /// UNRELATED, deeper <c>minLength</c> failure nested under <c>properties</c> both fail on the
+    /// same candidate. A fix that compares an applicator's evaluation path (not its own subtree
+    /// root) sees "/properties/name" as a descendant of the root "" path and wrongly treats that
+    /// as proof <c>not</c> is a redundant summary of it — they are unrelated siblings and BOTH
+    /// must survive.
+    /// </summary>
+    [Fact]
+    public async Task An_unrelated_nested_failure_does_not_silence_a_root_level_applicator_failure()
+    {
+        var registry = NewRegistry();
+        var schema = await registry.RegisterAsync("""
+            {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "not": { "type": "object" },
+              "properties": { "name": { "type": "string", "minLength": 5 } }
+            }
+            """);
+
+        var candidate = JsonSerializer.SerializeToUtf8Bytes(new { name = "ab" });
+        var result = await registry.ValidateAsync(schema.Id, candidate);
+
+        Assert.False(result.IsValid);
+        var codes = result.Errors.Select(e => e.Code).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        Assert.Equal(new[] { "minLength", "not" }, codes);
+    }
+
+    /// <summary>
     /// F-20's actual regression shape: a real applicator-summary error (<c>properties</c>,
     /// reported by JsonSchema.Net 9.4.0 on the object node) alongside its genuinely more
     /// specific child failure (<c>minLength</c> on one property). Only the summary drops.

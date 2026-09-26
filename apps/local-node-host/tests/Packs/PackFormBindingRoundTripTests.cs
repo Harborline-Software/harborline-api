@@ -26,6 +26,7 @@ using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Install.Trust;
+using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -75,6 +76,7 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
     private KeyPair _key = null!;
     private IEntityTypeRegistry _registry = null!;
     private IFormDefinitionStore _forms = null!;
+    private InMemoryPackInstallStore _packStore = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private string _address = null!;
     private string _scratch = null!;
@@ -118,7 +120,8 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         var schemas = _app.Services.GetRequiredService<ISchemaRegistry>();
         var workflows = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
         var roleGate = _app.Services.GetRequiredService<IRoleGateAdmission>();
-        var packStore = new InMemoryPackInstallStore();
+        _packStore = new InMemoryPackInstallStore();
+        var packStore = _packStore;
         var projector = new PackSeedProjector(
             packStore,
             _registry,
@@ -228,6 +231,17 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         Assert.Equal(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
         Assert.Equal(0, (await CliAsync(
             "pack", "activate", "--pack-key", PackKey, "--version", "1.0.0")).ExitCode);
+
+        // A clean CLI exit code proves the CLI didn't fail; it does not prove the three
+        // definitions actually made it into the activated pack's seed layer (CodeRabbit
+        // 5327922061). Assert directly against the store the projector wrote to.
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var active = _packStore.GetActive(tenant, PackKey);
+        Assert.NotNull(active);
+        var seedKeys = active!.SeedItems.Select(item => (item.Key, item.Kind)).ToArray();
+        Assert.Contains(("layout.booking.surface", PackContentKind.Layout), seedKeys);
+        Assert.Contains(("booking.room", PackContentKind.Resource), seedKeys);
+        Assert.Contains(("booking.room-visit", PackContentKind.Bookable), seedKeys);
     }
 
     [Fact(DisplayName = "ticket 357: a binding naming a form the pack does not contain is refused at verify by name")]

@@ -366,16 +366,25 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         }
         return entries
             .Where(e => !SummaryOnlyApplicatorKeywords.Contains(e.Error.Code ?? string.Empty)
+                // The applicator's OWN subtree root is its evaluation path PLUS the applicator
+                // keyword itself (e.g. "" + "/properties" = "/properties", or "" + "/not" =
+                // "/not") — never just its evaluation path. Comparing against the bare
+                // evaluation path (as an earlier revision did) treats ANY deeper failure
+                // ANYWHERE in the schema as proof this applicator is a redundant summary, which
+                // wrongly drops a root-level `not` alongside an unrelated `/properties/name`
+                // `minLength` failure — both share the root "" evaluation path as a COMMON
+                // ancestor, but neither is nested inside the other's own subschema
+                // (CodeRabbit 4113220972, a follow-up on 4112934954).
                 || !entries.Any(other => !ReferenceEquals(other.Error, e.Error)
-                    && IsStrictDescendantPath(other.EvaluationPath, e.EvaluationPath)))
+                    && IsStrictDescendantPath(other.EvaluationPath, $"{e.EvaluationPath}/{e.Error.Code}")))
             .Select(e => e.Error)
             .ToList();
     }
 
     /// <summary>True when <paramref name="path"/> is one schema-path segment (or more) BELOW
-    /// <paramref name="ancestor"/> — e.g. ancestor "" matches "/properties/legalName" (the
-    /// subschema "properties" applies into), but NOT "" itself: two keywords declared at the
-    /// SAME schema location (same <c>EvaluationPath</c>) are independent siblings, never one a
+    /// <paramref name="ancestor"/> — e.g. ancestor "/properties" matches "/properties/legalName"
+    /// (a property INSIDE that applicator's own subschema), but NOT "/properties" itself: two
+    /// keywords declared at the SAME schema location are independent siblings, never one a
     /// summary of the other, even when they fail on the identical instance value.</summary>
     private static bool IsStrictDescendantPath(string path, string ancestor)
         => path.Length > ancestor.Length
