@@ -63,7 +63,7 @@ public sealed class T433AccessReplacementProducerTests
         var generated = await AccessReplacementFixture.GenerateT742Async(Root);
         var artifact = File.ReadAllBytes(Path.Combine(ReplacementDirectory, AccessReplacementFixture.T742ArtifactName));
         Assert.Equal(artifact, generated);
-        Assert.Equal("059c45178234368eba10ecf16f22db2ed244527ec581cbd847b58460b189b2ed",
+        Assert.Equal("9a43ebd6087e715b97c66ac0aed9a7cf219726ca81fe54ad8bf6d32ce49e341d",
             Convert.ToHexStringLower(SHA256.HashData(artifact)));
 
         var file = Assert.IsType<PackFile>(new PackFileCodec().TryDecode(artifact));

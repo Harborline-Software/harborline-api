@@ -88,13 +88,44 @@ internal static class AccessReplacementFixture
     /// T-742's successor to the immutable signed releases. It preserves the 1.1.3 journey contents
     /// and removes author-controlled editor choices only from its two value-domain fields.
     /// </summary>
+    internal const string T742GrantFormVersion = "1.0.2";
+    internal const string T742WorkflowVersion = "1.0.2";
+    internal const string T742HoldersVersion = "1.0.4";
+
     internal static async Task<byte[]> GenerateT742Async(string root)
     {
         var source = JsonNode.Parse(await File.ReadAllBytesAsync(Path.Combine(root, SourcePath)))!;
-        var form = source["contents"]!.AsArray().Single(item => item!["key"]!.GetValue<string>() == "access.grant-a-role")!;
+        var contents = source["contents"]!.AsArray();
+        var form = contents.Single(item => item!["key"]!.GetValue<string>() == "access.grant-a-role")!;
         var fields = form["content"]!["overlay"]!["fields"]!;
         fields["reason"]!.AsObject().Remove("controlHint");
         fields["residency"]!.AsObject().Remove("controlHint");
+        // The form's content changed (the two hints were removed), so it cannot keep publishing under
+        // the already-pinned (key, version) tuple 1.0.1 that 1.1.1/1.1.3/1.1.4 carry: a node that has
+        // already projected that tuple would see different content at the same coordinate and refuse
+        // this pack with pack.form.pinned_tuple_conflict (PackSeedProjector.MatchesPinnedPackDefinition).
+        // Publish the changed form at the next version and repoint every reference to it. Every OTHER
+        // content item whose payload now embeds that new form version (the workflow's subjectFormRef,
+        // the view's grant-submit inputForm) has therefore also changed content, so IT must bump its own
+        // (item and content) version too, or it hits the same pinned-tuple conflict in its own right.
+        form["version"] = T742GrantFormVersion;
+        var workflow = contents.Single(item => item!["key"]!.GetValue<string>() == "access.privileged-grant-review")!;
+        workflow["version"] = T742WorkflowVersion;
+        workflow["content"]!["version"] = T742WorkflowVersion;
+        workflow["content"]!["subjectFormRef"]!["version"] = T742GrantFormVersion;
+        var holders = contents.Single(item => item!["key"]!.GetValue<string>() == "access.holders")!;
+        holders["version"] = T742HoldersVersion;
+        holders["content"]!["version"] = T742HoldersVersion;
+        var grant = holders["content"]!["parameters"]!["actions"]!.AsArray()
+            .Single(action => action!["operation"]!.GetValue<string>() == "access.grant.submit")!;
+        grant["inputForm"]!["version"] = T742GrantFormVersion;
+        // The retired "views.entity-list/grid" token that 1.1.1-1.1.4 carry is projected onto the
+        // platform's canonical table kind ONLY for those specific, already-released (packKey, version)
+        // pairs (ReleasedViewKindCompatibility.ReleasedPredecessors); "new and unknown pack versions
+        // receive no compatibility treatment" by that shim's own contract, so this NEW version must
+        // carry the canonical token directly or the descriptor registry refuses it with
+        // view_definition.kind_unknown.
+        holders["content"]!["viewKind"] = Harborline.Blocks.EntityViews.ViewKindIds.Table;
 
         var seed = SHA256.HashData(Encoding.UTF8.GetBytes("Harborline T-433 public conformance fixture; NEVER a production key"));
         using var key = KeyPair.FromSeed(seed);
