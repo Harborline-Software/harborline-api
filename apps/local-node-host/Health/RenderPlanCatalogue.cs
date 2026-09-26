@@ -110,9 +110,10 @@ public static class RenderPlanCompiler
         PackSeedItem item,
         string packKey,
         string packVersion,
-        string pointer)
+        string pointer,
+        TimeProvider clock)
     {
-        var (plan, refusalCode) = await CompileAsync(item, packKey, packVersion).ConfigureAwait(false);
+        var (plan, refusalCode) = await CompileAsync(item, packKey, packVersion, clock).ConfigureAwait(false);
         if (plan is not null) return (plan, null);
         return (null, refusalCode switch
         {
@@ -131,7 +132,8 @@ public static class RenderPlanCompiler
     public static async ValueTask<(RenderPlan? Plan, string RefusalCode)> CompileAsync(
         PackSeedItem item,
         string packKey,
-        string packVersion)
+        string packVersion,
+        TimeProvider clock)
     {
         if (item.Kind is not (PackContentKind.FormDefinition or PackContentKind.ViewDefinition))
         {
@@ -148,8 +150,8 @@ public static class RenderPlanCompiler
             }
 
             var (bindings, refusalCode) = item.Kind == PackContentKind.FormDefinition
-                ? await FormBindingsAsync(root).ConfigureAwait(false)
-                : await ViewBindingsAsync(root).ConfigureAwait(false);
+                ? await FormBindingsAsync(root, clock).ConfigureAwait(false)
+                : await ViewBindingsAsync(root, clock).ConfigureAwait(false);
             if (bindings is null) return (null, refusalCode);
 
             return (new RenderPlan(
@@ -166,7 +168,7 @@ public static class RenderPlanCompiler
         }
     }
 
-    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> FormBindingsAsync(JsonElement root)
+    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> FormBindingsAsync(JsonElement root, TimeProvider clock)
     {
         if (!TryGetProperty(root, "fieldsMeta", out var fields) || fields.ValueKind != JsonValueKind.Object)
         {
@@ -190,7 +192,7 @@ public static class RenderPlanCompiler
             if (values.Count == 0) continue;
             // T-752 (T-724 rulings 37, 64): a value-domain field renders the runtime's editor, the same as the
             // Forms wire; a signed pack's authored hint on such a field is overwritten, never passed through.
-            var domain = await FieldEditorChoice.ResolveAsync(values, TimeProvider.System, $"/{field.Name}", CancellationToken.None)
+            var domain = await FieldEditorChoice.ResolveAsync(values, clock, $"/{field.Name}", CancellationToken.None)
                 .ConfigureAwait(false);
             var overlayFields = overlay["fields"] as JsonObject ?? (JsonObject)(overlay["fields"] = new JsonObject());
             var presentation = overlayFields[field.Name] as JsonObject ?? (JsonObject)(overlayFields[field.Name] = new JsonObject());
@@ -200,7 +202,7 @@ public static class RenderPlanCompiler
         return (JsonSerializer.SerializeToElement(new { fields, overlay }), string.Empty);
     }
 
-    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> ViewBindingsAsync(JsonElement root)
+    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> ViewBindingsAsync(JsonElement root, TimeProvider clock)
     {
         if (!TryGetProperty(root, "viewKind", out var kind)
             || kind.GetString() != Harborline.Blocks.EntityViews.ViewKindIds.Table
@@ -238,7 +240,7 @@ public static class RenderPlanCompiler
                     JsonElement? input = null;
                     if (action.TryGetProperty("input", out var authoredInput))
                     {
-                        var (compiled, refusalCode) = await FormBindingsAsync(authoredInput).ConfigureAwait(false);
+                        var (compiled, refusalCode) = await FormBindingsAsync(authoredInput, clock).ConfigureAwait(false);
                         if (compiled is null) return (null, refusalCode);
                         input = compiled;
                     }

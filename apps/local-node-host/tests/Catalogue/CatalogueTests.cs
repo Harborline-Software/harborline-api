@@ -118,7 +118,7 @@ public sealed class CatalogueTests
         }
         foreach (var item in new[] { ActionView("shell.execute", false), ActionView("pack.export", true) })
         {
-            var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0");
+            var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0", TimeProvider.System);
             Assert.Null(plan);
             Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
         }
@@ -137,7 +137,7 @@ public sealed class CatalogueTests
 
     private static async Task<RenderPlan> CompileAgain(PackSeedItem item)
     {
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0", TimeProvider.System);
         Assert.True(plan is not null, code);
         return plan;
     }

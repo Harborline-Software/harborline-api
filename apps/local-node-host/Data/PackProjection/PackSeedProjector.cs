@@ -2068,7 +2068,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
         }
 
         var (plan, refusal) = await RenderPlanCompiler.CompileOrRefuseAsync(
-            item, pack.PackKey, pack.Version, ContentPointer(pack, item)).ConfigureAwait(false);
+            item, pack.PackKey, pack.Version, ContentPointer(pack, item), _time).ConfigureAwait(false);
         if (refusal is not null)
         {
             refusals.Add(refusal);

@@ -63,7 +63,7 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0", TimeProvider.System);
         Assert.True(plan is not null, code);
         var action = plan!.Bindings.GetProperty("actions")[0];
         var transport = action.GetProperty("dispatch").GetProperty("descriptor");
@@ -113,7 +113,7 @@ public sealed class HostViewRequestAdmissionTests
     {
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(DataSourceDefinition(descriptorId), JsonSerializerOptions.Web), Cid.FromBytes([]));
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0", TimeProvider.System);
         Assert.Null(plan);
         Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
     }
@@ -125,7 +125,7 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, JsonSerializerOptions.Web), Cid.FromBytes([]));
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0", TimeProvider.System);
         Assert.True(plan is not null, code);
         var descriptor = plan!.Bindings.GetProperty("dataSource").GetProperty("descriptor");
         Assert.Equal("GET", descriptor.GetProperty("method").GetString());
@@ -175,7 +175,7 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0", TimeProvider.System);
         Assert.True(plan is not null, code);
         var descriptor = plan!.Bindings.GetProperty("actions")[0].GetProperty("dispatch").GetProperty("descriptor");
         Assert.Equal("selected-session", descriptor.GetProperty("audience").GetString());
@@ -211,7 +211,7 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0", TimeProvider.System);
         Assert.True(plan is not null, code);
         var action = plan!.Bindings.GetProperty("actions")[0];
         Assert.Equal(accept, action.GetProperty("fileInput").GetProperty("accept").GetString());

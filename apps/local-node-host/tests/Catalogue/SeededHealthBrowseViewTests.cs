@@ -90,7 +90,7 @@ public sealed class SeededHealthBrowseViewTests
         Assert.Equal(26, items.Length);
         foreach (var item in items)
         {
-            var (plan, refusalCode) = await RenderPlanCompiler.CompileAsync(item, "harborline.platform", PackVersion);
+            var (plan, refusalCode) = await RenderPlanCompiler.CompileAsync(item, "harborline.platform", PackVersion, TimeProvider.System);
             Assert.True(plan is not null, $"{item.Key}: {refusalCode}");
             Assert.NotNull(plan);
             Assert.Equal(item.Key, plan.DefinitionId);
