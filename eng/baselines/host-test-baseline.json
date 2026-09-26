@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "43e8f920",
+  "sourcePin": "PENDING",
   "recordedAt": "2026-09-26T04:13:40Z",
   "totals": {
-    "total": 4489,
-    "passed": 4468,
+    "total": 4494,
+    "passed": 4473,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-731 PR 215 merged over T-752 PR 220. PR 215 is net 0 on the host lanes: it adds four cases (the three LayoutAuditDegradedModeTests cases measured at 4491 and the probe-logging fact measured at 4492, both by Windows CI over main 4488), and owner ruling Q38 moves four KS timing cases (trait Lane=perf) to verify-perf on mac16. Main is 4489 after PR 220 added one case, so the merged count is 4489. Owner rulings Q41 and Q41b then add five host-lane cases, TimingParityGateTests (the four seeded-leak rows and the type-7 quantile fact), for 4494. No test is removed, renamed or skipped. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-752 the catalogue render plan carries the runtime's editor on value-domain fields: the native Windows exact-clone of PR 220 CI run 36216446947 (workflow_dispatch) at 43e8f920 (branch cut from main 940344df) measured 4489 total, 4468 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4488-case count inventory. The one added case is AccessAdministrationPreloadTests.Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field. The existing render-plan tests in CatalogueTests, SeededHealthBrowseViewTests and HostViewRequestAdmissionTests move to the async compiler with unchanged identities; no test method, class or file is removed, renamed or skipped, and no skip identity changes.",
     "T-664 the host takes the field runtime's editor choice: the native Windows exact-clone of PR 214 CI run 36149723542 at 47ce6084d8042049142ea0268a1be30604db8acc (branch merged with main c8f40318, after T-687 PR 212 and T-731 PR 213) measured 4488 total, 4467 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4480-case count inventory. The eight added cases are FormsRouteTests.Value_domain_field_renders_the_runtime_editor_over_the_authored_hint, the four InlineData rows of FormDefinitionRouteTests.Authored_control_on_a_value_domain_field_is_refused_at_admission (draft and publish, hints textarea and select), CatalogueFieldSourceContractTests.T664_an_authored_hint_cannot_remove_a_validation_from_the_projected_definition, ControlHintDispatchFenceTests.Every_production_read_of_the_control_hint_is_an_allowed_pass_through and AccessAdministrationPreloadTests.Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime (T-724 ruling 64). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. This tuple was measured TWICE and the first number was DISCARDED rather than adjusted: run 36140242677 measured 4487/4466 against the pre-T-687 base of 4479, and when main moved the base to 4480 the branch was merged and re-measured. The macOS lane uses named comparison, so its baseline is not updated. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged.",
     "T-687 an uncompilable document block guard withholds its block instead of faulting render: the native Windows exact-clone at 08c328e7947217b8c69d5286b5c38b6a7a2a9374 measured 4480 total, 4459 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4479-case count inventory. The one added case is NodeDocumentTemplateRouteActingMemberPlacerTests.Render_WithAnUncompilableBlockGuard_WithholdsOnlyThatBlock. No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. The run had HARBORLINE_CONTROL_REPO set and was not quality-enabled.",
@@ -122,23 +123,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4488,
-      "passed": 4467,
+      "total": 4489,
+      "passed": 4468,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4488 -> 4489; passed 4467 -> 4468; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "T-752 (PR 220): one signed-pack render-plan fact. Net +1 case. No other test changes.",
-    "detectedBy": "PR 220 verify-windows (CI run 36216446947, winbox), whose exact-clone host-baseline-match reported failed 0 and newFailures empty against the stale 4488-case inventory.",
-    "arithmeticCrossCheck": "4488 + 1 = 4489; passed = total - notExecuted = 4489 - 21 = 4468."
+    "change": "total 4489 -> 4494; passed 4468 -> 4473; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "PR 215 is net 0 on the host lanes: +4 cases (audit-degraded mode and probe logging), -4 KS timing cases moved to verify-perf (Lane=perf). Q41: +5 TimingParityGateTests cases (synthetic, host lanes).",
+    "detectedBy": "Provisional: re-derived from both PRs; to be confirmed by the Windows CI run on the merged head.",
+    "arithmeticCrossCheck": "4489 + 4 - 4 + 5 = 4494; passed = total - notExecuted = 4494 - 21 = 4473."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "43e8f920 (T-752, PR 220, branch cut from main 940344df)",
+    "apiCommit": "PENDING",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Measured by CI verify-windows run 36216446947 on winbox; exact-clone reported ok on every step except the host-baseline-match count inventory, with failed 0, newFailures empty and rescuedByRetry 0.",
+    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files."
   },
   "verdictVocabulary": {

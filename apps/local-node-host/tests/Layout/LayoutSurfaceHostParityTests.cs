@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -29,6 +28,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// timing, on the ordinary path and on both outbox fault paths. Related traversals go through the REAL gate
 /// over the seeded production definitions. In-process: T-735 wires the HTTP route.
 /// </summary>
+[Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
 {
     private static readonly ActorId Stranger = new("stranger-731");
@@ -82,92 +82,25 @@ public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The statistical timing check compares the two full distributions with a two-sample
-    /// Kolmogorov-Smirnov test at significance 0.001: 60 interleaved samples a path, so the largest gap
-    /// between the empirical distribution functions must stay under 1.949 * sqrt(2 / 60) = 0.356.
-    /// <para>
-    /// The floor is derived the way owner ruling 1 derives the production one: time 100
-    /// denied resolutions with no floor on this host, as loaded as it is now, then double the worst case
-    /// and round up to the 15.6 ms timer tick, never below four ticks. Each local-store operation is
-    /// slowed by 5 ms, so the denied path's extra work is wider than the jitter: without the floor the
-    /// distributions barely overlap and D is near 1.
-    /// </para>
-    /// <para>
-    /// One attempt, no retries. Run 36155000912 on hosted Ubuntu failed all of #213's three attempts
-    /// (D = 0.483, 0.400, 0.383 with the gate log down): the difference was real, not noise. The host now
-    /// finishes every denial-side step inside the floor and ends each resolution on a spin onto the
-    /// deadline, so one attempt holds.
-    /// </para>
+    /// The timing-parity gate (<see cref="TimingParity"/>, owner rulings Q41 and Q41b): 60 counterbalanced
+    /// pairs against a floor measured on the host, the median rule (17th and 44th paired differences
+    /// inside ±0.1 ms) and the tail rule (p90 gap under 1 ms). It checks those bounds under these test
+    /// conditions only; it does not certify indistinguishability to a remote attacker. Each local-store
+    /// operation costs 5 ms of CPU, so without the floor the denied path is about 15 ms slower and the
+    /// median rule fails.
     /// </summary>
-    [Theory(DisplayName = "layout-eng-31: an unauthorized caller cannot tell missing from denied by timing (two-sample KS over 60 interleaved samples a path, alpha 0.001, measured floor)")]
+    [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
+    [Theory(DisplayName = "layout-eng-31: under the test conditions, missing and denied timings meet the gate's bounds (paired median within ±0.1 ms at 99.96% coverage, p90 gap under 1 ms)")]
     [InlineData(Fault.None)]
     [InlineData(Fault.GateLogDown)]
     public async Task MissingAndDeniedTimingDistributionsAreTheSame(Fault fault)
     {
-        var (passed, detail) = await TimingAttemptAsync(fault);
-        output.WriteLine($"{fault}: {detail}");
-        Assert.True(passed, detail);
-    }
-
-    private static async Task<(bool Passed, string Detail)> TimingAttemptAsync(Fault fault)
-    {
-        const int samples = 60;
-        const double critical = 1.949 * 0.1825741858; // c(0.001) * sqrt((n + m) / (n * m)), n = m = 60
-        const double tick = 15.625;
         await using var h = await Harness.CreateAsync(fault);
         h.Pipeline.Db.Delay = TimeSpan.FromMilliseconds(5);
-
-        var calibration = h.Host(TimeSpan.Zero);
-        for (var i = 0; i < 5; i++) await h.ResolveAsync(calibration, Stranger, ownerExists: true); // JIT warm-up, discarded
-        var worst = 0.0;
-        for (var i = 0; i < 100; i++)
-        {
-            var clock = Stopwatch.StartNew();
-            await h.ResolveAsync(calibration, Stranger, ownerExists: true);
-            worst = Math.Max(worst, clock.Elapsed.TotalMilliseconds);
-        }
-        await h.Pipeline.Appender.IdleAsync();
-        // The worst of 100 stands in for the p99.9; four ticks is the least floor a coarse timer can hold.
-        var floor = TimeSpan.FromMilliseconds(Math.Max(4, Math.Ceiling(2 * worst / tick)) * tick);
-        var host = h.Host(floor);
-
-        var missing = new List<double>();
-        var denied = new List<double>();
-        for (var i = 0; i < samples; i++)
-        {
-            foreach (var ownerExists in i % 2 == 0 ? new[] { false, true } : [true, false])
-            {
-                var clock = Stopwatch.StartNew();
-                await h.ResolveAsync(host, Stranger, ownerExists);
-                (ownerExists ? denied : missing).Add(clock.Elapsed.TotalMilliseconds);
-            }
-        }
-        await h.Pipeline.Appender.IdleAsync();
-
-        var d = KolmogorovSmirnov(missing, denied);
-        return (d <= critical,
-            $"KS D = {d:F3} (limit {critical:F3}) at floor {floor.TotalMilliseconds} ms; missing p50 {Quantile(missing, 0.5):F2} "
-            + $"p90 {Quantile(missing, 0.9):F2} p99 {Quantile(missing, 0.99):F2} ms, denied p50 {Quantile(denied, 0.5):F2} p90 {Quantile(denied, 0.9):F2} p99 {Quantile(denied, 0.99):F2} ms");
+        await TimingParity.AssertSameAsync(
+            floor => ownerExists => h.ResolveAsync(h.Host(floor), Stranger, ownerExists),
+            h.Pipeline.Appender.IdleAsync, fault.ToString(), output);
     }
-
-    /// <summary>The largest vertical gap between the two empirical distribution functions.</summary>
-    private static double KolmogorovSmirnov(List<double> a, List<double> b)
-    {
-        var x = a.Order().ToArray();
-        var y = b.Order().ToArray();
-        double d = 0;
-        int i = 0, j = 0;
-        while (i < x.Length && j < y.Length)
-        {
-            var t = Math.Min(x[i], y[j]);
-            while (i < x.Length && x[i] <= t) i++;
-            while (j < y.Length && y[j] <= t) j++;
-            d = Math.Max(d, Math.Abs((double)i / x.Length - (double)j / y.Length));
-        }
-        return d;
-    }
-
-    private static double Quantile(List<double> samples, double q) => samples.Order().ElementAt((int)(q * (samples.Count - 1)));
 
     private static string Describe(LayoutBindingResolution resolution) => JsonSerializer.Serialize(new
     {
