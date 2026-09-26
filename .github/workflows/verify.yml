@@ -451,7 +451,9 @@ jobs:
     # mutated nothing (T-720). winbox only: macpro is the gate bottleneck and mac16 is the perf lane's.
     # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
     # guards are the other self-hosted lanes'. Its platform clone is its own, so a concurrent
-    # verify-windows never sees it move.
+    # verify-windows never sees it move. winbox has one runner registration: `needs` keeps this PR's
+    # required verify-windows ahead of it, and a red suite is not worth mutating.
+    needs: [verify-windows]
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       github.event_name == 'pull_request' &&
