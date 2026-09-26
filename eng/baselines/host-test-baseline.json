@@ -3,14 +3,15 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "PENDING",
-  "recordedAt": "2026-09-26T15:20:00Z",
+  "recordedAt": "2026-09-26T18:48:03Z",
   "totals": {
-    "total": 4506,
-    "passed": 4485,
+    "total": 4507,
+    "passed": 4486,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-736: records-eng-28 -- proves record ids are unique across record types, which the id-only records:read gate (AuthorizationGate.CanonicalTargetScope, packages/foundation-authorization/AuthorizationGate.cs:323-336) relies on. Adds RecordIdUniquenessAcrossRecordTypesTests.cs, one fact that mints 10,000 ids each from six independently-minting record id types across different blocks packages (GrantId, FormSubmissionRecordId, BankAccountId, JournalEntryId, InvoiceId, PaymentId) and asserts the shared union has zero duplicates, plus a targeted assertion that InMemoryEntityStore.DeriveEntityId gives different local parts for two different schemas with otherwise-identical inputs. One case added; no test method, class or file is removed, renamed or skipped, and no skip identity changes. Verified red (temporarily forcing GrantId.New() to Guid.Empty failed the test on the second minted id) then green (reverted). A native Windows destination exact-clone at commit 82cab8e (merge of feat/t-736-record-ids-unique onto main after PR 227) measured 4507 total, 4486 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-576 PR 227: the six local-node-host report-run routes (ReportsRoutes.cs) moved their reports:run authorization decision from RouteRecord.TheInstall (install-wide) to a per-report-kind, per-chart record, and ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests, a pure rename with no case added or removed by the rename itself) gained malformed-credential and expired-credential denial coverage for each of the six routes: two six-row theories, 12 cases, all passing, all newly in scope of the ticket's own --filter FullyQualifiedName~ReportsRouteTests once the rename let it match this class too. No test method, class or file is removed, renamed away, or skipped; no skip identity changes. A native Windows exact-clone at commit b2b0c684 measured 4506 total, 4485 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-731 PR 215 merged over T-752 PR 220. PR 215 is net 0 on the host lanes: it adds four cases (the three LayoutAuditDegradedModeTests cases measured at 4491 and the probe-logging fact measured at 4492, both by Windows CI over main 4488), and owner ruling Q38 moves four KS timing cases (trait Lane=perf) to verify-perf on mac16. Main is 4489 after PR 220 added one case, so the merged count is 4489. Owner rulings Q41 and Q41b then add five host-lane cases, TimingParityGateTests (the four seeded-leak rows and the type-7 quantile fact), for 4494. No test is removed, renamed or skipped. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-752 the catalogue render plan carries the runtime's editor on value-domain fields: the native Windows exact-clone of PR 220 CI run 36216446947 (workflow_dispatch) at 43e8f920 (branch cut from main 940344df) measured 4489 total, 4468 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4488-case count inventory. The one added case is AccessAdministrationPreloadTests.Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field. The existing render-plan tests in CatalogueTests, SeededHealthBrowseViewTests and HostViewRequestAdmissionTests move to the async compiler with unchanged identities; no test method, class or file is removed, renamed or skipped, and no skip identity changes.",
@@ -124,19 +125,19 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4494,
-      "passed": 4473,
+      "total": 4506,
+      "passed": 4485,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4494 -> 4506; passed 4473 -> 4485; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-576 (PR 227): ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests so the ticket's own --filter FullyQualifiedName~ReportsRouteTests matches it too, a pure rename that does not change the suite's total) gains two six-row theories, Every_report_with_a_malformed_credential_renders_the_gate_denial and Every_report_with_an_expired_credential_renders_the_gate_denial, one row per report-run route (trial-balance, ar-aging-summary, ap-aging-summary, balance-sheet, profit-and-loss, profit-and-loss-by-property): 12 added cases, all passing. No test method, class or file is removed, renamed away, or skipped, and no skip identity changes.",
-    "detectedBy": "Native Windows exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against commit b2b0c684, HARBORLINE_GATE_QUALITY unset: observed total 4506, passed 4485, failed 0, notExecuted 21, newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
-    "arithmeticCrossCheck": "4494 + 12 = 4506; passed = total - notExecuted = 4506 - 21 = 4485."
+    "change": "total 4506 -> 4507; passed 4485 -> 4486; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-736: RecordIdUniquenessAcrossRecordTypesTests gains one fact, Records_eng_28_record_ids_are_unique_across_record_types, naming records-eng-28 and proving record ids are unique across record types (a Monte Carlo union-of-10,000-ids-per-type check across six independently-minting id types, plus a targeted schema-salt assertion on InMemoryEntityStore.DeriveEntityId). One added case, all passing. No test method, class or file is removed, renamed away, or skipped, and no skip identity changes.",
+    "detectedBy": "Native Windows exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against commit 82cab8e (feat/t-736-record-ids-unique merged with origin/main after PR 227), HARBORLINE_GATE_QUALITY unset: observed total 4507, passed 4486, failed 0, notExecuted 21, newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
+    "arithmeticCrossCheck": "4506 + 1 = 4507; passed = total - notExecuted = 4507 - 21 = 4486."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "b2b0c684",
+    "apiCommit": "82cab8e",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
