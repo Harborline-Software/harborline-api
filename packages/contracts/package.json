@@ -46,14 +46,16 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "@typescript/native": "npm:typescript@7.0.2",
-    "@vitest/coverage-v8": "5.0.1",
     "@microsoft/eslint-formatter-sarif": "3.1.0",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/coverage-v8": "4.1.11",
     "ajv": "8.20.0",
     "eslint": "10.10.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.70.0",
-    "vitest": "5.0.1"
+    "vitest": "4.1.11"
   },
   "justifications": {
     "@typescript/native": "R-0086",
@@ -63,7 +65,9 @@
     "eslint": "R-0084",
     "typescript": "R-0086",
     "typescript-eslint": "R-0084",
-    "vitest": "R-0083"
+    "vitest": "R-0083",
+    "@stryker-mutator/core": "R-0083",
+    "@stryker-mutator/vitest-runner": "R-0083"
   },
   "license": "Apache-2.0",
   "repository": {

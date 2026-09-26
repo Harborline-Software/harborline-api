@@ -1,0 +1,72 @@
+# StrykerJS (T-720; owner rulings 2026-09-26 and Q43). Advisory: no required context depends on it.
+#
+# pull_request: mutates only the lines the PR changed (eng/strykerjs.mjs run --base origin/main) and reports the
+#   surviving and NoCoverage mutants on those lines in the step summary and the json artifact. It never
+#   compares a package's break. It fails only on a run that tested zero mutants while mutable code changed,
+#   or one that left source dirty. Same fork and draft guards as verify-shared.
+# schedule / workflow_dispatch: every configured package on main (eng/strykerjs.mjs run --all), each held to its
+#   break in strykerjs.baselines.json, sharded because a hosted runner has 4 cores. 07:00 UTC is 03:00 in
+#   New York under daylight time (02:00 in winter).
+# The silent-failure blocking rule (a survivor on a changed risk: silent line fails the PR) waits on T-719.
+name: strykerjs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: strykerjs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  strykerjs:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1]' || '[1]') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install the StrykerJS toolchains
+        # capability-host depends on packages/contracts as a file: dependency, so contracts builds first.
+        run: |
+          (cd packages/contracts && pnpm install --frozen-lockfile && pnpm run build)
+          (cd apps/capability-host && pnpm install --frozen-lockfile)
+      - name: StrykerJS self-test and inventory
+        run: |
+          node --test eng/tests/strykerjs.test.mjs
+          node eng/strykerjs.mjs check
+      - name: StrykerJS
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            node eng/strykerjs.mjs run --base origin/main
+          else
+            node eng/strykerjs.mjs run --all --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+          fi
+      - name: Mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: strykerjs-${{ github.run_id }}-${{ matrix.shard }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: '**/reports/mutation/mutation.json'
