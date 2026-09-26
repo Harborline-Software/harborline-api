@@ -2,15 +2,16 @@
   "schemaVersion": 1,
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
-  "sourcePin": "PENDING",
-  "recordedAt": "2026-09-26T15:20:00Z",
+  "sourcePin": "391d6b101fd448fc2c1f9df518fcf796722819d9",
+  "recordedAt": "2026-09-26T19:00:06Z",
   "totals": {
-    "total": 4506,
-    "passed": 4485,
+    "total": 4508,
+    "passed": 4487,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-691 PR 231: FormDefinitionRoutes.cs's definition PUT and restore routes now catch GateReferenceShapeException around their persistence calls (RegisterAsync/RegisterAndPublishAsync), matching the catch already present around BuildDefinition in the same file and around WorkflowDefinitionRoutes.cs:199's own RegisterAndPublishAsync. Two added cases, both passing: FormDefinitionRouteTests.Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token and FormDefinitionRouteTests.Restore_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token. No test method, class or file is removed, renamed away, or skipped; no skip identity changes. A native Windows CI exact-clone at commit 391d6b101fd448fc2c1f9df518fcf796722819d9 (run 36262302652, the branch head itself, not a provisional local measurement) measured 4508 total, 4487 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0.",
     "T-576 PR 227: the six local-node-host report-run routes (ReportsRoutes.cs) moved their reports:run authorization decision from RouteRecord.TheInstall (install-wide) to a per-report-kind, per-chart record, and ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests, a pure rename with no case added or removed by the rename itself) gained malformed-credential and expired-credential denial coverage for each of the six routes: two six-row theories, 12 cases, all passing, all newly in scope of the ticket's own --filter FullyQualifiedName~ReportsRouteTests once the rename let it match this class too. No test method, class or file is removed, renamed away, or skipped; no skip identity changes. A native Windows exact-clone at commit b2b0c684 measured 4506 total, 4485 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-731 PR 215 merged over T-752 PR 220. PR 215 is net 0 on the host lanes: it adds four cases (the three LayoutAuditDegradedModeTests cases measured at 4491 and the probe-logging fact measured at 4492, both by Windows CI over main 4488), and owner ruling Q38 moves four KS timing cases (trait Lane=perf) to verify-perf on mac16. Main is 4489 after PR 220 added one case, so the merged count is 4489. Owner rulings Q41 and Q41b then add five host-lane cases, TimingParityGateTests (the four seeded-leak rows and the type-7 quantile fact), for 4494. No test is removed, renamed or skipped. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-752 the catalogue render plan carries the runtime's editor on value-domain fields: the native Windows exact-clone of PR 220 CI run 36216446947 (workflow_dispatch) at 43e8f920 (branch cut from main 940344df) measured 4489 total, 4468 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4488-case count inventory. The one added case is AccessAdministrationPreloadTests.Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field. The existing render-plan tests in CatalogueTests, SeededHealthBrowseViewTests and HostViewRequestAdmissionTests move to the async compiler with unchanged identities; no test method, class or file is removed, renamed or skipped, and no skip identity changes.",
@@ -124,23 +125,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4494,
-      "passed": 4473,
+      "total": 4506,
+      "passed": 4485,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4494 -> 4506; passed 4473 -> 4485; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-576 (PR 227): ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests so the ticket's own --filter FullyQualifiedName~ReportsRouteTests matches it too, a pure rename that does not change the suite's total) gains two six-row theories, Every_report_with_a_malformed_credential_renders_the_gate_denial and Every_report_with_an_expired_credential_renders_the_gate_denial, one row per report-run route (trial-balance, ar-aging-summary, ap-aging-summary, balance-sheet, profit-and-loss, profit-and-loss-by-property): 12 added cases, all passing. No test method, class or file is removed, renamed away, or skipped, and no skip identity changes.",
-    "detectedBy": "Native Windows exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against commit b2b0c684, HARBORLINE_GATE_QUALITY unset: observed total 4506, passed 4485, failed 0, notExecuted 21, newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
-    "arithmeticCrossCheck": "4494 + 12 = 4506; passed = total - notExecuted = 4506 - 21 = 4485."
+    "change": "total 4506 -> 4508; passed 4485 -> 4487; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-691: FormDefinitionRoutes.cs now catches GateReferenceShapeException around the definition PUT's register/publish block and the restore route's RegisterAsync call, returning the same 422 (stable code + field, never the exception message) the route already returns for BuildDefinition and that WorkflowDefinitionRoutes.cs already returns for its own RegisterAndPublishAsync. Two added cases in FormDefinitionRouteTests.cs, both passing: Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token (drives the PUT with a well-formed body whose only fault is an unqualified section role token and asserts 422 + stable code + field, with neither the rejected token nor exception text in the body) and Restore_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token (seeds a legacy stored revision carrying the same malformed role through the test-only store seam, then drives the public restore route and makes the same assertions). No test method, class or file is removed, renamed away, or skipped; no skip identity changes.",
+    "detectedBy": "Native Windows CI exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json), run 36262302652 on this PR at commit 391d6b101fd448fc2c1f9df518fcf796722819d9: observed total 4508, passed 4487, failed 0, notExecuted 21, newFailures empty, rescuedByRetry 0. This IS the CI measurement on the branch head (not provisional) — the run failed only on the host-baseline-match count check itself (this baseline was stale at 4506), every other exact-clone step (build, restore, host tests, analyzers, arch, boundary, capability) passed.",
+    "arithmeticCrossCheck": "4506 + 2 = 4508; passed = total - notExecuted = 4508 - 21 = 4487."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "b2b0c684",
+    "apiCommit": "391d6b1",
     "platform": "native Windows",
     "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
+    "runs": "CI run 36262302652 (verify-windows) on this PR branch head, not provisional.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files."
   },
   "verdictVocabulary": {
