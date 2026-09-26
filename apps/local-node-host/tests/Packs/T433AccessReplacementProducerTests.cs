@@ -57,6 +57,46 @@ public sealed class T433AccessReplacementProducerTests
         Assert.Equal(File.ReadAllBytes(Path.Combine(ReplacementDirectory, AccessReplacementFixture.ArtifactName)), generated);
     }
 
+    [Fact(DisplayName = "T-742: the 1.1.5 export has no authored control hint on value-domain fields")]
+    public async Task T742_export_removes_hints_only_from_value_domain_fields()
+    {
+        var generated = await AccessReplacementFixture.GenerateT742Async(Root);
+        var artifact = File.ReadAllBytes(Path.Combine(ReplacementDirectory, AccessReplacementFixture.T742ArtifactName));
+        Assert.Equal(artifact, generated);
+        Assert.Equal("059c45178234368eba10ecf16f22db2ed244527ec581cbd847b58460b189b2ed",
+            Convert.ToHexStringLower(SHA256.HashData(artifact)));
+
+        var file = Assert.IsType<PackFile>(new PackFileCodec().TryDecode(artifact));
+        Assert.Equal(AccessReplacementFixture.T742Version, file.Envelope!.Payload.Manifest.Version);
+        var trust = new InMemoryPackTrustStore([
+            new PackTrustRoot(TrustScope.OwnRoster, file.Envelope.IssuerId, 1, TrustRootStatus.Current),
+        ]);
+        Assert.Equal(PackVerdict.Verified, new PackVerifier(new Ed25519Verifier(), new PackFileCodec()).Verify(artifact, trust).Verdict);
+        var form = file.Contents.Single(item => item.Key == "access.grant-a-role");
+        using var document = JsonDocument.Parse(Convert.FromBase64String(form.ContentBase64));
+        var fields = document.RootElement.GetProperty("overlay").GetProperty("fields");
+        var metadata = document.RootElement.GetProperty("fieldsMeta");
+        foreach (var name in new[] { "reason", "residency" })
+        {
+            Assert.NotEmpty(metadata.GetProperty(name).GetProperty("options").EnumerateArray());
+            Assert.False(fields.GetProperty(name).TryGetProperty("controlHint", out _));
+        }
+
+        foreach (var name in new[] { "person", "role", "scope", "effectiveFrom", "effectiveTo" })
+            Assert.Equal("text", fields.GetProperty(name).GetProperty("controlHint").GetString());
+    }
+
+    [Fact(DisplayName = "T-742: legacy signed exports retain their pinned SHA-256 bytes")]
+    public void T742_does_not_change_legacy_signed_exports()
+    {
+        Assert.Equal("99a3edfa484314c7a0523f4d12b9d7f87725f7b65fc95bbc34dc7ca79e7fdcb2",
+            Hash("access-administration-pack-1.1.1.export.json"));
+        Assert.Equal("b6f84fef3ffb4323167d5c9d1831098784a88b59bfd903198743ab9add4bb486",
+            Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(InitialPath))));
+        Assert.Equal("1fd2920df204e2330e3d533e220ea42ad825fd0e7f48f78dccab68be03f27852",
+            Hash("access-administration-pack-1.1.4.export.json"));
+    }
+
     [Fact]
     public void Replacement_artifact_is_hash_pinned_decodable_and_signature_verified()
     {
@@ -195,6 +235,9 @@ public sealed class T433AccessReplacementProducerTests
         }
     }
     private static string[] Strings(JsonElement root, string property) => root.GetProperty(property).EnumerateArray().Select(value => value.GetString()!).ToArray();
+
+    private static string Hash(string artifact) => Convert.ToHexStringLower(
+        SHA256.HashData(File.ReadAllBytes(Path.Combine(ReplacementDirectory, artifact))));
 
     private static string FindRoot()
     {

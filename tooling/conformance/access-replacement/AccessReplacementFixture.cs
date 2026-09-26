@@ -16,6 +16,8 @@ internal static class AccessReplacementFixture
     internal const string SourcePath = "_shared/packs/access-administration/access-administration-pack.export.json";
     internal const string DirectoryPath = "_shared/conformance/packs/access-replacement";
     internal const string ArtifactName = "access-administration-pack-1.1.4.export.json";
+    internal const string T742ArtifactName = "access-administration-pack-1.1.5.export.json";
+    internal const string T742Version = "1.1.5";
     internal const string ProbeArtifactName = "access-administration-pack-1.1.4-atomicity-probe.0.export.json";
     internal const string ProbeVersion = "1.1.4-atomicity-probe.0";
     internal const string ProbeRefusalKey = "m6.late-refusal";
@@ -80,6 +82,42 @@ internal static class AccessReplacementFixture
         var result = await exporter.ExportAsync(request, signer);
         return result.Succeeded && result.FileBytes is not null ? result.FileBytes
             : throw new InvalidOperationException("Conformance export refused: " + string.Join(", ", result.Validation.Errors.Select(error => error.Code)));
+    }
+
+    /// <summary>
+    /// T-742's successor to the immutable signed releases. It preserves the 1.1.3 journey contents
+    /// and removes author-controlled editor choices only from its two value-domain fields.
+    /// </summary>
+    internal static async Task<byte[]> GenerateT742Async(string root)
+    {
+        var source = JsonNode.Parse(await File.ReadAllBytesAsync(Path.Combine(root, SourcePath)))!;
+        var form = source["contents"]!.AsArray().Single(item => item!["key"]!.GetValue<string>() == "access.grant-a-role")!;
+        var fields = form["content"]!["overlay"]!["fields"]!;
+        fields["reason"]!.AsObject().Remove("controlHint");
+        fields["residency"]!.AsObject().Remove("controlHint");
+
+        var seed = SHA256.HashData(Encoding.UTF8.GetBytes("Harborline T-433 public conformance fixture; NEVER a production key"));
+        using var key = KeyPair.FromSeed(seed);
+        var signer = new FixtureSigner(new Ed25519Signer(key), new Guid("31e22206-7645-4983-b35a-f35ae3f53b09"));
+        var request = new PackExportRequest(
+            source["key"]!.GetValue<string>(), T742Version, source["name"]!.GetValue<string>(),
+            source["description"]!.GetValue<string>(), Enum.Parse<PackScopeTier>(source["scopeTier"]!.GetValue<string>()),
+            source["contents"]!.AsArray().Select(item => new PackContentSource(item!["key"]!.GetValue<string>(),
+                Enum.Parse<PackContentKind>(item["kind"]!.GetValue<string>()), item["version"]!.GetValue<string>(),
+                item["content"]!.DeepClone())).ToArray(),
+            source["dependencies"]!.AsArray().Select(item => new PackDependencyRef(
+                item!["key"]!.GetValue<string>(), item["version"]!.GetValue<string>(),
+                item["declaredDependencyKeys"]!.AsArray().Select(value => value!.GetValue<string>()).ToArray())).ToArray(),
+            source["capabilityRequirements"]!.AsArray().Select(value => value!.GetValue<string>()).ToArray(),
+            1, Dcp: DomainComplianceProfile.General(signer.IssuerId.ToBase64Url()),
+            Exposes: source["exposes"]!.AsArray().Select(value => value!.GetValue<string>()).ToArray(),
+            InterfaceVersion: source["interfaceVersion"]!.GetValue<int>());
+        var exporter = new PackExporter(new PackContentCanonicalizer(), new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()), new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
+            new PackFileCodec(), new FixtureTime());
+        var result = await exporter.ExportAsync(request, signer);
+        return result.Succeeded && result.FileBytes is not null ? result.FileBytes
+            : throw new InvalidOperationException("T-742 export refused: " + string.Join(", ", result.Validation.Errors.Select(error => error.Code)));
     }
 
     private sealed class FixtureTime : TimeProvider
