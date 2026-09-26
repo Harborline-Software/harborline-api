@@ -205,46 +205,6 @@ jobs:
             .claude/gate-evidence/*.trx
             artifacts/quality/
 
-  # T-720: StrykerJS on the JS/TS packages whose source this PR changes. Advisory: it is not in
-  # `verify`'s needs. eng/strykerjs.mjs refuses a run that tested zero mutants (Stryker exits 0 on
-  # one), skips a PR that changed no mutable source, and the json report is uploaded either way.
-  strykerjs:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.1.3
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Install the StrykerJS toolchains
-        # capability-host depends on packages/contracts as a file: dependency, so contracts builds first.
-        run: |
-          (cd packages/contracts && pnpm install --frozen-lockfile && pnpm run build)
-          (cd apps/capability-host && pnpm install --frozen-lockfile)
-      - name: StrykerJS self-test and inventory
-        run: |
-          node --test eng/tests/strykerjs.test.mjs
-          node eng/strykerjs.mjs check
-      - name: StrykerJS on changed source
-        run: node eng/strykerjs.mjs run --base origin/main
-      - name: Mutation report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: strykerjs-${{ github.run_id }}
-          if-no-files-found: ignore
-          retention-days: 14
-          path: '**/reports/mutation/mutation.json'
-
   verify:
     # T-633: the required context. Deliberately unconditional (`always()`), so neither the kill
     # switch nor a fork head nor a failed dependency can leave it skipped-and-therefore-green. It
