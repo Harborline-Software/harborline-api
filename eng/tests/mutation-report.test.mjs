@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import path from 'node:path'
 import test from 'node:test'
-import {changedLines, checkConfigs, mutableChanges, summarise} from '../mutation-report.mjs'
+import {changedLines, checkConfigs, checkSlices, globRegex, mutableChanges, pickSlice, projectSources, sliceMutate, summarise} from '../mutation-report.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const config = (project, extra = {}) => JSON.stringify({'stryker-config': {
@@ -133,4 +133,59 @@ test('the real tree configures or excludes every test project', () => {
   const result = spawnSync(process.execPath, [path.join(root, 'eng/mutation-report.mjs'), '--check'], {encoding: 'utf8'})
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /mutation configs: [1-9]\d* configured/)
+})
+
+// Q44: the host's rotating slices.
+const slices = [
+  {name: 'auth', silentFailure: true, include: ['**/*Authoriz*.cs']},
+  {name: 'data', silentFailure: false, include: ['**/Data/**']},
+  {name: 'rest', silentFailure: false, include: ['**']},
+]
+const pending = {auth: {status: 'pending'}, data: {status: 'pending'}, rest: {status: 'pending'}}
+
+test('globs: ** spans folders (or none), * stays in one', () => {
+  assert.ok(globRegex('**/*Authoriz*.cs').test('AuthorizationGate.cs'))
+  assert.ok(globRegex('**/*Authoriz*.cs').test('Health/RequestAuthorization.cs'))
+  assert.ok(!globRegex('Data/*.cs').test('Data/Identity/Store.cs'))
+  assert.ok(globRegex('**/Data/**').test('Data/Identity/Store.cs'))
+})
+
+test('a slice excludes every earlier slice, so each file has one owner', () => {
+  assert.deepEqual(sliceMutate(slices, 2), ['**', '!**/*Authoriz*.cs', '!**/Data/**'])
+  const {errors, members} = checkSlices({slices}, ['Data/AuthorizationStore.cs', 'Data/Roster.cs', 'Program.cs'], pending)
+  assert.deepEqual(errors, [])
+  assert.deepEqual(members, [1, 1, 1])
+})
+
+test('a file in no slice, and a slice with no file, are refused', () => {
+  const {errors} = checkSlices({slices: slices.slice(0, 2)}, ['Program.cs', 'Data/A.cs'], pending)
+  assert.match(errors.join(), /Program.cs: in no mutation slice/)
+  assert.match(checkSlices({slices}, ['Data/A.cs', 'Program.cs'], pending).errors.join(), /slice auth has no files/)
+})
+
+test('silent-failure slices lead the rotation', () => {
+  const reordered = [slices[1], slices[0], slices[2]]
+  assert.match(checkSlices({slices: reordered}, ['Data/A.cs', 'X/Authorize.cs', 'P.cs'], pending).errors.join(), /must come first/)
+})
+
+test('a slice baseline is pending or measured, never both, and its break holds the floor', () => {
+  const files = ['Authorize.cs', 'Data/A.cs', 'P.cs']
+  assert.match(checkSlices({slices}, files, {...pending, auth: {status: 'pending', score: 41.2}}).errors.join(), /no longer pending/)
+  assert.match(checkSlices({slices}, files, {...pending, auth: {score: 41.2, break: 40}}).errors.join(), /break 40 is below the baseline 41/)
+  assert.deepEqual(checkSlices({slices}, files, {...pending, auth: {score: 41.2, break: 41}}).errors, [])
+  assert.match(checkSlices({slices}, files, {data: pending.data, rest: pending.rest}).errors.join(), /slice auth needs/)
+  assert.match(checkSlices({slices}, files, {...pending, gone: {status: 'pending'}}).errors.join(), /slice gone is not in/)
+})
+
+test('the nightly pick walks the rotation one slice a day and wraps', () => {
+  const day = n => new Date(Date.UTC(2026, 8, 26 + n, 7))
+  const picks = [0, 1, 2, 3].map(n => pickSlice(slices, day(n)).name)
+  assert.equal(new Set(picks.slice(0, 3)).size, 3)
+  assert.equal(picks[3], picks[0])
+  assert.equal(pickSlice(slices, new Date(Date.UTC(2026, 8, 26, 0, 1))).name, pickSlice(slices, new Date(Date.UTC(2026, 8, 26, 23, 59))).name)
+})
+
+test('a project compiles its tracked C# minus Compile Remove, plus linked files', () => {
+  const csproj = '<Compile Remove="Entrypoint.cs" /><Compile Remove="tests/**/*.cs" /><Compile Include="..\\..\\shared\\Env.cs" Link="Env.cs" />'
+  assert.deepEqual(projectSources(csproj, ['Entrypoint.cs', 'Program.cs', 'tests/A.cs', 'README.md']), ['Program.cs', '../../shared/Env.cs'])
 })

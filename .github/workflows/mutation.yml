@@ -2,7 +2,10 @@
 #
 # Every configured .NET test project on main, each held to the break recorded for it in
 # eng/baselines/mutation-baseline.json (the floor of its measured score, raised as test-improvement
-# tickets land). A pull request is never held to that floor: verify.yml's `stryker` job reports the
+# tickets land). The api host is too big for one night (Q44): each night mutates the next slice of
+# eng/baselines/mutation-slices.json (days since the epoch mod the slice count; silent-failure slices
+# first). A slice still "pending" there has its score recorded, not enforced; a follow-up PR copies
+# the score from this run's summary into the baselines file. A pull request is never held to that floor: verify.yml's `stryker` job reports the
 # survivors on its changed lines instead. winbox only (macpro is the gate bottleneck; mac16 is the
 # perf lane's). No pull_request trigger, so no fork code reaches the runner.
 name: mutation
@@ -11,6 +14,11 @@ on:
   schedule:
     - cron: '0 7 * * *'   # 03:00 America/New_York in daylight time (02:00 in standard time)
   workflow_dispatch:
+    inputs:
+      slice:
+        description: Host slice to run instead of tonight's (a name from eng/baselines/mutation-slices.json)
+        required: false
+        default: ''
 
 concurrency:
   group: mutation
@@ -23,7 +31,7 @@ jobs:
   stryker-full:
     if: vars.ACTIONS_ENABLED == 'true'
     runs-on: [self-hosted, Windows, winbox]
-    timeout-minutes: 180
+    timeout-minutes: 360
     defaults:
       run:
         shell: bash
@@ -54,7 +62,9 @@ jobs:
       - name: Mutation (full, break from the baselines file)
         run: |
           dotnet tool restore
-          node eng/mutation-report.mjs --full
+          node eng/mutation-report.mjs --full ${SLICE:+--slice "$SLICE"}
+        env:
+          SLICE: ${{ inputs.slice }}
 
       - name: Mutation reports
         if: always()
