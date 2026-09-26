@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {baselineProblems, changedRanges, effectiveBreak, entryFor, feedback, gaps, isMutable, mutateEntries, shard, tally, verdict} from '../strykerjs.mjs'
+import path from 'node:path'
+
+import {baselineProblems, changedRanges, effectiveBreak, entryFor, feedback, gaps, isMutable, mutateEntries, PACKAGES, sandboxDir, shard, tally, verdict} from '../strykerjs.mjs'
 
 const packages = [
   {path: 'ui/*', toolchain: 'ui/button'},
@@ -80,4 +82,29 @@ test('shards partition the targets', () => {
 
 test('the only sanctioned empty run is Stryker instrumenting zero mutants', () => {
   assert.equal(verdict({status: 1, output: 'INFO Instrumenter Instrumented 1 source file(s) with 0 mutant(s)', report: undefined}).ok, true)
+})
+
+test('the sandbox sits at the package depth under <repo>/.stryker-tmp, so a path climbing to the repo root still reaches it', () => {
+  assert.equal(sandboxDir('apps/capability-host'), '../../.stryker-tmp')
+  assert.equal(sandboxDir('a/b/c'), '../../../.stryker-tmp/nest')
+  assert.throws(() => sandboxDir('lib'))
+  for (const {path: dir, exclude} of PACKAGES) {
+    if (exclude) continue
+    // The capability-host authority registry climbs ../../../../ from src/membrane/<file> to the repo root.
+    const source = path.posix.join(dir, sandboxDir(dir), 'sandbox-x', 'src/membrane/authority-registry.ts')
+    assert.equal(path.posix.join(path.posix.dirname(source), '../../../../packages/harborline-sdk'), 'packages/harborline-sdk', dir)
+  }
+})
+
+test('a failed initial test run is reported by name with the path-dependence hint, not as a missing report', () => {
+  const output = [
+    'ERROR DryRunExecutor One or more tests failed in the initial test run:',
+    '\tmembrane credential mints loads the real registry',
+    '\t\tcommand authority registry is unreadable or invalid',
+    'ERROR Stryker There were failed tests in the initial test run.',
+  ].join('\n')
+  const result = verdict({status: 1, output, report: undefined})
+  assert.equal(result.ok, false)
+  assert.match(result.message, /initial test run failed under Stryker \(membrane credential mints loads the real registry\)/)
+  assert.match(result.message, /relative to its own location/)
 })

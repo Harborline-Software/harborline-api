@@ -23,6 +23,11 @@
 // `check` refuses a missing entry, a break below its baseline, and a `pending` entry (not yet measured); a full
 // run reports a pending package's score without enforcing it.
 //
+// The sandbox sits in <repo>/.stryker-tmp/.../sandbox-*, at the package's own depth (sandboxDir), so a path that
+// climbs from the source to the repo root by import.meta.url (the capability-host authority registry reads
+// ../../../../packages/harborline-sdk) still reaches the real repo. Stryker's default .stryker-tmp inside the
+// package puts the sandbox two levels deeper and that lookup fails the initial test run while plain vitest passes.
+//
 // The silent-failure blocking rule (a survivor on a changed risk: silent line fails the PR) waits on T-719.
 // Kept separate from the Stryker.NET report checker on purpose; the two could merge later.
 import {spawnSync} from 'node:child_process'
@@ -44,6 +49,13 @@ const TESTED = new Set(['Killed', 'Survived', 'Timeout'])
 const FEEDBACK = new Set(['Survived', 'NoCoverage'])
 const MUTABLE = /^src\/.*\.(?:ts|tsx|js|jsx|mts|mjs)$/
 const NOT_MUTABLE = /(?:^|\/)__tests__\/|\.test\.[^/]+$|\.d\.ts$|(?:^|\/)test-setup\.[^/]+$/
+
+// The temp dir, relative to the package, that puts sandbox-* at the package's depth under <repo>/.stryker-tmp.
+export function sandboxDir(dir) {
+  const depth = dir.split('/').length
+  if (dir === '.' || depth < 2) throw new Error(`${dir}: a sandbox at the package's depth needs a package at least two levels deep`)
+  return path.posix.join(...Array(depth).fill('..'), '.stryker-tmp', ...Array(depth - 2).fill('nest'))
+}
 
 export const isMutable = relative => MUTABLE.test(relative) && !NOT_MUTABLE.test(relative)
 
@@ -157,6 +169,11 @@ export function baselineProblems(dirs, baselines = BASELINES, packages = PACKAGE
 // verdict for one package run: {ok, message}. breakAt null: the score is reported, not compared.
 export function verdict({status, output, report, breakAt = null}) {
   if (/Instrumented \d+ source file\(s\) with 0 mutant\(s\)/.test(output)) return {ok: true, message: 'changed lines hold no mutable code (0 mutants generated); skipped'}
+  const failedInitial = /One or more tests failed in the initial test run:\r?\n((?:\t.*(?:\r?\n|$))+)/.exec(output)
+  if (failedInitial || /There were failed tests in the initial test run/.test(output)) {
+    const tests = (failedInitial?.[1] ?? '').split(/\r?\n/).filter(line => /^\t[^\t]/.test(line)).map(line => line.trim())
+    return {ok: false, message: `the initial test run failed under Stryker (${tests.join('; ') || 'see the output'}); if plain vitest passes, a test or source reads a file by a path relative to its own location and the sandbox does not reproduce the repo layout (see sandboxDir)`}
+  }
   if (!report) return {ok: false, message: `no mutation.json written (stryker exit ${status})`}
   const {tested, score, counts} = tally(report)
   if (tested === 0) return {ok: false, message: `0 mutants tested (${JSON.stringify(counts)}); a run that tests nothing is not a pass`}
@@ -186,13 +203,15 @@ function runPackage(dir, entry, files, ranges, full) {
   if (!existsSync(bin)) return {ok: false, message: `StrykerJS is not installed in ${entry.toolchain}; run pnpm install --frozen-lockfile there`}
   const sources = [...new Set(mutate.map(item => item.replace(/:\d+-\d+$/, '')))]
   const before = sources.map(file => readFileSync(path.join(cwd, file), 'utf8'))
-  const status = () => git('status', '--porcelain', '--untracked-files=all', '--', dir).stdout
+  // The whole repo: the sandbox now sits at the repo's depth, so a side-effecting mutant that climbs out of it lands
+  // in the repo, not in the package.
+  const status = () => git('status', '--porcelain', '--untracked-files=all').stdout
   const statusBefore = status()
   // The vitest runner writes stryker-setup-<n>.js into the package and does not always remove it. It is git-ignored,
   // so the stray check below cannot see it, but tooling that walks the directory (the design-review surface digest) can.
   const setupFiles = () => readdirSync(cwd).filter(name => /^stryker-setup-\d+\.js$/.test(name))
   const setupBefore = new Set(setupFiles())
-  const args = [bin, 'run', path.relative(cwd, config), '--mutate', mutate.join(','), ...(entry.testFiles ? ['--testFiles', entry.testFiles.join(',')] : [])]
+  const args = [bin, 'run', path.relative(cwd, config), '--tempDirName', sandboxDir(dir), '--mutate', mutate.join(','), ...(entry.testFiles ? ['--testFiles', entry.testFiles.join(',')] : [])]
   const run = spawnSync(process.execPath, args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
   for (const name of setupFiles()) if (!setupBefore.has(name)) rmSync(path.join(cwd, name), {force: true})
