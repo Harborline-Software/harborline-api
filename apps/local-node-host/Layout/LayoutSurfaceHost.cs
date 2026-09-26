@@ -30,6 +30,26 @@ public sealed class LayoutSurfaceOptions
 
     /// <summary>The minimum time a resolution takes. A resolution that overruns it raises an alarm.</summary>
     public TimeSpan ResponseFloor { get; set; } = DefaultResponseFloor;
+
+    /// <summary>
+    /// Owner ruling of 2026-09-25, off by default: node-wide audit-degraded mode. While node audit health
+    /// (<see cref="NodeEfLayoutDenialOutbox.IsAuditHealthyAsync"/>) is bad, every resolution of a surface
+    /// that declares a related binding is refused with one <see cref="LayoutAuditDegradedException"/>,
+    /// before any target is looked up, and it clears by itself once audit health returns. When off, a
+    /// failed outbox write changes nothing the caller sees; it only raises the alert.
+    /// </summary>
+    public bool AuditDegradedMode { get; set; }
+}
+
+/// <summary>
+/// The one refusal audit-degraded mode gives for every related-binding resolution, whatever the targets.
+/// T-735 maps it to the route's response.
+/// </summary>
+public sealed class LayoutAuditDegradedException()
+    : Exception("Related records are unavailable while this node's audit trail is degraded.")
+{
+    /// <summary>The stable code of the refusal.</summary>
+    public const string Code = "layout.audit.degraded";
 }
 
 /// <summary>
@@ -71,6 +91,15 @@ public sealed class LayoutSurfaceHost(
         CancellationToken ct = default)
     {
         var started = time.GetTimestamp();
+        // Audit-degraded mode reads node audit health only: the decision is made before any target is
+        // looked up, from the definition and the node, never from this request's lookups.
+        if (options.AuditDegradedMode && DeclaresRelatedBinding(definition.Blocks)
+            && !await outbox.IsAuditHealthyAsync(ct).ConfigureAwait(false))
+        {
+            await PadAsync(started, ct).ConfigureAwait(false);
+            throw new LayoutAuditDegradedException();
+        }
+
         var context = new AuthorizationWriteContext(principal, tenant, time.GetUtcNow());
         var resolver = new LayoutBindingResolver(new GuardEvaluator(time));
         var request = new LayoutResolutionRequest(requestId, principal.Value);
@@ -104,23 +133,39 @@ public sealed class LayoutSurfaceHost(
         return resolution;
     }
 
-    /// <summary>How long before the deadline the wait stops sleeping and starts spinning.</summary>
+    /// <summary>The least time before the deadline the wait stops sleeping and starts spinning.</summary>
     internal static readonly TimeSpan SpinWindow = TimeSpan.FromMilliseconds(2);
+
+    /// <summary>The spin window in use: <see cref="SpinWindow"/>, widened to twice the latest timer
+    /// wake-up this process has seen, capped at a quarter of the floor. Process-wide, because timer
+    /// lateness belongs to the OS and the process, not to one host instance.</summary>
+    private static long s_spinWindowTicks = SpinWindow.Ticks;
 
     private async Task PadAsync(long started, CancellationToken ct)
     {
         var remaining = options.ResponseFloor - time.GetElapsedTime(started);
         if (remaining < TimeSpan.Zero) alarms.FloorOverrun();
-        // Sleep to just short of the deadline, then spin onto it. A timer wake-up is late by an amount that
-        // depends on how long the thread slept and how warm its core is, and the denied path sleeps for less
-        // than the missing path; on Linux's precise timers that difference was measurable (run 36155000912).
-        // Ending on a spin puts every path's completion on the same instant, whatever it did before.
-        // ponytail: spins up to SpinWindow plus the timer's lateness per resolution; widen only if a host's
-        // timer wakes later than the window.
-        while (remaining > SpinWindow)
+        // Sleep to short of the deadline, then spin onto it, so every path, the audit-degraded refusal
+        // included, completes on the same instant whatever it did before. A timer wake-up is late by an
+        // amount that can depend on how long the thread slept (macOS coalesces timers in proportion to the
+        // interval), and the denied path sleeps for less than the missing path. A wake-up that lands past
+        // the start of the spin would end that path on the timer instead of the spin, so the window widens
+        // to twice the lateness seen. ponytail: the window only grows; a host whose timer was late once
+        // keeps spinning that long, up to a quarter of the floor.
+        var cap = options.ResponseFloor.Ticks / 4;
+        while (true)
         {
-            await Task.Delay(remaining - SpinWindow, time, ct).ConfigureAwait(false);
+            var window = TimeSpan.FromTicks(Math.Min(Interlocked.Read(ref s_spinWindowTicks), cap));
+            if (remaining <= window) break;
+            var asleep = time.GetTimestamp();
+            await Task.Delay(remaining - window, time, ct).ConfigureAwait(false);
+            var lateness = time.GetElapsedTime(asleep) - (remaining - window);
             remaining = options.ResponseFloor - time.GetElapsedTime(started);
+            for (long seen = Interlocked.Read(ref s_spinWindowTicks), wanted = Math.Min(lateness.Ticks * 2, cap);
+                 wanted > seen && Interlocked.CompareExchange(ref s_spinWindowTicks, wanted, seen) != seen;
+                 seen = Interlocked.Read(ref s_spinWindowTicks))
+            {
+            }
         }
         var spin = new SpinWait();
         while (options.ResponseFloor > time.GetElapsedTime(started))
@@ -129,6 +174,9 @@ public sealed class LayoutSurfaceHost(
             spin.SpinOnce(sleep1Threshold: -1);
         }
     }
+
+    private static bool DeclaresRelatedBinding(IEnumerable<LayoutBlock>? blocks)
+        => (blocks ?? []).Any(block => block.RelatedRelationship is { Length: > 0 } || DeclaresRelatedBinding(block.Children));
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
 

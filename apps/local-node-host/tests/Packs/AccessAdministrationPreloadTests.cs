@@ -768,6 +768,33 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             name => rendered[name].GetProperty("controlHint").GetString() != "select");
     }
 
+    [Fact(DisplayName = "T-752: the catalogue render plan carries the runtime's editor over a signed legacy hint")]
+    public async Task Render_plan_carries_the_runtime_editor_over_a_signed_legacy_hint_on_a_value_domain_field()
+    {
+        // The released access-administration pack carries controlHint "select" on `reason` and `residency`
+        // (option fields). The render plan is what both app lanes' workshop screens read, so ruling 64's
+        // "the runtime's choice wins on render" has to hold here too, not only on the Forms wire.
+        await PreloadPlatformThenAccessAsync();
+        var form = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        var plan = _renderPlans.Get(Tenant, PackContentKind.FormDefinition, "access.grant-a-role", form!.Version.ToString());
+        Assert.NotNull(plan);
+        var fields = plan!.Bindings.GetProperty("fields");
+        var overlay = plan.Bindings.GetProperty("overlay").GetProperty("fields");
+        foreach (var name in new[] { "reason", "residency" })
+        {
+            var options = fields.GetProperty(name).GetProperty("options").EnumerateArray().Select(v => v.GetString()!).ToArray();
+            var runtime = await FieldEditorChoice.ResolveAsync(options, TimeProvider.System, $"/{name}", CancellationToken.None);
+            Assert.Equal(runtime.Editor.ToString(), overlay.GetProperty(name).GetProperty("controlHint").GetString());
+            Assert.Equal(runtime.Values, overlay.GetProperty(name).GetProperty("permittedValues").EnumerateArray().Select(v => v.GetString()!));
+            Assert.NotEqual("select", overlay.GetProperty(name).GetProperty("controlHint").GetString());
+        }
+
+        // Positive control: a field with no value domain keeps its permitted authored hint, untouched.
+        Assert.Equal("text", overlay.GetProperty("person").GetProperty("controlHint").GetString());
+        Assert.False(overlay.GetProperty("person").TryGetProperty("permittedValues", out _));
+    }
+
     [Fact]
     public void The_grant_form_maps_field_for_field_onto_the_grant_writer()
     {
