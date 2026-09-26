@@ -11,6 +11,7 @@ using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Assets.Hierarchy;
@@ -1407,16 +1408,102 @@ public sealed class AuthorizationWriteStageTests
     }
 
     [Fact]
-    public async Task AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder()
+    public async Task AuthorizationDefinitionWriter_AuthorizeRefusalStopsBeforeBindCommitAndReact()
     {
-        var source = Read("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs");
-        AssertBefore(source, "stages.Add(\"authorize\")", "stages.Add(\"bind\")");
-        AssertBefore(source, "stages.Add(\"bind\")", "stages.Add(\"mutate\")");
-        AssertBefore(source, "stages.Add(\"mutate\")", "stages.Add(\"validate\")");
-        AssertBefore(source, "stages.Add(\"validate\")", "stages.Add(\"commit\")");
-        AssertBefore(source, "stages.Add(\"commit\")", "stages.Add(\"react\")");
-        AssertBefore(source, "await AuthorizeAsync(command", "var bound = await BindAsync(command");
-        AssertBefore(source, "gate.DecideAsync", "decision.RequireAllowed");
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var store = new RecordingConfigurationStore(configuration);
+        var states = new RecordingStateReader(configuration);
+        var recorder = new StageRecorder();
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            states,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.Gate(false),
+            TestInMemoryAuthorizationStores.GrantStore(),
+            recorder);
+
+        var definition = PipelineDefinition("aaaaaaaa-1111-2222-3333-444444444444");
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(async () =>
+            await writer.WriteAsync(new InstallAuthorizationDefinition(definition)));
+
+        Assert.Equal(WritePipeline.Order.Take(1), recorder.Stages);
+        Assert.Equal(0, states.ReadCount);
+        Assert.Equal(0, store.CommitCount);
+        Assert.Null((await configuration.ReadStateAsync(definition.DefinitionId)).Definition);
+    }
+
+    [Fact]
+    public async Task AuthorizationDefinitionWriter_ValidateRefusalRunsBindAndMutateButStopsBeforeCommitAndReact()
+    {
+        // Today only authorize (the gate) and validate (admission) have domain-refusal paths.
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var store = new RecordingConfigurationStore(configuration);
+        var states = new RecordingStateReader(configuration);
+        var recorder = new StageRecorder();
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            states,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(),
+            TestInMemoryAuthorizationStores.GrantStore(),
+            recorder);
+
+        var invalid = PipelineDefinition("bbbbbbbb-1111-2222-3333-444444444444") with
+        {
+            Operation = AuthorizationOperation.Parse("unknown:read"),
+            Atom = PermissionAtom.Parse("unknown:read@/"),
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await writer.WriteAsync(new InstallAuthorizationDefinition(invalid)));
+
+        Assert.Equal(WritePipeline.Order.TakeWhile(stage => stage != WritePipelineStage.Commit), recorder.Stages);
+        Assert.Equal(1, states.ReadCount);
+        Assert.Equal(0, store.CommitCount);
+        Assert.Null((await configuration.ReadStateAsync(invalid.DefinitionId)).Definition);
+    }
+
+    [Fact]
+    public async Task AuthorizationDefinitionWriter_RunsEachRealStageInKernelOrder()
+    {
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var store = new RecordingConfigurationStore(configuration);
+        var states = new RecordingStateReader(configuration);
+        var recorder = new StageRecorder();
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            states,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(),
+            TestInMemoryAuthorizationStores.GrantStore(),
+            recorder);
+
+        var result = await writer.WriteAsync(new InstallAuthorizationDefinition(
+            PipelineDefinition("cccccccc-1111-2222-3333-444444444444")));
+
+        Assert.Equal(WritePipeline.Order, recorder.Stages);
+        Assert.Equal(1, states.ReadCount);
+        Assert.Equal(1, store.CommitCount);
+        Assert.Equal(WritePipeline.Order.Select(WritePipeline.NameOf), result.Stages);
+    }
+
+    [Fact]
+    public void WritePipeline_OrderCannotBeMutatedByACallerHoldingIt()
+    {
+        var order = WritePipeline.Order;
+        var before = order.ToArray();
+
+        Assert.Throws<InvalidCastException>(() => ((WritePipelineStage[])order)[0] = WritePipelineStage.React);
+
+        Assert.Equal(before, WritePipeline.Order);
+        Assert.Equal(before, order);
+    }
+
+    [Fact]
+    public async Task AuthorizationSeed_SealedBootstrapRefuses()
+    {
 
         var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
         var tenant = new TenantId("seed-sealed-tenant");
@@ -1715,6 +1802,56 @@ public sealed class AuthorizationWriteStageTests
         var digest = System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes($"harborline.authorization-operation/v1:{operation}"));
         return new AuthorizationCapabilityDefinitionId(new Guid(digest.AsSpan(0, 16)));
+    }
+
+    private static AuthorizationCapabilityDefinition PipelineDefinition(string id) => new(
+        new AuthorizationCapabilityDefinitionId(Guid.Parse(id)),
+        "package.test",
+        1,
+        AuthorizationOperation.Parse(Permission.ContactsRead),
+        PermissionAtom.Parse($"{Permission.ContactsRead}@/"),
+        RoleBindingSet.Of(RoleReference.Administrator));
+
+    private sealed class StageRecorder : IWritePipelineObserver
+    {
+        public List<WritePipelineStage> Stages { get; } = [];
+
+        public void OnStage(WritePipelineStage stage) => Stages.Add(stage);
+    }
+
+    private sealed class RecordingStateReader(InMemoryAuthorizationConfigurationStore inner)
+        : AuthorizationConfigurationStateReader
+    {
+        public int ReadCount { get; private set; }
+
+        public override ValueTask<AuthorizationConfigurationState> ReadStateAsync(
+            AuthorizationCapabilityDefinitionId definitionId,
+            TenantId? tenantId = null,
+            CancellationToken ct = default)
+        {
+            ReadCount++;
+            return inner.ReadStateAsync(definitionId, tenantId, ct);
+        }
+    }
+
+    private sealed class RecordingConfigurationStore(InMemoryAuthorizationConfigurationStore inner)
+        : IAuthorizationConfigurationStore
+    {
+        public int CommitCount { get; private set; }
+
+        public ValueTask CommitAsync(
+            ValidatedAuthorizationConfigurationWrite write,
+            CancellationToken ct = default)
+        {
+            CommitCount++;
+            return inner.CommitAsync(write, ct);
+        }
+
+        public ValueTask CommitBootstrapAsync(
+            ValidatedAuthorizationConfigurationWrite write,
+            TenantId tenant,
+            IGrantStore grants,
+            CancellationToken ct = default) => inner.CommitBootstrapAsync(write, tenant, grants, ct);
     }
 
     private sealed class RacingBootstrapStore(
