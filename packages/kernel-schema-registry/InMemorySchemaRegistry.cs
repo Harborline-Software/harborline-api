@@ -321,20 +321,20 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     /// </summary>
     private static IReadOnlyList<SchemaValidationError> CollectErrors(EvaluationResults results, JsonNode? schemaNode)
     {
-        var collected = new List<SchemaValidationError>();
+        var collected = new List<(string EvaluationPath, SchemaValidationError Error)>();
         Walk(results, schemaNode, collected);
-        collected = DropSummaryOnlyApplicatorErrors(collected);
-        if (collected.Count == 0)
+        var errors = DropSummaryOnlyApplicatorErrors(collected);
+        if (errors.Count == 0)
         {
             // Defensive: IsValid was false but we found no errored leaves.
             // Surface a single aggregate error rather than silently returning
             // an empty list on an invalid result.
-            collected.Add(new SchemaValidationError(
+            errors.Add(new SchemaValidationError(
                 JsonPointer: results.InstanceLocation.ToString(),
                 Message: "Validation failed (no keyword-level details reported).",
                 Code: "invalid"));
         }
-        return collected;
+        return errors;
     }
 
     /// <summary>
@@ -344,9 +344,12 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     /// failed underneath it. 9.2.2 did not surface this summary entry at all (F-20 regression).
     /// <see cref="OutputFormat.List"/> reports every node as a SIBLING in one flat list rather
     /// than a tree, so the summary cannot be recognized by its node having children — instead
-    /// <see cref="DropSummaryOnlyApplicatorErrors"/> drops it by JSON-Pointer nesting: an
-    /// applicator's instance pointer is always an ancestor (or equal to) of the pointer the
-    /// specific failure that made it fail is reported at.
+    /// <see cref="DropSummaryOnlyApplicatorErrors"/> drops it by <b>evaluation-path</b> nesting
+    /// (the SCHEMA location, e.g. "" for the root object vs "/properties/legalName" for one of
+    /// its properties) — never by JSON Pointer / instance location, which two INDEPENDENT
+    /// keyword failures on the very same instance value (e.g. root-level <c>not</c> and
+    /// <c>minLength</c> both failing on the same string) share without either being a summary of
+    /// the other (CodeRabbit 4112934954).
     /// </summary>
     private static readonly HashSet<string> SummaryOnlyApplicatorKeywords = new(StringComparer.Ordinal)
     {
@@ -354,25 +357,35 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         "allOf", "anyOf", "oneOf", "not", "if", "dependentSchemas",
     };
 
-    private static List<SchemaValidationError> DropSummaryOnlyApplicatorErrors(List<SchemaValidationError> errors)
+    private static List<SchemaValidationError> DropSummaryOnlyApplicatorErrors(
+        List<(string EvaluationPath, SchemaValidationError Error)> entries)
     {
-        if (errors.Count < 2) return errors;
-        return errors
-            .Where(e => !SummaryOnlyApplicatorKeywords.Contains(e.Code ?? string.Empty)
-                || !errors.Any(other => !ReferenceEquals(other, e) && IsPointerDescendantOrSame(other.JsonPointer, e.JsonPointer)))
+        if (entries.Count < 2)
+        {
+            return entries.Select(e => e.Error).ToList();
+        }
+        return entries
+            .Where(e => !SummaryOnlyApplicatorKeywords.Contains(e.Error.Code ?? string.Empty)
+                || !entries.Any(other => !ReferenceEquals(other.Error, e.Error)
+                    && IsStrictDescendantPath(other.EvaluationPath, e.EvaluationPath)))
+            .Select(e => e.Error)
             .ToList();
     }
 
-    /// <summary>True when <paramref name="pointer"/> is <paramref name="ancestor"/> itself or one
-    /// path segment (or more) below it — e.g. ancestor "" is a match for "/legalName", and
-    /// ancestor "/address" is a match for "/address/city" but not "/addressLine2".</summary>
-    private static bool IsPointerDescendantOrSame(string pointer, string ancestor)
-        => pointer == ancestor
-            || (pointer.Length > ancestor.Length
-                && pointer.StartsWith(ancestor, StringComparison.Ordinal)
-                && pointer[ancestor.Length] == '/');
+    /// <summary>True when <paramref name="path"/> is one schema-path segment (or more) BELOW
+    /// <paramref name="ancestor"/> — e.g. ancestor "" matches "/properties/legalName" (the
+    /// subschema "properties" applies into), but NOT "" itself: two keywords declared at the
+    /// SAME schema location (same <c>EvaluationPath</c>) are independent siblings, never one a
+    /// summary of the other, even when they fail on the identical instance value.</summary>
+    private static bool IsStrictDescendantPath(string path, string ancestor)
+        => path.Length > ancestor.Length
+            && path.StartsWith(ancestor, StringComparison.Ordinal)
+            && path[ancestor.Length] == '/';
 
-    private static void Walk(EvaluationResults node, JsonNode? schemaNode, List<SchemaValidationError> sink)
+    private static void Walk(
+        EvaluationResults node,
+        JsonNode? schemaNode,
+        List<(string EvaluationPath, SchemaValidationError Error)> sink)
     {
         // Errors is a Dictionary<string, string>? on EvaluationResults —
         // keyed by the failing keyword (e.g. "type", "required", "minimum")
@@ -413,7 +426,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         string instancePointer,
         string evaluationPath,
         JsonNode? schemaNode,
-        List<SchemaValidationError> sink)
+        List<(string EvaluationPath, SchemaValidationError Error)> sink)
     {
         // An empty keyword key is the boolean-false-schema rejection (e.g. an
         // `additionalProperties: false` violation, which the validator reports
@@ -439,21 +452,21 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
                 // per-field error only for those genuinely missing.
                 if (missing.Count > 0 && !missing.Contains(name)) continue;
                 var fieldPointer = instancePointer.Length == 0 ? $"/{EncodePointerSegment(name)}" : $"{instancePointer}/{EncodePointerSegment(name)}";
-                sink.Add(new SchemaValidationError(
+                sink.Add((evaluationPath, new SchemaValidationError(
                     JsonPointer: fieldPointer,
                     Message: $"required: '{name}' is required.",
                     Code: "required",
-                    Params: new Dictionary<string, string> { ["field"] = name }));
+                    Params: new Dictionary<string, string> { ["field"] = name })));
             }
             return;
         }
 
         var parameters = BuildParams(code, keywordValue);
-        sink.Add(new SchemaValidationError(
+        sink.Add((evaluationPath, new SchemaValidationError(
             JsonPointer: instancePointer,
             Message: message,
             Code: code,
-            Params: parameters));
+            Params: parameters)));
     }
 
     /// <summary>
