@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// StrykerJS over the JavaScript/TypeScript test suites (T-720; PROC-0002 thresholds 80/60/60, json report).
+// StrykerJS over the JavaScript/TypeScript test suites (T-720; PROC-0002 high/low 80/60, json report).
 //
 //   node eng/strykerjs.mjs check
 //       Every test package (a directory with a vitest/jest/karma/playwright config, or a package.json
@@ -14,6 +14,11 @@
 // mutant (Killed, Survived or Timeout). The one sanctioned empty run is Stryker's own "with 0 mutant(s)"
 // instrumentation line: the changed files hold no runtime code (a types-only file), which is a skip.
 //
+// Break is per package and lives in strykerjs.baselines.json, not in the Stryker config (whose break is null):
+// owner ruling 2026-09-26, each package's break starts at its measured baseline and is raised as tests
+// improve. `check` refuses a break below the recorded baseline; `run` fails a score below the package's break.
+// A package with no measured baseline yet takes the file's default (PROC-0002's 60).
+//
 // Kept separate from the Stryker.NET report checker on purpose; the two could merge later.
 import {spawnSync} from 'node:child_process'
 import {existsSync, readFileSync} from 'node:fs'
@@ -21,6 +26,7 @@ import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
 const config = path.join(import.meta.dirname, 'strykerjs.config.json')
+export const BASELINES = JSON.parse(readFileSync(path.join(import.meta.dirname, 'strykerjs.baselines.json'), 'utf8'))
 
 // `dir/*` covers every direct child directory. `toolchain` is where @stryker-mutator and vitest are installed.
 export const PACKAGES = [
@@ -81,15 +87,31 @@ export function tally(report) {
   return {counts, tested, score: valid ? Math.round((detected / valid) * 10000) / 100 : null}
 }
 
+export const breakFor = (dir, baselines = BASELINES) => baselines.packages[dir]?.break ?? baselines.default.break
+
+// A break below its baseline, a baseline with no break, or a baseline for a package that is not mutated.
+export function baselineProblems(dirs, baselines = BASELINES, packages = PACKAGES) {
+  const problems = []
+  if (typeof baselines.default?.break !== 'number') problems.push('strykerjs.baselines.json: default.break must be a number')
+  for (const [dir, entry] of Object.entries(baselines.packages ?? {})) {
+    if (typeof entry.baseline !== 'number' || typeof entry.break !== 'number') problems.push(`${dir}: baseline and break must both be numbers`)
+    else if (entry.break < entry.baseline) problems.push(`${dir}: break ${entry.break} is below the recorded baseline ${entry.baseline}`)
+    const owner = entryFor(dir, packages)
+    if (!dirs.includes(dir) || !owner || owner.exclude) problems.push(`${dir}: baseline names no mutated test package`)
+  }
+  return problems
+}
+
 // verdict for one package run: {ok, message}
-export function verdict({status, output, report}) {
+export function verdict({status, output, report, breakAt = BASELINES.default.break}) {
   if (/Instrumented \d+ source file\(s\) with 0 mutant\(s\)/.test(output)) return {ok: true, message: 'changed files hold no mutable code (0 mutants generated); skipped'}
   if (!report) return {ok: false, message: `no mutation.json written (stryker exit ${status})`}
   const {tested, score, counts} = tally(report)
   if (tested === 0) return {ok: false, message: `0 mutants tested (${JSON.stringify(counts)}); a run that tests nothing is not a pass`}
   if (counts.SurvivedNoTestsRan) return {ok: false, message: `${counts.SurvivedNoTestsRan} covered mutants ran zero tests: the test runner is not executing mutant runs (${JSON.stringify(counts)})`}
-  if (status !== 0) return {ok: false, message: `stryker exit ${status}: score ${score} under break 60, or a run error (${tested} tested)`}
-  return {ok: true, message: `${tested} tested, score ${score} ${JSON.stringify(counts)}`}
+  if (status !== 0) return {ok: false, message: `stryker exit ${status}: a run error (${tested} tested, score ${score})`}
+  if (score < breakAt) return {ok: false, message: `score ${score} under break ${breakAt} (${tested} tested) ${JSON.stringify(counts)}`}
+  return {ok: true, message: `${tested} tested, score ${score}, break ${breakAt} ${JSON.stringify(counts)}`}
 }
 
 const git = (...args) => spawnSync('git', args, {cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024})
@@ -115,17 +137,17 @@ function runPackage(dir, entry, files) {
   // A mutant with a side effect (one wrote a file named "-s" into the api's capability-host) lands in the real tree in place.
   const strays = lines(status()).filter(line => !lines(statusBefore).includes(line))
   if (strays.length) return {ok: false, message: `the run left files in the working tree: ${strays.join('; ')}`}
-  return verdict({status: run.status, output, report})
+  return verdict({status: run.status, output, report, breakAt: breakFor(dir)})
 }
 
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2)
   const tracked = lines(git('ls-files').stdout)
   const dirs = testPackages(tracked)
-  const problems = gaps(dirs)
+  const problems = [...gaps(dirs), ...baselineProblems(dirs)]
   for (const problem of problems) console.log(`FAIL ${problem}`)
   if (command === 'check') {
-    for (const dir of dirs) { const entry = entryFor(dir); if (entry) console.log(`ok ${dir}: ${entry.exclude ? `excluded (${entry.exclude})` : `mutated with ${entry.toolchain}`}`) }
+    for (const dir of dirs) { const entry = entryFor(dir); if (entry) console.log(`ok ${dir}: ${entry.exclude ? `excluded (${entry.exclude})` : `mutated with ${entry.toolchain}, break ${breakFor(dir)}`}`) }
     process.exit(problems.length ? 1 : 0)
   }
   if (command !== 'run') { console.error('usage: node strykerjs.mjs check | run [--base <ref>] [--all] [<package dir>...]'); process.exit(2) }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {entryFor, gaps, isMutable, mutableFiles, tally, verdict} from '../strykerjs.mjs'
+import {baselineProblems, breakFor, entryFor, gaps, isMutable, mutableFiles, tally, verdict} from '../strykerjs.mjs'
 
 const packages = [
   {path: 'ui/*', toolchain: 'ui/button'},
@@ -32,10 +32,23 @@ test('a report with zero tested mutants fails even when Stryker exits 0 (the T-7
   assert.equal(verdict({status: 0, output: '', report: ranNoTests}).ok, false, 'any such mutant means the runner is not running mutant tests')
 })
 
-test('a run with tested mutants passes above break and fails below it', () => {
-  assert.deepEqual(tally(report(['Killed', 'Killed', 'Timeout', 'Survived', 'NoCoverage'])).score, 60)
-  assert.equal(verdict({status: 0, output: '', report: report(['Killed', 'Survived'])}).ok, true)
-  assert.equal(verdict({status: 1, output: '', report: report(['Killed', 'Survived', 'Survived'])}).ok, false)
+test('a run with tested mutants passes at or above its break and fails below it', () => {
+  const sixty = report(['Killed', 'Killed', 'Timeout', 'Survived', 'NoCoverage'])
+  assert.deepEqual(tally(sixty).score, 60)
+  assert.equal(verdict({status: 0, output: '', report: sixty, breakAt: 60}).ok, true)
+  assert.equal(verdict({status: 0, output: '', report: sixty, breakAt: 61}).ok, false, 'Stryker break is null; the checker enforces the per-package break')
+  assert.equal(verdict({status: 1, output: '', report: sixty, breakAt: 0}).ok, false, 'a non-zero Stryker exit is a run error')
+})
+
+test('a break below its recorded baseline is refused, and unmeasured packages take the default', () => {
+  const baselines = {default: {break: 60}, packages: {'ui/card': {baseline: 59, break: 59}, lib: {baseline: 73, break: 75}}}
+  assert.deepEqual(baselineProblems(['ui/card', 'lib', 'e2e'], baselines, packages), [])
+  assert.equal(breakFor('ui/card', baselines), 59)
+  assert.equal(breakFor('ui/other', baselines), 60)
+  const lowered = {...baselines, packages: {...baselines.packages, lib: {baseline: 73, break: 70}}}
+  assert.deepEqual(baselineProblems(['ui/card', 'lib', 'e2e'], lowered, packages), ['lib: break 70 is below the recorded baseline 73'])
+  const stray = {...baselines, packages: {e2e: {baseline: 10, break: 10}}}
+  assert.deepEqual(baselineProblems(['e2e'], stray, packages), ['e2e: baseline names no mutated test package'])
 })
 
 test('the only sanctioned empty run is Stryker instrumenting zero mutants', () => {

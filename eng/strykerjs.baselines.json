@@ -1,0 +1,17 @@
+{
+  "why": "Owner ruling 2026-09-26: each package's break starts at the floor of its lowest observed score and is raised as test-improvement tickets land. PROC-0002's high 80 / low 60 stay the target. A package with no measured baseline takes the default. eng/strykerjs.mjs check refuses a break below its baseline.",
+  "default": {
+    "break": 60,
+    "why": "PROC-0002 break, for a package with no measured baseline yet"
+  },
+  "packages": {
+    "apps/capability-host": {
+      "baseline": 50,
+      "break": 50,
+      "observed": [
+        50.67
+      ],
+      "measured": "2026-09-26, winbox, every mutable file (--all), StrykerJS 10.0.0 vitest-runner, 15 workers, sandboxed"
+    }
+  }
+}
