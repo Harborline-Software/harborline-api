@@ -1169,6 +1169,14 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                         // mutable runtime registry for this reconciler to update.
                         break;
 
+                    case PackContentKind.Layout:
+                    case PackContentKind.Resource:
+                    case PackContentKind.Bookable:
+                        // These platform-owned definitions remain immutable declarative bindings in the
+                        // installed seed. The node has no second, executable projection for them (S-3);
+                        // their platform consumers interpret the admitted declaration on read.
+                        break;
+
                     case PackContentKind.TerminologyOverride:
                         var terminologyDecision = DecideContested(pack, item, collisions);
                         if (terminologyDecision == ContestedDecision.OwnedByOtherPack) break;
@@ -3197,6 +3205,9 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                 PackContentKind.TemplateDefinition => _templates?.Remove(item.Key, item.Version) == true,
                 PackContentKind.TaxonomyDefinition => await RetractTaxonomyAsync(
                     tenant, item, authority, cancellationToken).ConfigureAwait(false),
+                PackContentKind.Layout => false,
+                PackContentKind.Resource => false,
+                PackContentKind.Bookable => false,
                 _ => false,
             };
 

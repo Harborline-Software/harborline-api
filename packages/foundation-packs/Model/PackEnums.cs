@@ -76,6 +76,18 @@ public enum PackContentKind
     /// predicate installed as ordinary content, never a new authorization gate kind.</summary>
     StandingRuleDefinition = 13,
 
+    /// <summary>A Layout definition. This is a declarative, platform-owned layout binding;
+    /// it never carries executable rendering behavior (S-3).</summary>
+    Layout = 17,
+
+    /// <summary>A Booking resource definition. It is declarative capacity/availability content,
+    /// never an allocation or other runtime booking data (S-3).</summary>
+    Resource = 18,
+
+    /// <summary>A Booking bookable definition. It is declarative booking policy/content,
+    /// never a hold, allocation, or other executable/runtime booking data (S-3).</summary>
+    Bookable = 19,
+
     /// <summary>A schedule definition (ticket 075): a DECLARATIVE artifact per design invariant S-3
     /// (packs carry config, not code) — a versioned binding of the node's EXISTING scheduling
     /// authoring contract (<c>harborline.scheduling-definition-draft/v0</c>) to a host-registered
