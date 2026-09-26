@@ -323,6 +323,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     {
         var collected = new List<SchemaValidationError>();
         Walk(results, schemaNode, collected);
+        collected = DropSummaryOnlyApplicatorErrors(collected);
         if (collected.Count == 0)
         {
             // Defensive: IsValid was false but we found no errored leaves.
@@ -335,6 +336,41 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         }
         return collected;
     }
+
+    /// <summary>
+    /// Applicator keywords whose OWN <see cref="EvaluationResults.Errors"/> entry (as of
+    /// JsonSchema.Net 9.4.0, needed by T-737's platform-pin move) is just "one or more of my
+    /// subschemas failed" — a summary that duplicates whatever specific leaf keyword already
+    /// failed underneath it. 9.2.2 did not surface this summary entry at all (F-20 regression).
+    /// <see cref="OutputFormat.List"/> reports every node as a SIBLING in one flat list rather
+    /// than a tree, so the summary cannot be recognized by its node having children — instead
+    /// <see cref="DropSummaryOnlyApplicatorErrors"/> drops it by JSON-Pointer nesting: an
+    /// applicator's instance pointer is always an ancestor (or equal to) of the pointer the
+    /// specific failure that made it fail is reported at.
+    /// </summary>
+    private static readonly HashSet<string> SummaryOnlyApplicatorKeywords = new(StringComparer.Ordinal)
+    {
+        "properties", "patternProperties", "items", "prefixItems", "contains",
+        "allOf", "anyOf", "oneOf", "not", "if", "dependentSchemas",
+    };
+
+    private static List<SchemaValidationError> DropSummaryOnlyApplicatorErrors(List<SchemaValidationError> errors)
+    {
+        if (errors.Count < 2) return errors;
+        return errors
+            .Where(e => !SummaryOnlyApplicatorKeywords.Contains(e.Code ?? string.Empty)
+                || !errors.Any(other => !ReferenceEquals(other, e) && IsPointerDescendantOrSame(other.JsonPointer, e.JsonPointer)))
+            .ToList();
+    }
+
+    /// <summary>True when <paramref name="pointer"/> is <paramref name="ancestor"/> itself or one
+    /// path segment (or more) below it — e.g. ancestor "" is a match for "/legalName", and
+    /// ancestor "/address" is a match for "/address/city" but not "/addressLine2".</summary>
+    private static bool IsPointerDescendantOrSame(string pointer, string ancestor)
+        => pointer == ancestor
+            || (pointer.Length > ancestor.Length
+                && pointer.StartsWith(ancestor, StringComparison.Ordinal)
+                && pointer[ancestor.Length] == '/');
 
     private static void Walk(EvaluationResults node, JsonNode? schemaNode, List<SchemaValidationError> sink)
     {

@@ -443,7 +443,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
                 (AccessAdministrationPreloadHostedService.PackKey, AccessAdministrationPreloadHostedService.PackVersion,
                     PackLifecycleState.Active, 6),
                 (PlatformPackPreloadHostedService.PackKey, PlatformPackPreloadHostedService.PackVersion,
-                    PackLifecycleState.Active, 64),
+                    PackLifecycleState.Active, 67),
             },
             firstBoot);
         Assert.Equal(
