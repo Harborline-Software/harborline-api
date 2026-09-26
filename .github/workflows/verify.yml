@@ -443,3 +443,58 @@ jobs:
             .git/harborline-api-verify-receipt.json
             .git/harborline-api-quality-decision.json
             .claude/gate-evidence/
+
+  stryker:
+    # T-236 row 5: Stryker.NET, since origin/main, on each .NET test project whose mutated project has
+    # changed .cs files (eng/mutation-report.mjs; projects with no change are skipped). Advisory: not in
+    # `verify`'s needs yet. It fails when a run tested no mutant, because Stryker exits 0 having
+    # mutated nothing (T-720). winbox only: macpro is the gate bottleneck and mac16 is the perf lane's.
+    # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
+    # guards are the other self-hosted lanes'. Its platform clone is its own, so a concurrent
+    # verify-windows never sees it move.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    runs-on: [self-hosted, Windows, winbox]
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_PACKAGES: C:\nuget-runner
+    steps:
+      - name: Git Bash on PATH for the service account
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Platform pin and local feed
+        run: |
+          plat="$USERPROFILE/Projects/Harborline/lanes/platform-pin-stryker"
+          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
+          [ -d "$plat/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$plat"
+          git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" && git -C "$plat" clean -fdxq
+          HARBORLINE_PLATFORM_REPO="$plat" node eng/build-local-feed.mjs
+
+      - name: Mutation (since origin/main)
+        run: |
+          dotnet tool restore
+          node eng/mutation-report.mjs
+
+      - name: Mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stryker-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: .stryker/*/reports/mutation-report.json
