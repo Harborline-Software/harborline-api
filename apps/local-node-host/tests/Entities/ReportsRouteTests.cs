@@ -204,7 +204,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/trial-balance",
             new { chartId = chartId.Value, asOfDate = $"{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}" });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.TrialBalance, chartId);
         var doc = await resp.Content.ReadFromJsonAsync<JsonElement>();
         var result = doc.GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
@@ -221,7 +221,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/balance-sheet",
             new { chartId = chartId.Value, asOfDate = $"{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}" });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.BalanceSheet, chartId);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -234,7 +234,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/profit-and-loss",
             new { chartId = chartId.Value });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.ProfitAndLoss, chartId);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -247,7 +247,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/profit-and-loss-by-property",
             new { chartId = chartId.Value });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.ProfitAndLossByProperty, chartId);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
     }
@@ -259,7 +259,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/ar-aging-summary",
             new { chartId = chartId.Value });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.ArAgingSummary, chartId);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
         // No invoices seeded — totals present + zeroed (the report still computes offline).
@@ -273,19 +273,23 @@ public sealed class ReportsRouteTests : IAsyncLifetime
 
         var resp = await _client.PostAsJsonAsync($"{ReportsBase}/ap-aging-summary",
             new { chartId = chartId.Value });
-        AssertReportAllowed(resp);
+        AssertReportAllowed(resp, ReportKind.ApAgingSummary, chartId);
         var result = (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("result");
         Assert.Equal(chartId.Value, result.GetProperty("chartId").GetString());
         Assert.True(result.TryGetProperty("totals", out _));
     }
 
-    private void AssertReportAllowed(HttpResponseMessage response)
+    private void AssertReportAllowed(HttpResponseMessage response, ReportKind kind, ChartOfAccountsId chartId)
     {
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var decision = Assert.Single(_decisions);
         Assert.Equal("reports:run", decision.Act.Operation.Value);
         Assert.Equal(LocalTenantId, decision.Tenant);
-        Assert.Equal("/", decision.Target.Scope.ToString());
+        Assert.Equal("reports", decision.Target.RecordKind);
+        var recordId = $"{kind.ToKebab()}:{Convert.ToHexString(SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(chartId.Value)))}";
+        Assert.Equal(recordId, decision.Target.RecordId);
+        Assert.Equal($"/records/{recordId}", decision.Target.Scope.ToString());
     }
 
     // ── chart guard ───────────────────────────────────────────────────────────────────
@@ -368,8 +372,8 @@ public sealed class ReportsRouteTests : IAsyncLifetime
     }
 }
 
-/// <summary>T-576: direct report calls must pass the install authorization decision before any read.</summary>
-public sealed class ReportsRouteAuthorizationTests
+/// <summary>T-576: direct report calls must pass the report-kind-and-chart authorization decision before any read.</summary>
+public sealed class ReportsRouteTestsAuthorization
 {
     private static readonly TenantId Tenant = ActiveTeamTenantContext.ProjectTenantId(NodeTestActiveTeam.TestTeamId);
     private const string PrivateChart = "private-report-chart-576";
@@ -384,7 +388,20 @@ public sealed class ReportsRouteAuthorizationTests
     [Theory]
     [MemberData(nameof(Routes))]
     public Task Every_report_without_principal_renders_the_gate_denial(string route) =>
-        AssertRefusedAsync(route, allowed: false, selectedTenant: null, hasClock: true);
+        AssertRefusedAsync(route, allowed: false, selectedTenant: null, hasClock: true,
+            expectedRecordId: ReportRecordIdForRoute(route));
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public Task Every_report_with_a_malformed_credential_renders_the_gate_denial(string route) =>
+        AssertRefusedAsync(route, allowed: false, selectedTenant: null, hasClock: true,
+            credential: "not-a-valid-report-credential", expectedRecordId: ReportRecordIdForRoute(route));
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public Task Every_report_with_an_expired_credential_renders_the_gate_denial(string route) =>
+        AssertRefusedAsync(route, allowed: false, selectedTenant: null, hasClock: true,
+            credential: "expired-report-credential-576", expectedRecordId: ReportRecordIdForRoute(route));
 
     [Theory]
     [MemberData(nameof(Routes))]
@@ -398,10 +415,20 @@ public sealed class ReportsRouteAuthorizationTests
 
     [Fact]
     public Task Report_denial_is_audited_without_credentials_or_report_parameters() =>
-        AssertRefusedAsync("/trial-balance", allowed: false, selectedTenant: null, hasClock: true, audit: true);
+        AssertRefusedAsync("/trial-balance", allowed: false, selectedTenant: null, hasClock: true, audit: true,
+            expectedRecordId: ReportRecordIdForRoute("/trial-balance"));
+
+    private static string ReportRecordIdForRoute(string route) =>
+        ReportRecordId(route[1..], PrivateChart);
+
+    private static string ReportRecordId(ReportKind kind, ChartOfAccountsId chartId) =>
+        ReportRecordId(kind.ToKebab(), chartId.Value);
+
+    private static string ReportRecordId(string kind, string chartId) =>
+        $"{kind}:{Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(chartId)))}";
 
     private static async Task AssertRefusedAsync(string route, bool allowed, TenantId? selectedTenant,
-        bool hasClock, bool audit = false)
+        bool hasClock, bool audit = false, string credential = PrivateCredential, string? expectedRecordId = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -443,7 +470,7 @@ public sealed class ReportsRouteAuthorizationTests
             {
                 Content = JsonContent.Create(new { chartId = PrivateChart, asOfDate = "2025-01-17" }),
             };
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", PrivateCredential);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
             using var response = await client.SendAsync(request);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
             var wire = await response.Content.ReadAsStringAsync();
@@ -455,7 +482,7 @@ public sealed class ReportsRouteAuthorizationTests
                     ? new[] { "auditId", "code", "detail", "permission", "remediation", "title" }
                     : new[] { "code", "detail", "permission", "remediation", "title" },
                 refusal.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray());
-            AssertRedacted(wire);
+            AssertRedacted(wire, credential);
             Assert.Equal(0, runner.Calls);
             Assert.Equal(0, factory.Calls);
             Assert.Equal(hasClock ? 1 : 0, clock.Reads);
@@ -464,8 +491,13 @@ public sealed class ReportsRouteAuthorizationTests
                 var decision = Assert.Single(decisions);
                 Assert.Equal(Tenant, decision.Tenant);
                 Assert.Equal("reports:run", decision.Act.Operation.Value);
-                Assert.Equal("/", decision.Target.Scope.ToString());
                 Assert.Equal(TestAuthorization.At, decision.At);
+                if (expectedRecordId is not null)
+                {
+                    Assert.Equal("reports", decision.Target.RecordKind);
+                    Assert.Equal(expectedRecordId, decision.Target.RecordId);
+                    Assert.Equal($"/records/{expectedRecordId}", decision.Target.Scope.ToString());
+                }
             }
             else Assert.Empty(decisions);
 
@@ -490,9 +522,10 @@ public sealed class ReportsRouteAuthorizationTests
         finally { await app.StopAsync(); }
     }
 
-    private static void AssertRedacted(string text)
+    private static void AssertRedacted(string text, params string[] credentials)
     {
-        foreach (var secret in new[] { PrivateChart, PrivateCredential, "chartId", "asOfDate", "2025-01-17" })
+        foreach (var secret in new[] { PrivateChart, PrivateCredential, "chartId", "asOfDate", "2025-01-17" }
+            .Concat(credentials))
             Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
     }
 

@@ -91,8 +91,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <c>HttpContext.Features</c>, so two signed-in members no longer share one recorded
 /// provenance principal. It falls back to the single-operator identity only when no principal
 /// is bound (the bootstrap/desktop path). The derivation is unchanged; only its input is. The
-/// authorization decision is <c>reports:run</c> on the install record (T-576), made before
-/// chart access or runner execution. RequestedBy remains attribution and is derived only after
+/// authorization decision is <c>reports:run</c> on the requested report-kind and chart record (T-576),
+/// made before chart access or runner execution. RequestedBy remains attribution and is derived only after
 /// admission. The loopback listener is a transport control, never authorization.
 /// </para>
 /// </remarks>
@@ -177,12 +177,18 @@ public static class ReportsRoutes
         var time = http.RequestServices.GetService<TimeProvider>();
         if (time is null) return RequestAuthorization.Denied(Permission.ReportsRun);
         var authority = RequestAuthorization.Authority(http, tenant, time);
-        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.ReportsRun, RouteRecord.TheInstall, ct)
+        var reportRecord = RouteRecord.Of(ReportRecordId(kind, requestedChartId));
+        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.ReportsRun, reportRecord, ct)
             .ConfigureAwait(false) is { } refused) return refused;
 
         return await RunAsync<TParams, TResult>(kind, parameters, requestedChartId, runner, factory,
             tenant, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
     }
+
+    // Authorization decisions are audited. Preserve per-report-kind, per-chart scope without putting the
+    // caller-supplied chart id in decision/audit evidence that intentionally redacts report parameters.
+    private static string ReportRecordId(ReportKind kind, ChartOfAccountsId chartId) =>
+        $"{kind.ToKebab()}:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(chartId.Value)))}";
 
     private static async Task<IResult> RunAsync<TParams, TResult>(
         ReportKind kind,
