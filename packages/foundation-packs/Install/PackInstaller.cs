@@ -813,10 +813,16 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 signerB64, epoch, scope);
         }
 
+        // Explicitly classify every verified item before the remaining admission gates. The preview
+        // exposes the resulting destinations, so this is an admission decision rather than a
+        // feature-graph read-model-only projection (T-565).
+        var destinationClassifications = PackDestinationClassifier.Classify(contents);
+
         // A verified declaration is not enough: content must have a live projection path in this build.
-        // NavWorkspaceConfig is intentionally absent because PackNavigationRoutes projects it directly
-        // from active immutable seeds on read. Standards and cascade defaults still have no consumer.
-        var earlyRefusals = UnsupportedContentKindRefusals(contents);
+        // The transport rule is distinct from whether this node consumes a capability: standards never
+        // travel, while cascade defaults remain conditional on this node's admission implementation.
+        var earlyRefusals = PackTransportRuleCheck.FindRefusals(contents).ToList();
+        earlyRefusals.AddRange(UnsupportedCascadeDefaultsRefusals(contents));
         if (!collectRefusals && earlyRefusals.Count > 0)
         {
             // Preserve install's established priority (standards, then cascade),
@@ -831,10 +837,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             {
                 PackInstallCodes.RefusedUnsupportedStandardsCatalog => HardRefusal(
                     manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal],
+                    destinationClassifications: destinationClassifications),
                 _ => HardRefusal(
                     manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                    revocationStale, signerB64, epoch, scope, refusals: [refusal]),
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal],
+                    destinationClassifications: destinationClassifications),
             };
         }
 
@@ -1078,6 +1086,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             UnmetDependencies = unmetDependencies,
             Refusals = refusals,
+            DestinationClassifications = destinationClassifications,
         };
 
         // (S-4) Anti-laundering-by-OMISSION: the installed seed's own floor set must never DROP a floor the
@@ -1112,7 +1121,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         long? epoch = null,
         Harborline.Api.Foundation.Packs.Trust.TrustScope? scope = null,
         IReadOnlyList<PackUnmetPlatformRequirement>? unmetPlatformRequirements = null,
-        IReadOnlyList<PackInstallRefusal>? refusals = null)
+        IReadOnlyList<PackInstallRefusal>? refusals = null,
+        IReadOnlyList<PackContentDestination>? destinationClassifications = null)
     {
         var preview = new PackInstallPreview(
             PackInstallVerdict.Refused, packKey, version, signerB64, epoch, scope,
@@ -1128,25 +1138,22 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             UnmetPlatformRequirements: unmetPlatformRequirements ?? Array.Empty<PackUnmetPlatformRequirement>())
         {
             Refusals = refusals ?? [new PackInstallRefusal(code, "/")],
+            DestinationClassifications = destinationClassifications ?? Array.Empty<PackContentDestination>(),
         };
         return new InstallPlan(preview, null, epoch, null, null, null, PackInstallAuditAction.Refused);
     }
 
-    private List<PackInstallRefusal> UnsupportedContentKindRefusals(IReadOnlyList<PackContentItem> contents)
+    private List<PackInstallRefusal> UnsupportedCascadeDefaultsRefusals(IReadOnlyList<PackContentItem> contents)
     {
         var refusals = new List<PackInstallRefusal>();
         for (var index = 0; index < contents.Count; index++)
         {
-            var code = contents[index].Kind switch
+            if (contents[index].Kind == PackContentKind.CascadeDefaults
+                && _admission is not IPackCascadeDefaultsAdmission { ConsumesCascadeDefaults: true })
             {
-                PackContentKind.StandardsCatalog => PackInstallCodes.RefusedUnsupportedStandardsCatalog,
-                PackContentKind.CascadeDefaults when _admission is not IPackCascadeDefaultsAdmission { ConsumesCascadeDefaults: true }
-                    => PackInstallCodes.RefusedUnsupportedCascadeDefaults,
-                _ => null,
-            };
-            if (code is not null)
-            {
-                refusals.Add(new PackInstallRefusal(code, ContentPointer(index)));
+                refusals.Add(new PackInstallRefusal(
+                    PackInstallCodes.RefusedUnsupportedCascadeDefaults,
+                    ContentPointer(index)));
             }
         }
 
