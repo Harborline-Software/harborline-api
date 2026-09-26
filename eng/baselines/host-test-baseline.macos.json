@@ -6,12 +6,13 @@
   "recordedAt": "2026-09-15T17:02:28Z",
   "comparison": "named",
   "totals": {
-    "total": 4095,
-    "passed": 4069,
+    "total": 4101,
+    "passed": 4075,
     "failed": 4,
     "notExecuted": 22
   },
   "policy": [
+    "T-737 (PR 232) adopts the platform's Layout and Booking content kinds and pillars, and its own PR review (CodeRabbit 4112934954) fixed a JSON-Schema error-flattening regression the platform-pin move introduced. Six ordinary, platform-independent host cases advance this documentary inventory from 4095/4069 to 4101/4075: PackLayoutBookingTests (three facts), PackFormBindingRoundTripTests.Layout_and_Booking_definitions_round_trip_headlessly (one fact), and SchemaValidationErrorFlatteningTests (two facts). This is an additive inventory adjustment from the native Windows exact-clone at commit 09c860b (4512/4491 there over the 4506/4485 Windows base), not a fresh macOS measurement. Exact failure identities, permitted allowances, skip counts, retry identities and named comparison remain unchanged.",
     "Ticket 427 runtime: advance passed and total by 66 ordinary platform-independent cases, from 3969/3995 to 4035/4061. This is a documentary additive inventory adjustment from the focused 356-case Windows execution, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances and named comparison remain unchanged.",
     "Ticket 426 Standards adapter: four ordinary platform-independent cases advance this derived inventory from 3969/3995 to 3973/3999. Failure identities, allowances, skipped counts and named comparison remain unchanged; this is not a new macOS measurement.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3969/3995 passed/total on macOS. This remains a documentary additive adjustment, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
