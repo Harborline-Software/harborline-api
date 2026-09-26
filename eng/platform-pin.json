@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
-  "recordedAt": "2026-09-24 (T-731: platform main commit 8addec78, platform PR 118, which adds ILayoutDecisionTrace and LayoutRelatedDenial with the acting principal and typed target that the host stores and reads. Supersedes the T-243 pin at eda5e629, which this commit descends from; the packed producer inventory is unchanged.)",
+  "commit": "1173121077e06433de1c8148fb58e528b9683e96",
+  "recordedAt": "2026-09-26 (T-733: platform PR 122 (T-582, \"Layout editor controls and binding registries\"), which adds LayoutHostRegisters/LayoutFieldControlRegistry/LayoutPageRegistry/LayoutValidationRuleRegistry (layout-bound-3, -7, -8) that this ticket's host wiring consumes. Pinned exactly at PR 122, not later main, because PR 130 (T-583 slice 1) adds ILayoutDecisionTrace.RecordFieldDenial and ILayoutBindingSources.ResolveField members that the existing T-731 host code (LayoutSurfaceHost.cs, LayoutDenialGateLog.cs) does not implement yet — out of scope for this slice. Supersedes the T-731 pin at 8addec78; the packed producer inventory is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
