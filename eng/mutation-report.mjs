@@ -17,26 +17,29 @@ import path from 'node:path'
 const root = path.resolve(import.meta.dirname, '..')
 const base = 'origin/main'
 
-// Test projects Stryker does not run, each with its one-line reason. Empty: every one has a config.
-export const EXCLUDED = {}
+// Test projects Stryker does not run, each with its one-line reason.
+export const EXCLUDED = {
+  'packages/contracts/tests/Harborline.Contracts.Tests.csproj':
+    'its only C# source is codegen output (Generated/HarborlineProtocol.g.cs), which Stryker never mutates; codegen --check guards it',
+}
 
 // PROC-0002 "Mutation evidence as an artefact": break 60, low 60, high 80, json reporter, since main.
 const STANDARD = {high: 80, low: 60, break: 60}
 
-export function checkConfigs(csprojFiles, read, exists) {
+export function checkConfigs(csprojFiles, read, exists, excluded = EXCLUDED) {
   const errors = []
   const runs = []
   const tests = csprojFiles.filter(file => read(file).includes('Microsoft.NET.Test.Sdk'))
-  for (const key of Object.keys(EXCLUDED)) if (!tests.includes(key)) errors.push(`${key}: EXCLUDED names no test project`)
+  for (const key of Object.keys(excluded)) if (!tests.includes(key)) errors.push(`${key}: excluded names no test project`)
   for (const test of tests) {
     const dir = path.posix.dirname(test)
     const configFile = `${dir}/stryker-config.json`
-    if (test in EXCLUDED) {
-      if (!EXCLUDED[test]?.trim()) errors.push(`${test}: exclusion has no reason`)
+    if (test in excluded) {
+      if (!excluded[test]?.trim()) errors.push(`${test}: exclusion has no reason`)
       if (exists(configFile)) errors.push(`${test}: both excluded and configured`)
       continue
     }
-    if (!exists(configFile)) { errors.push(`${test}: no ${configFile} and no EXCLUDED reason`); continue }
+    if (!exists(configFile)) { errors.push(`${test}: no ${configFile} and no excluded reason`); continue }
     const config = JSON.parse(read(configFile))['stryker-config'] ?? {}
     const references = [...read(test).matchAll(/<ProjectReference\s+Include="([^"]+)"/g)]
       .map(match => path.posix.normalize(`${dir}/${match[1].replaceAll('\\', '/')}`))

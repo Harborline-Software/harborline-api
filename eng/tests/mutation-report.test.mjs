@@ -15,8 +15,8 @@ const config = (project, extra = {}) => JSON.stringify({'stryker-config': {
 const testProject = '<Project><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" />' +
   '<ProjectReference Include="..\\Lib.csproj" /></ItemGroup></Project>'
 
-function check(files) {
-  return checkConfigs(Object.keys(files).filter(file => file.endsWith('.csproj')), file => files[file], file => file in files)
+function check(files, excluded = {}) {
+  return checkConfigs(Object.keys(files).filter(file => file.endsWith('.csproj')), file => files[file], file => file in files, excluded)
 }
 
 test('a test project configured against its own ProjectReference passes', () => {
@@ -27,6 +27,12 @@ test('a test project configured against its own ProjectReference passes', () => 
 
 test('a test project with no config and no exclusion is refused', () => {
   assert.match(check({'p/Lib.csproj': '', 'p/tests/T.csproj': testProject}).errors.join(), /no p\/tests\/stryker-config.json/)
+})
+
+test('an exclusion needs a reason and a test project to name', () => {
+  assert.deepEqual(check({'p/tests/T.csproj': testProject}, {'p/tests/T.csproj': 'generated code only'}).errors, [])
+  assert.match(check({'p/tests/T.csproj': testProject}, {'p/tests/T.csproj': ' '}).errors.join(), /no reason/)
+  assert.match(check({}, {'gone/T.csproj': 'x'}).errors.join(), /names no test project/)
 })
 
 test('a non-test project needs no config', () => {
