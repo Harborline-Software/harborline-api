@@ -1,0 +1,12 @@
+{
+  "note": "Owner ruling 2026-09-26 (T-236 row 5): each project's Stryker break starts at the floor of its lowest observed score and only rises, as test-improvement tickets land. Scores are whole-project runs (no since filter) of dotnet-stryker 5.0.0 on winbox, SDK 11.0.100-rc.1, at origin/main 940344df. eng/mutation-report.mjs refuses a break below floor(score).",
+  "projects": {
+    "apps/local-node-host/tests/tests.csproj": {
+      "score": null,
+      "fullRun": "not measured: 46,036 mutants and a 37-minute initial test run on winbox; a whole-project run does not fit the nightly window (owner question)"
+    },
+    "packages/foundation-localfirst/tests/Harborline.Foundation.LocalFirst.Tests.csproj": {"score": 8.79, "tested": 78, "killed": 50, "timeout": 1, "survived": 27, "noCoverage": 502, "compileError": 36, "measured": "2026-09-26"},
+    "packages/foundation-rule-engine/tests/Harborline.Foundation.RuleEngine.Tests.csproj": {"score": 38.16, "tested": 1077, "killed": 648, "timeout": 6, "survived": 423, "noCoverage": 637, "compileError": 392, "measured": "2026-09-26"},
+    "tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj": {"score": 59.57, "tested": 38, "killed": 26, "timeout": 2, "survived": 10, "noCoverage": 9, "compileError": 0, "measured": "2026-09-26"}
+  }
+}

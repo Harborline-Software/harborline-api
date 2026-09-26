@@ -446,9 +446,12 @@ jobs:
 
   stryker:
     # T-236 row 5: Stryker.NET, since origin/main, on each .NET test project whose mutated project has
-    # changed .cs files (eng/mutation-report.mjs; projects with no change are skipped). Advisory: not in
-    # `verify`'s needs yet. It fails when a run tested no mutant, because Stryker exits 0 having
-    # mutated nothing (T-720). winbox only: macpro is the gate bottleneck and mac16 is the perf lane's.
+    # changed .cs files (eng/mutation-report.mjs; projects with no change are skipped). Owner ruling
+    # Q43 (option 2): surviving and uncovered mutants on changed lines are review feedback in the step
+    # summary and the json artifact, never compared with the project floor (that is the nightly full
+    # run's job, mutation.yml). It fails only when mutable code changed and no mutant was tested,
+    # because Stryker exits 0 having mutated nothing (T-720). Advisory: not in `verify`'s needs.
+    # winbox only: macpro is the gate bottleneck and mac16 is the perf lane's.
     # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
     # guards are the other self-hosted lanes'. Its platform clone is its own, so a concurrent
     # verify-windows never sees it move. winbox has one runner registration: `needs` keeps this PR's

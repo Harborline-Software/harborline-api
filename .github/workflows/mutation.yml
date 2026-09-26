@@ -1,0 +1,66 @@
+# mutation: the nightly whole-project Stryker.NET run (T-236 row 5, owner ruling Q43 option 2).
+#
+# Every configured .NET test project on main, each held to the break recorded for it in
+# eng/baselines/mutation-baseline.json (the floor of its measured score, raised as test-improvement
+# tickets land). A pull request is never held to that floor: verify.yml's `stryker` job reports the
+# survivors on its changed lines instead. winbox only (macpro is the gate bottleneck; mac16 is the
+# perf lane's). No pull_request trigger, so no fork code reaches the runner.
+name: mutation
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 03:00 America/New_York in daylight time (02:00 in standard time)
+  workflow_dispatch:
+
+concurrency:
+  group: mutation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stryker-full:
+    if: vars.ACTIONS_ENABLED == 'true'
+    runs-on: [self-hosted, Windows, winbox]
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_PACKAGES: C:\nuget-runner
+      # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
+      VSTEST_CONNECTION_TIMEOUT: '300'
+    steps:
+      - name: Git Bash on PATH for the service account
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
+
+      - uses: actions/checkout@v7
+        with:
+          clean: true
+
+      - name: Platform pin and local feed
+        run: |
+          plat="$USERPROFILE/Projects/Harborline/lanes/platform-pin-stryker"
+          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
+          [ -d "$plat/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$plat"
+          git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" && git -C "$plat" clean -fdxq
+          HARBORLINE_PLATFORM_REPO="$plat" node eng/build-local-feed.mjs
+
+      - name: Mutation (full, break from the baselines file)
+        run: |
+          dotnet tool restore
+          node eng/mutation-report.mjs --full
+
+      - name: Mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stryker-full-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: .stryker/*/reports/mutation-report.json

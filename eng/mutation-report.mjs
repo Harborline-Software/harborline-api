@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// T-236 row 5: Stryker.NET over every .NET test project, in diff mode against origin/main.
+// T-236 row 5: Stryker.NET over every .NET test project.
 //
-//   node eng/mutation-report.mjs --check     every test project has a config (or an EXCLUDED reason)
-//                                            whose project is one of its ProjectReferences
-//   node eng/mutation-report.mjs             run Stryker for each test project whose mutated project
-//                                            has changed .cs files; fail if a run tested no mutant
-//   node eng/mutation-report.mjs --enforce   also fail when Stryker fails its break threshold
+//   node eng/mutation-report.mjs --check   every test project has a config (or an EXCLUDED reason) whose
+//                                          project is one of its ProjectReferences, and a break no lower
+//                                          than its recorded baseline
+//   node eng/mutation-report.mjs           PR mode (owner ruling Q43, option 2): since origin/main, for
+//                                          each project with changed .cs files. Survived and NoCoverage
+//                                          mutants on changed lines are review feedback, never a failure;
+//                                          it fails only when mutable code changed and no mutant was tested
+//   node eng/mutation-report.mjs --full    scheduled mode: every configured project on the whole tree;
+//                                          fails when a project's score is below its break
 //
 // Stryker's exit code is not evidence: under .NET 11 RC1 it has exited 0 having mutated nothing
 // (T-720), and in a linked worktree since-mode marks every mutant Ignored and exits 0. So a run only
@@ -23,14 +27,23 @@ export const EXCLUDED = {
     'its only C# source is codegen output (Generated/HarborlineProtocol.g.cs), which Stryker never mutates; codegen --check guards it',
 }
 
-// PROC-0002 "Mutation evidence as an artefact": break 60, low 60, high 80, json reporter, since main.
-const STANDARD = {high: 80, low: 60, break: 60}
+// Thresholds. PROC-0002 ("Mutation evidence as an artefact") sets the target: low 60, high 80. Owner
+// ruling 2026-09-26: each project's break starts at the floor of its recorded baseline score and is
+// only raised, as test-improvement tickets land. Stryker refuses break > low, so a project whose
+// baseline is above 60 carries low = break. Only the scheduled full run holds a project to its break.
+export const BASELINE_FILE = 'eng/baselines/mutation-baseline.json'
+const TARGET = {high: 80, low: 60}
+export function thresholdsFor(breakAt) {
+  return {high: TARGET.high, low: Math.max(TARGET.low, breakAt), break: breakAt}
+}
 
 export function checkConfigs(csprojFiles, read, exists, excluded = EXCLUDED) {
   const errors = []
   const runs = []
   const tests = csprojFiles.filter(file => read(file).includes('Microsoft.NET.Test.Sdk'))
+  const baselines = exists(BASELINE_FILE) ? JSON.parse(read(BASELINE_FILE)).projects ?? {} : {}
   for (const key of Object.keys(excluded)) if (!tests.includes(key)) errors.push(`${key}: excluded names no test project`)
+  for (const key of Object.keys(baselines)) if (!tests.includes(key) || key in excluded) errors.push(`${key}: ${BASELINE_FILE} names no configured test project`)
   for (const test of tests) {
     const dir = path.posix.dirname(test)
     const configFile = `${dir}/stryker-config.json`
@@ -46,9 +59,18 @@ export function checkConfigs(csprojFiles, read, exists, excluded = EXCLUDED) {
     const project = references.find(reference => path.posix.basename(reference) === config.project)
     if (!project) errors.push(`${configFile}: project "${config.project}" is not a ProjectReference of ${test}`)
     else if (!exists(project)) errors.push(`${configFile}: project ${project} does not exist`)
-    if (JSON.stringify(config.thresholds) !== JSON.stringify(STANDARD)) errors.push(`${configFile}: thresholds must be ${JSON.stringify(STANDARD)}`)
+    const baseline = baselines[test]
+    const breakAt = config.thresholds?.break
+    if (baseline?.fullRun && baseline.score === null) {
+      // No whole-project score to hold it to (the reason is recorded); the full run skips it.
+      if (breakAt !== 0) errors.push(`${configFile}: no measured baseline (${baseline.fullRun}), so break must be 0`)
+    } else if (typeof baseline?.score !== 'number') errors.push(`${test}: no baseline score in ${BASELINE_FILE}`)
+    else if (!(breakAt >= Math.floor(baseline.score))) errors.push(`${configFile}: break ${breakAt} is below the baseline ${Math.floor(baseline.score)}`)
+    if (JSON.stringify(config.thresholds) !== JSON.stringify(thresholdsFor(breakAt)))
+      errors.push(`${configFile}: thresholds must be ${JSON.stringify(thresholdsFor(breakAt))}`)
     if (!config.reporters?.includes('json')) errors.push(`${configFile}: the json reporter is required`)
-    if (!config.since?.enabled || config.since.target !== base) errors.push(`${configFile}: since must be enabled against ${base}`)
+    // The runner turns since on in PR mode (--since:origin/main); the config carries only its exclusions.
+    if (config.since?.enabled) errors.push(`${configFile}: since is enabled by the runner in PR mode, not in the config`)
     if (project) runs.push({test, dir, project})
   }
   return {errors, runs}
@@ -61,23 +83,49 @@ export function mutableChanges(changed, {dir, project}) {
     && !/\/(bin|obj)\//.test(file))
 }
 
-// mutation-testing-report-schema: files keyed by path, each with mutants[].status. Counts only the
-// changed files; since-mode reports every other file's mutants as Ignored.
-export function summarise(report, changed) {
-  const entries = Object.entries(report.files ?? {}).map(([file, value]) => [file.replaceAll('\\', '/'), value])
-  const matches = (entry, file) => entry === file || entry.endsWith(`/${file}`)
-  const missing = changed.filter(file => !entries.some(([entry]) => matches(entry, file)))
-  const counts = {}
-  for (const [entry, {mutants = []}] of entries) {
-    if (!changed.some(file => matches(entry, file))) continue
-    for (const {status} of mutants) counts[status] = (counts[status] ?? 0) + 1
+// `git diff -U0` -> {file: [[firstLine, lastLine], ...]} for the new side of each hunk.
+export function changedLines(diff) {
+  const lines = {}
+  let file
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith('+++ ')) file = line.startsWith('+++ b/') ? line.slice(6) : undefined
+    const hunk = file && /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line)
+    if (hunk && hunk[2] !== '0') (lines[file] ??= []).push([Number(hunk[1]), Number(hunk[1]) + Number(hunk[2] ?? 1) - 1])
   }
+  return lines
+}
+
+function statusCounts(mutants) {
+  const counts = {}
+  for (const {status} of mutants) counts[status] = (counts[status] ?? 0) + 1
   const n = status => counts[status] ?? 0
-  const tested = n('Killed') + n('Survived') + n('Timeout')
   const detected = n('Killed') + n('Timeout')
   const covered = detected + n('Survived') + n('NoCoverage')
-  const generated = Object.values(counts).reduce((sum, count) => sum + count, 0)
-  return {counts, tested, generated, score: covered ? Math.round(1000 * detected / covered) / 10 : null, missing}
+  return {counts, tested: detected + n('Survived'), generated: mutants.length,
+    score: covered ? Math.round(10000 * detected / covered) / 100 : null}
+}
+
+// mutation-testing-report-schema: files keyed by path, each with mutants[] {status, mutatorName,
+// replacement, location}. `changed` null means the whole report (full mode); otherwise only those
+// files count, since since-mode reports every other file's mutants as Ignored. `lines` narrows the
+// survivors listed for review to the changed lines.
+export function summarise(report, changed = null, lines = {}) {
+  const entries = Object.entries(report.files ?? {}).map(([file, value]) => [file.replaceAll('\\', '/'), value])
+  const matches = (entry, file) => entry === file || entry.endsWith(`/${file}`)
+  const missing = (changed ?? []).filter(file => !entries.some(([entry]) => matches(entry, file)))
+  const mutants = []
+  const survivors = []
+  for (const [entry, {mutants: fileMutants = []}] of entries) {
+    const file = changed ? changed.find(candidate => matches(entry, candidate)) : entry
+    if (!file) continue
+    mutants.push(...fileMutants)
+    for (const mutant of fileMutants) {
+      const line = mutant.location?.start?.line
+      if ((mutant.status === 'Survived' || mutant.status === 'NoCoverage') && lines[file]?.some(([first, last]) => line >= first && line <= last))
+        survivors.push({file, line, status: mutant.status, mutator: mutant.mutatorName, replacement: mutant.replacement})
+    }
+  }
+  return {...statusCounts(mutants), missing, survivors}
 }
 
 function msbuildArguments() {
@@ -92,44 +140,74 @@ function msbuildArguments() {
   return ['--msbuild-path', path.join(line.slice(line.indexOf('[') + 1, -1), version, 'MSBuild.exe')]
 }
 
+function stryker(run, extra) {
+  const output = path.join(root, '.stryker', path.basename(run.test, '.csproj'))
+  rmSync(output, {recursive: true, force: true})
+  const result = spawnSync('dotnet', ['tool', 'run', 'dotnet-stryker', '--', ...msbuildArguments(), '--output', output, ...extra],
+    {cwd: path.join(root, run.dir), stdio: 'inherit'})
+  const reportFile = path.join(output, 'reports', 'mutation-report.json')
+  return {status: result.status, report: existsSync(reportFile) ? JSON.parse(readFileSync(reportFile, 'utf8')) : null,
+    reportFile: path.relative(root, reportFile).replaceAll('\\', '/')}
+}
+
+const cell = value => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ').slice(0, 80)
+
 function main() {
-  const git = (...args) => execFileSync('git', args, {cwd: root, encoding: 'utf8'}).trim()
+  const git = (...args) => execFileSync('git', args, {cwd: root, encoding: 'utf8', maxBuffer: 1 << 28}).trim()
+  const read = file => readFileSync(path.join(root, file), 'utf8')
   const files = git('ls-files', '*.csproj').split('\n').filter(Boolean)
-  const {errors, runs} = checkConfigs(files, file => readFileSync(path.join(root, file), 'utf8'), file => existsSync(path.join(root, file)))
+  const {errors, runs} = checkConfigs(files, read, file => existsSync(path.join(root, file)))
   for (const error of errors) console.error(`FAIL ${error}`)
   if (errors.length) process.exit(1)
   if (process.argv.includes('--check')) { console.log(`mutation configs: ${runs.length} configured, ${Object.keys(EXCLUDED).length} excluded`); return }
 
-  if (path.resolve(root, git('rev-parse', '--git-dir')) !== path.resolve(root, git('rev-parse', '--git-common-dir'))) {
-    console.error('FAIL linked worktree: Stryker since-mode diffs the main checkout and ignores every mutant. Run from a plain clone.')
+  const full = process.argv.includes('--full')
+  const baselines = JSON.parse(read(BASELINE_FILE)).projects
+  const rows = ['| Test project | Changed files | Tested | Killed | Survived | No coverage | Score | Break |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
+  const feedback = []
+  let failed = false
+  const fail = message => { console.error(`FAIL ${message}`); failed = true }
+
+  if (!full && path.resolve(root, git('rev-parse', '--git-dir')) !== path.resolve(root, git('rev-parse', '--git-common-dir'))) {
+    fail('linked worktree: Stryker since-mode diffs the main checkout and ignores every mutant. Run from a plain clone.')
     process.exit(1)
   }
-  const changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter(Boolean)
-  const msbuild = msbuildArguments()
-  const rows = ['| Test project | Changed files | Tested | Killed | Survived | No coverage | Score |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
-  let failed = false
+  const changed = full ? [] : git('diff', '--name-only', `${base}...HEAD`).split('\n').filter(Boolean)
+  const lines = full ? {} : changedLines(git('diff', '-U0', `${base}...HEAD`, '--', '*.cs'))
+
   for (const run of runs) {
-    const mutable = mutableChanges(changed, run)
-    if (!mutable.length) { rows.push(`| ${run.test} | 0 | skipped | | | | |`); continue }
-    const output = path.join(root, '.stryker', path.basename(run.test, '.csproj'))
-    rmSync(output, {recursive: true, force: true})
-    const result = spawnSync('dotnet', ['tool', 'run', 'dotnet-stryker', '--', ...msbuild, '--output', output],
-      {cwd: path.join(root, run.dir), stdio: 'inherit'})
-    const reportFile = path.join(output, 'reports', 'mutation-report.json')
-    if (!existsSync(reportFile)) { console.error(`FAIL ${run.test}: no json report (Stryker exited ${result.status})`); failed = true; continue }
-    const {counts, tested, generated, score, missing} = summarise(JSON.parse(readFileSync(reportFile, 'utf8')), mutable)
-    rows.push(`| ${run.test} | ${mutable.length} | ${tested} | ${counts.Killed ?? 0} | ${counts.Survived ?? 0} | ${counts.NoCoverage ?? 0} | ${score ?? 'n/a'} |`)
-    if (missing.length) { console.error(`FAIL ${run.test}: changed files absent from the report: ${missing.join(', ')}`); failed = true }
-    // A changed file with no mutable code yields no mutants; mutants that all went untested do not pass.
-    if (generated && !tested) { console.error(`FAIL ${run.test}: mutants generated but none tested ${JSON.stringify(counts)}`); failed = true }
-    if (result.status) {
-      console.error(`${process.argv.includes('--enforce') ? 'FAIL' : 'WARN'} ${run.test}: Stryker exited ${result.status} (break ${STANDARD.break})`)
-      if (process.argv.includes('--enforce')) failed = true
+    const breakAt = JSON.parse(read(`${run.dir}/stryker-config.json`))['stryker-config'].thresholds.break
+    if (full) {
+      if (baselines[run.test]?.fullRun) { rows.push(`| ${run.test} | | skipped: ${cell(baselines[run.test].fullRun)} | | | | | |`); continue }
+      const {status, report, reportFile} = stryker(run, [])
+      if (!report) { fail(`${run.test}: no json report (Stryker exited ${status})`); continue }
+      const {counts, tested, score} = summarise(report)
+      rows.push(`| ${run.test} | | ${tested} | ${counts.Killed ?? 0} | ${counts.Survived ?? 0} | ${counts.NoCoverage ?? 0} | ${score ?? 'n/a'} | ${breakAt} |`)
+      console.log(`${run.test}: ${reportFile}`)
+      if (!tested) fail(`${run.test}: no mutant tested ${JSON.stringify(counts)}`)
+      else if (score < breakAt) fail(`${run.test}: score ${score} is below its break ${breakAt} (${BASELINE_FILE})`)
+      continue
     }
+    const mutable = mutableChanges(changed, run)
+    if (!mutable.length) { rows.push(`| ${run.test} | 0 | skipped | | | | | |`); continue }
+    // --break-at 0: a PR is never held to its project's floor (Q43); the scheduled full run is.
+    const {status, report, reportFile} = stryker(run, [`--since:${base}`, '--break-at', '0'])
+    if (!report) { fail(`${run.test}: no json report (Stryker exited ${status})`); continue }
+    const {counts, tested, generated, score, missing, survivors} = summarise(report, mutable, lines)
+    rows.push(`| ${run.test} | ${mutable.length} | ${tested} | ${counts.Killed ?? 0} | ${counts.Survived ?? 0} | ${counts.NoCoverage ?? 0} | ${score ?? 'n/a'} | |`)
+    console.log(`${run.test}: ${reportFile}`)
+    if (missing.length) fail(`${run.test}: changed files absent from the report: ${missing.join(', ')}`)
+    // A changed file with no mutable code yields no mutants; mutants that all went untested do not pass.
+    if (generated && !tested) fail(`${run.test}: mutable code changed but no mutant was tested ${JSON.stringify(counts)}`)
+    for (const s of survivors) feedback.push(`| ${s.file}:${s.line} | ${s.status} | ${s.mutator} | \`${cell(s.replacement)}\` |`)
   }
-  const table = rows.join('\n')
-  console.log(table)
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Mutation (since ${base})\n\n${table}\n`)
+  let summary = `${full ? `### Mutation (full run; break from ${BASELINE_FILE})` : `### Mutation (since ${base})`}\n\n${rows.join('\n')}\n`
+  if (!full) summary += feedback.length
+    ? `\nSurviving and uncovered mutants on changed lines (review feedback, not a failure):\n\n| Line | Status | Mutator | Replacement |\n| --- | --- | --- | --- |\n${feedback.join('\n')}\n`
+    : '\nNo surviving or uncovered mutant on a changed line.\n'
+  console.log(summary)
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary)
   if (failed) process.exit(1)
 }
 
