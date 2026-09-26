@@ -209,6 +209,27 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         Assert.Equal(FormDefinitionStatus.Published, published.Status);
     }
 
+    [Fact(DisplayName = "ticket 737: Layout, Resource, and Bookable definitions round-trip headlessly")]
+    public async Task Layout_and_Booking_definitions_round_trip_headlessly()
+    {
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.1.0",
+            additionalContents: LayoutAndBookingContents(),
+            includeBaseContents: false));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using (var doc = JsonDocument.Parse(verify.Stdout))
+        {
+            Assert.Equal("Verified", doc.RootElement.GetProperty("verdict").GetString());
+        }
+
+        Assert.Equal(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
+        Assert.Equal(0, (await CliAsync(
+            "pack", "activate", "--pack-key", PackKey, "--version", "1.0.0")).ExitCode);
+    }
+
     [Fact(DisplayName = "ticket 357: a binding naming a form the pack does not contain is refused at verify by name")]
     public async Task Binding_outside_the_pack_is_refused_at_verify()
     {
@@ -391,7 +412,9 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         string? bindingKey,
         string typeContentVersion,
         IReadOnlyDictionary<string, string>? inspectionBindings = null,
-        IReadOnlyList<(string Key, string Version)>? dependencies = null)
+        IReadOnlyList<(string Key, string Version)>? dependencies = null,
+        IReadOnlyList<object>? additionalContents = null,
+        bool includeBaseContents = true)
     {
         var typeContent = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -409,25 +432,27 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             typeContent["inspectionFormBindings"] = inspectionBindings;
         }
 
-        var contents = new List<object>
+        var contents = new List<object>();
+        if (includeBaseContents)
         {
-            new
+            contents.Add(new
             {
                 key = TypeKey,
                 kind = "AssetTypeDefinition",
                 version = typeContentVersion,
                 content = typeContent,
-            },
-            FormContent(FormKey),
-        };
-        foreach (var formKey in inspectionBindings?.Values.Distinct(StringComparer.Ordinal) ?? [])
-        {
-            if (!string.Equals(formKey, FormKey, StringComparison.Ordinal)
-                && !string.Equals(formKey, "other.pack.form", StringComparison.Ordinal))
+            });
+            contents.Add(FormContent(FormKey));
+            foreach (var formKey in inspectionBindings?.Values.Distinct(StringComparer.Ordinal) ?? [])
             {
-                contents.Add(FormContent(formKey));
+                if (!string.Equals(formKey, FormKey, StringComparison.Ordinal)
+                    && !string.Equals(formKey, "other.pack.form", StringComparison.Ordinal))
+                {
+                    contents.Add(FormContent(formKey));
+                }
             }
         }
+        contents.AddRange(additionalContents ?? []);
 
         return new
         {
@@ -471,6 +496,13 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             },
         },
     };
+
+    private static IReadOnlyList<object> LayoutAndBookingContents() =>
+    [
+        new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = new { definition = "layout" } },
+        new { key = "booking.room", kind = "Resource", version = "1.0.0", content = new { definition = "resource" } },
+        new { key = "booking.room-visit", kind = "Bookable", version = "1.0.0", content = new { definition = "bookable" } },
+    ];
 
     private static object Text(string en) => new
     {

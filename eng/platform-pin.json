@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
-  "recordedAt": "2026-09-24 (T-731: platform main commit 8addec78, platform PR 118, which adds ILayoutDecisionTrace and LayoutRelatedDenial with the acting principal and typed target that the host stores and reads. Supersedes the T-243 pin at eda5e629, which this commit descends from; the packed producer inventory is unchanged.)",
+  "commit": "0035727fe0a774de1431ada016a5d25a8446caf4",
+  "recordedAt": "2026-09-26 (T-737: platform main commit 0035727f, platform PR 123, which adds BookingPackIdentity (primitive bucket 13, content kinds 18 Resource and 19 Bookable) alongside the existing LayoutPackIdentity (primitive bucket 12, content kind 17, since PR 62). Supersedes the T-731 pin at 8addec78. Capped at platform PR 130 per T-733: do not move past 57d08be0 without re-checking T-731 host code. The packed producer inventory is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."

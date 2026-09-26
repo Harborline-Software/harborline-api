@@ -178,7 +178,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
         var entries = types.EnumerateArray().ToArray();
-        Assert.Equal(16, entries.Length);
+        Assert.Equal(19, entries.Length);
         Assert.All(entries, entry =>
         {
             Assert.True(entry.GetProperty("sealed").GetBoolean());
