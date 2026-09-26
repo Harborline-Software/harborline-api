@@ -76,7 +76,7 @@ public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
     }
 
     [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
-    [Theory(DisplayName = "layout-eng-31: in audit-degraded mode, missing and denied give the same response in shape, status and timing before, during and after degradation, and the refusal clears on recovery")]
+    [Theory(DisplayName = "layout-eng-31: in audit-degraded mode, missing and denied give the same response in shape and status, and meet the timing gate's bounds under the test conditions, before, during and after degradation, and the refusal clears on recovery")]
     [InlineData(Trigger.GateLogDown)]
     [InlineData(Trigger.OutboxDown)]
     public async Task MissingAndDeniedMatchBeforeDuringAndAfterDegradation(Trigger trigger)
@@ -119,10 +119,9 @@ public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
         Assert.Equal(missing, denied);
         Assert.Equal(expectRefused, denied.Contains(LayoutAuditDegradedException.Code, StringComparison.Ordinal));
         await h.Pipeline.Appender.IdleAsync();
-        var detail = await TimingParity.AssertSameAsync(
+        await TimingParity.AssertSameAsync(
             floor => ownerExists => h.ObserveAsync(h.Host(floor, degradedMode: true), ownerExists),
-            h.Pipeline.Appender.IdleAsync, phase);
-        output.WriteLine($"{phase}: {detail}");
+            h.Pipeline.Appender.IdleAsync, phase, output);
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -220,82 +219,4 @@ public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
             lock (Entries) Entries.Add((logLevel, eventId, exception));
         }
     }
-}
-
-/// <summary>
-/// The statistical timing check the T-731 parity tests share: a two-sample Kolmogorov-Smirnov test at
-/// significance 0.001 over 60 interleaved samples a path (D must stay under 1.949 * sqrt(2 / 60) =
-/// 0.356), with the floor measured on this host the way owner ruling 1 derives the production one (the
-/// worst of 100 denied runs with no floor, doubled, rounded up to the 15.6 ms tick, at least four ticks).
-/// One attempt, no retries (PR 219): the host finishes all denial-side work inside the floor and ends every
-/// resolution on a spin onto the deadline, so a failure is a real difference, not noise.
-/// </summary>
-internal static class TimingParity
-{
-    private const int Samples = 60;
-    private const double Critical = 1.949 * 0.1825741858; // c(0.001) * sqrt((n + m) / (n * m)), n = m = 60
-    private const double Tick = 15.625;
-
-    /// <param name="at">For a floor, a sampler that runs one missing (false) or denied (true) resolution.</param>
-    /// <param name="settle">Waits for background work to finish between the calibration and the samples.</param>
-    /// <returns>The D statistic, floor and quantiles, for the test output.</returns>
-    public static async Task<string> AssertSameAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle, string? label = null)
-    {
-        var (passed, detail) = await AttemptAsync(at, settle);
-        Assert.True(passed, label is null ? detail : $"{label}: {detail}");
-        return detail;
-    }
-
-    private static async Task<(bool, string)> AttemptAsync(Func<TimeSpan, Func<bool, Task>> at, Func<Task> settle)
-    {
-        var calibration = at(TimeSpan.Zero);
-        for (var i = 0; i < 5; i++) await calibration(true); // JIT warm-up, discarded
-        var worst = 0.0;
-        for (var i = 0; i < 100; i++)
-        {
-            var clock = Stopwatch.StartNew();
-            await calibration(true);
-            worst = Math.Max(worst, clock.Elapsed.TotalMilliseconds);
-        }
-        await settle();
-        var floor = TimeSpan.FromMilliseconds(Math.Max(4, Math.Ceiling(2 * worst / Tick)) * Tick);
-        var sample = at(floor);
-
-        var missing = new List<double>();
-        var denied = new List<double>();
-        for (var i = 0; i < Samples; i++)
-        {
-            foreach (var ownerExists in i % 2 == 0 ? new[] { false, true } : [true, false])
-            {
-                var clock = Stopwatch.StartNew();
-                await sample(ownerExists);
-                (ownerExists ? denied : missing).Add(clock.Elapsed.TotalMilliseconds);
-            }
-        }
-        await settle();
-
-        var d = KolmogorovSmirnov(missing, denied);
-        return (d <= Critical,
-            $"KS D = {d:F3} (limit {Critical:F3}) at floor {floor.TotalMilliseconds} ms; missing p50 {Quantile(missing, 0.5):F2} "
-            + $"p90 {Quantile(missing, 0.9):F2} p99 {Quantile(missing, 0.99):F2} ms, denied p50 {Quantile(denied, 0.5):F2} "
-            + $"p90 {Quantile(denied, 0.9):F2} p99 {Quantile(denied, 0.99):F2} ms");
-    }
-
-    private static double KolmogorovSmirnov(List<double> a, List<double> b)
-    {
-        var x = a.Order().ToArray();
-        var y = b.Order().ToArray();
-        double d = 0;
-        int i = 0, j = 0;
-        while (i < x.Length && j < y.Length)
-        {
-            var t = Math.Min(x[i], y[j]);
-            while (i < x.Length && x[i] <= t) i++;
-            while (j < y.Length && y[j] <= t) j++;
-            d = Math.Max(d, Math.Abs((double)i / x.Length - (double)j / y.Length));
-        }
-        return d;
-    }
-
-    private static double Quantile(List<double> samples, double q) => samples.Order().ElementAt((int)(q * (samples.Count - 1)));
 }
