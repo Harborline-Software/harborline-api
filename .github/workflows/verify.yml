@@ -212,7 +212,7 @@ jobs:
     # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
     # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
     # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
-    needs: [verify-shared, verify-macos, verify-windows]
+    needs: [verify-shared, verify-macos, verify-windows, verify-perf]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -226,7 +226,96 @@ jobs:
             exit 1
           fi
           echo "$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
+          jq -e 'del(.["verify-perf"]) | all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
+          # verify-perf (Q38, T-724 ruling 9): success, or skipped because PERF_HOST_OFFLINE_SINCE says
+          # mac16 is offline -- for at most 72 hours after that instant, after which the skip fails.
+          perf=$(jq -r '.["verify-perf"].result' <<< "$NEEDS")
+          if [ "$perf" = "success" ]; then exit 0; fi
+          since="${{ vars.PERF_HOST_OFFLINE_SINCE }}"
+          if [ "$perf" != "skipped" ] || [ -z "$since" ]; then
+            echo "::error::verify-perf did not succeed (result: $perf)"
+            exit 1
+          fi
+          since_s=$(date -u -d "$since" +%s) || { echo "::error::PERF_HOST_OFFLINE_SINCE is not a date: $since"; exit 1; }
+          age_h=$(( ($(date -u +%s) - since_s) / 3600 ))
+          if [ "$age_h" -ge 72 ]; then
+            echo "::error::verify-perf has been skipped since $since (${age_h}h, limit 72h): mac16 (perf-quiet) must come back, or the owner rules again"
+            exit 1
+          fi
+          echo "::warning::verify-perf skipped: mac16 (perf-quiet) marked offline since $since (${age_h}h of the 72h allowed); the Layout timing-parity tests did not run"
+
+  verify-perf:
+    # Owner ruling Q38 (T-724 rulings 7 to 9, T-268 option A): the wall-clock timing-parity tests
+    # (trait Lane=perf, the LayoutTimingParity collection) run here, alone, on mac16's one perf-quiet
+    # registration, and no host lane runs them (eng/run-exact-clone.mjs filters Lane!=perf). One runner
+    # registration runs one job at a time, so nothing shares the box with these samples. Nobody runs
+    # anything on mac16 by hand (ruling 8).
+    #
+    # When mac16 is offline, set the repository variable PERF_HOST_OFFLINE_SINCE to the UTC instant it
+    # went down (for example 2026-09-26T04:00:00Z). This job is then skipped, the `verify` aggregator
+    # says so, and it fails once the skip is 72 hours old (ruling 9). Clear the variable when mac16
+    # returns. The workflow token cannot read runner status, so the variable is set by hand; while it
+    # is unset and mac16 is down, this job waits for the runner and `verify` waits with it.
+    #
+    # T-662: the fork guard, character for character the one the other lanes carry.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      vars.PERF_HOST_OFFLINE_SINCE == '' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
+    runs-on: [self-hosted, macOS, X64, mac16, perf-quiet]
+    timeout-minutes: 60
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DEVELOPER_DIR: /Library/Developer/CommandLineTools
+    steps:
+      - name: Runner identity
+        shell: bash
+        run: |
+          echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Resolve the host pin directories
+        run: |
+          lanes="$HOME/Projects/Harborline/lanes"
+          echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
+
+      - name: Refresh the platform pin
+        run: |
+          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
+          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q https://github.com/Harborline-Software/harborline-platform.git "$HARBORLINE_PLATFORM_REPO"; fi
+          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
+          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
+          echo "platform $pin"
+
+      - name: Build the local platform feed
+        run: |
+          node eng/build-local-feed.mjs
+
+      - name: Perf lane (Lane=perf, alone on this host)
+        run: |
+          set -o pipefail
+          mkdir -p .claude/gate-evidence
+          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false             --filter "Lane=perf"             --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence             --logger "console;verbosity=detailed" | tee .claude/gate-evidence/perf-tests.log
+          echo "## Layout timing parity (KS)" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "KS D = " .claude/gate-evidence/perf-tests.log | sed -E 's/^ *(\[xUnit[^]]*\] *)?//' | sort -u | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-perf-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            .claude/gate-evidence/
 
   # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
   # lane, and since T-578 each is on the landing's critical path through the `verify` aggregator.
