@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
@@ -105,16 +106,15 @@ public static class RenderPlanCompiler
     /// `new PackSeedProjectionRefusal(..., code, ...)` was unresolvable for exactly that reason. The
     /// construction belongs where the codes are constants, which is here.
     /// </summary>
-    public static PackSeedProjectionRefusal? CompileOrRefuse(
+    public static async ValueTask<(RenderPlan? Plan, PackSeedProjectionRefusal? Refusal)> CompileOrRefuseAsync(
         PackSeedItem item,
         string packKey,
         string packVersion,
-        string pointer,
-        out RenderPlan? plan)
+        string pointer)
     {
-        var refusalCode = string.Empty;
-        if (TryCompile(item, packKey, packVersion, out plan, out refusalCode)) return null;
-        return refusalCode switch
+        var (plan, refusalCode) = await CompileAsync(item, packKey, packVersion).ConfigureAwait(false);
+        if (plan is not null) return (plan, null);
+        return (null, refusalCode switch
         {
             PackRenderPlanCodes.KindUnsupported =>
                 new PackSeedProjectionRefusal(item.Key, item.Kind, PackRenderPlanCodes.KindUnsupported, pointer),
@@ -123,22 +123,19 @@ public static class RenderPlanCompiler
             PackRenderPlanCodes.UnsupportedFieldKind =>
                 new PackSeedProjectionRefusal(item.Key, item.Kind, PackRenderPlanCodes.UnsupportedFieldKind, pointer),
             _ => throw new InvalidOperationException($"render plan produced an undeclared refusal code: {refusalCode}"),
-        };
+        });
     }
 
-    public static bool TryCompile(
+    /// <summary>Compiles a plan, or returns a null plan with the refusal code. Async because a value-domain
+    /// field's editor is the field runtime's decision (T-752), and the runtime resolves asynchronously.</summary>
+    public static async ValueTask<(RenderPlan? Plan, string RefusalCode)> CompileAsync(
         PackSeedItem item,
         string packKey,
-        string packVersion,
-        out RenderPlan? plan,
-        out string refusalCode)
+        string packVersion)
     {
-        plan = null;
-        refusalCode = string.Empty;
         if (item.Kind is not (PackContentKind.FormDefinition or PackContentKind.ViewDefinition))
         {
-            refusalCode = PackRenderPlanCodes.KindUnsupported;
-            return false;
+            return (null, PackRenderPlanCodes.KindUnsupported);
         }
 
         try
@@ -147,38 +144,33 @@ public static class RenderPlanCompiler
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                refusalCode = PackRenderPlanCodes.BindingUnresolved;
-                return false;
+                return (null, PackRenderPlanCodes.BindingUnresolved);
             }
 
-            var bindings = item.Kind == PackContentKind.FormDefinition
-                ? FormBindings(root, out refusalCode)
-                : ViewBindings(root, out refusalCode);
-            if (bindings is null) return false;
+            var (bindings, refusalCode) = item.Kind == PackContentKind.FormDefinition
+                ? await FormBindingsAsync(root).ConfigureAwait(false)
+                : await ViewBindingsAsync(root).ConfigureAwait(false);
+            if (bindings is null) return (null, refusalCode);
 
-            plan = new RenderPlan(
+            return (new RenderPlan(
                 Hash(item.CanonicalJson), item.Key, item.Version, packKey, packVersion, item.Kind.ToString(),
                 bindings.Value,
                 ReadOrEmpty(root, "sortAndFilterDefaults"),
                 item.Kind == PackContentKind.FormDefinition ? ReadOrEmpty(root, "fieldsMeta") : JsonSerializer.SerializeToElement(new { }),
                 JsonSerializer.SerializeToElement(new { code = "empty" }),
-                JsonSerializer.SerializeToElement(new { code = "definition-unavailable" }));
-            return true;
+                JsonSerializer.SerializeToElement(new { code = "definition-unavailable" })), string.Empty);
         }
         catch (Exception exception) when (exception is JsonException or ViewDefinitionGovernanceException)
         {
-            refusalCode = PackRenderPlanCodes.BindingUnresolved;
-            return false;
+            return (null, PackRenderPlanCodes.BindingUnresolved);
         }
     }
 
-    private static JsonElement? FormBindings(JsonElement root, out string refusalCode)
+    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> FormBindingsAsync(JsonElement root)
     {
-        refusalCode = string.Empty;
         if (!TryGetProperty(root, "fieldsMeta", out var fields) || fields.ValueKind != JsonValueKind.Object)
         {
-            refusalCode = PackRenderPlanCodes.BindingUnresolved;
-            return null;
+            return (null, PackRenderPlanCodes.BindingUnresolved);
         }
 
         foreach (var field in fields.EnumerateObject())
@@ -186,26 +178,37 @@ public static class RenderPlanCompiler
             if (!TryGetProperty(field.Value, "type", out var kind) || kind.ValueKind != JsonValueKind.String
                 || !IsSupportedFieldKind(kind.GetString()))
             {
-                refusalCode = PackRenderPlanCodes.UnsupportedFieldKind;
-                return null;
+                return (null, PackRenderPlanCodes.UnsupportedFieldKind);
             }
         }
 
-        var overlay = ReadOrEmpty(root, "overlay");
-        return JsonSerializer.SerializeToElement(new { fields, overlay });
+        var overlay = JsonNode.Parse(ReadOrEmpty(root, "overlay").GetRawText())!.AsObject();
+        foreach (var field in fields.EnumerateObject())
+        {
+            if (!TryGetProperty(field.Value, "options", out var options) || options.ValueKind != JsonValueKind.Array) continue;
+            var values = options.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToList();
+            if (values.Count == 0) continue;
+            // T-752 (T-724 rulings 37, 64): a value-domain field renders the runtime's editor, the same as the
+            // Forms wire; a signed pack's authored hint on such a field is overwritten, never passed through.
+            var domain = await FieldEditorChoice.ResolveAsync(values, TimeProvider.System, $"/{field.Name}", CancellationToken.None)
+                .ConfigureAwait(false);
+            var overlayFields = overlay["fields"] as JsonObject ?? (JsonObject)(overlay["fields"] = new JsonObject());
+            var presentation = overlayFields[field.Name] as JsonObject ?? (JsonObject)(overlayFields[field.Name] = new JsonObject());
+            presentation["controlHint"] = domain.Editor.ToString();
+            presentation["permittedValues"] = new JsonArray(domain.Values.Select(v => (JsonNode)v!).ToArray());
+        }
+        return (JsonSerializer.SerializeToElement(new { fields, overlay }), string.Empty);
     }
 
-    private static JsonElement? ViewBindings(JsonElement root, out string refusalCode)
+    private static async ValueTask<(JsonElement? Bindings, string RefusalCode)> ViewBindingsAsync(JsonElement root)
     {
-        refusalCode = string.Empty;
         if (!TryGetProperty(root, "viewKind", out var kind)
             || kind.GetString() != Harborline.Blocks.EntityViews.ViewKindIds.Table
             || !TryGetProperty(root, "parameters", out var parameters) || parameters.ValueKind != JsonValueKind.Object
             || !TryGetProperty(parameters, "entityType", out var entityType) || entityType.ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(entityType.GetString()))
         {
-            refusalCode = PackRenderPlanCodes.BindingUnresolved;
-            return null;
+            return (null, PackRenderPlanCodes.BindingUnresolved);
         }
 
         var actions = new List<object>();
@@ -213,8 +216,7 @@ public static class RenderPlanCompiler
         {
             if (declarations.ValueKind != JsonValueKind.Array)
             {
-                refusalCode = PackRenderPlanCodes.BindingUnresolved;
-                return null;
+                return (null, PackRenderPlanCodes.BindingUnresolved);
             }
             var ids = new HashSet<string>(StringComparer.Ordinal);
             foreach (var action in declarations.EnumerateArray())
@@ -227,8 +229,7 @@ public static class RenderPlanCompiler
                     || !TryGetProperty(action, "operation", out var operation) || operation.ValueKind != JsonValueKind.String
                     || (!action.TryGetProperty("dispatch", out _) && !IsSupportedOperation(operation.GetString())))
                 {
-                    refusalCode = PackRenderPlanCodes.BindingUnresolved;
-                    return null;
+                    return (null, PackRenderPlanCodes.BindingUnresolved);
                 }
                 if (action.TryGetProperty("dispatch", out var dispatch))
                 {
@@ -237,8 +238,9 @@ public static class RenderPlanCompiler
                     JsonElement? input = null;
                     if (action.TryGetProperty("input", out var authoredInput))
                     {
-                        input = FormBindings(authoredInput, out refusalCode);
-                        if (input is null) return null;
+                        var (compiled, refusalCode) = await FormBindingsAsync(authoredInput).ConfigureAwait(false);
+                        if (compiled is null) return (null, refusalCode);
+                        input = compiled;
                     }
                     actions.Add(new
                     {
@@ -254,8 +256,8 @@ public static class RenderPlanCompiler
             }
         }
         var dataSource = parameters.TryGetProperty("dataSource", out var source) ? HostViewRequestDescriptors.ResolveDataSource(source) : null;
-        return JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
-            JsonSerializerOptions.Web);
+        return (JsonSerializer.SerializeToElement(new { viewKind = kind.GetString(), entityType = entityType.GetString(), parameters, actions, dataSource },
+            JsonSerializerOptions.Web), string.Empty);
     }
 
     private static bool IsSupportedFieldKind(string? kind) => kind is "text" or "number" or "checkbox"

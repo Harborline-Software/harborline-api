@@ -87,38 +87,38 @@ public sealed class CatalogueTests
     }
 
     [Fact(DisplayName = "402.4: a definition-only change changes only that definition's render-plan hash")]
-    public void Definition_hash_is_independent_of_the_derived_render_plan()
+    public async Task Definition_hash_is_independent_of_the_derived_render_plan()
     {
         var first = FormItem("first", "First title");
         var changed = FormItem("first", "Changed title");
         var sibling = FormItem("sibling", "Sibling title");
 
-        Assert.True(RenderPlanCompiler.TryCompile(first, "pack", "1.0.0", out var firstPlan, out _));
-        Assert.True(RenderPlanCompiler.TryCompile(changed, "pack", "1.0.0", out var changedPlan, out _));
-        Assert.True(RenderPlanCompiler.TryCompile(sibling, "pack", "1.0.0", out var siblingPlan, out _));
+        var firstPlan = await CompileAgain(first);
+        var changedPlan = await CompileAgain(changed);
+        var siblingPlan = await CompileAgain(sibling);
 
-        Assert.NotEqual(firstPlan!.DefinitionHash, changedPlan!.DefinitionHash);
+        Assert.NotEqual(firstPlan.DefinitionHash, changedPlan.DefinitionHash);
         Assert.Equal("First title", firstPlan.Bindings.GetProperty("overlay").GetProperty("title").GetString());
         Assert.Equal("Changed title", changedPlan.Bindings.GetProperty("overlay").GetProperty("title").GetString());
         Assert.True(firstPlan.Bindings.GetProperty("fields").GetProperty("name").GetProperty("required").GetBoolean());
-        Assert.NotEqual(firstPlan.DefinitionHash, siblingPlan!.DefinitionHash);
-        Assert.Equal(siblingPlan.DefinitionHash, CompileAgain(sibling).DefinitionHash);
+        Assert.NotEqual(firstPlan.DefinitionHash, siblingPlan.DefinitionHash);
+        Assert.Equal(siblingPlan.DefinitionHash, (await CompileAgain(sibling)).DefinitionHash);
     }
 
     [Fact]
-    public void View_actions_compile_only_declared_operations_and_unique_identities()
+    public async Task View_actions_compile_only_declared_operations_and_unique_identities()
     {
         foreach (var operation in new[] { "pack.validate", "pack.export", "pack.verify", "pack.install", "pack.activate", "record.create", "record.read" })
         {
             var item = ActionView(operation, duplicate: false);
-            var plan = CompileAgain(item);
+            var plan = await CompileAgain(item);
             Assert.Equal("run", plan.Bindings.GetProperty("actions")[0].GetProperty("id").GetString());
             Assert.Equal("Run", plan.Bindings.GetProperty("actions")[0].GetProperty("label").GetString());
             Assert.Equal(operation, plan.Bindings.GetProperty("parameters").GetProperty("actions")[0].GetProperty("operation").GetString());
         }
         foreach (var item in new[] { ActionView("shell.execute", false), ActionView("pack.export", true) })
         {
-            Assert.False(RenderPlanCompiler.TryCompile(item, "pack", "1.0.0", out var plan, out var code));
+            var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0");
             Assert.Null(plan);
             Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
         }
@@ -135,10 +135,11 @@ public sealed class CatalogueTests
         return new PackSeedItem("actions", PackContentKind.ViewDefinition, "1.0.0", body, Cid.FromBytes([]));
     }
 
-    private static RenderPlan CompileAgain(PackSeedItem item)
+    private static async Task<RenderPlan> CompileAgain(PackSeedItem item)
     {
-        Assert.True(RenderPlanCompiler.TryCompile(item, "pack", "1.0.0", out var plan, out _));
-        return plan!;
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "pack", "1.0.0");
+        Assert.True(plan is not null, code);
+        return plan;
     }
 
     private static PackSeedItem FormItem(string id, string title)

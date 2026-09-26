@@ -79,7 +79,7 @@ public sealed class SeededHealthBrowseViewTests
     }
 
     [Fact]
-    public void Every_frozen_health_and_browse_definition_compiles_to_its_declared_grid_projection()
+    public async Task Every_frozen_health_and_browse_definition_compiles_to_its_declared_grid_projection()
     {
         using var document = ReadPack();
         var items = FrozenViewItems(document)
@@ -90,9 +90,8 @@ public sealed class SeededHealthBrowseViewTests
         Assert.Equal(26, items.Length);
         foreach (var item in items)
         {
-            Assert.True(
-                RenderPlanCompiler.TryCompile(item, "harborline.platform", PackVersion, out var plan, out var refusalCode),
-                $"{item.Key}: {refusalCode}");
+            var (plan, refusalCode) = await RenderPlanCompiler.CompileAsync(item, "harborline.platform", PackVersion);
+            Assert.True(plan is not null, $"{item.Key}: {refusalCode}");
             Assert.NotNull(plan);
             Assert.Equal(item.Key, plan.DefinitionId);
             Assert.Equal(DefinitionVersion, plan.DefinitionVersion);

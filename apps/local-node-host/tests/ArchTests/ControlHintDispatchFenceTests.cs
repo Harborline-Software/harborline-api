@@ -24,6 +24,8 @@ public sealed class ControlHintDispatchFenceTests
         // Render wire: a value-domain field's hint is then replaced by the runtime's editor (FieldEditorChoice).
         ("apps/local-node-host/Health/FormsRoutes.cs", "f.ControlHint,", 1),
         ("packages/foundation-forms-engine/FormEngine.cs", "ControlHint: fieldOverlay?.ControlHint,", 2),
+        // Render plan (T-752): a write, not a read; the runtime's editor overwrites a value-domain field's hint.
+        ("apps/local-node-host/Health/RenderPlanCatalogue.cs", "presentation[\"controlHint\"] = domain.Editor.ToString();", 1),
     ];
 
     private static readonly Regex HintRead = new(

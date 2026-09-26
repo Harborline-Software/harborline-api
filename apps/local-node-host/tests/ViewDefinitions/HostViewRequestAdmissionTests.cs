@@ -63,7 +63,8 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        Assert.True(plan is not null, code);
         var action = plan!.Bindings.GetProperty("actions")[0];
         var transport = action.GetProperty("dispatch").GetProperty("descriptor");
         Assert.Equal(AssetRegistryRoutes.ReadEntityRequest.RouteTemplate, transport.GetProperty("routeTemplate").GetString());
@@ -108,11 +109,11 @@ public sealed class HostViewRequestAdmissionTests
     [InlineData("records.read.v1")]
     [InlineData("authorization.holders.read.v1")]
     [InlineData("unknown")]
-    public void Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors(string descriptorId)
+    public async Task Data_source_compilation_refuses_mutations_non_lists_and_unknown_descriptors(string descriptorId)
     {
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(DataSourceDefinition(descriptorId), JsonSerializerOptions.Web), Cid.FromBytes([]));
-        Assert.False(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code));
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
         Assert.Null(plan);
         Assert.Equal(PackRenderPlanCodes.BindingUnresolved, code);
     }
@@ -124,7 +125,8 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, JsonSerializerOptions.Web), Cid.FromBytes([]));
-        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        Assert.True(plan is not null, code);
         var descriptor = plan!.Bindings.GetProperty("dataSource").GetProperty("descriptor");
         Assert.Equal("GET", descriptor.GetProperty("method").GetString());
         Assert.Equal("/rows", descriptor.GetProperty("rowsPointer").GetString());
@@ -173,7 +175,8 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        Assert.True(plan is not null, code);
         var descriptor = plan!.Bindings.GetProperty("actions")[0].GetProperty("dispatch").GetProperty("descriptor");
         Assert.Equal("selected-session", descriptor.GetProperty("audience").GetString());
         Assert.True(descriptor.GetProperty("requiresAntiforgery").GetBoolean());
@@ -208,7 +211,8 @@ public sealed class HostViewRequestAdmissionTests
         await descriptors.AdmitAsync(definition);
         var item = new PackSeedItem("example.holders", PackContentKind.ViewDefinition, "1.0.0",
             JsonSerializer.Serialize(definition, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Cid.FromBytes([]));
-        Assert.True(RenderPlanCompiler.TryCompile(item, "example.pack", "1.0.0", out var plan, out var code), code);
+        var (plan, code) = await RenderPlanCompiler.CompileAsync(item, "example.pack", "1.0.0");
+        Assert.True(plan is not null, code);
         var action = plan!.Bindings.GetProperty("actions")[0];
         Assert.Equal(accept, action.GetProperty("fileInput").GetProperty("accept").GetString());
         Assert.Equal(refresh, action.GetProperty("result").GetProperty("refresh").GetString());

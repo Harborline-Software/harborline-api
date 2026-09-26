@@ -928,12 +928,12 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                                     case FormDefinitionOutcome.Published:
                                         formsPublished++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
-                                        EmitRenderPlan(tenant, pack, item, refusals);
+                                        await EmitRenderPlanAsync(tenant, pack, item, refusals).ConfigureAwait(false);
                                         break;
                                     case FormDefinitionOutcome.AlreadyPresent:
                                         formsPresent++;
                                         admittedDefinitions.Add((item.Kind, item.Key, item.Version));
-                                        EmitRenderPlan(tenant, pack, item, refusals);
+                                        await EmitRenderPlanAsync(tenant, pack, item, refusals).ConfigureAwait(false);
                                         break;
                                     case FormDefinitionOutcome.Deferred: formsDeferred++; break;
                                     default:
@@ -1121,7 +1121,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                             }
                             else
                             {
-                                EmitRenderPlan(tenant, pack, item, refusals);
+                                await EmitRenderPlanAsync(tenant, pack, item, refusals).ConfigureAwait(false);
                             }
                         }
 
@@ -2042,7 +2042,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
                existing.Parameters.GetRawText(),
                expected.Parameters.GetRawText());
 
-    private void EmitRenderPlan(
+    private async ValueTask EmitRenderPlanAsync(
         TenantId tenant,
         InstalledPack pack,
         PackSeedItem item,
@@ -2067,8 +2067,8 @@ internal sealed class PackSeedProjector : IPackSeedProjector
             return;
         }
 
-        var refusal = RenderPlanCompiler.CompileOrRefuse(
-            item, pack.PackKey, pack.Version, ContentPointer(pack, item), out var plan);
+        var (plan, refusal) = await RenderPlanCompiler.CompileOrRefuseAsync(
+            item, pack.PackKey, pack.Version, ContentPointer(pack, item)).ConfigureAwait(false);
         if (refusal is not null)
         {
             refusals.Add(refusal);
