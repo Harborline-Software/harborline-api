@@ -1,0 +1,57 @@
+diff --git a/dist/src/vitest-test-runner.js b/dist/src/vitest-test-runner.js
+index 84f1ca026503b8e92b7adc952ec6c6a401943656..5ad3497e055ceacb1ac28de62cd419adf9b45df7 100644
+--- a/dist/src/vitest-test-runner.js
++++ b/dist/src/vitest-test-runner.js
+@@ -177,10 +177,17 @@ export class VitestTestRunner {
+             failure ||= testResult.status === TestStatus.Failed;
+             return testResult;
+         });
+-        if (!failure && this.ctx.state.errorsSet.size > 0) {
+-            const errorText = [...this.ctx.state.errorsSet]
+-                .map(errorToString)
+-                .join('\n');
++        // Collection errors are stored on the file, not in errorsSet, and may
++        // leave no individual tests to report the failure (stryker-js #6150, PR #6217).
++        const fileErrors = this.ctx.state.getFiles()
++            .filter((file) => file.result?.state === 'fail')
++            .map((file) => `${file.filepath}: ${file.result?.errors?.map((error) => error.message).join('\n') || 'StrykerJS: Test file execution failed'}`);
++        if (!failure &&
++            (fileErrors.length > 0 || this.ctx.state.errorsSet.size > 0)) {
++            const errorText = [
++                ...fileErrors,
++                ...[...this.ctx.state.errorsSet].map(errorToString),
++            ].join('\n');
+             return {
+                 status: DryRunStatus.Error,
+                 errorMessage: `An error occurred outside of a test run: ${errorText}`,
+diff --git a/src/vitest-test-runner.ts b/src/vitest-test-runner.ts
+index b54e16ae236118113d78931dab44a2252825cde4..b80a6a436bc18caaf7d65a84109f0747b4443a8c 100644
+--- a/src/vitest-test-runner.ts
++++ b/src/vitest-test-runner.ts
+@@ -265,10 +265,22 @@ export class VitestTestRunner implements TestRunner {
+       return testResult;
+     });
+ 
+-    if (!failure && this.ctx!.state.errorsSet.size > 0) {
+-      const errorText = [...this.ctx!.state.errorsSet]
+-        .map(errorToString)
+-        .join('\n');
++    // Collection errors are stored on the file, not in errorsSet, and may
++    // leave no individual tests to report the failure (stryker-js #6150, PR #6217).
++    const fileErrors = this.ctx!.state.getFiles()
++      .filter((file) => file.result?.state === 'fail')
++      .map(
++        (file) =>
++          `${file.filepath}: ${file.result?.errors?.map((error) => error.message).join('\n') || 'StrykerJS: Test file execution failed'}`,
++      );
++    if (
++      !failure &&
++      (fileErrors.length > 0 || this.ctx!.state.errorsSet.size > 0)
++    ) {
++      const errorText = [
++        ...fileErrors,
++        ...[...this.ctx!.state.errorsSet].map(errorToString),
++      ].join('\n');
+       return {
+         status: DryRunStatus.Error,
+         errorMessage: `An error occurred outside of a test run: ${errorText}`,

@@ -1,0 +1,26 @@
+diff --git a/dist/src/mutants/mutant-test-planner.js b/dist/src/mutants/mutant-test-planner.js
+index 04bcfffb655d1805c4c391ec9945a94a2a10d1ee..1bd2836a87edd0e1c6e00dcf413a947f516d561b 100644
+--- a/dist/src/mutants/mutant-test-planner.js
++++ b/dist/src/mutants/mutant-test-planner.js
+@@ -145,7 +145,7 @@ export class MutantTestPlanner {
+                     mutatorName: mutant.mutatorName,
+                     replacement: mutant.replacement,
+                 },
+-                mutantActivation: testFilter ? 'runtime' : 'static',
++                mutantActivation: canHotSwap ? 'runtime' : 'static',
+                 timeout,
+                 testFilter,
+                 sandboxFileName: this.sandbox.sandboxFileFor(mutant.fileName),
+diff --git a/src/mutants/mutant-test-planner.ts b/src/mutants/mutant-test-planner.ts
+index 8ea60bc47f4966e17fc3f07c542345494525bc92..39d2dcf011d9b59b7068b2ec1f7cf4337145b1b2 100644
+--- a/src/mutants/mutant-test-planner.ts
++++ b/src/mutants/mutant-test-planner.ts
+@@ -208,7 +208,7 @@ export class MutantTestPlanner {
+           mutatorName: mutant.mutatorName,
+           replacement: mutant.replacement,
+         },
+-        mutantActivation: testFilter ? 'runtime' : 'static',
++        mutantActivation: canHotSwap ? 'runtime' : 'static',
+         timeout,
+         testFilter,
+         sandboxFileName: this.sandbox.sandboxFileFor(mutant.fileName),
