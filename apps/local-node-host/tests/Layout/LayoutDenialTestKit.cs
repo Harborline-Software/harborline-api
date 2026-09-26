@@ -100,6 +100,12 @@ internal static class LayoutDenialTestKit
     /// database for the life of the fixture, so a disk's fsync stalls do not dominate the timing tests.
     /// <see cref="Fault"/> makes every context creation throw; <see cref="Delay"/> slows it.
     /// </summary>
+    /// <remarks>
+    /// Owner ruling Q39 option 3 (research R-0118): the slowdown is CPU work on the calling thread, measured
+    /// by the monotonic clock, not a timer sleep. A timer wake-up can be late by an amount the OS chooses
+    /// (macOS coalesces timers), which made the denied path's extra store work vary on mac16. With CPU work,
+    /// timer lateness can only touch the host's own final deadline wait, which is the thing under test.
+    /// </remarks>
     internal sealed class LocalNodeDb : IDbContextFactory<LocalNodeDbContext>, IDisposable
     {
         private readonly SqliteConnection _keepAlive;
@@ -121,11 +127,22 @@ internal static class LayoutDenialTestKit
 
         public LocalNodeDbContext CreateDbContext() => new(_options, LocalNodePatternAModuleCatalog.CreateModules());
 
-        public async Task<LocalNodeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        public Task<LocalNodeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
-            if (Delay > TimeSpan.Zero) await Task.Delay(Delay, cancellationToken);
+            if (Delay > TimeSpan.Zero) Busy(Delay, cancellationToken);
             if (Fault) throw new InvalidOperationException("the local store is down");
-            return CreateDbContext();
+            return Task.FromResult(CreateDbContext());
+        }
+
+        /// <summary>Spends <paramref name="cost"/> of CPU time on this thread, with no timer involved.</summary>
+        private static void Busy(TimeSpan cost, CancellationToken cancellationToken)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.Elapsed < cost)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Thread.SpinWait(64);
+            }
         }
 
         public void Dispose() => _keepAlive.Dispose();
