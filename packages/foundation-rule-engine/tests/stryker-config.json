@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/stryker-config",
+  "stryker-config": {
+    "project": "Harborline.Foundation.RuleEngine.csproj",
+    "since": { "enabled": false, "target": "origin/main", "ignore-changes-in": ["**/stryker-config.json"] },
+    "thresholds": { "high": 80, "low": 60, "break": 38 },
+    "reporters": ["json", "progress"]
+  }
+}
