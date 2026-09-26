@@ -125,15 +125,15 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4494,
-      "passed": 4473,
+      "total": 4506,
+      "passed": 4485,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4494 -> 4506; passed 4473 -> 4485; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-576 (PR 227): ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests so the ticket's own --filter FullyQualifiedName~ReportsRouteTests matches it too, a pure rename that does not change the suite's total) gains two six-row theories, Every_report_with_a_malformed_credential_renders_the_gate_denial and Every_report_with_an_expired_credential_renders_the_gate_denial, one row per report-run route (trial-balance, ar-aging-summary, ap-aging-summary, balance-sheet, profit-and-loss, profit-and-loss-by-property): 12 added cases, all passing. No test method, class or file is removed, renamed away, or skipped, and no skip identity changes.",
-    "detectedBy": "Native Windows exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against commit b2b0c684, HARBORLINE_GATE_QUALITY unset: observed total 4506, passed 4485, failed 0, notExecuted 21, newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
-    "arithmeticCrossCheck": "4494 + 12 = 4506; passed = total - notExecuted = 4506 - 21 = 4485."
+    "change": "total 4506 -> 4510; passed 4485 -> 4489; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-519 (PR 229): the AuthorizationDefinitionWriter six-stage write-pipeline order moves to a kernel-owned declaration (WritePipelineStage/WritePipeline in packages/kernel-runtime; WritePipeline.Order is Array.AsReadOnly-wrapped so a caller cannot cast it back to a mutable array). The old combined fact AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder is REMOVED (its seven AssertBefore source-text order checks are superseded by the kernel-owned order); its sealed-bootstrap-refusal body is RETAINED but RENAMED to AuthorizationSeed_SealedBootstrapRefuses. Five new facts land: that rename, three new behavioural facts (AuthorizationDefinitionWriter_AuthorizeRefusalStopsBeforeBindCommitAndReact, AuthorizationDefinitionWriter_ValidateRefusalRunsBindAndMutateButStopsBeforeCommitAndReact, AuthorizationDefinitionWriter_RunsEachRealStageInKernelOrder), and WritePipeline_OrderCannotBeMutatedByACallerHoldingIt (proving the AsReadOnly hardening). Net -1 old name +5 = +4 cases. AuthorizationDefinitionWriter_DeniedOrdinaryAndBootstrapWritesNeverReachStore is pre-existing and unchanged, not part of this delta.",
+    "detectedBy": "Native Windows exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against commit 93ba04cc (branch merged with main 1241b0fd, T-576 PR 227), HARBORLINE_GATE_QUALITY unset: observed total 4510, passed 4489, failed 0, notExecuted 21, newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
+    "arithmeticCrossCheck": "4506 + 4 = 4510; passed = total - notExecuted = 4510 - 21 = 4489."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
