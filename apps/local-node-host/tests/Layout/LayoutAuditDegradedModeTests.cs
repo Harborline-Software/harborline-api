@@ -29,7 +29,6 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// refusal clears by itself once health returns. Before, during and after degradation, a missing and a
 /// denied target give the same response in shape, status and timing.
 /// </summary>
-[Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
 [Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
 {
@@ -76,6 +75,7 @@ public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
         Assert.Single(log.Entries, entry => entry.Event == NodeEfLayoutDenialOutbox.AuditHealthProbeRecoveredEvent);
     }
 
+    [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
     [Theory(DisplayName = "layout-eng-31: in audit-degraded mode, missing and denied give the same response in shape, status and timing before, during and after degradation, and the refusal clears on recovery")]
     [InlineData(Trigger.GateLogDown)]
     [InlineData(Trigger.OutboxDown)]

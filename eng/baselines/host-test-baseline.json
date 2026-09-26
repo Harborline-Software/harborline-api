@@ -5,13 +5,13 @@
   "sourcePin": "PENDING",
   "recordedAt": "2026-09-25T14:57:35Z",
   "totals": {
-    "total": 4482,
-    "passed": 4461,
+    "total": 4488,
+    "passed": 4467,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
-    "T-731 PR 215, owner ruling Q38: the host lanes exclude the trait Lane=perf, so the ten cases of the LayoutTimingParity collection (LayoutSurfaceHostParityTests: 6, LayoutAuditDegradedModeTests: 4) leave this suite and run only in verify-perf on mac16. No test is removed or skipped; the count falls from 4492 to 4482. Provisional until the Windows CI measurement on this head confirms it.",
+    "T-731 PR 215, owner ruling Q38: the host lanes exclude the trait Lane=perf, carried only by the two KS timing theories (LayoutSurfaceHostParityTests.MissingAndDeniedTimingDistributionsAreTheSame and LayoutAuditDegradedModeTests.MissingAndDeniedMatchBeforeDuringAndAfterDegradation, two rows each), so those four cases leave this suite and run only in verify-perf on mac16. No test is removed or skipped; the count falls from 4492 to 4488. Provisional until the Windows CI measurement on this head confirms it.",
     "T-731 PR 215 review (CodeRabbit comment 4105312648): one case is added, LayoutAuditDegradedModeTests.AFailingAuditHealthProbeLogsOnceWithTheCause, on top of 4491. No test is removed, renamed or skipped. Confirmed by the Windows CI job verify-windows (run 36181817932, job 108225950517) on head e8bae826 (CI merge commit c0de305), whose exact-clone host-baseline-match passed against 4492 total and 0 failed, with newFailures empty.",
     "T-731 audit-degraded mode (owner ruling of 2026-09-25, PR 215), merged over T-664 PR 214: three cases are added on top of main 4488, the new LayoutAuditDegradedModeTests: the fact ByDefaultAFailedOutboxWriteChangesNothingTheCallerSeesAndAlerts and the two rows of the theory MissingAndDeniedMatchBeforeDuringAndAfterDegradation (GateLogDown, OutboxDown). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. Confirmed by the Windows CI job verify-windows (run 36172079654, job 108193803320) on the merged head ca64514d (CI merge commit e3c025a), whose exact-clone host-baseline-match passed against 4491 total and 0 failed, with newFailures empty.",
     "T-664 the host takes the field runtime's editor choice: the native Windows exact-clone of PR 214 CI run 36149723542 at 47ce6084d8042049142ea0268a1be30604db8acc (branch merged with main c8f40318, after T-687 PR 212 and T-731 PR 213) measured 4488 total, 4467 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4480-case count inventory. The eight added cases are FormsRouteTests.Value_domain_field_renders_the_runtime_editor_over_the_authored_hint, the four InlineData rows of FormDefinitionRouteTests.Authored_control_on_a_value_domain_field_is_refused_at_admission (draft and publish, hints textarea and select), CatalogueFieldSourceContractTests.T664_an_authored_hint_cannot_remove_a_validation_from_the_projected_definition, ControlHintDispatchFenceTests.Every_production_read_of_the_control_hint_is_an_allowed_pass_through and AccessAdministrationPreloadTests.Legacy_signed_pack_hint_on_a_value_domain_field_is_admitted_and_overruled_by_the_runtime (T-724 ruling 64). No test method, class or file is removed; no case is renamed or skipped, and no skip identity changes. This tuple was measured TWICE and the first number was DISCARDED rather than adjusted: run 36140242677 measured 4487/4466 against the pre-T-687 base of 4479, and when main moved the base to 4480 the branch was merged and re-measured. The macOS lane uses named comparison, so its baseline is not updated. Only the measured Windows count and provenance change; failure, skip, known-flaky, retry and other-OS baseline policies stay unchanged.",
@@ -129,10 +129,10 @@
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4492 -> 4482; passed 4471 -> 4461; failed unchanged at 0; notExecuted 21 -> 21",
-    "cause": "Owner ruling Q38: eng/run-exact-clone.mjs filters Lane!=perf; the ten LayoutTimingParity cases run in verify-perf instead.",
+    "change": "total 4492 -> 4488; passed 4471 -> 4467; failed unchanged at 0; notExecuted 21 -> 21",
+    "cause": "Owner ruling Q38: eng/run-exact-clone.mjs filters Lane!=perf; the four KS timing cases run in verify-perf instead.",
     "detectedBy": "Provisional: to be confirmed by the Windows CI run on this head.",
-    "arithmeticCrossCheck": "4492 - 10 = 4482; passed = total - notExecuted = 4482 - 21 = 4461."
+    "arithmeticCrossCheck": "4492 - 4 = 4488; passed = total - notExecuted = 4488 - 21 = 4467."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {

@@ -238,6 +238,10 @@ jobs:
           fi
           since_s=$(date -u -d "$since" +%s) || { echo "::error::PERF_HOST_OFFLINE_SINCE is not a date: $since"; exit 1; }
           age_h=$(( ($(date -u +%s) - since_s) / 3600 ))
+          if [ "$age_h" -lt 0 ]; then
+            echo "::error::PERF_HOST_OFFLINE_SINCE is in the future ($since); a future instant cannot extend the 72h skip"
+            exit 1
+          fi
           if [ "$age_h" -ge 72 ]; then
             echo "::error::verify-perf has been skipped since $since (${age_h}h, limit 72h): mac16 (perf-quiet) must come back, or the owner rules again"
             exit 1
@@ -303,7 +307,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .claude/gate-evidence
-          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false             --filter "Lane=perf"             --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence             --logger "console;verbosity=detailed" | tee .claude/gate-evidence/perf-tests.log
+          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false             --filter "Lane=perf"             --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence             --logger "console;verbosity=detailed"             -- RunConfiguration.TreatNoTestsAsError=true | tee .claude/gate-evidence/perf-tests.log
           echo "## Layout timing parity (KS)" >> "$GITHUB_STEP_SUMMARY"
           grep -E "KS D = " .claude/gate-evidence/perf-tests.log | sed -E 's/^ *(\[xUnit[^]]*\] *)?//' | sort -u | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
 

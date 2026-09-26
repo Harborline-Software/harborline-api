@@ -28,7 +28,6 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// timing, on the ordinary path and on both outbox fault paths. Related traversals go through the REAL gate
 /// over the seeded production definitions. In-process: T-735 wires the HTTP route.
 /// </summary>
-[Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
 [Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
 {
@@ -100,6 +99,7 @@ public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
     /// deadline, so one attempt holds.
     /// </para>
     /// </summary>
+    [Trait(LayoutTimingParityCollection.LaneTrait, LayoutTimingParityCollection.PerfLane)]
     [Theory(DisplayName = "layout-eng-31: an unauthorized caller cannot tell missing from denied by timing (two-sample KS over 60 interleaved samples a path, alpha 0.001, measured floor)")]
     [InlineData(Fault.None)]
     [InlineData(Fault.GateLogDown)]
