@@ -10,13 +10,28 @@
     "tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj": {"score": 59.57, "tested": 38, "killed": 26, "timeout": 2, "survived": 10, "noCoverage": 9, "compileError": 0, "measured": "2026-09-26"}
   },
   "slices": {
+    "authorization-denial-data": {"status": "pending"},
     "authorization-denial": {"status": "pending"},
     "refusals-admission": {"status": "pending"},
+    "scope-tenancy-identity-tenant": {"status": "pending"},
+    "scope-tenancy-identity-session": {"status": "pending"},
     "scope-tenancy": {"status": "pending"},
+    "data-integrity-data": {"status": "pending"},
     "data-integrity": {"status": "pending"},
+    "data-identity-schema": {"status": "pending"},
+    "data-identity-installation": {"status": "pending"},
     "data-identity": {"status": "pending"},
+    "data-pack-projection": {"status": "pending"},
+    "data-migrations": {"status": "pending"},
+    "data-search": {"status": "pending"},
+    "data-roster-workflow": {"status": "pending"},
+    "data-financial-comms": {"status": "pending"},
+    "data-payroll-people": {"status": "pending"},
     "data-other": {"status": "pending"},
-    "health-routes": {"status": "pending"},
+    "health-a-b": {"status": "pending"},
+    "health-c-e": {"status": "pending"},
+    "health-f-l": {"status": "pending"},
+    "health-m-z": {"status": "pending"},
     "rest": {"status": "pending"}
   }
 }

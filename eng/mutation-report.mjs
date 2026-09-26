@@ -41,7 +41,8 @@ export function thresholdsFor(breakAt) {
 // SLICES_FILE lists the slices in rotation order, silent-failure (T-719) areas first. Membership is
 // first-match: a slice's Stryker `mutate` list is its own globs plus every earlier slice's globs
 // negated, so the checker proves the partition against exactly the lists Stryker receives.
-// Globs are matched against paths relative to the project directory; `**/` may match nothing.
+// Globs are matched against paths relative to the project directory; `**/` may match nothing,
+// `[A-C]` is a character class, and matching is case-sensitive, as Stryker's globbing is.
 export const SLICES_FILE = 'eng/baselines/mutation-slices.json'
 
 export function globRegex(glob) {
@@ -50,9 +51,10 @@ export function globRegex(glob) {
     if (glob.startsWith('**/', i)) { source += '(?:.*/)?'; i += 2 } else if (glob.startsWith('**', i)) { source += '.*'; i++ }
     else if (glob[i] === '*') source += '[^/]*'
     else if (glob[i] === '?') source += '[^/]'
+    else if (glob[i] === '[' && glob.indexOf(']', i) > i) { const end = glob.indexOf(']', i); source += glob.slice(i, end + 1); i = end }
     else source += glob[i].replace(/[.+^${}()|[\]\\]/g, '\\$&')
   }
-  return new RegExp(`^${source}$`, 'i')
+  return new RegExp(`^${source}$`)
 }
 
 export function sliceMutate(slices, index) {

@@ -148,6 +148,9 @@ test('globs: ** spans folders (or none), * stays in one', () => {
   assert.ok(globRegex('**/*Authoriz*.cs').test('Health/RequestAuthorization.cs'))
   assert.ok(!globRegex('Data/*.cs').test('Data/Identity/Store.cs'))
   assert.ok(globRegex('**/Data/**').test('Data/Identity/Store.cs'))
+  assert.ok(globRegex('Health/[A-B]*').test('Health/BankAccountRoutes.cs'))
+  assert.ok(!globRegex('Health/[A-B]*').test('Health/CalendarRoutes.cs'))
+  assert.ok(!globRegex('**/*authoriz*.cs').test('RequestAuthorization.cs'), 'case-sensitive, as Stryker is')
 })
 
 test('a slice excludes every earlier slice, so each file has one owner', () => {
