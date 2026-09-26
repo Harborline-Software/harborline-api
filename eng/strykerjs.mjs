@@ -26,7 +26,7 @@
 // The silent-failure blocking rule (a survivor on a changed risk: silent line fails the PR) waits on T-719.
 // Kept separate from the Stryker.NET report checker on purpose; the two could merge later.
 import {spawnSync} from 'node:child_process'
-import {appendFileSync, existsSync, readFileSync} from 'node:fs'
+import {appendFileSync, existsSync, readFileSync, readdirSync, rmSync} from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -188,9 +188,14 @@ function runPackage(dir, entry, files, ranges, full) {
   const before = sources.map(file => readFileSync(path.join(cwd, file), 'utf8'))
   const status = () => git('status', '--porcelain', '--untracked-files=all', '--', dir).stdout
   const statusBefore = status()
+  // The vitest runner writes stryker-setup-<n>.js into the package and does not always remove it. It is git-ignored,
+  // so the stray check below cannot see it, but tooling that walks the directory (the design-review surface digest) can.
+  const setupFiles = () => readdirSync(cwd).filter(name => /^stryker-setup-\d+\.js$/.test(name))
+  const setupBefore = new Set(setupFiles())
   const args = [bin, 'run', path.relative(cwd, config), '--mutate', mutate.join(','), ...(entry.testFiles ? ['--testFiles', entry.testFiles.join(',')] : [])]
   const run = spawnSync(process.execPath, args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
+  for (const name of setupFiles()) if (!setupBefore.has(name)) rmSync(path.join(cwd, name), {force: true})
   process.stdout.write(output)
   const reportPath = path.join(cwd, 'reports/mutation/mutation.json')
   const report = existsSync(reportPath) ? JSON.parse(readFileSync(reportPath, 'utf8')) : undefined
