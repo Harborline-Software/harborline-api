@@ -28,6 +28,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// timing, on the ordinary path and on both outbox fault paths. Related traversals go through the REAL gate
 /// over the seeded production definitions. In-process: T-735 wires the HTTP route.
 /// </summary>
+[Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
 {
     private static readonly ActorId Stranger = new("stranger-731");

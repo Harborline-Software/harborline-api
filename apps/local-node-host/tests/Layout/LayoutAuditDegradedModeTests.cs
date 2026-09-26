@@ -29,6 +29,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// refusal clears by itself once health returns. Before, during and after degradation, a missing and a
 /// denied target give the same response in shape, status and timing.
 /// </summary>
+[Collection(LayoutTimingParityCollection.Name)]
 public sealed class LayoutAuditDegradedModeTests(ITestOutputHelper output)
 {
     private static readonly ActorId Stranger = new("stranger-731");
