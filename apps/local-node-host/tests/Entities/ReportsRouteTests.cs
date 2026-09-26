@@ -450,6 +450,11 @@ public sealed class ReportsRouteTestsAuthorization
         app.Use(async (http, next) =>
         {
             clock.Reset(); // Exclude the host's startup clock read from the request's authority read.
+            using var _ = clock.BeginRequest(); // Count only reads this request's own flow causes (T-576
+                                                 // flake fix): a read from unrelated out-of-band activity
+                                                 // sharing this process-wide TimeProvider — e.g. the host's
+                                                 // own background machinery — lands on a different async
+                                                 // flow and must not inflate the one-act-one-clock-read count.
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
             if (selectedTenant is { } tenant)
                 http.Features.Set(new SelectedSessionRequestPrincipal("report-account", tenant,
@@ -531,12 +536,36 @@ public sealed class ReportsRouteTestsAuthorization
 
     private sealed class CountingClock : TimeProvider
     {
+        private readonly AsyncLocal<bool> _counting = new();
+
         public int Reads { get; private set; }
         public void Reset() => Reads = 0;
+
+        /// <summary>
+        /// Scopes counted reads to the calling async flow — the one request this clock was just reset
+        /// for. A read from activity that shares this process-wide <see cref="TimeProvider"/> singleton
+        /// but runs on a different flow (the host's own background machinery, a stray continuation from
+        /// an unrelated request) does not inherit this scope, so it cannot inflate the "one act, one
+        /// clock read" count <c>AssertRefusedAsync</c> checks (T-576 flake: <c>ReportsRouteTestsAuthorization
+        /// .Every_report_with_an_expired_credential_renders_the_gate_denial(route: "/balance-sheet")</c>
+        /// intermittently saw <c>Reads == 2</c> under CI host contention with no corresponding second
+        /// read anywhere in the reachable production code).
+        /// </summary>
+        public IDisposable BeginRequest()
+        {
+            _counting.Value = true;
+            return new UntrackOnDispose(this);
+        }
+
         public override DateTimeOffset GetUtcNow()
         {
-            Reads++;
+            if (_counting.Value) Reads++;
             return TestAuthorization.At;
+        }
+
+        private sealed class UntrackOnDispose(CountingClock owner) : IDisposable
+        {
+            public void Dispose() => owner._counting.Value = false;
         }
     }
 
