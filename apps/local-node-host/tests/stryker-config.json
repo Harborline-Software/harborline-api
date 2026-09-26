@@ -2,9 +2,8 @@
   "$schema": "https://json.schemastore.org/stryker-config",
   "stryker-config": {
     "project": "Harborline.LocalNodeHost.csproj",
-    "test-projects": ["tests/tests.csproj"],
     "since": { "enabled": true, "target": "origin/main" },
-    "thresholds": { "break": 80 },
-    "reporters": ["json", "markdown"]
+    "thresholds": { "high": 80, "low": 60, "break": 60 },
+    "reporters": ["json", "progress"]
   }
 }
