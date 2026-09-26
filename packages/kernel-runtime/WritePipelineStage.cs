@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 namespace Harborline.Api.Kernel.Runtime;
 
 /// <summary>The kernel-owned ADR-0038 stages for every admitted write.</summary>
@@ -24,8 +26,14 @@ public static class WritePipeline
         WritePipelineStage.React,
     ];
 
+    // Array.AsReadOnly wraps the backing array once, so a caller holding Order cannot recover the
+    // array by casting (unlike returning the array itself as IReadOnlyList<T>, which permits an
+    // `(WritePipelineStage[])WritePipeline.Order` cast back to a mutable array) and cannot mutate
+    // the kernel's own declaration of the order.
+    private static readonly ReadOnlyCollection<WritePipelineStage> OrderValue = Array.AsReadOnly(Stages);
+
     /// <summary>Stages in the only permitted write-pipeline order.</summary>
-    public static IReadOnlyList<WritePipelineStage> Order => Stages;
+    public static IReadOnlyList<WritePipelineStage> Order => OrderValue;
 
     /// <summary>Renders the stable result name used by existing write callers.</summary>
     public static string NameOf(WritePipelineStage stage) => stage switch

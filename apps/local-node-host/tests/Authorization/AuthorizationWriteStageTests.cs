@@ -1490,6 +1490,18 @@ public sealed class AuthorizationWriteStageTests
     }
 
     [Fact]
+    public void WritePipeline_OrderCannotBeMutatedByACallerHoldingIt()
+    {
+        var order = WritePipeline.Order;
+        var before = order.ToArray();
+
+        Assert.Throws<InvalidCastException>(() => ((WritePipelineStage[])order)[0] = WritePipelineStage.React);
+
+        Assert.Equal(before, WritePipeline.Order);
+        Assert.Equal(before, order);
+    }
+
+    [Fact]
     public async Task AuthorizationSeed_SealedBootstrapRefuses()
     {
 
