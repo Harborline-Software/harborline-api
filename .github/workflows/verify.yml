@@ -465,6 +465,8 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       NUGET_PACKAGES: C:\nuget-runner
+      # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
+      VSTEST_CONNECTION_TIMEOUT: '300'
     steps:
       - name: Git Bash on PATH for the service account
         shell: pwsh
