@@ -1,0 +1,14 @@
+{
+  "note": "Owner ruling Q44 (option 3): the api host is mutated one slice a night, in this order, silent-failure (T-719) areas first. A file belongs to the first slice whose globs match it (paths relative to apps/local-node-host; eng/mutation-report.mjs --check proves every compiled file is in exactly one slice). Each slice's baseline is in mutation-baseline.json under slices.",
+  "project": "apps/local-node-host/tests/tests.csproj",
+  "slices": [
+    {"name": "authorization-denial", "silentFailure": true, "include": ["**/*Authoriz*.cs", "**/*Denial*.cs", "**/*Deny*.cs", "**/*Grant*.cs", "**/*Permission*.cs", "**/*Consent*.cs", "**/*Access*.cs"]},
+    {"name": "refusals-admission", "silentFailure": true, "include": ["**/*Refus*.cs", "**/*Admission*.cs", "**/*Admit*.cs", "**/Enrollment/**", "**/*Lockout*.cs", "**/*Quarantine*.cs", "**/*Revoc*.cs", "**/*Revoke*.cs", "**/CompromisedDeviceResponse/**"]},
+    {"name": "scope-tenancy", "silentFailure": true, "include": ["**/*Tenant*.cs", "**/*Scope*.cs", "**/*Isolation*.cs", "**/TeamSwitching/**", "**/TenantForking/**", "**/*Caller*.cs", "**/*Fence*.cs", "**/*Audience*.cs", "**/Health/WebSession/**", "**/*Session*.cs"]},
+    {"name": "data-integrity", "silentFailure": true, "include": ["**/*Audit*.cs", "**/*Outbox*.cs", "**/*Idempot*.cs", "**/*Store*.cs", "**/*Ledger*.cs", "**/*Journal*.cs", "**/BackupRestore/**", "**/*Rekey*.cs", "**/*SqlCipher*.cs", "**/Data/Storage/**"]},
+    {"name": "data-identity", "silentFailure": false, "include": ["**/Data/Identity/**"]},
+    {"name": "data-other", "silentFailure": false, "include": ["**/Data/**"]},
+    {"name": "health-routes", "silentFailure": false, "include": ["**/Health/**"]},
+    {"name": "rest", "silentFailure": false, "include": ["**"]}
+  ]
+}

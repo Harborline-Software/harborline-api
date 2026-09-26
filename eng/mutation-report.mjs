@@ -37,6 +37,77 @@ export function thresholdsFor(breakAt) {
   return {high: TARGET.high, low: Math.max(TARGET.low, breakAt), break: breakAt}
 }
 
+// Q44 (option 3): the host is too big for one night, so it is mutated one slice a night.
+// SLICES_FILE lists the slices in rotation order, silent-failure (T-719) areas first. Membership is
+// first-match: a slice's Stryker `mutate` list is its own globs plus every earlier slice's globs
+// negated, so the checker proves the partition against exactly the lists Stryker receives.
+// Globs are matched against paths relative to the project directory; `**/` may match nothing.
+export const SLICES_FILE = 'eng/baselines/mutation-slices.json'
+
+export function globRegex(glob) {
+  let source = ''
+  for (let i = 0; i < glob.length; i++) {
+    if (glob.startsWith('**/', i)) { source += '(?:.*/)?'; i += 2 } else if (glob.startsWith('**', i)) { source += '.*'; i++ }
+    else if (glob[i] === '*') source += '[^/]*'
+    else if (glob[i] === '?') source += '[^/]'
+    else source += glob[i].replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${source}$`, 'i')
+}
+
+export function sliceMutate(slices, index) {
+  return [...slices[index].include, ...slices.slice(0, index).flatMap(slice => slice.include).map(glob => `!${glob}`)]
+}
+
+export function inMutate(file, patterns) {
+  const test = glob => globRegex(glob).test(file)
+  return patterns.some(glob => !glob.startsWith('!') && test(glob)) && !patterns.some(glob => glob.startsWith('!') && test(glob.slice(1)))
+}
+
+// The C# a project compiles, relative to its directory: tracked .cs under it minus <Compile Remove>,
+// plus <Compile Include> links from outside it.
+export function projectSources(csproj, tracked) {
+  const attributes = kind => [...csproj.matchAll(new RegExp(`<Compile\\s+${kind}="([^"]+)"`, 'g'))].map(match => match[1].replaceAll('\\', '/'))
+  const removed = attributes('Remove')
+  return [...tracked.filter(file => file.endsWith('.cs') && !removed.some(glob => globRegex(glob).test(file))),
+    ...attributes('Include').filter(file => file.startsWith('../'))]
+}
+
+export function checkSlices(definition, sources, baselines) {
+  const errors = []
+  const {slices} = definition
+  const names = slices.map(slice => slice.name)
+  if (new Set(names).size !== names.length) errors.push(`${SLICES_FILE}: duplicate slice names`)
+  const firstPlain = slices.findIndex(slice => !slice.silentFailure)
+  if (firstPlain >= 0 && slices.slice(firstPlain).some(slice => slice.silentFailure)) errors.push(`${SLICES_FILE}: silent-failure slices must come first in the rotation`)
+  const mutates = slices.map((_, index) => sliceMutate(slices, index))
+  const members = slices.map(() => 0)
+  for (const file of sources) {
+    const owners = mutates.flatMap((patterns, index) => inMutate(file, patterns) ? [index] : [])
+    if (!owners.length) errors.push(`${file}: in no mutation slice`)
+    if (owners.length > 1) errors.push(`${file}: in more than one mutation slice (${owners.map(index => names[index]).join(', ')})`)
+    for (const index of owners) members[index]++
+  }
+  slices.forEach((slice, index) => { if (!members[index]) errors.push(`${SLICES_FILE}: slice ${slice.name} has no files`) })
+  for (const name of names) {
+    const baseline = baselines?.[name]
+    if (baseline?.status === 'pending') {
+      if (baseline.score !== undefined) errors.push(`${BASELINE_FILE}: slice ${name} has a score, so it is no longer pending: drop "status"`)
+      continue
+    }
+    if (typeof baseline?.score !== 'number') errors.push(`${BASELINE_FILE}: slice ${name} needs {"status": "pending"} or a measured score`)
+    else if (!(baseline.break >= Math.floor(baseline.score))) errors.push(`${BASELINE_FILE}: slice ${name} break ${baseline.break} is below the baseline ${Math.floor(baseline.score)}`)
+  }
+  for (const name of Object.keys(baselines ?? {})) if (!names.includes(name)) errors.push(`${BASELINE_FILE}: slice ${name} is not in ${SLICES_FILE}`)
+  return {errors, members}
+}
+
+// The nightly pick: days since the epoch (UTC) modulo the slice count, so consecutive nights walk the
+// rotation in order with no year-end skip.
+export function pickSlice(slices, date) {
+  return slices[Math.floor(date.getTime() / 86_400_000) % slices.length]
+}
+
 export function checkConfigs(csprojFiles, read, exists, excluded = EXCLUDED) {
   const errors = []
   const runs = []
@@ -158,11 +229,25 @@ function main() {
   const files = git('ls-files', '*.csproj').split('\n').filter(Boolean)
   const {errors, runs} = checkConfigs(files, read, file => existsSync(path.join(root, file)))
   for (const error of errors) console.error(`FAIL ${error}`)
+  const baselineFile = JSON.parse(read(BASELINE_FILE))
+  const definition = JSON.parse(read(SLICES_FILE))
+  const sliced = runs.find(run => run.test === definition.project)
+  if (!sliced) errors.push(`${SLICES_FILE}: project ${definition.project} is not a configured test project`)
+  else {
+    const tracked = git('ls-files', '--', path.posix.dirname(sliced.project)).split('\n').filter(Boolean)
+      .map(file => path.posix.relative(path.posix.dirname(sliced.project), file))
+    const {errors: sliceErrors, members} = checkSlices(definition, projectSources(read(sliced.project), tracked), baselineFile.slices)
+    errors.push(...sliceErrors)
+    if (process.argv.includes('--check')) definition.slices.forEach((slice, index) => console.log(`slice ${index + 1} ${slice.name}: ${members[index]} files`))
+  }
+  for (const error of errors) console.error(`FAIL ${error}`)
   if (errors.length) process.exit(1)
-  if (process.argv.includes('--check')) { console.log(`mutation configs: ${runs.length} configured, ${Object.keys(EXCLUDED).length} excluded`); return }
+  if (process.argv.includes('--check')) { console.log(`mutation configs: ${runs.length} configured, ${Object.keys(EXCLUDED).length} excluded, ${definition.slices.length} host slices`); return }
 
   const full = process.argv.includes('--full')
-  const baselines = JSON.parse(read(BASELINE_FILE)).projects
+  const argument = name => { const index = process.argv.indexOf(name); return index > 0 ? process.argv[index + 1] : undefined }
+  const only = argument('--only')
+  const baselines = baselineFile.projects
   const rows = ['| Test project | Changed files | Tested | Killed | Survived | No coverage | Score | Break |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
   const feedback = []
@@ -177,16 +262,30 @@ function main() {
   const lines = full ? {} : changedLines(git('diff', '-U0', `${base}...HEAD`, '--', '*.cs'))
 
   for (const run of runs) {
-    const breakAt = JSON.parse(read(`${run.dir}/stryker-config.json`))['stryker-config'].thresholds.break
+    if (only && run.test !== only) continue
+    let breakAt = JSON.parse(read(`${run.dir}/stryker-config.json`))['stryker-config'].thresholds.break
     if (full) {
-      if (baselines[run.test]?.fullRun) { rows.push(`| ${run.test} | | skipped: ${cell(baselines[run.test].fullRun)} | | | | | |`); continue }
-      const {status, report, reportFile} = stryker(run, [])
-      if (!report) { fail(`${run.test}: no json report (Stryker exited ${status})`); continue }
+      let extra = []
+      let label = run.test
+      if (run === sliced) {
+        // One slice a night; --slice <name> picks one by hand (workflow_dispatch).
+        const slice = argument('--slice') ? definition.slices.find(s => s.name === argument('--slice')) : pickSlice(definition.slices, new Date())
+        if (!slice) { fail(`no slice named ${argument('--slice')}`); continue }
+        const baseline = baselineFile.slices[slice.name]
+        const pending = baseline.status === 'pending'
+        breakAt = pending ? 0 : baseline.break
+        label = `${run.test} slice ${slice.name}${pending ? ' (pending: recorded, not enforced)' : ''}`
+        extra = ['--break-at', '0', ...sliceMutate(definition.slices, definition.slices.indexOf(slice)).flatMap(glob => ['--mutate', glob])]
+      } else if (baselines[run.test]?.fullRun) { rows.push(`| ${run.test} | | skipped: ${cell(baselines[run.test].fullRun)} | | | | | |`); continue }
+      const started = Date.now()
+      const {status, report, reportFile} = stryker(run, extra)
+      console.log(`${label}: ${Math.round((Date.now() - started) / 60000)} min`)
+      if (!report) { fail(`${label}: no json report (Stryker exited ${status})`); continue }
       const {counts, tested, score} = summarise(report)
-      rows.push(`| ${run.test} | | ${tested} | ${counts.Killed ?? 0} | ${counts.Survived ?? 0} | ${counts.NoCoverage ?? 0} | ${score ?? 'n/a'} | ${breakAt} |`)
-      console.log(`${run.test}: ${reportFile}`)
-      if (!tested) fail(`${run.test}: no mutant tested ${JSON.stringify(counts)}`)
-      else if (score < breakAt) fail(`${run.test}: score ${score} is below its break ${breakAt} (${BASELINE_FILE})`)
+      rows.push(`| ${label} | | ${tested} | ${counts.Killed ?? 0} | ${counts.Survived ?? 0} | ${counts.NoCoverage ?? 0} | ${score ?? 'n/a'} | ${breakAt} |`)
+      console.log(`${label}: ${reportFile}`)
+      if (!tested) fail(`${label}: no mutant tested ${JSON.stringify(counts)}`)
+      else if (score < breakAt) fail(`${label}: score ${score} is below its break ${breakAt} (${BASELINE_FILE})`)
       continue
     }
     const mutable = mutableChanges(changed, run)
