@@ -59,11 +59,25 @@ export function readHostTrx(file) {
       if (!/^\d+$/.test(values[key] ?? '') || !Number.isSafeInteger(+values[key])) throw new Error(`invalid ${key} counter`)
       return [key, +values[key]]
     }))
-    const results = [...resultBlock[1].matchAll(/<UnitTestResult\b[^>]*>/g)].map(([tag]) => {
-      const {testName, outcome} = attributes(tag)
+    const raw = [...resultBlock[1].matchAll(/<UnitTestResult\b[^>]*>/g)].map(([tag]) => {
+      const {testName, outcome, testId} = attributes(tag)
       if (!testName || !['Failed', 'Passed', 'NotExecuted'].includes(outcome)) throw new Error('missing testName or unsupported outcome')
-      return {testName, outcome}
+      return {testName, outcome, testId}
     })
+    // CodeRabbit 4113873155 (2026-09-27): a Set of bare testName collapses two theory cases that
+    // share a DisplayName -- one can vanish while the other keeps running, and the roster would
+    // never notice. Qualify rosterId with VSTest's testId (a deterministic hash of the test's full
+    // identity -- method + data row -- stable run over run for the SAME case, distinct for two
+    // different cases even when their DisplayName collides) ONLY for names that actually collide in
+    // THIS run, so the roster stays a plain, readable testName for the overwhelming common case and
+    // only pays a GUID suffix where a real ambiguity exists. testName alone remains the
+    // failure-matching key (permittedFailures/knownFlaky/newFailures are unaffected).
+    const nameCounts = new Map()
+    for (const {testName} of raw) nameCounts.set(testName, (nameCounts.get(testName) ?? 0) + 1)
+    const results = raw.map(({testName, outcome, testId}) => ({
+      testName, outcome,
+      rosterId: nameCounts.get(testName) > 1 && testId ? `${testName} [${testId}]` : testName,
+    }))
     return {counts, results, problems: []}
   } catch (error) {
     return {counts: null, results: [], problems: [`host baseline incomplete: cannot read TRX ${file}: ${error.message}`]}
@@ -72,8 +86,12 @@ export function readHostTrx(file) {
 
 // Read vitest's --reporter=json output as the same {counts, results, problems} shape readHostTrx
 // gives the host step, so compareHostBaseline is one function for every baseline (T-724 ruling
-// 119d). Identity matches the existing repin-baseline.mjs convention: "<file basename> :: <test
-// title>" -- the leaf title, not the full ancestor-describe chain, and not the clone's absolute path.
+// 119d). `testName` (used for permittedFailures/newFailures matching) matches the existing
+// repin-baseline.mjs convention: "<file basename> :: <test title>" -- the leaf title, not the full
+// ancestor-describe chain, and not the clone's absolute path. `rosterId` (used for the knownTests
+// roster) additionally folds in the ancestor describe-block chain (CodeRabbit 4113873155): two
+// tests can share a basename and leaf title from different describe blocks, and the roster must not
+// collapse them the way testName alone would.
 export function readVitestJsonAsTrx(file) {
   try {
     const report = JSON.parse(readFileSync(file, 'utf8'))
@@ -81,7 +99,11 @@ export function readVitestJsonAsTrx(file) {
       const base = fileResult.name.replaceAll('\\', '/').split('/').at(-1)
       return fileResult.assertionResults.map(assertion => {
         const outcome = assertion.status === 'passed' ? 'Passed' : assertion.status === 'failed' ? 'Failed' : 'NotExecuted'
-        return {testName: `${base} :: ${assertion.title}`, outcome}
+        const ancestry = (assertion.ancestorTitles ?? []).join(' › ')
+        return {
+          testName: `${base} :: ${assertion.title}`, outcome,
+          rosterId: `${base} :: ${ancestry ? `${ancestry} › ` : ''}${assertion.title}`,
+        }
       })
     })
     const counts = {
@@ -111,14 +133,23 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   const failed = results.filter(row => row.outcome === 'Failed').map(row => row.testName)
   const passedResults = results.filter(row => row.outcome === 'Passed')
   const passed = new Set(passedResults.map(row => row.testName))
-  const ran = new Set([...passed, ...failed])
   const burnDown = permitted.filter(name => passed.has(name))
+  // CodeRabbit 4113873155: the knownTests roster is keyed by rosterId (testId-qualified for host,
+  // ancestor-chain-qualified for capability), NOT the bare testName burnDown/newFailures use above --
+  // two cases can share a testName (a repeated theory DisplayName, a same-title case in a different
+  // describe block) and rosterId is what keeps them distinguishable. `rosterId ?? testName` covers
+  // synthetic/older trx fixtures that never set it.
+  const ranRosterIds = new Set(results
+    .filter(row => row.outcome === 'Passed' || row.outcome === 'Failed')
+    .map(row => row.rosterId ?? row.testName))
   // Fail-closed (2026-09-27 review): an unpopulated roster (knownTests: [], true of macOS/Ubuntu
   // until their first --write-known-tests run) must not silently drop disappearance coverage below
   // what the old permittedFailures-scoped "missing" check gave every named row. Fall back to
-  // checking the permitted rows themselves, so a permitted test silently going NotExecuted is still
-  // caught exactly as it always was, independent of the roster below.
+  // checking the permitted rows themselves (by testName, since permittedFailures predates rosterId),
+  // so a permitted test silently going NotExecuted is still caught exactly as it always was,
+  // independent of the roster below.
   const effectiveKnownTests = knownTests.length > 0 ? knownTests : permitted
+  const ran = knownTests.length > 0 ? ranRosterIds : new Set([...passed, ...failed])
   // 119a/119b/119c: a known test that did not run this time (failed, passed, or renamed away) and
   // is not named by a policyRemovals row is a disappearance -- fail and list it by name. A rename is
   // a removal (old name, needs its own policyRemovals row) plus an addition (the new name simply
@@ -161,4 +192,27 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   return {passed: problems.length === 0,
     burnDown, disappeared, problems, tail: problems.join('\n'), rosterUnpopulated: rosterUnpopulated ?? null,
     note: 'Identity comparison (T-724 ruling 119): the total is informational. Remove every burn-down row from permittedFailures; a disappeared known test needs a policyRemovals row naming it, or the gate stays red.'}
+}
+
+// CodeRabbit 4113873155 (2026-09-27): refuse a knownTests roster that would itself contain two
+// results reduced to the same identity, rather than silently writing a shorter, ambiguous list.
+// Takes the RAW per-result identity list (before ranNamesOf's own Set-dedup collapses it), so a
+// genuine collision -- rosterId generation itself producing the same value for two different
+// results -- is caught before it can hide behind the dedup.
+export function rosterIdCollisions(rosterIds) {
+  const seen = new Map()
+  for (const id of rosterIds) seen.set(id, (seen.get(id) ?? 0) + 1)
+  return [...seen].filter(([, count]) => count > 1).map(([id]) => id)
+}
+
+// CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must not be a laundering
+// route around ruling 119a -- overwriting a populated roster with a candidate that silently drops a
+// known identity would erase the very disappearance the gate exists to catch, with no policyRemovals
+// review. Compares a CANDIDATE roster (what a run just observed) against the CURRENTLY COMMITTED
+// roster, exactly as the gate itself would: any committed identity absent from the candidate and not
+// named by a policyRemovals row is unexplained, and the write must be refused.
+export function unexplainedRosterLoss(committedKnownTests, candidateIdentities, policyRemovals) {
+  const observed = new Set(candidateIdentities)
+  const removed = new Set((policyRemovals ?? []).map(row => row.test))
+  return committedKnownTests.filter(name => !observed.has(name) && !removed.has(name))
 }

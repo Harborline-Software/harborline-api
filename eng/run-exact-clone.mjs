@@ -19,7 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
-import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity} from './host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -74,6 +74,7 @@ const capabilityBaseline = JSON.parse(readFileSync(path.join(apiRoot, BASELINES.
 const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
 const clone = path.join(scratch, 'clone')
 let retainScratch = false
+let knownTestsWriteRefused = false
 const steps = []
 // The ESC byte is part of the pattern; stripping only the bracket sequence would leave a stray
 // ESC that \s+ cannot match, so a colourised summary would fail to parse for a reason invisible
@@ -298,7 +299,9 @@ try {
   // mkdtempSync path every run -- an identity that embeds it would never survive a re-run, let alone
   // a knownTests refresh from a different machine. Redact it exactly as the step tail already is.
   const capabilityTrxRaw = readVitestJsonAsTrx(capabilityJsonPath)
-  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({...row, testName: normalizeIdentity(redactEvidence(row.testName))}))}
+  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({
+    ...row, testName: normalizeIdentity(redactEvidence(row.testName)), rosterId: normalizeIdentity(redactEvidence(row.rosterId)),
+  }))}
 
   // T-724 ruling 119e: this candidate is written on EVERY run, pass or fail, --write-known-tests or
   // not -- it is what a nightly/CI run actually observed, kept as evidence (under
@@ -306,7 +309,9 @@ try {
   // for a scheduled drift check (eng/known-tests-drift.mjs) to compare against the committed roster
   // without ever committing anything itself. `--write-known-tests` below reuses this SAME candidate
   // to splice the committed baseline -- one code path feeds both the manual refresh and the report.
-  const ranNamesOf = trx => [...new Set(trx.results.filter(row => row.outcome !== 'NotExecuted').map(row => row.testName))].sort()
+  // rosterId (CodeRabbit 4113873155), not the bare testName: two cases can share a testName (a
+  // repeated theory DisplayName, or a same-title capability case from a different describe block).
+  const ranNamesOf = trx => [...new Set(trx.results.filter(row => row.outcome !== 'NotExecuted').map(row => row.rosterId ?? row.testName))].sort()
   const knownTestsCandidate = {
     schemaVersion: 1, recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), apiCommit: head,
     host: {baseline: BASELINES.host, identities: ranNamesOf(hostTrx)},
@@ -317,11 +322,46 @@ try {
   writeFileSync(path.join(evidenceDirectory, 'known-tests-candidate.json'), `${JSON.stringify(knownTestsCandidate, null, 2)}\n`)
 
   if (writeKnownTests) {
+    let refused = false
     for (const {baseline: relative, identities} of [knownTestsCandidate.host, knownTestsCandidate.capability]) {
+      // CodeRabbit 4113873155: refuse a roster that would itself contain a collision (two rows
+      // reduced to the same identity) rather than silently writing a shorter, ambiguous list --
+      // ranNamesOf already deduplicates via Set, so this only fires if rosterId generation itself
+      // produced a genuine duplicate (a bug, not a normal run), and it must be loud. Checked against
+      // the RAW per-result identities, before that Set-dedup can hide a collision.
+      const trx = relative === BASELINES.host ? hostTrx : capabilityTrx
+      const dupes = rosterIdCollisions(trx.results.map(row => row.rosterId ?? row.testName))
+      if (dupes.length) {
+        console.error(`known tests REFUSED for ${relative}: ${dupes.length} rosterId collision(s), the same identity produced by more than one result:`)
+        for (const id of dupes) console.error(`  ${id}`)
+        refused = true
+        continue
+      }
       const target = path.join(apiRoot, relative)
       const current = JSON.parse(readFileSync(target, 'utf8'))
+      // CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must not be a
+      // laundering route for ruling 119a -- overwriting a populated roster with a candidate that
+      // silently drops a known identity would erase the very disappearance the gate exists to
+      // catch, with no policyRemovals review. Validate the candidate against the CURRENT committed
+      // roster first, exactly as the gate itself would; only a first (empty-roster) population
+      // skips this, since there is nothing yet to compare against.
+      const currentKnown = current.knownTests ?? []
+      if (currentKnown.length > 0) {
+        const unexplained = unexplainedRosterLoss(currentKnown, identities, current.policyRemovals)
+        if (unexplained.length) {
+          console.error(`known tests REFUSED for ${relative}: ${unexplained.length} identity(ies) in the committed roster did not run this time and no policyRemovals row names them:`)
+          for (const name of unexplained) console.error(`  ${name}`)
+          console.error('  Add a policyRemovals row (T-724 ruling 119a/b) if this is intentional, then re-run --write-known-tests. The committed roster is unchanged.')
+          refused = true
+          continue
+        }
+      }
       writeFileSync(target, `${JSON.stringify({...current, knownTests: identities}, null, 2)}\n`)
       console.log(`known tests written: ${relative} (${identities.length} identities)`)
+    }
+    if (refused) {
+      console.error('--write-known-tests: at least one roster was refused; see above. Exiting non-zero.')
+      knownTestsWriteRefused = true
     }
   }
 
@@ -473,7 +513,7 @@ try {
     baseline: BASELINES.capability,
     expected: capabilityBaseline.totals, observed: capabilityTrx.counts,
     newFailures: capabilityNewFailures,
-    note: capabilityComparison.note ?? 'Identity comparison (T-724 ruling 119): the total is informational. Failure IDENTITY is pinned by name in hull-test-baseline.json.',
+    note: capabilityComparison.note ?? `Identity comparison (T-724 ruling 119): the total is informational. Failure IDENTITY is pinned by name in ${BASELINES.capability} (the platform-selected capability baseline).`,
   })
 
   const passed = steps.every(step => step.passed !== false)
@@ -521,4 +561,4 @@ if (report.status === 'FAIL') {
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
-process.exit(report.status === 'PASS' ? 0 : 1)
+process.exit(report.status === 'PASS' && !knownTestsWriteRefused ? 0 : 1)

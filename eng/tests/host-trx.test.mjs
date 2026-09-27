@@ -41,16 +41,56 @@ test('TRX reader preserves real logger counters, entities, duplicate names and o
   assert.deepEqual(trx.problems, [])
   // VSTest emits notExecuted=0 here despite its NotExecuted result; preserve the actual counter.
   assert.deepEqual(trx.counts, {total: 4, passed: 1, failed: 2, notExecuted: 0})
+  // rosterId falls back to the bare testName when the TRX carries no testId (this fixture predates
+  // it): the two duplicate-named rows collapse to the same rosterId here, exactly as they did before
+  // T-724 ruling 119's CodeRabbit follow-up added testId disambiguation for a real TRX (below).
   assert.deepEqual(trx.results, [
-    {testName: 'TRX fixture: passed', outcome: 'Passed'},
-    {testName: duplicate, outcome: 'Failed'}, {testName: duplicate, outcome: 'Failed'},
-    {testName: 'TRX fixture: skipped', outcome: 'NotExecuted'},
+    {testName: 'TRX fixture: passed', outcome: 'Passed', rosterId: 'TRX fixture: passed'},
+    {testName: duplicate, outcome: 'Failed', rosterId: duplicate}, {testName: duplicate, outcome: 'Failed', rosterId: duplicate},
+    {testName: 'TRX fixture: skipped', outcome: 'NotExecuted', rosterId: 'TRX fixture: skipped'},
   ])
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-reader-'))
   try {
     const file = path.join(dir, 'entities.trx')
     writeFileSync(file, readFileSync(fixture, 'utf8').replaceAll('&quot;name&quot;', '&#34;name&#x22; &apos; &amp;lt;'))
     assert.equal(host.readHostTrx(file).results[1].testName, 'TRX fixture: duplicate & <quoted> "name" \' &lt;')
+  } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
+test('CodeRabbit 4113873155: testId disambiguates two theory cases sharing a DisplayName, so one can disappear without the other masking it', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-testid-'))
+  try {
+    const file = path.join(dir, 'duplicate-names.trx')
+    writeFileSync(file, [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">',
+      '  <Results>',
+      '    <UnitTestResult executionId="10ddacc1-a56d-4189-a782-5f92424e7bda" testId="aaaaaaaa-0000-0000-0000-000000000001" testName="Theory(n: 1)" outcome="Passed" />',
+      '    <UnitTestResult executionId="ec2f4169-fa6e-403a-8bbc-d6db4991d941" testId="bbbbbbbb-0000-0000-0000-000000000002" testName="Theory(n: 1)" outcome="Passed" />',
+      '  </Results>',
+      '  <ResultSummary outcome="Passed">',
+      '    <Counters total="2" executed="2" passed="2" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />',
+      '  </ResultSummary>',
+      '</TestRun>',
+    ].join('\n'))
+    const trx = host.readHostTrx(file)
+    assert.deepEqual(trx.problems, [])
+    // Same DisplayName, different rosterId: the testId qualifier keeps them apart.
+    assert.equal(trx.results[0].testName, trx.results[1].testName)
+    assert.notEqual(trx.results[0].rosterId, trx.results[1].rosterId)
+
+    // Now prove the gate actually uses that: one case (by testId) stops running while its
+    // same-named twin keeps passing. A testName-only Set would see "Theory(n: 1)" still in `ran`
+    // and never notice; rosterId must catch it.
+    const knownTests = trx.results.map(r => r.rosterId)
+    const staleBaseline = {permittedFailures: [], knownTests, policyRemovals: []}
+    const oneVanished = {...trx, results: [trx.results[0]], counts: {total: 1, passed: 1, failed: 0, notExecuted: 0}}
+    const result = host.compareHostBaseline({
+      baseline: staleBaseline, counts: oneVanished.counts,
+      adjustedFailed: 0, newFailures: [], trx: oneVanished,
+    })
+    assert.equal(result.passed, false)
+    assert.deepEqual(result.disappeared, [trx.results[1].rosterId])
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
 
@@ -98,7 +138,7 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
     // run, so an identity built from the raw title is never stable across two runs -- caught by
     // running the real gate twice and seeing capability-baseline-match go red on its own committed
     // knownTests. redactEvidence must run over every capability test name before it becomes an identity.
-    assert.match(source, /results: capabilityTrxRaw\.results\.map\(row => \(\{\.\.\.row, testName: normalizeIdentity\(redactEvidence\(row\.testName\)\)\}\)\)/)
+    assert.match(source, /testName: normalizeIdentity\(redactEvidence\(row\.testName\)\), rosterId: normalizeIdentity\(redactEvidence\(row\.rosterId\)\)/)
     const compareBlock = source.slice(source.indexOf('  const hostComparison ='), source.indexOf("  steps.push({\n    id: 'host-baseline-match'"))
     assert.ok(compareBlock.includes('rawOutput'), 'comparison must persist raw output')
     const rawOutput = `${String.fromCharCode(27)}[31mraw host output\r\nTest Run Failed.\r\n`

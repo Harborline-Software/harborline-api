@@ -5,7 +5,7 @@ import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSyn
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, capabilityBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, capabilityBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity, readVitestJsonAsTrx, rosterIdCollisions, unexplainedRosterLoss} from '../host-baseline.mjs'
 import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
@@ -123,11 +123,14 @@ test('119d fail-closed: empty roster + total exactly matching the pinned figure 
 })
 test('119d fail-closed: empty roster still catches a permitted row silently going NotExecuted (parity with the old permittedFailures-scoped check)', () => {
   const identityBaseline = {permittedFailures: [{test: 'P'}], knownTests: [], policyRemovals: [], totals: {total: 2, failed: 1}}
-  const trx = {counts: {total: 1, passed: 1, failed: 0, notExecuted: 1}, problems: [],
+  const trx = {counts: {total: 2, passed: 1, failed: 0, notExecuted: 1}, problems: [],
     results: [{testName: 'A', outcome: 'Passed'}, {testName: 'P', outcome: 'NotExecuted'}]}
   const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
   assert.equal(result.passed, false)
   assert.deepEqual(result.disappeared, ['P'])
+  // CodeRabbit 4113873161: counts must match the results it describes, so this test isolates the
+  // disappearance check rather than also tripping the TRX-consistency problem.
+  assert.deepEqual(result.problems, ['host baseline test disappeared: add a policyRemovals row naming it if intentional, otherwise investigate: P'])
 })
 test('119: a permitted failure that starts passing (failed-count change) fails until its row is removed', () => {
   const knownTests = ['A']
@@ -136,6 +139,44 @@ test('119: a permitted failure that starts passing (failed-count change) fails u
   const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
   assert.equal(result.passed, false)
   assert.deepEqual(result.burnDown, ['A'])
+})
+
+// CodeRabbit 4113873155 (2026-09-27): capability rosterId folds in the ancestor describe-block
+// chain, so two tests sharing a basename and leaf title from different describe blocks stay distinct.
+test('CodeRabbit 4113873155: capability rosterId disambiguates a shared basename+title via ancestorTitles', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'vitest-json-ancestry-'))
+  try {
+    const file = path.join(dir, 'report.json')
+    writeFileSync(file, JSON.stringify({
+      numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0,
+      testResults: [{
+        name: '/repo/apps/capability-host/src/membrane/shared.test.ts',
+        assertionResults: [
+          {ancestorTitles: ['Group A'], title: 'returns the expected result', status: 'passed'},
+          {ancestorTitles: ['Group B'], title: 'returns the expected result', status: 'passed'},
+        ],
+      }],
+    }))
+    const trx = readVitestJsonAsTrx(file)
+    assert.equal(trx.results[0].testName, trx.results[1].testName, 'testName (failure-matching key) stays the leaf title, unchanged')
+    assert.notEqual(trx.results[0].rosterId, trx.results[1].rosterId, 'rosterId (roster key) must fold in the ancestor chain')
+    assert.match(trx.results[0].rosterId, /Group A/)
+    assert.match(trx.results[1].rosterId, /Group B/)
+  } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
+test('CodeRabbit 4113873155: rosterIdCollisions names a genuine collision and is silent otherwise', () => {
+  assert.deepEqual(rosterIdCollisions(['A', 'B', 'C']), [])
+  assert.deepEqual(rosterIdCollisions(['A', 'B', 'A', 'C', 'B']), ['A', 'B'])
+})
+
+// CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must refuse to overwrite a
+// committed roster with a candidate that silently drops a known identity, unless a policyRemovals
+// row names it -- otherwise the write launders away the exact disappearance ruling 119a exists to catch.
+test('CodeRabbit 411387315x: unexplainedRosterLoss names a dropped identity with no policyRemovals row', () => {
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A', 'B', 'C'], []), [])
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A'], []), ['B'])
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A'], [{test: 'B', reason: 'retired'}]), [])
 })
 
 const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
