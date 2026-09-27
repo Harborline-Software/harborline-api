@@ -93,6 +93,12 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
     assert.match(source, /const hostTrx = readHostTrx\(path\.join\(hostResultsDirectory, 'host-tests\.trx'\)\)/)
     assert.match(source, /const hostCounts = hostTrx\.counts/)
     assert.match(source, /const observedFailures = hostTrx\.results\.filter\(row => row\.outcome === 'Failed'\)\.map\(row => row\.testName\)/)
+    // A capability test title can interpolate the clone's own absolute path (e.g. the
+    // operational-environment Python-worker table), and that path is fresh (mkdtempSync) every
+    // run, so an identity built from the raw title is never stable across two runs -- caught by
+    // running the real gate twice and seeing capability-baseline-match go red on its own committed
+    // knownTests. redactEvidence must run over every capability test name before it becomes an identity.
+    assert.match(source, /results: capabilityTrxRaw\.results\.map\(row => \(\{\.\.\.row, testName: redactEvidence\(row\.testName\)\}\)\)/)
     const compareBlock = source.slice(source.indexOf('  const hostComparison ='), source.indexOf("  steps.push({\n    id: 'host-baseline-match'"))
     assert.ok(compareBlock.includes('rawOutput'), 'comparison must persist raw output')
     const rawOutput = `${String.fromCharCode(27)}[31mraw host output\r\nTest Run Failed.\r\n`

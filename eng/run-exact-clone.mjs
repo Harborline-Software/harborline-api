@@ -291,7 +291,12 @@ try {
   const hostTrx = readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx'))
   const hostCounts = hostTrx.counts
   const capabilityCounts = countsOf(capabilityTests.fullOutput)
-  const capabilityTrx = readVitestJsonAsTrx(capabilityJsonPath)
+  // Some capability test titles interpolate an absolute path under the clone (e.g. the operational-
+  // environment Python-worker table names the script it invoked), and the clone lives at a fresh
+  // mkdtempSync path every run -- an identity that embeds it would never survive a re-run, let alone
+  // a knownTests refresh from a different machine. Redact it exactly as the step tail already is.
+  const capabilityTrxRaw = readVitestJsonAsTrx(capabilityJsonPath)
+  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({...row, testName: redactEvidence(row.testName)}))}
 
   if (writeKnownTests) {
     const ranNamesOf = trx => [...new Set(trx.results.filter(row => row.outcome !== 'NotExecuted').map(row => row.testName))].sort()
