@@ -102,6 +102,33 @@ test('119: a new (unpermitted) failure fails regardless of the total', () => {
   const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 1, newFailures: ['B'], trx})
   assert.equal(result.passed, false)
 })
+// Fail-closed review finding (2026-09-27): a baseline whose knownTests roster is still empty (true
+// of macOS/Ubuntu until their first --write-known-tests run) must not silently drop below the
+// protection the OLD exact-count rule gave; identity comparison alone over an empty roster is
+// vacuously green, which is a regression, not an improvement.
+test('119d fail-closed: empty roster + total one less than pinned fails, naming the mismatch', () => {
+  const identityBaseline = {permittedFailures: [], knownTests: [], policyRemovals: [], totals: {total: 3, failed: 0}}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.ok(result.problems.some(line => line.includes('does not match the pinned total 3')))
+  assert.match(result.rosterUnpopulated, /knownTests roster is empty/)
+})
+test('119d fail-closed: empty roster + total exactly matching the pinned figure still passes (parity with the old Windows rule)', () => {
+  const identityBaseline = {permittedFailures: [], knownTests: [], policyRemovals: [], totals: {total: 2, failed: 0}}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, true)
+  assert.match(result.rosterUnpopulated, /knownTests roster is empty/)
+})
+test('119d fail-closed: empty roster still catches a permitted row silently going NotExecuted (parity with the old permittedFailures-scoped check)', () => {
+  const identityBaseline = {permittedFailures: [{test: 'P'}], knownTests: [], policyRemovals: [], totals: {total: 2, failed: 1}}
+  const trx = {counts: {total: 1, passed: 1, failed: 0, notExecuted: 1}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'P', outcome: 'NotExecuted'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.disappeared, ['P'])
+})
 test('119: a permitted failure that starts passing (failed-count change) fails until its row is removed', () => {
   const knownTests = ['A']
   const identityBaseline = {permittedFailures: [{test: 'A'}], knownTests, policyRemovals: []}

@@ -374,6 +374,14 @@ jobs:
       - name: Host lane (exact-clone against this host's baseline)
         run: bash eng/verify.sh
 
+      # T-724 ruling 119e: report-only, nightly only -- never runs against a pull request, so it can
+      # never block one, and it never writes anything (the fix is a reviewed --write-known-tests
+      # commit, not a workflow auto-commit). A red step here means a merged PR added or removed a
+      # host or capability test without a knownTests refresh in the same PR.
+      - name: Nightly known-tests drift report
+        if: always() && github.event_name == 'schedule'
+        run: node eng/known-tests-drift.mjs .claude/gate-evidence/known-tests-candidate.json
+
       - name: Evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -512,6 +520,11 @@ jobs:
         env:
           HARBORLINE_VERIFY_LANE: host
         run: bash eng/verify.sh
+
+      # T-724 ruling 119e: same nightly-only, report-only drift check as verify-macos above.
+      - name: Nightly known-tests drift report
+        if: always() && github.event_name == 'schedule'
+        run: node eng/known-tests-drift.mjs .claude/gate-evidence/known-tests-candidate.json
 
       - name: Publish main quality findings
         # Ticket 436: no gate step reads this any more -- the comparison is against the committed

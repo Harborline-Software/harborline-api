@@ -93,11 +93,17 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   const passed = new Set(passedResults.map(row => row.testName))
   const ran = new Set([...passed, ...failed])
   const burnDown = permitted.filter(name => passed.has(name))
+  // Fail-closed (2026-09-27 review): an unpopulated roster (knownTests: [], true of macOS/Ubuntu
+  // until their first --write-known-tests run) must not silently drop disappearance coverage below
+  // what the old permittedFailures-scoped "missing" check gave every named row. Fall back to
+  // checking the permitted rows themselves, so a permitted test silently going NotExecuted is still
+  // caught exactly as it always was, independent of the roster below.
+  const effectiveKnownTests = knownTests.length > 0 ? knownTests : permitted
   // 119a/119b/119c: a known test that did not run this time (failed, passed, or renamed away) and
   // is not named by a policyRemovals row is a disappearance -- fail and list it by name. A rename is
   // a removal (old name, needs its own policyRemovals row) plus an addition (the new name simply
   // shows up in `ran`, needing no declaration).
-  const disappeared = knownTests.filter(name => !ran.has(name) && !removedNames.has(name))
+  const disappeared = effectiveKnownTests.filter(name => !ran.has(name) && !removedNames.has(name))
   const problems = [...(trx?.problems ?? [])]
   if (!counts) problems.push('host baseline incomplete: TRX counters unavailable; inspect the host test output')
   else {
@@ -105,6 +111,20 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
     // Each theory case contributes one result, even when its DisplayName repeats.
     for (const [label, actual, expected] of [['total', results.length, counts.total], ['failed', failed.length, counts.failed], ['passed', passedResults.length, counts.passed]]) {
       if (actual !== expected) problems.push(`host baseline incomplete: TRX has ${actual} ${label} results but its counter is ${expected}`)
+    }
+  }
+  // Fail-closed (2026-09-27 review), continued: with no roster at all, `disappeared` above can only
+  // fall back to the permitted rows (there may be none), which is not enough on its own to say
+  // protection has not dropped below the pre-119 Windows rule (an exact total match). While
+  // knownTests is unpopulated, ALSO require the total to match the pinned figure -- a real
+  // regression, so protection is never weaker than either the old identity-scoped check (permitted
+  // rows, restored above) or the old exact-count check (Windows). This block never fires once
+  // knownTests is populated; the total goes back to purely informational, as ruling 119 intends.
+  let rosterUnpopulated
+  if (knownTests.length === 0) {
+    rosterUnpopulated = 'host baseline knownTests roster is empty: enforcing the exact-total rule as a fallback (T-724 ruling 119) until it is populated by --write-known-tests'
+    if (!(counts && counts.total === baseline.totals?.total)) {
+      problems.push(`host baseline incomplete: total ${counts?.total ?? 'unknown'} does not match the pinned total ${baseline.totals?.total} while knownTests is unpopulated`)
     }
   }
   const seen = new Set()
@@ -115,7 +135,10 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   for (const name of newFailures) problems.push(`host baseline unlisted failure: investigate: ${name}`)
   for (const name of burnDown) problems.push(`host baseline burn-down: remove row: ${name}`)
   for (const name of disappeared) problems.push(`host baseline test disappeared: add a policyRemovals row naming it if intentional, otherwise investigate: ${name}`)
+  // rosterUnpopulated is visibility, not a verdict: it always prints (run-exact-clone.mjs logs it
+  // alongside `problems` on every run, pass or fail) but only the explicit total-mismatch line above
+  // -- pushed onto `problems` -- can fail the gate while the roster is empty.
   return {passed: problems.length === 0,
-    burnDown, disappeared, problems, tail: problems.join('\n'),
+    burnDown, disappeared, problems, tail: problems.join('\n'), rosterUnpopulated: rosterUnpopulated ?? null,
     note: 'Identity comparison (T-724 ruling 119): the total is informational. Remove every burn-down row from permittedFailures; a disappeared known test needs a policyRemovals row naming it, or the gate stays red.'}
 }
