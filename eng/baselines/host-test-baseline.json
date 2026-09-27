@@ -3,14 +3,15 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "PENDING",
-  "recordedAt": "2026-09-26T18:48:03Z",
+  "recordedAt": "2026-09-27T17:47:24Z",
   "totals": {
-    "total": 4509,
-    "passed": 4488,
+    "total": 4513,
+    "passed": 4492,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-735 PR 236: Layout HTTP denial reader and drain wiring add four passing host facts: LayoutCompositionTests (one), LayoutDenialDrainDaemonTests (one), and LayoutDenialRouteTests (two). No existing test or skip identity changes. Windows CI exact-clone run 36333802894 at bae59c7847e3e434a326c1c0d5397efec647b51e measured 4513 total, 4492 passed, zero failed, 21 skipped, no new failures and no flaky retries. The only red step was the prior 4509/4488 count baseline.",
     "T-736: records-eng-28 -- proves record ids are unique across record types, which the id-only records:read gate (AuthorizationGate.CanonicalTargetScope, packages/foundation-authorization/AuthorizationGate.cs:323-336) relies on. Adds RecordIdUniquenessAcrossRecordTypesTests.cs, one fact that mints 10,000 ids each from six independently-minting record id types across different blocks packages (GrantId, FormSubmissionRecordId, BankAccountId, JournalEntryId, InvoiceId, PaymentId) and asserts the shared union has zero duplicates, plus a targeted assertion that InMemoryEntityStore.DeriveEntityId gives different local parts for two different schemas with otherwise-identical inputs. One case added; no test method, class or file is removed, renamed or skipped, and no skip identity changes. Verified red (temporarily forcing GrantId.New() to Guid.Empty failed the test on the second minted id) then green (reverted). A native Windows destination exact-clone at commit 82cab8e (merge of feat/t-736-record-ids-unique onto main after PR 227) measured 4507 total, 4486 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-576 PR 227: the six local-node-host report-run routes (ReportsRoutes.cs) moved their reports:run authorization decision from RouteRecord.TheInstall (install-wide) to a per-report-kind, per-chart record, and ReportsRouteTestsAuthorization (renamed from ReportsRouteAuthorizationTests, a pure rename with no case added or removed by the rename itself) gained malformed-credential and expired-credential denial coverage for each of the six routes: two six-row theories, 12 cases, all passing, all newly in scope of the ticket's own --filter FullyQualifiedName~ReportsRouteTests once the rename let it match this class too. No test method, class or file is removed, renamed away, or skipped; no skip identity changes. A native Windows exact-clone at commit b2b0c684 measured 4506 total, 4485 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-731 PR 215 merged over T-752 PR 220. PR 215 is net 0 on the host lanes: it adds four cases (the three LayoutAuditDegradedModeTests cases measured at 4491 and the probe-logging fact measured at 4492, both by Windows CI over main 4488), and owner ruling Q38 moves four KS timing cases (trait Lane=perf) to verify-perf on mac16. Main is 4489 after PR 220 added one case, so the merged count is 4489. Owner rulings Q41 and Q41b then add five host-lane cases, TimingParityGateTests (the four seeded-leak rows and the type-7 quantile fact), for 4494. No test is removed, renamed or skipped. Provisional until the Windows CI measurement on the merged head confirms it.",
@@ -126,23 +127,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4507,
-      "passed": 4486,
+      "total": 4509,
+      "passed": 4488,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4507 -> 4509; passed 4486 -> 4488; failed unchanged at 0; notExecuted unchanged at 21",
-    "cause": "T-691: FormDefinitionRoutes.cs definition PUT and restore routes gain a GateReferenceShapeException catch around their persistence calls, adding two passing cases (Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token and Restore_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token) to FormDefinitionRouteTests. No test method, class or file is removed, renamed away, or skipped; no skip identity changes.",
-    "detectedBy": "Native Windows destination exact-clone (node eng/run-exact-clone.mjs --host-baseline eng/baselines/host-test-baseline.json) run locally against merge commit d549beec (feat/t-691-gate-reference-shape-form-put merged with origin/main): observed total 4509, passed 4488, failed 0, notExecuted 21, newFailures empty, rescuedByRetry 0.",
-    "arithmeticCrossCheck": "4507 + 2 = 4509; passed = total - notExecuted = 4509 - 21 = 4488."
+    "change": "total 4509 -> 4513; passed 4488 -> 4492; failed unchanged at 0; notExecuted unchanged at 21",
+    "cause": "T-735: four new passing host facts cover Layout composition, denial drain cancellation, and the denial HTTP route. No existing test or skip identity changes.",
+    "detectedBy": "Native Windows CI destination exact-clone run 36333802894 at bae59c7847e3e434a326c1c0d5397efec647b51e: observed total 4513, passed 4492, failed 0, notExecuted 21, newFailures empty, rescuedByRetry 0.",
+    "arithmeticCrossCheck": "4509 + 4 = 4513; passed = total - notExecuted = 4513 - 21 = 4492."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "82cab8e",
+    "apiCommit": "bae59c7847e3e434a326c1c0d5397efec647b51e",
     "platform": "native Windows",
-    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit cbc84d5934314098b8f6eff3de94cfa5de3ea8f3",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
+    "runs": "Windows CI run 36333802894 measured the tuple on this PR; pending confirmation on the updated head.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files."
   },
   "verdictVocabulary": {
