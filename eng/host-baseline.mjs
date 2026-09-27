@@ -37,6 +37,25 @@ export function baselineArgument(args) {
 
 export const resultNamesIn = (text, outcome) => [...text.matchAll(new RegExp(`^ {2}${outcome} (.+?)\\s+\\[[^\\]]*\\]\\s*$`, 'gm'))].map(m => m[1].trim())
 
+// Guarantees every result's rosterId is unique within the run: defaults an absent rosterId to
+// testName, then breaks any remaining tie with a #2, #3, ... suffix in result order. Used by every
+// reader (readHostTrx, readVitestJsonAsTrx) so compareHostBaseline's own ambiguous-identity check
+// never legitimately fires from an unqualified reader -- only a genuine same-testId-AND-testName
+// truncation collision (see readHostTrx) needs the ordinal backstop at all. ponytail: this assumes
+// stable result order for the SAME colliding pair across runs, true for xUnit's default
+// sequential-within-collection execution but not proof against a parallel run interleaving them
+// differently; the real upgrade path if that is ever observed is a shorter DisplayName at the source
+// (a custom [Theory(DisplayName:)]), not a smarter ordinal scheme.
+export function disambiguateRosterIds(results) {
+  const seen = new Map()
+  return results.map(row => {
+    const rosterId = row.rosterId ?? row.testName
+    const count = (seen.get(rosterId) ?? 0) + 1
+    seen.set(rosterId, count)
+    return count === 1 ? {...row, rosterId} : {...row, rosterId: `${rosterId} #${count}`}
+  })
+}
+
 // Read the VSTest TRX vocabulary, independently of console verbosity and summary layout.
 // Decode once: a literal "&lt;" in a display name is serialized as "&amp;lt;".
 export function readHostTrx(file) {
@@ -78,20 +97,7 @@ export function readHostTrx(file) {
       testName, outcome,
       rosterId: nameCounts.get(testName) > 1 && testId ? `${testName} [${testId}]` : testName,
     }))
-    // Backstop: a very long parameterized DisplayName can be truncated by the VSTest adapter before
-    // testId is computed from it, so two DIFFERENT data rows can still land on the same rosterId
-    // even after the testId qualification above (observed: AuthorizationAdminRouteTests, two routes
-    // whose DisplayName truncates identically). Break any remaining tie with a #2, #3, ... suffix in
-    // TRX file order. ponytail: this assumes stable result order for the SAME colliding pair across
-    // runs, true for xUnit's default sequential-within-collection execution but not proof against a
-    // parallel run interleaving them differently; upgrade path if that is ever observed is to shorten
-    // the DisplayName at the source (a custom [Theory(DisplayName:)]) rather than rely on ordering.
-    const seenRosterIds = new Map()
-    const results = qualified.map(row => {
-      const seen = (seenRosterIds.get(row.rosterId) ?? 0) + 1
-      seenRosterIds.set(row.rosterId, seen)
-      return seen === 1 ? row : {...row, rosterId: `${row.rosterId} #${seen}`}
-    })
+    const results = disambiguateRosterIds(qualified)
     return {counts, results, problems: []}
   } catch (error) {
     return {counts: null, results: [], problems: [`host baseline incomplete: cannot read TRX ${file}: ${error.message}`]}
@@ -109,7 +115,7 @@ export function readHostTrx(file) {
 export function readVitestJsonAsTrx(file) {
   try {
     const report = JSON.parse(readFileSync(file, 'utf8'))
-    const results = report.testResults.flatMap(fileResult => {
+    const results = disambiguateRosterIds(report.testResults.flatMap(fileResult => {
       const base = fileResult.name.replaceAll('\\', '/').split('/').at(-1)
       return fileResult.assertionResults.map(assertion => {
         const outcome = assertion.status === 'passed' ? 'Passed' : assertion.status === 'failed' ? 'Failed' : 'NotExecuted'
@@ -119,7 +125,7 @@ export function readVitestJsonAsTrx(file) {
           rosterId: `${base} :: ${ancestry ? `${ancestry} › ` : ''}${assertion.title}`,
         }
       })
-    })
+    }))
     const counts = {
       total: report.numTotalTests, passed: report.numPassedTests,
       failed: report.numFailedTests, notExecuted: report.numPendingTests + (report.numTodoTests ?? 0),

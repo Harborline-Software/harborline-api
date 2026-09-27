@@ -5,14 +5,20 @@ import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSyn
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, capabilityBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity, readVitestJsonAsTrx, rosterIdCollisions, unexplainedRosterLoss} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, capabilityBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity, readVitestJsonAsTrx, rosterIdCollisions, unexplainedRosterLoss, disambiguateRosterIds} from '../host-baseline.mjs'
 import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const baseline = {permittedFailures: [{test: 'Listed test'}], knownTests: ['Listed test']}
 function trxOf(output, counts) {
-  const results = ['Failed', 'Passed', 'Skipped'].flatMap(outcome => resultNamesIn(output, outcome).map(testName =>
+  const raw = ['Failed', 'Passed', 'Skipped'].flatMap(outcome => resultNamesIn(output, outcome).map(testName =>
     ({testName, outcome: outcome === 'Skipped' ? 'NotExecuted' : outcome})))
+  // Mirror what a real reader (readHostTrx/readVitestJsonAsTrx) does: this console-text fixture has
+  // no testId or ancestor chain to qualify with, so a genuinely repeated DisplayName (the macOS
+  // "duplicate permitted cases count individually" fixture below) needs the same ordinal backstop,
+  // or compareHostBaseline's own ambiguous-identity check would flag it -- correctly, for a REAL
+  // reader that skipped qualification, but not for this fixture's deliberate duplicate-name case.
+  const results = disambiguateRosterIds(raw)
   return {results, counts: counts && {passed: results.filter(r => r.outcome === 'Passed').length, notExecuted: 0, ...counts}, problems: []}
 }
 function compare(output, counts = {total: 1, failed: 1}) {
@@ -168,6 +174,24 @@ test('CodeRabbit 4113873155: capability rosterId disambiguates a shared basename
 test('CodeRabbit 4113873155: rosterIdCollisions names a genuine collision and is silent otherwise', () => {
   assert.deepEqual(rosterIdCollisions(['A', 'B', 'C']), [])
   assert.deepEqual(rosterIdCollisions(['A', 'B', 'A', 'C', 'B']), ['A', 'B'])
+})
+
+test('CodeRabbit 4113873155: compareHostBaseline itself fails closed on a colliding rosterId, even outside a real reader', () => {
+  // A caller that skips a real reader's disambiguation (readHostTrx/readVitestJsonAsTrx both run
+  // disambiguateRosterIds now) and hands compareHostBaseline two results with the same rosterId
+  // must not pass silently -- the ambiguity is exactly what the roster exists to catch.
+  const identityBaseline = {permittedFailures: [], knownTests: ['A'], policyRemovals: []}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed', rosterId: 'A'}, {testName: 'A-other', outcome: 'Passed', rosterId: 'A'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.ok(result.problems.some(line => line.includes('ambiguous test identity') && line.includes('A')))
+})
+test('disambiguateRosterIds: a real reader never hands compareHostBaseline a collision, even for a repeated DisplayName', () => {
+  const raw = [{testName: 'Dup', outcome: 'Passed'}, {testName: 'Dup', outcome: 'Failed'}, {testName: 'Dup', outcome: 'NotExecuted'}]
+  const results = disambiguateRosterIds(raw)
+  assert.deepEqual(rosterIdCollisions(results.map(r => r.rosterId)), [])
+  assert.deepEqual(results.map(r => r.rosterId), ['Dup', 'Dup #2', 'Dup #3'])
 })
 
 // CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must refuse to overwrite a
