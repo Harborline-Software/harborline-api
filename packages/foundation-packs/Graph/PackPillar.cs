@@ -46,6 +46,13 @@ public enum PackPillar
     /// <summary>The Data Exchange pillar (<see cref="PackContentKind.DataExchangeDefinition"/>).</summary>
     DataExchange = 11,
 
+    /// <summary>The Layout pillar (<see cref="PackContentKind.Layout"/>).</summary>
+    Layout = 12,
+
+    /// <summary>The Booking pillar (<see cref="PackContentKind.Resource"/> and
+    /// <see cref="PackContentKind.Bookable"/>).</summary>
+    Booking = 13,
+
     /// <summary>The Scheduling pillar (<see cref="PackContentKind.ScheduleDefinition"/>).</summary>
     Scheduling = 10,
 
@@ -81,6 +88,8 @@ public static class PackPillarMap
         PackContentKind.TaxonomyDefinition => PackPillar.Taxonomy,
         PackContentKind.ReportDefinition => PackPillar.Reports,
         PackContentKind.DataExchangeDefinition => PackPillar.DataExchange,
+        PackContentKind.Layout => PackPillar.Layout,
+        PackContentKind.Resource or PackContentKind.Bookable => PackPillar.Booking,
         PackContentKind.ScheduleDefinition => PackPillar.Scheduling,
         PackContentKind.ViewDefinition => PackPillar.Views,
         _ => PackPillar.Other,
@@ -105,6 +114,9 @@ public static class PackPillarMap
         PackContentKind.TaxonomyDefinition => "taxonomy",
         PackContentKind.ReportDefinition => "report",
         PackContentKind.DataExchangeDefinition => "exchange",
+        PackContentKind.Layout => "layout",
+        PackContentKind.Resource => "resource",
+        PackContentKind.Bookable => "bookable",
         PackContentKind.ScheduleDefinition => "schedule",
         PackContentKind.ViewDefinition => "view",
         _ => "contribution",

@@ -819,8 +819,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         var destinationClassifications = PackDestinationClassifier.Classify(contents);
 
         // A verified declaration is not enough: content must have a live projection path in this build.
-        // The transport rule is distinct from whether this node consumes a capability: standards never
-        // travel, while cascade defaults remain conditional on this node's admission implementation.
+        // NavWorkspaceConfig, Layout, Resource, and Bookable are intentionally absent because their
+        // consumers interpret active immutable declarative seeds directly; no executable projection is
+        // permitted for them (S-3). Standards never travel; cascade defaults require a consumer.
         var earlyRefusals = PackTransportRuleCheck.FindRefusals(contents).ToList();
         earlyRefusals.AddRange(UnsupportedCascadeDefaultsRefusals(contents));
         if (!collectRefusals && earlyRefusals.Count > 0)

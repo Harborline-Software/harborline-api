@@ -4,6 +4,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Definitions;
+using Harborline.Api.Kernel.Runtime;
 
 namespace Harborline.Api.Blocks.AccessGrant;
 
@@ -18,6 +19,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
     private readonly AuthorizationCapabilityBindingAdmission bindingAdmission;
     private readonly AuthorizationGate gate;
     private readonly IGrantStore grants;
+    private readonly IWritePipelineObserver? pipelineObserver;
 
     public void StageProjection(PackProjectionTransaction transaction) => transaction.Enlist(store);
 
@@ -27,7 +29,8 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         AuthorizationDefinitionAdmission definitionAdmission,
         AuthorizationCapabilityBindingAdmission bindingAdmission,
         AuthorizationGate gate,
-        IGrantStore grants)
+        IGrantStore grants,
+        IWritePipelineObserver? pipelineObserver = null)
     {
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.states = states ?? throw new ArgumentNullException(nameof(states));
@@ -35,6 +38,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         this.bindingAdmission = bindingAdmission ?? throw new ArgumentNullException(nameof(bindingAdmission));
         this.gate = gate ?? throw new ArgumentNullException(nameof(gate));
         this.grants = grants ?? throw new ArgumentNullException(nameof(grants));
+        this.pipelineObserver = pipelineObserver;
     }
 
     /// <summary>Validate-stage entry for the host's fenced, verified-admission boot migration.</summary>
@@ -178,15 +182,55 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
     {
         ArgumentNullException.ThrowIfNull(command);
         var stages = new List<string>(6);
+        AuthorizationDecision? decision = null;
+        AuthorizationConfigurationState? bound = null;
+        AuthorizationMutation? mutation = null;
+        ValidatedAuthorizationConfigurationWrite? validated = null;
+        AuthorizationConfigurationWriteResult? result = null;
 
-        var decision = await AuthorizeAsync(command, authority, bootstrapDecision, additiveSeedRevision, packAuthority, stages, ct)
-            .ConfigureAwait(false);
-        var bound = await BindAsync(command, stages, ct).ConfigureAwait(false);
-        var mutation = await MutateAsync(command, bound, stages, ct).ConfigureAwait(false);
-        var validated = await ValidateAsync(command, bound, mutation, authority.At, packAuthority is not null, stages, ct)
-            .ConfigureAwait(false);
-        await CommitAsync(validated, authority, bootstrapDecision, stages, ct).ConfigureAwait(false);
-        return (await ReactAsync(validated, stages, ct).ConfigureAwait(false)) with { Decision = decision };
+        foreach (var stage in WritePipeline.Order)
+        {
+            switch (stage)
+            {
+                case WritePipelineStage.Authorize:
+                    decision = await AuthorizeAsync(command, authority, bootstrapDecision, additiveSeedRevision,
+                            packAuthority, stages, ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.Bind:
+                    bound = await BindAsync(command, stages, ct).ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.Mutate:
+                    mutation = await MutateAsync(command,
+                            bound ?? throw new InvalidOperationException("Bind must precede mutate."), stages, ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.Validate:
+                    validated = await ValidateAsync(command,
+                            bound ?? throw new InvalidOperationException("Bind must precede validate."),
+                            mutation ?? throw new InvalidOperationException("Mutate must precede validate."),
+                            authority.At, packAuthority is not null, stages, ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.Commit:
+                    await CommitAsync(validated ?? throw new InvalidOperationException("Validate must precede commit."),
+                            authority, bootstrapDecision, stages, ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.React:
+                    result = await ReactAsync(
+                            validated ?? throw new InvalidOperationException("Validate must precede react."), stages, ct)
+                        .ConfigureAwait(false);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported kernel write stage '{stage}'.");
+            }
+        }
+
+        return (result ?? throw new InvalidOperationException("Kernel write pipeline did not react.")) with
+        {
+            Decision = decision,
+        };
     }
 
     private async ValueTask<AuthorizationDecision?> AuthorizeAsync(
@@ -198,7 +242,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("authorize");
+        RecordStage(WritePipelineStage.Authorize, stages);
         ct.ThrowIfCancellationRequested();
         if (bootstrapDecision is not null)
         {
@@ -243,7 +287,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("bind");
+        RecordStage(WritePipelineStage.Bind, stages);
         return command switch
         {
             InstallAuthorizationDefinition install =>
@@ -265,7 +309,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("mutate");
+        RecordStage(WritePipelineStage.Mutate, stages);
         ct.ThrowIfCancellationRequested();
         var mutation = command switch
         {
@@ -296,7 +340,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("validate");
+        RecordStage(WritePipelineStage.Validate, stages);
         switch (command)
         {
             case InstallAuthorizationDefinition install:
@@ -366,7 +410,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("commit");
+        RecordStage(WritePipelineStage.Commit, stages);
         if (bootstrapDecision is null)
             await store.CommitAsync(write, ct).ConfigureAwait(false);
         else
@@ -378,7 +422,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         List<string> stages,
         CancellationToken ct)
     {
-        stages.Add("react");
+        RecordStage(WritePipelineStage.React, stages);
         ct.ThrowIfCancellationRequested();
         var completedStages = stages.ToArray();
         if (write.BindingRevision is not { } revision)
@@ -406,5 +450,11 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
 
         public static AuthorizationMutation ForBinding(CapabilityRoleBindingRevision bindingRevision) =>
             new(null, bindingRevision);
+    }
+
+    private void RecordStage(WritePipelineStage stage, List<string> stages)
+    {
+        stages.Add(WritePipeline.NameOf(stage));
+        pipelineObserver?.OnStage(stage);
     }
 }

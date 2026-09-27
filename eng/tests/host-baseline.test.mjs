@@ -5,14 +5,20 @@ import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSyn
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, capabilityBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity, readVitestJsonAsTrx, rosterIdCollisions, unexplainedRosterLoss, disambiguateRosterIds} from '../host-baseline.mjs'
 import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
-const baseline = {comparison: 'named', permittedFailures: [{test: 'Listed test'}]}
+const baseline = {permittedFailures: [{test: 'Listed test'}], knownTests: ['Listed test']}
 function trxOf(output, counts) {
-  const results = ['Failed', 'Passed', 'Skipped'].flatMap(outcome => resultNamesIn(output, outcome).map(testName =>
+  const raw = ['Failed', 'Passed', 'Skipped'].flatMap(outcome => resultNamesIn(output, outcome).map(testName =>
     ({testName, outcome: outcome === 'Skipped' ? 'NotExecuted' : outcome})))
+  // Mirror what a real reader (readHostTrx/readVitestJsonAsTrx) does: this console-text fixture has
+  // no testId or ancestor chain to qualify with, so a genuinely repeated DisplayName (the macOS
+  // "duplicate permitted cases count individually" fixture below) needs the same ordinal backstop,
+  // or compareHostBaseline's own ambiguous-identity check would flag it -- correctly, for a REAL
+  // reader that skipped qualification, but not for this fixture's deliberate duplicate-name case.
+  const results = disambiguateRosterIds(raw)
   return {results, counts: counts && {passed: results.filter(r => r.outcome === 'Passed').length, notExecuted: 0, ...counts}, problems: []}
 }
 function compare(output, counts = {total: 1, failed: 1}) {
@@ -27,7 +33,7 @@ test('named: listed pass is red burn-down requiring row removal', () => {
   const result = compare('  Passed Listed test [1 ms]\n', {total: 1, failed: 0})
   assert.equal(result.passed, false)
   assert.deepEqual(result.burnDown, ['Listed test'])
-  assert.match(result.note, /remove every burn-down row/)
+  assert.match(result.note, /Remove every burn-down row/)
 })
 test('named: unlisted failure is red even at the same failure count', () => {
   const result = compare('  Failed Regression [1 ms]\n  Passed Listed test [2 ms]\n')
@@ -41,8 +47,168 @@ test('named: missing, skipped, miscounted or unparsed results cannot pass', () =
   assert.equal(compare('  Failed Listed test [1 ms]\n', null).passed, false)
 })
 
+// T-724 ruling 119: identity comparison replaces the exact-count match for EVERY baseline (host,
+// per-OS, and capability). Proof for each of rulings a-e, red first against the OLD exact-count
+// contract this PR removes.
+test('119: an added test passes with no baseline edit (total is informational only)', () => {
+  const knownTests = ['A']
+  const identityBaseline = {permittedFailures: [], knownTests}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B (new)', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, true)
+})
+test('119a: a removed test fails, naming it', () => {
+  const knownTests = ['A', 'B']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: []}
+  const trx = {counts: {total: 1, passed: 1, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.disappeared, ['B'])
+  assert.ok(result.problems.some(line => line.includes('B')))
+})
+test('119a: a removal named by a policyRemovals row passes', () => {
+  const knownTests = ['A', 'B']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: [{test: 'B', reason: 'retired', dated: '2026-09-27', owner: 'T-965'}]}
+  const trx = {counts: {total: 1, passed: 1, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, true)
+  assert.deepEqual(result.disappeared, [])
+})
+test('119b: a rename (old name gone, new name never declared) fails without a policyRemovals row for the OLD name', () => {
+  const knownTests = ['A', 'B (old name)']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: []}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B (renamed)', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.disappeared, ['B (old name)'])
+})
+test('119b: a rename passes once the OLD name is named by a policyRemovals row; the new name needs no declaration', () => {
+  const knownTests = ['A', 'B (old name)']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: [{test: 'B (old name)', reason: 'renamed', dated: '2026-09-27', owner: 'T-965'}]}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B (renamed)', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, true)
+})
+test('119c: a test that moved from run to skipped counts as a disappearance', () => {
+  const knownTests = ['A']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: []}
+  const trx = {counts: {total: 1, passed: 0, failed: 0, notExecuted: 1}, problems: [], results: [{testName: 'A', outcome: 'NotExecuted'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.disappeared, ['A'])
+})
+test('119: a new (unpermitted) failure fails regardless of the total', () => {
+  const knownTests = ['A', 'B']
+  const identityBaseline = {permittedFailures: [], knownTests, policyRemovals: []}
+  const trx = {counts: {total: 2, passed: 1, failed: 1, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Failed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 1, newFailures: ['B'], trx})
+  assert.equal(result.passed, false)
+})
+// Fail-closed review finding (2026-09-27): a baseline whose knownTests roster is still empty (true
+// of macOS/Ubuntu until their first --write-known-tests run) must not silently drop below the
+// protection the OLD exact-count rule gave; identity comparison alone over an empty roster is
+// vacuously green, which is a regression, not an improvement.
+test('119d fail-closed: empty roster + total one less than pinned fails, naming the mismatch', () => {
+  const identityBaseline = {permittedFailures: [], knownTests: [], policyRemovals: [], totals: {total: 3, failed: 0}}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.ok(result.problems.some(line => line.includes('does not match the pinned total 3')))
+  assert.match(result.rosterUnpopulated, /knownTests roster is empty/)
+})
+test('119d fail-closed: empty roster + total exactly matching the pinned figure still passes (parity with the old Windows rule)', () => {
+  const identityBaseline = {permittedFailures: [], knownTests: [], policyRemovals: [], totals: {total: 2, failed: 0}}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, true)
+  assert.match(result.rosterUnpopulated, /knownTests roster is empty/)
+})
+test('119d fail-closed: empty roster still catches a permitted row silently going NotExecuted (parity with the old permittedFailures-scoped check)', () => {
+  const identityBaseline = {permittedFailures: [{test: 'P'}], knownTests: [], policyRemovals: [], totals: {total: 2, failed: 1}}
+  const trx = {counts: {total: 2, passed: 1, failed: 0, notExecuted: 1}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'P', outcome: 'NotExecuted'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.disappeared, ['P'])
+  // CodeRabbit 4113873161: counts must match the results it describes, so this test isolates the
+  // disappearance check rather than also tripping the TRX-consistency problem.
+  assert.deepEqual(result.problems, ['host baseline test disappeared: add a policyRemovals row naming it if intentional, otherwise investigate: P'])
+})
+test('119: a permitted failure that starts passing (failed-count change) fails until its row is removed', () => {
+  const knownTests = ['A']
+  const identityBaseline = {permittedFailures: [{test: 'A'}], knownTests, policyRemovals: []}
+  const trx = {counts: {total: 1, passed: 1, failed: 0, notExecuted: 0}, problems: [], results: [{testName: 'A', outcome: 'Passed'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.deepEqual(result.burnDown, ['A'])
+})
+
+// CodeRabbit 4113873155 (2026-09-27): capability rosterId folds in the ancestor describe-block
+// chain, so two tests sharing a basename and leaf title from different describe blocks stay distinct.
+test('CodeRabbit 4113873155: capability rosterId disambiguates a shared basename+title via ancestorTitles', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'vitest-json-ancestry-'))
+  try {
+    const file = path.join(dir, 'report.json')
+    writeFileSync(file, JSON.stringify({
+      numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0,
+      testResults: [{
+        name: '/repo/apps/capability-host/src/membrane/shared.test.ts',
+        assertionResults: [
+          {ancestorTitles: ['Group A'], title: 'returns the expected result', status: 'passed'},
+          {ancestorTitles: ['Group B'], title: 'returns the expected result', status: 'passed'},
+        ],
+      }],
+    }))
+    const trx = readVitestJsonAsTrx(file)
+    assert.equal(trx.results[0].testName, trx.results[1].testName, 'testName (failure-matching key) stays the leaf title, unchanged')
+    assert.notEqual(trx.results[0].rosterId, trx.results[1].rosterId, 'rosterId (roster key) must fold in the ancestor chain')
+    assert.match(trx.results[0].rosterId, /Group A/)
+    assert.match(trx.results[1].rosterId, /Group B/)
+  } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
+test('CodeRabbit 4113873155: rosterIdCollisions names a genuine collision and is silent otherwise', () => {
+  assert.deepEqual(rosterIdCollisions(['A', 'B', 'C']), [])
+  assert.deepEqual(rosterIdCollisions(['A', 'B', 'A', 'C', 'B']), ['A', 'B'])
+})
+
+test('CodeRabbit 4113873155: compareHostBaseline itself fails closed on a colliding rosterId, even outside a real reader', () => {
+  // A caller that skips a real reader's disambiguation (readHostTrx/readVitestJsonAsTrx both run
+  // disambiguateRosterIds now) and hands compareHostBaseline two results with the same rosterId
+  // must not pass silently -- the ambiguity is exactly what the roster exists to catch.
+  const identityBaseline = {permittedFailures: [], knownTests: ['A'], policyRemovals: []}
+  const trx = {counts: {total: 2, passed: 2, failed: 0, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed', rosterId: 'A'}, {testName: 'A-other', outcome: 'Passed', rosterId: 'A'}]}
+  const result = compareHostBaseline({baseline: identityBaseline, counts: trx.counts, adjustedFailed: 0, newFailures: [], trx})
+  assert.equal(result.passed, false)
+  assert.ok(result.problems.some(line => line.includes('ambiguous test identity') && line.includes('A')))
+})
+test('disambiguateRosterIds: a real reader never hands compareHostBaseline a collision, even for a repeated DisplayName', () => {
+  const raw = [{testName: 'Dup', outcome: 'Passed'}, {testName: 'Dup', outcome: 'Failed'}, {testName: 'Dup', outcome: 'NotExecuted'}]
+  const results = disambiguateRosterIds(raw)
+  assert.deepEqual(rosterIdCollisions(results.map(r => r.rosterId)), [])
+  assert.deepEqual(results.map(r => r.rosterId), ['Dup', 'Dup #2', 'Dup #3'])
+})
+
+// CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must refuse to overwrite a
+// committed roster with a candidate that silently drops a known identity, unless a policyRemovals
+// row names it -- otherwise the write launders away the exact disappearance ruling 119a exists to catch.
+test('CodeRabbit 411387315x: unexplainedRosterLoss names a dropped identity with no policyRemovals row', () => {
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A', 'B', 'C'], []), [])
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A'], []), ['B'])
+  assert.deepEqual(unexplainedRosterLoss(['A', 'B'], ['A'], [{test: 'B', reason: 'retired'}]), [])
+})
+
 const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
 const macNames = mac.permittedFailures.map(row => row.test)
+// Test-only override: the committed file's knownTests is the full main-run roster, refreshed only
+// by `node eng/run-exact-clone.mjs --write-known-tests` (T-724 ruling 119e), never by hand here.
+// These fixtures only need the permitted rows themselves to be "known", to exercise disappearance.
+mac.knownTests = [...macNames]
 const n = macNames.length // derived: 302 slice 1 burned eleven of the seventeen rows down
 const k = n - 1 // an arbitrary but existing row, whatever the file's length is
 const macOutput = macNames.map(name => `  Failed ${name} [12 ms]\n`).join('')
@@ -52,7 +218,7 @@ test('named: macOS duplicate permitted cases count individually', () => {
   const output = macOutput.replace('[12 ms]', '[1 s]') + `  Failed ${macNames[k]} [< 1 ms]\n`
   const result = compareHostBaseline({...macInput, trx: trxOf(output, {total: n + 1, failed: n + 1}), adjustedFailed: n + 1})
   assert.deepEqual(result.burnDown, [])
-  assert.deepEqual(result.missing, [])
+  assert.deepEqual(result.disappeared, [])
   assert.equal(result.passed, true)
 })
 
@@ -81,7 +247,7 @@ test('named: every false verdict supplies actionable console and evidence detail
     [{output: macOutput.replace(`Failed ${macNames[k]}`, `Passed ${macNames[k]}`), counts: {total: n, failed: n - 1}},
       `host baseline burn-down: remove row: ${macNames[k]}`],
     [{output: macOutput.replace(`Failed ${macNames[k]}`, `Skipped ${macNames[k]}`), counts: {total: n, failed: n - 1}},
-      `host baseline missing result: ${macNames[k]}`],
+      `host baseline test disappeared: add a policyRemovals row naming it if intentional, otherwise investigate: ${macNames[k]}`],
     [{baseline: {...mac, permittedFailures: []}, counts: {total: 1, failed: 0}, output: ''}, 'host baseline incomplete: TRX has 0 total results but its counter is 1'],
   ]
   const runner = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
@@ -104,19 +270,26 @@ test('named: every false verdict supplies actionable console and evidence detail
   assert.match(runner, /id: 'host-baseline-match',\s*\.\.\.hostComparison/)
   assert.match(runner, /\(step\.tail \?\? ''\)\.split\('\\n'\)/)
 })
-test('Windows comparison preserves the original count and identity truth table', () => {
+test('Windows comparison is identity-based too (T-724 ruling 119): the total no longer gates the verdict', () => {
   const windows = JSON.parse(readFileSync(path.join(root, WINDOWS_BASELINE)))
-  for (const total of [windows.totals.total, windows.totals.total + 1]) {
-    for (const failed of [0, 1]) for (const newFailures of [[], ['Regression']]) {
-      const counts = {total, failed}
-      const expected = Boolean(counts) && counts.total === windows.totals.total && failed === windows.totals.failed && newFailures.length === 0
-      assert.equal(compareHostBaseline({baseline: windows, counts, adjustedFailed: failed, newFailures}).passed, expected)
-    }
-  }
+  const knownTests = ['A', 'B']
+  const ran = names => ({counts: {total: names.length, passed: names.length, failed: 0, notExecuted: 0}, problems: [],
+    results: names.map(testName => ({testName, outcome: 'Passed'}))})
+  // A bigger total than any historical figure passes fine: total is informational only.
+  const grown = ran(['A', 'B', 'C', 'D', 'E'])
+  assert.equal(compareHostBaseline({baseline: {...windows, knownTests}, counts: grown.counts, adjustedFailed: 0, newFailures: [], trx: grown}).passed, true)
+  // A new unlisted failure is still red regardless of the total.
+  const withFailure = {counts: {total: 2, passed: 1, failed: 1, notExecuted: 0}, problems: [],
+    results: [{testName: 'A', outcome: 'Passed'}, {testName: 'B', outcome: 'Failed'}]}
+  assert.equal(compareHostBaseline({baseline: {...windows, knownTests}, counts: withFailure.counts, adjustedFailed: 1, newFailures: ['B'], trx: withFailure}).passed, false)
+  // A known test disappearing is still red regardless of the total.
+  const shrunk = ran(['A'])
+  assert.equal(compareHostBaseline({baseline: {...windows, knownTests}, counts: shrunk.counts, adjustedFailed: 0, newFailures: [], trx: shrunk}).passed, false)
 })
 test('every macOS identity is owned, dated, reasoned, distinct, and compared exactly', () => {
   const mac = JSON.parse(readFileSync(path.join(root, MACOS_BASELINE)))
   const rows = mac.permittedFailures
+  mac.knownTests = rows.map(row => row.test) // test-only override; see the note above macNames.
   // 302 s1: the count is derived from the file (the composed-host health fix burned eleven of the
   // seventeen rows down); a row that stays red carries the reason it stays red.
   const n = rows.length
@@ -143,12 +316,13 @@ test('every macOS identity is owned, dated, reasoned, distinct, and compared exa
     const renamed = compareHostBaseline({...input, newFailures: [row.test + ' renamed'],
       trx: trxOf(output.replace(row.test, row.test + ' renamed'), {total: n, failed: n})})
     assert.equal(renamed.passed, false)
-    assert.deepEqual(renamed.missing, [row.test])
+    assert.deepEqual(renamed.disappeared, [row.test])
   }
 })
 test('every Ubuntu identity is owned, dated, reasoned, distinct, and compared exactly', () => {
   const ubuntu = JSON.parse(readFileSync(path.join(root, UBUNTU_BASELINE)))
   const rows = ubuntu.permittedFailures
+  ubuntu.knownTests = rows.map(row => row.test) // test-only override; see the note above macNames.
   // 341 s2: the count is derived from the file; 302 s1 burned eleven rows down (13 environmental + 2 behavioural to 4).
   const n = rows.length
   assert.ok(n >= 1 && n <= 4, `ubuntu baseline has ${n} rows; the 302 s1 measurement had 4`)
@@ -177,6 +351,19 @@ test('OS selection and the actual gate route carries the baseline', () => {
   assert.match(runner, /host: baselineArgument\(process\.argv\.slice\(2\)\)/)
   assert.match(runner, /compareHostBaseline\(/)
   assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
+  // T-724 ruling 119 review (2026-09-27): capability-baseline-match is ALSO platform-selected, since
+  // the capability suite permanently gates real chunks of itself on process.platform (the same
+  // total either way, different identities) -- exactly why the host baseline already has one file
+  // per OS.
+  assert.equal(capabilityBaselineFor('darwin'), CAPABILITY_MACOS_BASELINE)
+  for (const platform of ['win32', 'freebsd', 'linux']) assert.equal(capabilityBaselineFor(platform), CAPABILITY_WINDOWS_BASELINE)
+  assert.match(runner, /capability: capabilityBaselineFor\(\)/)
+})
+test('119 review: a test identity is the same whether its path segments use \\ or /, and macOS\'s /private realpath quirk is stripped', () => {
+  assert.equal(normalizeIdentity('operational-environment.test.ts :: standalone Python worker <exact-clone>\\apps\\capability-host\\src\\runtime\\kg_embed.py refuses every legacy name before --help'),
+    normalizeIdentity('operational-environment.test.ts :: standalone Python worker /private<exact-clone>/apps/capability-host/src/runtime/kg_embed.py refuses every legacy name before --help'))
+  assert.equal(normalizeIdentity('a\\b\\c'), normalizeIdentity('a/b/c'))
+  assert.equal(normalizeIdentity('/private<exact-clone>/x'), '<exact-clone>/x')
 })
 test('receipt CLI records its host baseline as per-run evidence', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))
