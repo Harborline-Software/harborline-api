@@ -19,7 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
-import {baselineArgument, compareHostBaseline, resultNamesIn, readHostTrx} from './host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -28,6 +28,18 @@ import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './cove
 // therefore pins against this repo's HEAD instead of migration's, which is simpler and correct.
 const apiRoot = path.resolve(import.meta.dirname, '..')
 const record = process.argv.includes('--record')
+// Shared by the host and capability lanes below: which of a lane's observed failures are NOT on
+// its own permittedFailures list (the ones a baseline comparison must never silently swallow).
+const unpermitted = (failedNames, permittedNames) => failedNames.filter(name => !permittedNames.has(name))
+// T-724 ruling 119e: knownTests is a committed, sorted list of test identities, generated ONLY by
+// this tool (or the nightly/land repin tooling) and never hand-edited. `--write-known-tests`
+// refreshes it from what this run actually observed running; an ordinary gate run never writes it.
+const writeKnownTests = process.argv.includes('--write-known-tests')
+// Escape hatch for the unexplainedRosterLoss guard below: a deliberate, reviewed change to HOW
+// identities are built (not a test-suite change) makes every old entry look "gone" against the new
+// candidate, and that is not what ruling 119a's policyRemovals review is for. Requires a human to
+// pass this explicitly, alongside --write-known-tests, and is not something ordinary tooling passes.
+const forceKnownTests = process.argv.includes('--force-known-tests')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
 const collectCoverage = coverageEnabled()
 const coveragePaths = qualityCoveragePaths(apiRoot)
@@ -47,7 +59,7 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
 const BASELINES = {
   host: baselineArgument(process.argv.slice(2)),
-  capability: 'eng/baselines/hull-test-baseline.json',
+  capability: capabilityBaselineFor(),
 }
 const baselineProvenance = {}
 for (const [name, relative] of Object.entries(BASELINES)) {
@@ -67,6 +79,7 @@ const capabilityBaseline = JSON.parse(readFileSync(path.join(apiRoot, BASELINES.
 const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-exact-clone-'))
 const clone = path.join(scratch, 'clone')
 let retainScratch = false
+let knownTestsWriteRefused = false
 const steps = []
 // The ESC byte is part of the pattern; stripping only the bracket sequence would leave a stray
 // ESC that \s+ cannot match, so a colourised summary would fail to parse for a reason invisible
@@ -266,7 +279,13 @@ try {
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
   run('capability-typecheck', 'npx', ['tsc', '-p', 'tsconfig.json', '--noEmit'], path.join(clone, 'apps/capability-host'))
-  const capabilityTests = run('capability-tests', 'npx', ['vitest', 'run'], path.join(clone, 'apps/capability-host'), {expectNonZero: true})
+  // --reporter=json (in addition to the default console reporter) names every test, passed or
+  // failed, not only the failures a bare summary would count -- the capability-baseline-match
+  // identity comparison below needs the full roster, the same way TRX gives it to the host step.
+  const capabilityJsonPath = path.join(scratch, 'capability-tests.json')
+  const capabilityTests = run('capability-tests', 'npx',
+    ['vitest', 'run', '--reporter=default', '--reporter=json', `--outputFile=${capabilityJsonPath}`],
+    path.join(clone, 'apps/capability-host'), {expectNonZero: true})
 
   const countsOf = text => {
     const dotnet = text.match(/Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/)
@@ -275,9 +294,81 @@ try {
     if (vitest) return {failed: +(vitest[1] ?? 0), passed: +vitest[2], skipped: +(vitest[3] ?? 0), total: +vitest[4]}
     return null
   }
-  const hostTrx = hostBaseline.comparison === 'named' ? readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx')) : null
-  const hostCounts = hostBaseline.comparison === 'named' ? hostTrx.counts : countsOf(hostTests.fullOutput)
-  const capabilityCounts = countsOf(capabilityTests.fullOutput)
+  // The host step always requests a TRX (`--logger trx;LogFileName=host-tests.trx` above), so its
+  // per-test identities are always available; the comparison below is identity-based for every
+  // baseline now (T-724 ruling 119), never only for a baseline marked "named".
+  const hostTrx = readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx'))
+  const hostCounts = hostTrx.counts
+  // Some capability test titles interpolate an absolute path under the clone (e.g. the operational-
+  // environment Python-worker table names the script it invoked), and the clone lives at a fresh
+  // mkdtempSync path every run -- an identity that embeds it would never survive a re-run, let alone
+  // a knownTests refresh from a different machine. Redact it exactly as the step tail already is.
+  const capabilityTrxRaw = readVitestJsonAsTrx(capabilityJsonPath)
+  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({
+    ...row, testName: normalizeIdentity(redactEvidence(row.testName)), rosterId: normalizeIdentity(redactEvidence(row.rosterId)),
+  }))}
+
+  // T-724 ruling 119e: this candidate is written on EVERY run, pass or fail, --write-known-tests or
+  // not -- it is what a nightly/CI run actually observed, kept as evidence (under
+  // .claude/gate-evidence/, already uploaded by every verify-* job's "if: always()" artifact step)
+  // for a scheduled drift check (eng/known-tests-drift.mjs) to compare against the committed roster
+  // without ever committing anything itself. `--write-known-tests` below reuses this SAME candidate
+  // to splice the committed baseline -- one code path feeds both the manual refresh and the report.
+  // rosterId (CodeRabbit 4113873155), not the bare testName: two cases can share a testName (a
+  // repeated theory DisplayName, or a same-title capability case from a different describe block).
+  const ranNamesOf = trx => [...new Set(trx.results.filter(row => row.outcome !== 'NotExecuted').map(row => row.rosterId ?? row.testName))].sort()
+  const knownTestsCandidate = {
+    schemaVersion: 1, recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), apiCommit: head,
+    host: {baseline: BASELINES.host, identities: ranNamesOf(hostTrx)},
+    capability: {baseline: BASELINES.capability, identities: ranNamesOf(capabilityTrx)},
+  }
+  const evidenceDirectory = path.join(apiRoot, '.claude', 'gate-evidence')
+  mkdirSync(evidenceDirectory, {recursive: true})
+  writeFileSync(path.join(evidenceDirectory, 'known-tests-candidate.json'), `${JSON.stringify(knownTestsCandidate, null, 2)}\n`)
+
+  if (writeKnownTests) {
+    let refused = false
+    for (const {baseline: relative, identities} of [knownTestsCandidate.host, knownTestsCandidate.capability]) {
+      // CodeRabbit 4113873155: refuse a roster that would itself contain a collision (two rows
+      // reduced to the same identity) rather than silently writing a shorter, ambiguous list --
+      // ranNamesOf already deduplicates via Set, so this only fires if rosterId generation itself
+      // produced a genuine duplicate (a bug, not a normal run), and it must be loud. Checked against
+      // the RAW per-result identities, before that Set-dedup can hide a collision.
+      const trx = relative === BASELINES.host ? hostTrx : capabilityTrx
+      const dupes = rosterIdCollisions(trx.results.map(row => row.rosterId ?? row.testName))
+      if (dupes.length) {
+        console.error(`known tests REFUSED for ${relative}: ${dupes.length} rosterId collision(s), the same identity produced by more than one result:`)
+        for (const id of dupes) console.error(`  ${id}`)
+        refused = true
+        continue
+      }
+      const target = path.join(apiRoot, relative)
+      const current = JSON.parse(readFileSync(target, 'utf8'))
+      // CodeRabbit 4113873156/4113873157 area (2026-09-27): --write-known-tests must not be a
+      // laundering route for ruling 119a -- overwriting a populated roster with a candidate that
+      // silently drops a known identity would erase the very disappearance the gate exists to
+      // catch, with no policyRemovals review. Validate the candidate against the CURRENT committed
+      // roster first, exactly as the gate itself would; only a first (empty-roster) population
+      // skips this, since there is nothing yet to compare against.
+      const currentKnown = current.knownTests ?? []
+      if (currentKnown.length > 0 && !forceKnownTests) {
+        const unexplained = unexplainedRosterLoss(currentKnown, identities, current.policyRemovals)
+        if (unexplained.length) {
+          console.error(`known tests REFUSED for ${relative}: ${unexplained.length} identity(ies) in the committed roster did not run this time and no policyRemovals row names them:`)
+          for (const name of unexplained) console.error(`  ${name}`)
+          console.error('  Add a policyRemovals row (T-724 ruling 119a/b) if this is intentional, or pass --force-known-tests for a deliberate identity-FORMAT change, then re-run --write-known-tests. The committed roster is unchanged.')
+          refused = true
+          continue
+        }
+      }
+      writeFileSync(target, `${JSON.stringify({...current, knownTests: identities}, null, 2)}\n`)
+      console.log(`known tests written: ${relative} (${identities.length} identities)`)
+    }
+    if (refused) {
+      console.error('--write-known-tests: at least one roster was refused; see above. Exiting non-zero.')
+      knownTestsWriteRefused = true
+    }
+  }
 
   // Bounded retry for the named flaky tests, exactly as host-test-baseline.json's knownFlaky
   // entries prescribe, and ticket 284 caps at ONE identical retry: a second red is the gate's verdict.
@@ -300,7 +391,6 @@ try {
   //      nothing, so a stale registration cannot keep buying retries.
   // The trailing bracket is the duration, and it is NOT always numeric — vstest prints "[< 1 ms]"
   // for a fast test, so anchoring on a digit silently drops those rows. Match the bracket itself.
-  const failedNamesIn = text => resultNamesIn(text, 'Failed')
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
@@ -316,10 +406,8 @@ try {
     ? new Map((hostBaseline.knownFlaky ?? []).map(row => [row.test, RETRY_LIMIT]))
     : new Map()
 
-  const observedFailures = hostBaseline.comparison === 'named'
-    ? hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
-    : failedNamesIn(hostTests.fullOutput)
-  const unexpected = observedFailures.filter(name => !permittedNames.has(name))
+  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+  const unexpected = unpermitted(observedFailures, permittedNames)
   const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
   for (const name of retryable) {
@@ -383,8 +471,8 @@ try {
 
   const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
     adjustedFailed, newFailures, trx: hostTrx})
-  if (hostBaseline.comparison === 'named' && !hostComparison.passed) {
-    // Keep the clone on a named failure so the operator can inspect both TRX and raw output.
+  if (!hostComparison.passed) {
+    // Keep the clone on an identity failure so the operator can inspect both TRX and raw output.
     retainScratch = true
     mkdirSync(hostResultsDirectory, {recursive: true})
     const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
@@ -401,6 +489,7 @@ try {
     hostComparison.tail = hostComparison.problems.join('\n')
   }
   for (const line of hostComparison.problems ?? []) console.log(line)
+  if (hostComparison.rosterUnpopulated) console.log(hostComparison.rosterUnpopulated)
   steps.push({
     id: 'host-baseline-match',
     ...hostComparison,
@@ -411,11 +500,25 @@ try {
     rescuedByRetry: rescued,
     note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
+  // T-724 ruling 119d: the same identity comparison as the host step, not an exact-count match --
+  // total is informational, a known test disappearing needs a policyRemovals row, and an unpermitted
+  // failure is red regardless of the total.
+  const capabilityPermittedNames = new Set((capabilityBaseline.permittedFailures ?? []).map(row => row.test))
+  const capabilityFailedNames = capabilityTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+  const capabilityNewFailures = unpermitted(capabilityFailedNames, capabilityPermittedNames)
+  const capabilityComparison = compareHostBaseline({
+    baseline: capabilityBaseline, counts: capabilityTrx.counts, adjustedFailed: capabilityTrx.counts?.failed,
+    newFailures: capabilityNewFailures, trx: capabilityTrx,
+  })
+  for (const line of capabilityComparison.problems ?? []) console.log(line)
+  if (capabilityComparison.rosterUnpopulated) console.log(capabilityComparison.rosterUnpopulated)
   steps.push({
     id: 'capability-baseline-match',
-    passed: Boolean(capabilityCounts) && capabilityCounts.total === capabilityBaseline.totals.total && capabilityCounts.failed === capabilityBaseline.totals.failed,
-    expected: capabilityBaseline.totals, observed: capabilityCounts,
-    note: 'Counts only, same as the host step. Failure IDENTITY is pinned by name in hull-test-baseline.json.',
+    ...capabilityComparison,
+    baseline: BASELINES.capability,
+    expected: capabilityBaseline.totals, observed: capabilityTrx.counts,
+    newFailures: capabilityNewFailures,
+    note: capabilityComparison.note ?? `Identity comparison (T-724 ruling 119): the total is informational. Failure IDENTITY is pinned by name in ${BASELINES.capability} (the platform-selected capability baseline).`,
   })
 
   const passed = steps.every(step => step.passed !== false)
@@ -463,4 +566,4 @@ if (report.status === 'FAIL') {
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
-process.exit(report.status === 'PASS' ? 0 : 1)
+process.exit(report.status === 'PASS' && !knownTestsWriteRefused ? 0 : 1)

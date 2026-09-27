@@ -8,3 +8,4 @@ apps/local-node-host/Data/Search/CapabilityHostOperationalEnvironment.cs	refusal
 apps/capability-host/src/runtime/operational-environment.test.ts	refusal-test	Proves the TypeScript guard refuses a stale name and passes a CAPABILITY_HOST_ one.
 apps/local-node-host/tests/Health/CapabilityHostOperationalEnvironmentCompositionTests.cs	refusal-test	Real-composition proof that the registered providers refuse a stale name at spawn.
 eng/baselines/hull-test-baseline.json	pinned-baseline	A pinned baseline (eng/baselines is not edited by slices); its prose records the pre-rename gate name.
+eng/baselines/hull-test-baseline.macos.json	pinned-baseline	T-724 ruling 119: the macOS twin of the row above, same reason -- its knownTests roster names the same operational-environment.test.ts refusal-test titles.

@@ -1,79 +1,24 @@
 {
   "schemaVersion": 1,
-  "suite": "apps/hull (vitest)",
+  "suite": "apps/capability-host (vitest)",
   "repository": "harborline-api",
-  "sourcePin": "c618a009e62edb87a2a7d3293bdbf7c060515753",
-  "recordedAt": "2026-08-19 (first hull baseline measured on native Windows, after the winhub relocation)",
-  "toolchain": {
-    "note": "harborline-api had no TypeScript toolchain; hull brings its own. Step 18a's condition is that tsc and vitest EXECUTE, not that they pass — 'command not found' or 'no test files found' would make any recorded baseline meaningless.",
-    "npmInstall": "133 packages; @harborline-software/contracts resolved via file:../../packages/contracts, which came across with the .NET closure because that directory holds .NET, TypeScript and Rust artifacts together",
-    "contractsBuild": "packages/contracts required an explicit build — its package.json main/types point at dist/, absent in a fresh repo. Built clean.",
-    "typecheck": "tsc -p tsconfig.json --noEmit → 0 errors after the contracts build"
-  },
+  "sourcePin": "6dd14bbba29277f106584be96a81435e75614d63",
+  "recordedAt": "2026-09-27 (T-965/T-724 ruling 119: first macOS-native measurement of the capability suite, from the verify-macos evidence artifact of PR 237 run 36289477797)",
   "totals": {
     "total": 511,
-    "passed": 493,
+    "passed": 508,
     "failed": 0,
-    "pending": 18
+    "pending": 3
   },
-  "policy": "NO test may fail. The permitted-failure list is empty and must stay empty: ticket 267b took the decision the last two rows called for, so this suite is now fully green on the destination's own layout and any failure is a real one. Adding a row back is itself a decision and must record its verdict, cause, deliberateBy and resolvesAt, exactly as the removed rows did.",
+  "policy": "Same policy as hull-test-baseline.json (the Windows baseline): NO test may fail; permittedFailures is empty and must stay empty. This file exists because the capability suite permanently gates real chunks of itself on process.platform (cpu-image-floor-smoke.test.ts, sandbox.conformance.test.ts, kg/sd runtime fail-closed proofs, tts round-trip): the TOTAL is the same 511 on every host (vitest still discovers every describe.runIf block), but which identities actually run is genuinely different by design -- exactly the reason host-test-baseline.json already has one file per OS. knownTests below is macOS's own roster, measured on macOS, so a test permanently gated to run only on macOS is never flagged as \"disappeared\" against a Windows-measured roster (T-965/T-724 ruling 119 review, 2026-09-27).",
   "permittedFailures": [],
-  "r8Status": {
-    "risk": "R8 — authority-registry.ts fails closed AND SILENT when command-authority.json is absent: an empty catch swallows the ENOENT, the store returns empty, and every command is reclassified to CP with no throw and no log.",
-    "inThisRepo": "NOT triggered. packages/carrier-sdk/src/command-authority.json is present, because Shipyard.Blocks.Workflow embeds it as an EmbeddedResource and the .NET side required it. hull reads that same path first, so the two lanes converged on one file.",
-    "stillOpen": "The silent-catch defect itself is unfixed and the dead `readable` flag remains unread in production. Presence of the file today is not a guarantee; ticket 011 decides the sharing shape and mandates making `readable` load-bearing."
-  },
   "measuredAt": {
-    "apiCommit": "10ae0040 (ticket 267b working tree; the slice is uncommitted, so this names its base)",
-    "previousApiCommit": "bf0cb88e871c0fdd3dfc672fb4be7bbd65caa57a",
-    "platform": "native Windows",
-    "configuration": "exact-clone shape: packages/contracts installed and built, then apps/hull installed, then npx vitest run - the gate's own step order",
-    "reporter": "vitest --reporter=json, so skipped tests are named rather than only counted"
+    "apiCommit": "6dd14bbba29277f106584be96a81435e75614d63 (harborline-api PR 237, verify-macos run 36289477797)",
+    "platform": "macOS (self-hosted macpro, ARM64), via the verify-macos CI evidence artifact (pre-approved evidence download, not a hand run)",
+    "configuration": "exact-clone shape: the same run-exact-clone.mjs steps as the Windows measurement, on the macpro runner",
+    "reporter": "vitest --reporter=json (this PR): every test named, not only failures"
   },
-  "skips": {
-    "count": 18,
-    "mechanism": "Sixteen of the eighteen are HOST-GATED on darwin and are documented as such in the test files themselves; one is gated on an env var; one is double-gated on darwin plus HULL_IMAGE_REAL. None is a silently dropped fixture.",
-    "byFile": [
-      {
-        "file": "src/membrane/dotnet-correlation.interop.test.ts",
-        "count": 1,
-        "gate": "env HARBORLINE_DOTNET_RUNTIME_URL is undefined (it.skip). Not platform-gated; this test did not exist at the previous revision."
-      },
-      {
-        "file": "src/runtime/cpu-image-floor-smoke.test.ts",
-        "count": 1,
-        "gate": "process.platform === 'darwin' — the real python plus real seatbelt smoke path."
-      },
-      {
-        "file": "src/runtime/kg-embedding-runtime.test.ts",
-        "count": 3,
-        "gate": "process.platform === 'darwin' (onDarwin) — the runtime fail-closed proof against a real seatbelt."
-      },
-      {
-        "file": "src/runtime/kg-generate-runtime.test.ts",
-        "count": 2,
-        "gate": "process.platform === 'darwin' (onDarwin) — the runtime fail-closed proof against a real seatbelt."
-      },
-      {
-        "file": "src/sandbox/sandbox.conformance.test.ts",
-        "count": 6,
-        "gate": "process.platform === 'darwin' — the real macOS seatbelt confinement cases. The file's own header records the design: on a non-darwin host the macOS suite is skipped and the structured Linux/Windows assertions still run."
-      },
-      {
-        "file": "src/shell/cpu-image-round-trip.test.ts",
-        "count": 1,
-        "gate": "process.platform === 'darwin' AND env HULL_IMAGE_REAL=1 — double-gated, so it does not run on an unarmed darwin host either."
-      },
-      {
-        "file": "src/shell/tts-round-trip.test.ts",
-        "count": 4,
-        "gate": "process.platform === 'darwin' — the real spawn plus confinement needs `say` and `sandbox-exec`. The non-darwin host still asserts the membrane wiring."
-      }
-    ],
-    "coverageStatement": "HONEST COST, stated because a count alone would hide it: on Windows the real macOS seatbelt confinement is not exercised. That covers SEC-7 sandbox conformance, the no-keychain/DEK-reach contract, and the KgEmbed/KgGenerate runtime fail-closed proofs. These are security-relevant properties that now have NO real-confinement coverage on the machine the gates run on. The structured non-darwin assertions in the same files still run, so the membrane wiring is still proven; the confinement itself is not. This is a coverage hole created by the host move, not by any source change, and it is recorded here rather than absorbed into a skip count.",
-    "whyTheDeltaCannotBeAttributedTestByTest": "The previous revision recorded \"pending: 2\" with no inventory of WHICH two, so 2 -> 18 cannot be diffed per test against it. The full inventory is recorded here so the next comparison can be exact. The likely macOS pair is dotnet-correlation.interop (which did not exist then) and cpu-image-round-trip (double-gated, so skipped on an unarmed darwin host too) - stated as inference, not fact."
-  },
-  "deltaFromPrevious": "Previous: 512/492/2/18. Now: 511/493/0/18 at ticket 267b (2026-09-06), measured natively with `cd apps/capability-host && npm ci && npm test` after packages/contracts was installed and built — the gate's own step order. FAILURE IDENTITY CHANGED, deliberately, and this is the last such change the list can carry: the final two permitted failures are FIXED and removed, and permittedFailures is now EMPTY. Both rows were no-direct-transport.arch.test.ts and both had one cause — SCANNED_ROOTS named five roots that exist in no repository under C:/Projects/Harborline/* (measured, git ls-files per repo: 0 hits for apps/carrier/, packages/ui-react/ and packages/ui-adapters-react/), so the per-root guard fired, and all 15 recorded (path, count) ratchet rows named files inside those absent roots. 267b pruned SCANNED_ROOTS to the one root that ships here (apps/capability-host/src, 47 scanned files) and rebuilt the ratchet from the real call sites in it — zero direct fetch call sites, so both SANCTIONED_FETCH and MIGRATION_DEBT are empty. The prune is recorded as a DECISION in the test file's own doc comment (what was pruned, why, on whose authority, and that the pruned trees live nowhere reachable), not as a cleanup. An empty exact-match ratchet is the STRICT state, not a weakened one: the first direct fetch() added under the scanned root fails it with no recorded row to hide behind, proven by mutation — a planted raw fetch turned it red before it was restored.\n\nTOTAL 512 -> 511 is a net -1 from one test DELETED by that same rebuild, a deliberate removal rather than lost coverage: 'records a reason for every sanctioned transport' looped over SANCTIONED_FETCH, which is now empty, so it could never fail again. A permanently green test reads as coverage and is worse than none, so its assertion was folded into 'has exactly the recorded direct fetch call sites' — an assertion that CAN fail — where it re-arms the moment a sanctioned row comes back. Proven by mutation: a planted sanctioned row with a seven-character reason turns that test red.\n\nPASSED 492 -> 493 reconciles exactly: 492 + the 2 formerly-failing tests that now pass - the 1 deleted test = 493. PENDING is unchanged at 18, the same darwin- and env-gated inventory recorded in skips.byFile; skips.coverageStatement stands unchanged.\n\nRe-pinned BY HAND, stated because it is unusual: eng/repin-baseline.mjs refuses a changed failure count by design, so this revision edits the JSON directly (LF endings preserved). That refusal is the right behaviour — a moving failure count is exactly what a script must not rubber-stamp — and the decision it forced into the open is recorded above and in the test file.\n\nPrevious: 513/491/4/None. Now: 512/492/2/18 at ticket 267 (2026-09-05). FAILURE IDENTITY CHANGED, deliberately: two permitted failures are FIXED and removed — no-direct-invoke's vacuity guard now scans a real root, and node-bridge-principal no longer reaches for the absent Tauri invoker (its assertion was repointed; one test file's dead case deleted, total 513 -> 512). The two no-direct-transport rows remain, same cause, own item.\n\nPrevious: 510/488/4/18. Now: 513/491/4/18. The Python-worker table became four rows (one per worker); complete run with packages/contracts built, measured natively 2026-09-04. FAILURE IDENTITY IS UNCHANGED: the same permitted failures, carried over verbatim.\n\nPrevious: 341/319/4/18. Now: 510/488/4/18. Ticket 245 fix 1 adds the 21-name x 7-reader operational-environment table (vitest rows), measured natively 2026-09-04. FAILURE IDENTITY IS UNCHANGED: the same permitted failures, carried over verbatim.\n\nPrevious: 339/317/4/18. Now: 341/319/4/18 at ticket 245 (two operational-environment refusal tests added). FAILURE IDENTITY IS UNCHANGED: the same four permitted failures, carried over verbatim. Re-pinned by the controller from a native run on 2026-09-04.\n\nPrevious: 337/331/4/2 at harborline-api 9b1d95d, recorded 2026-08-12 ON MACOS. Now: 339/317/4/18 at bf0cb88 on native Windows. Same cause as the host baseline: the winhub relocation (migration e6f860c) re-pinned the platform gate for native Windows and never re-pinned either API-side baseline.\n\nFAILURE IDENTITY IS UNCHANGED. All four permitted failures are exactly the four pinned in the previous revision, same tests, same causes, carried over verbatim - the three membrane arch assertions over absent carrier/ui-react roots, and node-bridge-principal reaching for the absent Tauri hull-invoker. Nothing was added to or removed from that list.\n\nTOTAL 337 -> 339 is a net +2: four tests added (three command-authority registry tests from harborline-api 82c4464 / ticket 011, and the new dotnet-correlation.interop test) and two removed (the older immutable-source-snapshot and unreadable-policy-source cases that 82c4464 replaced).\n\nPENDING 2 -> 18 is the platform move, not a regression: sixteen darwin-gated tests that RAN and passed on macOS now skip on Windows. See skips.coverageStatement - the lost coverage is real and is stated there rather than hidden in a number.",
+  "deltaFromPrevious": "First macOS-native measurement of this suite; hull-test-baseline.json (Windows) previously stood in for every host. 511/508/0/3 vs the Windows figure of 511/493/0/18: same total, 15 more pass and 15 fewer pending, because darwin-gated real-sandbox/real-subprocess tests that Windows skips actually run here. No test failed.",
   "knownTests": [
     "address.test.ts :: Address — NET-2 superset of ADR-0061 TransportTier › covers exactly the 4 superset modes (the deferred two included in the type)",
     "address.test.ts :: Address — NET-2 superset of ADR-0061 TransportTier › maps all three ADR-0061 tiers (LocalNetwork, MeshVpn, ManagedRelay) — no tier orphaned",
@@ -138,7 +83,7 @@
     "cpu-image-floor-runtime.test.ts :: CpuImageFloorRuntime — graceful degradation to the reference stub › health is up + tri-state degraded works on both paths",
     "cpu-image-floor-runtime.test.ts :: CpuImageFloorRuntime — graceful degradation to the reference stub › the real-render opt-in reads CAPABILITY_HOST_IMAGE_REAL (off by default → fast CI/bridge)",
     "cpu-image-floor-runtime.test.ts :: CpuImageFloorRuntime — graceful degradation to the reference stub › with no engine, invoke delegates to the deterministic reference stub (no subprocess)",
-    "cpu-image-floor-smoke.test.ts :: CPU image floor — CI-cheap smoke (non-darwin: real-codepath fail-closed) › fails closed into the uniform envelope rather than spawning unconfined",
+    "cpu-image-floor-smoke.test.ts :: CPU image floor — CI-cheap smoke (REAL python + REAL seatbelt sandbox, no render) › spawns a REAL confined subprocess that produces a REAL decodable PNG",
     "credential-mints.test.ts :: membrane credential mints › loads the real registry and preserves AP classification",
     "credential-mints.test.ts :: membrane credential mints › refuses to create an evaluator from a corrupt policy source",
     "credential-mints.test.ts :: membrane credential mints › refuses to create an evaluator when every policy source is missing",
@@ -209,6 +154,9 @@
     "kg-embedding-runtime.test.ts :: KgEmbedRuntime — envelope + argv wiring (mocked subprocess) › embeddings: real path runs the confined worker → EmbeddingsArtifact at the declared dim",
     "kg-embedding-runtime.test.ts :: KgEmbedRuntime — envelope + argv wiring (mocked subprocess) › graceful degradation: NOT armed → deterministic stub embeddings (no subprocess)",
     "kg-embedding-runtime.test.ts :: KgEmbedRuntime — envelope + argv wiring (mocked subprocess) › rerank: real path runs the confined worker → RerankArtifact (scored, topK-truncated)",
+    "kg-embedding-runtime.test.ts :: KgEmbedRuntime — runtime fail-closed proof (real seatbelt, darwin-gated) › (a) the confined worker CANNOT read a planted DEK secret (no-DEK-reach, load-bearing)",
+    "kg-embedding-runtime.test.ts :: KgEmbedRuntime — runtime fail-closed proof (real seatbelt, darwin-gated) › (c) the confined worker CANNOT open a network socket (no-egress — closes exfiltration)",
+    "kg-embedding-runtime.test.ts :: KgEmbedRuntime — runtime fail-closed proof (real seatbelt, darwin-gated) › the host factory returns the real macOS seatbelt sandbox (implemented)",
     "kg-generate-runtime.test.ts :: KG generate floor — S4 Apache-2.0 + the vendored worker script › Qwen2.5 floor declares Apache-2.0 weights (the S4 PASS; not Llama-community)",
     "kg-generate-runtime.test.ts :: KG generate floor — S4 Apache-2.0 + the vendored worker script › the vendored kg_generate.py worker script is resolvable (bundled)",
     "kg-generate-runtime.test.ts :: KgGenerateRuntime — G-G1 confinement (pure spec; runs on ubuntu CI) › (a) the injected credential/DEK store is forwarded to denyPaths",
@@ -225,6 +173,8 @@
     "kg-generate-runtime.test.ts :: KgGenerateRuntime — envelope + argv wiring (mocked subprocess) › announces `generate` with the S4-Apache-2.0 provider manifest",
     "kg-generate-runtime.test.ts :: KgGenerateRuntime — envelope + argv wiring (mocked subprocess) › generate: real path runs the confined worker → taint-labeled TextArtifact proposal",
     "kg-generate-runtime.test.ts :: KgGenerateRuntime — envelope + argv wiring (mocked subprocess) › graceful degradation: NOT armed → deterministic SELF-IDENTIFYING stub proposal (no subprocess)",
+    "kg-generate-runtime.test.ts :: KgGenerateRuntime — runtime fail-closed proof (real seatbelt, darwin-gated) › (a) the confined worker CANNOT read a planted DEK secret (no-DEK-reach, load-bearing)",
+    "kg-generate-runtime.test.ts :: KgGenerateRuntime — runtime fail-closed proof (real seatbelt, darwin-gated) › (c) the confined worker CANNOT open a network socket (no-egress — closes injection exfiltration)",
     "loopback-runtime-server.test.ts :: startLoopbackRuntime › binds loopback and routes runtime operations to the host",
     "loopback-runtime-server.test.ts :: startLoopbackRuntime › propagates a correlation header into invokes and acknowledges cancellation",
     "loopback-runtime-server.test.ts :: startLoopbackRuntime › returns documented error responses for unknown routes and invalid JSON",
@@ -512,6 +462,12 @@
     "runtime-connection.test.ts :: runtime connection › invokes only negotiated capabilities and rejects an invalid capability before the transport",
     "runtime-connection.test.ts :: runtime connection › probes a connected runtime and turns a thrown probe into down",
     "runtime-connection.test.ts :: runtime connection › retains empty capabilities and an invalid contract offer as an incompatible connection",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › (a) a LEGIT non-credential subtree grant binds + is readable (inc-4 model/venv shape)",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › (a) a confined subprocess CANNOT exec a SECOND binary to read a secret (exec-escape)",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › (a) a confined subprocess CANNOT read a planted DEK secret (load-bearing)",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › (a) the BUILD-TIME guard REFUSES a readOnlyPaths grant that is an ancestor of a credential",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › (b) a confined subprocess CAN write its declared workDir but NOT outside it",
+    "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › macOS seatbelt confinement (real, host-gated) › the host factory returns the real macOS seatbelt sandbox (implemented)",
     "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › seatbelt profile builder (pure — inspectable on any host) › (c) declares NO egress by default (deny-default network)",
     "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › seatbelt profile builder (pure — inspectable on any host) › (c) declares egress ONLY for declared origins",
     "sandbox.conformance.test.ts :: SEC-7 sandbox conformance — the no-keychain/DEK-reach contract › seatbelt profile builder (pure — inspectable on any host) › ALLOWS a legit non-credential subtree grant — does NOT over-block (inc-4 model shape)",
@@ -565,6 +521,10 @@
     "tier1-one-owner.arch.test.ts :: tier-1 one-owner arch-test (ADR 0129 D4 — generalizes 0111 \"no two GLs\") › the Harborline catalog has no tier-1 capability owned by more than one pack",
     "tier1-one-owner.arch.test.ts :: tier-1 one-owner arch-test (ADR 0129 D4 — generalizes 0111 \"no two GLs\") › the invariant FIRES on a synthetic catalog with two packs claiming one domain-block",
     "tier1-one-owner.arch.test.ts :: tier-1 one-owner arch-test (ADR 0129 D4 — generalizes 0111 \"no two GLs\") › two packs sharing a tier-2/3 capability are NOT flagged (only domain-block is one-owner)",
+    "tts-round-trip.test.ts :: Phase-3 ACCEPTANCE — real tts subprocess inside the sandbox › Observe reports `degraded` (tri-state) when the tts floor is throttled",
+    "tts-round-trip.test.ts :: Phase-3 ACCEPTANCE — real tts subprocess inside the sandbox › round-trips over the in-process transport (Address: in-process)",
+    "tts-round-trip.test.ts :: Phase-3 ACCEPTANCE — real tts subprocess inside the sandbox › round-trips over the loopback-HTTP transport (Address: local-subprocess)",
+    "tts-round-trip.test.ts :: Phase-3 ACCEPTANCE — real tts subprocess inside the sandbox › the runtime spawned the engine THROUGH the sandbox (never an unconfined spawn)",
     "tts-round-trip.test.ts :: tts membrane wiring (platform-neutral, stub sandbox) › Harborline composes `tts` as a core capability",
     "tts-round-trip.test.ts :: tts membrane wiring (platform-neutral, stub sandbox) › a sandbox-unsupported platform fails closed (no unconfined spawn) into the uniform envelope",
     "tts-round-trip.test.ts :: tts membrane wiring (platform-neutral, stub sandbox) › an Invoke round-trips with the uniform envelope using an injected stub sandbox"
