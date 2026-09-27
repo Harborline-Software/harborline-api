@@ -5,7 +5,7 @@ import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSyn
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, hullBaselineFor, HULL_WINDOWS, HULL_MACOS, normalizeIdentity} from '../host-baseline.mjs'
 import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
@@ -286,6 +286,19 @@ test('OS selection and the actual gate route carries the baseline', () => {
   assert.match(runner, /host: baselineArgument\(process\.argv\.slice\(2\)\)/)
   assert.match(runner, /compareHostBaseline\(/)
   assert.ok(/trx;LogFileName=host-tests\.trx/.test(runner), 'host step must request TRX results')
+  // T-724 ruling 119 review (2026-09-27): capability-baseline-match is ALSO platform-selected, since
+  // the capability suite permanently gates real chunks of itself on process.platform (the same
+  // total either way, different identities) -- exactly why the host baseline already has one file
+  // per OS.
+  assert.equal(hullBaselineFor('darwin'), HULL_MACOS)
+  for (const platform of ['win32', 'freebsd', 'linux']) assert.equal(hullBaselineFor(platform), HULL_WINDOWS)
+  assert.match(runner, /capability: hullBaselineFor\(\)/)
+})
+test('119 review: a test identity is the same whether its path segments use \\ or /, and macOS\'s /private realpath quirk is stripped', () => {
+  assert.equal(normalizeIdentity('operational-environment.test.ts :: standalone Python worker <exact-clone>\\apps\\capability-host\\src\\runtime\\kg_embed.py refuses every legacy name before --help'),
+    normalizeIdentity('operational-environment.test.ts :: standalone Python worker /private<exact-clone>/apps/capability-host/src/runtime/kg_embed.py refuses every legacy name before --help'))
+  assert.equal(normalizeIdentity('a\\b\\c'), normalizeIdentity('a/b/c'))
+  assert.equal(normalizeIdentity('/private<exact-clone>/x'), '<exact-clone>/x')
 })
 test('receipt CLI records its host baseline as per-run evidence', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'host-baseline-receipt-'))

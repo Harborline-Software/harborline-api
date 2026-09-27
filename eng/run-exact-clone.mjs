@@ -19,7 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
-import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx} from './host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, hullBaselineFor, normalizeIdentity} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -54,7 +54,7 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
 const BASELINES = {
   host: baselineArgument(process.argv.slice(2)),
-  capability: 'eng/baselines/hull-test-baseline.json',
+  capability: hullBaselineFor(),
 }
 const baselineProvenance = {}
 for (const [name, relative] of Object.entries(BASELINES)) {
@@ -298,7 +298,7 @@ try {
   // mkdtempSync path every run -- an identity that embeds it would never survive a re-run, let alone
   // a knownTests refresh from a different machine. Redact it exactly as the step tail already is.
   const capabilityTrxRaw = readVitestJsonAsTrx(capabilityJsonPath)
-  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({...row, testName: redactEvidence(row.testName)}))}
+  const capabilityTrx = {...capabilityTrxRaw, results: capabilityTrxRaw.results.map(row => ({...row, testName: normalizeIdentity(redactEvidence(row.testName))}))}
 
   // T-724 ruling 119e: this candidate is written on EVERY run, pass or fail, --write-known-tests or
   // not -- it is what a nightly/CI run actually observed, kept as evidence (under

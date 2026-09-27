@@ -7,6 +7,26 @@ export const UBUNTU_BASELINE = 'eng/baselines/host-test-baseline.ubuntu.json'
 export const hostBaselineFor = (platform = process.platform) =>
   platform === 'darwin' ? MACOS_BASELINE : platform === 'linux' ? UBUNTU_BASELINE : WINDOWS_BASELINE
 
+// The capability suite gates a real chunk of itself on process.platform (cpu-image-floor-smoke.ts,
+// sandbox.conformance.test.ts, ...): the SAME total runs on every host (vitest still discovers every
+// describe.runIf block either way), but WHICH identities actually execute is genuinely different by
+// design, permanently, not a regression -- exactly the reason the host suite already has a baseline
+// per OS. Only Windows and macOS run capability-baseline-match today (verify-shared's lane excludes
+// exact-clone entirely), so there is no _UBUNTU variant yet.
+export const HULL_WINDOWS = 'eng/baselines/hull-test-baseline.json'
+export const HULL_MACOS = 'eng/baselines/hull-test-baseline.macos.json'
+export const hullBaselineFor = (platform = process.platform) => platform === 'darwin' ? HULL_MACOS : HULL_WINDOWS
+
+// A capability test identity can carry the exact-clone's own path (e.g. the operational-environment
+// Python-worker table), and that path is OS-specific in two ways redactEvidence()'s placeholder
+// swap does not reach: the surrounding relative segments use the platform's own separator (`\` on
+// Windows, `/` elsewhere), and macOS's mkdtempSync path resolves through the /var → /private/var
+// symlink partway through the run, so the same clone shows up as .../private<exact-clone>/... in a
+// title even though the placeholder swap already fired. Apply this AFTER redactEvidence(), both
+// when an identity is compared and when it is written to a committed knownTests roster, so the same
+// logical test has the same identity on every host.
+export const normalizeIdentity = name => name.replaceAll('\\', '/').replace('/private<exact-clone>', '<exact-clone>')
+
 export function baselineArgument(args) {
   const index = args.indexOf('--host-baseline')
   const baseline = index < 0 ? hostBaselineFor() : args[index + 1]
