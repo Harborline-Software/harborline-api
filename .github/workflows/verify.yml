@@ -544,47 +544,36 @@ jobs:
     # summary and the json artifact, never compared with the project floor (that is the nightly full
     # run's job, mutation.yml). It fails only when mutable code changed and no mutant was tested,
     # because Stryker exits 0 having mutated nothing (T-720). Advisory: not in `verify`'s needs.
-    # winbox only: macpro is the gate bottleneck and mac16 is the perf lane's.
+    #
+    # T-724 ruling 118 (Q50): moved off winbox onto a standard GitHub-hosted runner. Stryker.NET, the
+    # pinned dotnet SDK and eng/mutation-report.mjs are all Linux-clean; the only things that were
+    # winbox-specific were paths (C:\nuget-runner, $USERPROFILE) and a persistent local clone of
+    # harborline-platform, which the platform-feed composite action (already used by the hosted jobs
+    # in packages.yml) replaces with a per-run checkout at the recorded pin.
     # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
-    # guards are the other self-hosted lanes'. Its platform clone is its own, so a concurrent
-    # verify-windows never sees it move. winbox has one runner registration: `needs` keeps this PR's
-    # required verify-windows ahead of it, and a red suite is not worth mutating.
+    # guards are the other self-hosted lanes'.
     needs: [verify-windows]
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
-    runs-on: [self-hosted, Windows, winbox]
-    # A one-file host change measured ~2 h on winbox: two 4,481-test passes (initial, coverage) before any mutant.
-    timeout-minutes: 240
-    defaults:
-      run:
-        shell: bash
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      NUGET_PACKAGES: C:\nuget-runner
-      # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
       VSTEST_CONNECTION_TIMEOUT: '300'
     steps:
-      - name: Git Bash on PATH for the service account
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
-
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
 
-      - name: Platform pin and local feed
-        run: |
-          plat="$USERPROFILE/Projects/Harborline/lanes/platform-pin-stryker"
-          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          [ -d "$plat/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$plat"
-          git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" && git -C "$plat" clean -fdxq
-          HARBORLINE_PLATFORM_REPO="$plat" node eng/build-local-feed.mjs
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: ./.github/actions/platform-feed
 
       - name: Mutation (since origin/main)
         run: |
@@ -597,5 +586,5 @@ jobs:
         with:
           name: stryker-${{ github.run_id }}
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
           path: .stryker/*/reports/mutation-report.json
