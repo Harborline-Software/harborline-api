@@ -1,44 +1,5 @@
-# verify: eng/verify.sh on a self-hosted macOS runner, as a pull-request check and as the merge-queue
-# check. This is the same gate the Mac slice-gate wrapper ran by ssh; the runner replaces the wrapper,
-# the merge queue replaces the receipt-by-tree landing (control: docs/velocity/landing.md).
-#
-# Fork safety: harborline-api is public and all three verify lanes run on our own machines. They run
-# only for pull requests whose head lives in this repository, and for merge-queue groups (which are
-# built from already-reviewed heads).
-#
-# T-662: what a fork pull request gets. All three lanes -- verify-shared, verify-macos and
-# verify-windows -- are skipped, so no fork code executes on the team's Macs or winbox. A fork PR
-# therefore gets the four GitHub-hosted required contexts and nothing else: `sbom` (license-sbom.yml)
-# and `protocol-lane-conformance`, `operator-cli-headless` and `pack-consume` (packages.yml), all on
-# ubuntu-latest.
-#
-# The fifth required context, `verify`, is RED for a fork pull request, and deliberately so: the
-# aggregator below demands success from every lane, and a skipped lane is not a success (T-633). A
-# fork pull request consequently cannot merge. That is not a regression introduced here -- it was
-# already true, because verify-shared has carried this guard and `verify` needs it. External
-# contributions are closed; T-483 is where opening them is decided, and whoever answers it has to
-# decide what fork pull requests run before `verify` can ever go green for one. Options on the table
-# are a hosted mirror of the lanes added to this aggregator's `needs`, or a GitHub Environment with
-# required reviewers on the self-hosted jobs (a repository setting, not a change to this file).
-#
-# Why the guard is still worth having while the repository's Actions approval policy is
-# `all_external_contributors` (checked 2026-09-21): that policy is one blunt click covering the
-# whole workflow run. A maintainer who approves a fork run to get the hosted checks would, without
-# the lines below, also be handing that fork's code to our Macs and winbox. The guard makes the
-# split structural instead of a judgement call, and it survives the policy being relaxed.
-#
-# T-633: `verify` is the required context, and it is an aggregator with no condition. GitHub counts
-# a job skipped by its own `if` as a SUCCESSFUL required check, so a required job that carries
-# `vars.ACTIONS_ENABLED == 'true'` turns green the moment the variable is deleted. The lanes keep
-# the switch (they cost self-hosted machine time); the context cannot be skipped and is green only
-# when every lane it stands for ran and passed.
-#
-# Owner decision 2026-09-25: a draft PR no longer starts verify-shared, verify-macos or
-# verify-windows. Drafts were queuing behind the merge-queue's own runs on macpro (and winbox),
-# delaying every ready-for-review PR behind work nobody had asked to be checked yet. Marking a PR
-# ready for review (or opening it non-draft) now triggers the full run; the `verify` aggregator
-# stays unconditional and required (T-633/T-660) so a draft's skipped lanes report a failure with an
-# explicit message, not a false-green required check.
+# verify: required API lanes run on GitHub-hosted macOS and the existing Windows and perf runners.
+# Fork and draft guards still protect the self-hosted lanes; the required aggregator remains unconditional.
 name: verify
 
 on:
@@ -69,11 +30,8 @@ jobs:
        github.event_name == 'merge_group' ||
        (github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.draft == false))
-    # Ticket 701: the shared lane reads nothing host-specific, but is pinned to macpro so its
-    # result remains attributable and mac16 can be reserved for the perf-quiet job.
-    # exact-clone -- the only step whose answer depends on the host -- is not in this lane; it runs
-    # in verify-macos and verify-windows below, each against its own baseline.
-    runs-on: [self-hosted, macOS, ARM64, macpro]
+    # The shared lane reads no host-specific baseline.
+    runs-on: macos-15
     timeout-minutes: 60
     defaults:
       run:
@@ -84,109 +42,52 @@ jobs:
       # writes, and exact-clone runs on the hosts. HARBORLINE_GATE_QUALITY therefore lives on
       # verify-windows below, which is the one host that carries the comparison.
       HARBORLINE_VERIFY_LANE: shared
+      DEVELOPER_DIR: /Library/Developer/CommandLineTools
     steps:
       - name: Runner identity
         shell: bash
         run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Git Bash on PATH for the service account
-        # Windows only: C:\Program Files\Git\cmd is on the machine PATH but bash.exe is in ...\Git\bin.
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
-
-      - name: Per-host environment
-        # The only two settings that are not portable. Kept in one step so the job's env block stays
-        # host-neutral and a new runner class needs one case here, not a second job.
-        run: |
-          case "$(uname -s)" in
-            Darwin) echo "DEVELOPER_DIR=/Library/Developer/CommandLineTools" >> "$GITHUB_ENV" ;;
-            MINGW*|MSYS*|CYGWIN*) echo "NUGET_PACKAGES=C:\nuget-runner" >> "$GITHUB_ENV" ;;
-          esac
 
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: true
 
-      - name: Resolve the host pin directories
-        run: |
-          lanes="$HOME/Projects/Harborline/lanes"
-          test -d "$lanes/control-gh/.git" || { echo "control-gh clone missing under $lanes"; exit 6; }
-          echo "HARBORLINE_CONTROL_REPO=$lanes/control-gh" >> "$GITHUB_ENV"
-          echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
-          echo "HARBORLINE_QUALITY_REPO=$lanes/quality-pin" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
 
-      - name: Refresh the control, quality and platform pins (the wrapper's lines, under the runner account)
-        # The runner account holds no credentials. The public pin (platform) fetches over HTTPS; the
-        # private ones (control, quality) fetch only once a read-only token exists on the runner, and
-        # until then stay at the snapshot the account was seeded with. The log says which.
-        run: |
-          for l in control-gh:harborline-control quality-pin:harborline-quality platform-pin:harborline-platform platform-gh:harborline-platform; do
-            d="$HOME/Projects/Harborline/lanes/${l%%:*}"; r="${l##*:}"
-            [ -d "$d/.git" ] && git -C "$d" remote set-url origin "https://github.com/Harborline-Software/$r.git"
-          done
-          # The dependency-ledger step reads justification notes that land in control the same day as the
-          # pin they justify, so a stale snapshot fails the gate. Refresh through the pins token when the
-          # runner has it (the same token the hosted job clones with); otherwise say so and carry on.
-          if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
-            git -C "$HARBORLINE_CONTROL_REPO" -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' '${{ secrets.HARBORLINE_PINS_TOKEN }}' | base64 | tr -d '\n')" fetch -q origin main && git -C "$HARBORLINE_CONTROL_REPO" reset -q --hard FETCH_HEAD && echo "control-gh refreshed to $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
-          else
-            git -C "$HARBORLINE_CONTROL_REPO" pull -q --ff-only origin main 2>/dev/null || echo "note: control-gh not refreshed (private; no token on the runner account); seeded snapshot $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)"
-          fi
-          qpin=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('eng/quality-pin.json','utf8')).commit)}catch(e){console.log('')}")
-          if [ -n "$qpin" ] && [ -d "$HARBORLINE_QUALITY_REPO/.git" ]; then
-            # quality is private like control, so the bare fetch below can only ever see commits the
-            # account was seeded with -- a newly-pinned commit is unreachable and the checkout exits 6
-            # even on a runner that holds the token. Fetch through the pins token the same way the
-            # control refresh above does; without a token, fall back to the bare fetch as before.
-            if ! git -C "$HARBORLINE_QUALITY_REPO" cat-file -e "$qpin^{commit}" 2>/dev/null; then
-              if [ -n "${{ secrets.HARBORLINE_PINS_TOKEN }}" ]; then
-                git -C "$HARBORLINE_QUALITY_REPO" -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' '${{ secrets.HARBORLINE_PINS_TOKEN }}' | base64 | tr -d '\n')" fetch -q origin 2>/dev/null || true
-              else
-                git -C "$HARBORLINE_QUALITY_REPO" fetch -q origin 2>/dev/null || true
-              fi
-            fi
-            git -C "$HARBORLINE_QUALITY_REPO" checkout -q --detach "$qpin" 2>/dev/null || { echo "quality pin $qpin is not on this runner and cannot be fetched (private; no token)"; exit 6; }
-          fi
-          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q https://github.com/Harborline-Software/harborline-platform.git "$HARBORLINE_PLATFORM_REPO"; fi
-          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
-          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
-          echo "control $(git -C "$HARBORLINE_CONTROL_REPO" rev-parse --short HEAD)  quality $qpin  platform $pin"
+      - name: Read the quality pin
+        id: quality_pin
+        run: echo "commit=$(jq -r '.commit' eng/quality-pin.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Per-user toolchain for the runner account (pnpm, rustup), once
-        # Per-user installs land in the account's own home and are invisible until their directory is
-        # on PATH. Both PATH lines are unconditional on Windows: pnpm was installed but unreachable
-        # when this put them inside the cargo branch, and winbox already had cargo, so boundaries
-        # failed with "pnpm: command not found" two minutes in.
-        run: |
-          case "$(uname -s)" in
-            MINGW*|MSYS*|CYGWIN*)
-              echo "$APPDATA\npm" >> "$GITHUB_PATH"
-              echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
-              # GITHUB_PATH takes Windows paths and only affects LATER steps; this step needs them now,
-              # and a POSIX PATH entry must be a POSIX path -- pasting C:\Users\... in makes Git
-              # Bash resolve it under the Git install root.
-              export PATH="$(cygpath -u "$APPDATA")/npm:$(cygpath -u "$USERPROFILE")/.cargo/bin:$PATH"
-              command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
-              if ! command -v cargo >/dev/null 2>&1; then
-                curl -fsSLo "$RUNNER_TEMP/rustup-init.exe" https://win.rustup.rs/x86_64
-                "$RUNNER_TEMP/rustup-init.exe" -y --profile minimal --default-toolchain stable
-              fi
-              ;;
-            *)
-              command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@10
-              rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
-              ;;
-          esac
-          command -v pnpm && pnpm --version
-          rustup show active-toolchain || true
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-control
+          ref: main
+          path: .control
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
 
-      - name: Build the local platform feed
-        run: node eng/build-local-feed.mjs
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-quality
+          ref: ${{ steps.quality_pin.outputs.commit }}
+          path: .quality
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
+
+      - name: Install pnpm and Rust
+        run: |
+          npm install -g pnpm@10
+          rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
+
+      - uses: ./.github/actions/platform-feed
+
+      - name: Use pinned checkouts
+        run: |
+          printf '.control/\n.quality/\n.platform/\n' >> .git/info/exclude
+          echo "HARBORLINE_CONTROL_REPO=$GITHUB_WORKSPACE/.control" >> "$GITHUB_ENV"
+          echo "HARBORLINE_QUALITY_REPO=$GITHUB_WORKSPACE/.quality" >> "$GITHUB_ENV"
+          echo "HARBORLINE_PLATFORM_REPO=$GITHUB_WORKSPACE/.platform" >> "$GITHUB_ENV"
 
       - name: eng/verify.sh
         run: bash eng/verify.sh
@@ -339,7 +240,7 @@ jobs:
        github.event_name == 'merge_group' ||
        (github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.draft == false))
-    runs-on: [self-hosted, macOS, ARM64, macpro]
+    runs-on: macos-15
     timeout-minutes: 90
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -355,21 +256,16 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      - name: Resolve the host pin directories
-        run: |
-          lanes="$HOME/Projects/Harborline/lanes"
-          echo "HARBORLINE_PLATFORM_REPO=$lanes/platform-pin" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
 
-      - name: Refresh the platform pin
-        run: |
-          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          if [ ! -d "$HARBORLINE_PLATFORM_REPO/.git" ]; then git clone -q https://github.com/Harborline-Software/harborline-platform.git "$HARBORLINE_PLATFORM_REPO"; fi
-          git -C "$HARBORLINE_PLATFORM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$HARBORLINE_PLATFORM_REPO" fetch -q origin
-          git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
-          echo "platform $pin"
+      - uses: ./.github/actions/platform-feed
 
-      - name: Build the local platform feed
-        run: node eng/build-local-feed.mjs
+      - name: Use pinned platform
+        run: |
+          echo '.platform/' >> .git/info/exclude
+          echo "HARBORLINE_PLATFORM_REPO=$GITHUB_WORKSPACE/.platform" >> "$GITHUB_ENV"
 
       - name: Host lane (exact-clone against this host's baseline)
         run: bash eng/verify.sh
