@@ -74,10 +74,24 @@ export function readHostTrx(file) {
     // failure-matching key (permittedFailures/knownFlaky/newFailures are unaffected).
     const nameCounts = new Map()
     for (const {testName} of raw) nameCounts.set(testName, (nameCounts.get(testName) ?? 0) + 1)
-    const results = raw.map(({testName, outcome, testId}) => ({
+    const qualified = raw.map(({testName, outcome, testId}) => ({
       testName, outcome,
       rosterId: nameCounts.get(testName) > 1 && testId ? `${testName} [${testId}]` : testName,
     }))
+    // Backstop: a very long parameterized DisplayName can be truncated by the VSTest adapter before
+    // testId is computed from it, so two DIFFERENT data rows can still land on the same rosterId
+    // even after the testId qualification above (observed: AuthorizationAdminRouteTests, two routes
+    // whose DisplayName truncates identically). Break any remaining tie with a #2, #3, ... suffix in
+    // TRX file order. ponytail: this assumes stable result order for the SAME colliding pair across
+    // runs, true for xUnit's default sequential-within-collection execution but not proof against a
+    // parallel run interleaving them differently; upgrade path if that is ever observed is to shorten
+    // the DisplayName at the source (a custom [Theory(DisplayName:)]) rather than rely on ordering.
+    const seenRosterIds = new Map()
+    const results = qualified.map(row => {
+      const seen = (seenRosterIds.get(row.rosterId) ?? 0) + 1
+      seenRosterIds.set(row.rosterId, seen)
+      return seen === 1 ? row : {...row, rosterId: `${row.rosterId} #${seen}`}
+    })
     return {counts, results, problems: []}
   } catch (error) {
     return {counts: null, results: [], problems: [`host baseline incomplete: cannot read TRX ${file}: ${error.message}`]}

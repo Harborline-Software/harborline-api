@@ -8,15 +8,23 @@ import * as host from '../host-baseline.mjs'
 const root = path.resolve(import.meta.dirname, '../..')
 const fixture = path.join(import.meta.dirname, 'host-results.trx')
 const duplicate = 'TRX fixture: duplicate & <quoted> "name"'
-const baseline = {permittedFailures: [{test: duplicate}], knownTests: [duplicate]}
+// T-724 ruling 119 CodeRabbit follow-up (2026-09-27): the two physical duplicate-named rows now get
+// distinct rosterIds (the fixture carries no testId, so the backstop ordinal suffix applies), and
+// knownTests must name BOTH to track them independently -- that per-row tracking is the whole point
+// of the fix. permittedFailures stays testName-keyed (burnDown is about failure identity, unchanged).
+const baseline = {permittedFailures: [{test: duplicate}], knownTests: [duplicate, `${duplicate} #2`]}
 const compare = trx => host.compareHostBaseline({baseline, trx, counts: trx.counts,
   adjustedFailed: trx.counts?.failed, newFailures: trx.results.filter(r => r.outcome === 'Failed' && r.testName !== duplicate).map(r => r.testName)})
 const countsFor = results => ({total: results.length, failed: results.filter(r => r.outcome === 'Failed').length,
   passed: results.filter(r => r.outcome === 'Passed').length, notExecuted: results.filter(r => r.outcome === 'NotExecuted').length})
 
-test('TRX invariant: every outcome, duplicate multiplicity, order and all three named directions', () => {
+test('TRX invariant: every outcome, PER-ROW duplicate multiplicity (rosterId), order and all three named directions', () => {
   const original = host.readHostTrx(fixture)
   assert.equal(compare(original).passed, true)
+  const twinsOriginal = original.results.filter(r => r.testName === duplicate)
+  const [firstId, secondId] = [twinsOriginal[0].rosterId, twinsOriginal[1].rosterId]
+  // The fix's whole point: two rows sharing a DisplayName no longer share a roster identity.
+  assert.notEqual(firstId, secondId)
   for (const first of ['Failed', 'Passed', 'NotExecuted']) for (const second of ['Failed', 'Passed', 'NotExecuted']) {
     for (const reverse of [false, true]) {
       const results = original.results.map(r => ({...r}))
@@ -24,9 +32,13 @@ test('TRX invariant: every outcome, duplicate multiplicity, order and all three 
       twins[0].outcome = first; twins[1].outcome = second
       if (reverse) results.reverse()
       const result = compare({...original, results, counts: countsFor(results)})
-      const passed = ![first, second].includes('Passed') && [first, second].includes('Failed')
+      const ran = outcome => outcome === 'Passed' || outcome === 'Failed'
+      const burnDown = first === 'Passed' || second === 'Passed' ? [duplicate] : []
+      const disappeared = [...(ran(first) ? [] : [firstId]), ...(ran(second) ? [] : [secondId])].sort()
+      const passed = burnDown.length === 0 && disappeared.length === 0
       assert.equal(result.passed, passed, `${first}/${second}/${reverse}`)
-      assert.deepEqual(result.burnDown, [first, second].includes('Passed') ? [duplicate] : [])
+      assert.deepEqual(result.burnDown, burnDown, `${first}/${second}/${reverse}`)
+      assert.deepEqual([...result.disappeared].sort(), disappeared, `${first}/${second}/${reverse}`)
       if (!passed) assert.ok(result.problems.length > 0)
     }
   }
@@ -41,12 +53,11 @@ test('TRX reader preserves real logger counters, entities, duplicate names and o
   assert.deepEqual(trx.problems, [])
   // VSTest emits notExecuted=0 here despite its NotExecuted result; preserve the actual counter.
   assert.deepEqual(trx.counts, {total: 4, passed: 1, failed: 2, notExecuted: 0})
-  // rosterId falls back to the bare testName when the TRX carries no testId (this fixture predates
-  // it): the two duplicate-named rows collapse to the same rosterId here, exactly as they did before
-  // T-724 ruling 119's CodeRabbit follow-up added testId disambiguation for a real TRX (below).
+  // This fixture predates testId (no qualifier available), so the two duplicate-named rows fall
+  // through to the ordinal backstop: the first keeps the bare testName, the second gets " #2".
   assert.deepEqual(trx.results, [
     {testName: 'TRX fixture: passed', outcome: 'Passed', rosterId: 'TRX fixture: passed'},
-    {testName: duplicate, outcome: 'Failed', rosterId: duplicate}, {testName: duplicate, outcome: 'Failed', rosterId: duplicate},
+    {testName: duplicate, outcome: 'Failed', rosterId: duplicate}, {testName: duplicate, outcome: 'Failed', rosterId: `${duplicate} #2`},
     {testName: 'TRX fixture: skipped', outcome: 'NotExecuted', rosterId: 'TRX fixture: skipped'},
   ])
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-reader-'))
@@ -91,6 +102,29 @@ test('CodeRabbit 4113873155: testId disambiguates two theory cases sharing a Dis
     })
     assert.equal(result.passed, false)
     assert.deepEqual(result.disappeared, [trx.results[1].rosterId])
+  } finally { rmSync(dir, {recursive: true, force: true}) }
+})
+
+test('CodeRabbit 4113873155 backstop: two rows sharing BOTH testName and testId (a DisplayName-truncation collision) still get distinct rosterIds', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-testid-collision-'))
+  try {
+    const file = path.join(dir, 'truncated.trx')
+    writeFileSync(file, [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">',
+      '  <Results>',
+      '    <UnitTestResult executionId="10ddacc1-a56d-4189-a782-5f92424e7bda" testId="cccccccc-0000-0000-0000-000000000003" testName="Truncated case (method: GET, path: same-prefix)" outcome="Passed" />',
+      '    <UnitTestResult executionId="ec2f4169-fa6e-403a-8bbc-d6db4991d941" testId="cccccccc-0000-0000-0000-000000000003" testName="Truncated case (method: GET, path: same-prefix)" outcome="Passed" />',
+      '  </Results>',
+      '  <ResultSummary outcome="Passed">',
+      '    <Counters total="2" executed="2" passed="2" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />',
+      '  </ResultSummary>',
+      '</TestRun>',
+    ].join('\n'))
+    const trx = host.readHostTrx(file)
+    assert.deepEqual(trx.problems, [])
+    assert.notEqual(trx.results[0].rosterId, trx.results[1].rosterId)
+    assert.deepEqual(host.rosterIdCollisions(trx.results.map(r => r.rosterId)), [], 'the reader itself must never hand out a colliding rosterId pair')
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
 
