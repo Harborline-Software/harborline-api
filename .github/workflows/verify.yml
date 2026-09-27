@@ -86,6 +86,8 @@ jobs:
 
       - name: Use pinned checkouts
         run: |
+          mv .platform "$RUNNER_TEMP/harborline-platform"
+          ln -s "$RUNNER_TEMP/harborline-platform" .platform
           printf '.control/\n.quality/\n.platform/\n' >> .git/info/exclude
           echo "HARBORLINE_CONTROL_REPO=$GITHUB_WORKSPACE/.control" >> "$GITHUB_ENV"
           echo "HARBORLINE_QUALITY_REPO=$GITHUB_WORKSPACE/.quality" >> "$GITHUB_ENV"
