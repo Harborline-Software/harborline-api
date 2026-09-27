@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -167,6 +168,36 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
 
     private static object Text(string en) => new { defaultLocale = "en", values = new Dictionary<string, string> { ["en"] = en } };
 
+    private static JsonObject T742GrantFormBody()
+    {
+        var artifact = Path.Combine(AppContext.BaseDirectory, "Conformance", "Packs", "access-replacement",
+            "access-administration-pack-1.1.5.export.json");
+        var file = Assert.IsType<Harborline.Api.Foundation.Packs.Serialization.PackFile>(
+            new PackFileCodec().TryDecode(File.ReadAllBytes(artifact)));
+        var content = file.Contents.Single(item => item.Key == "access.grant-a-role");
+        var body = JsonNode.Parse(Convert.FromBase64String(content.ContentBase64))!.AsObject();
+        var overlay = body["overlay"]!.AsObject();
+        overlay["title"] = AuthoringText(overlay["title"]!);
+        overlay["description"] = AuthoringText(overlay["description"]!);
+        foreach (var field in overlay["fields"]!.AsObject().Select(entry => entry.Value))
+            field!["label"] = AuthoringText(field["label"]!);
+        foreach (var section in overlay["sections"]!.AsArray())
+        {
+            section!["title"] = AuthoringText(section["title"]!);
+            // The route fixture does not install the pack's role dependency. Its role gate would
+            // otherwise reject that external dependency before it reaches form admission, so this
+            // authoring-route probe keeps the exported form's fields and presentation but omits it.
+            section.AsObject().Remove("access");
+        }
+        return body;
+    }
+
+    private static JsonObject AuthoringText(JsonNode literal) => new()
+    {
+        ["defaultLocale"] = "en",
+        ["values"] = new JsonObject { ["en"] = literal["value"]!.GetValue<string>() },
+    };
+
     [Theory]
     [InlineData("tier")]
     [InlineData("scope")]
@@ -262,6 +293,19 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         Assert.Equal("form_definition.control_hint_on_value_domain", refusal.GetProperty("code").GetString());
         Assert.Equal("unit", refusal.GetProperty("detail").GetProperty("target").GetString());
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{DefBase}/hinted-domain")).StatusCode);
+    }
+
+    [Theory(DisplayName = "T-742: the hint-free access-administration successor is admitted on draft and publish")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task T742_hint_free_access_grant_form_is_admitted_at_authoring_route(bool draft)
+    {
+        var body = T742GrantFormBody();
+        body["draft"] = draft;
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/t742-access-grant-{draft.ToString().ToLowerInvariant()}", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
