@@ -19,7 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
-import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, hullBaselineFor, normalizeIdentity} from './host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -54,7 +54,7 @@ if (dirty) throw new Error(`harborline-api has uncommitted changes; the clone wo
 // deliberate, reviewable commit and a stop-and-report event under the unexpected-delta rule.
 const BASELINES = {
   host: baselineArgument(process.argv.slice(2)),
-  capability: hullBaselineFor(),
+  capability: capabilityBaselineFor(),
 }
 const baselineProvenance = {}
 for (const [name, relative] of Object.entries(BASELINES)) {

@@ -15,7 +15,7 @@ export const hostBaselineFor = (platform = process.platform) =>
 // exact-clone entirely), so there is no _UBUNTU variant yet.
 export const CAPABILITY_WINDOWS_BASELINE = 'eng/baselines/hull-test-baseline.json'
 export const CAPABILITY_MACOS_BASELINE = 'eng/baselines/hull-test-baseline.macos.json'
-export const hullBaselineFor = (platform = process.platform) => platform === 'darwin' ? CAPABILITY_MACOS_BASELINE : CAPABILITY_WINDOWS_BASELINE
+export const capabilityBaselineFor = (platform = process.platform) => platform === 'darwin' ? CAPABILITY_MACOS_BASELINE : CAPABILITY_WINDOWS_BASELINE
 
 // A capability test identity can carry the exact-clone's own path (e.g. the operational-environment
 // Python-worker table), and that path is OS-specific in two ways redactEvidence()'s placeholder
