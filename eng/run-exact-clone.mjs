@@ -35,6 +35,11 @@ const unpermitted = (failedNames, permittedNames) => failedNames.filter(name => 
 // this tool (or the nightly/land repin tooling) and never hand-edited. `--write-known-tests`
 // refreshes it from what this run actually observed running; an ordinary gate run never writes it.
 const writeKnownTests = process.argv.includes('--write-known-tests')
+// Escape hatch for the unexplainedRosterLoss guard below: a deliberate, reviewed change to HOW
+// identities are built (not a test-suite change) makes every old entry look "gone" against the new
+// candidate, and that is not what ruling 119a's policyRemovals review is for. Requires a human to
+// pass this explicitly, alongside --write-known-tests, and is not something ordinary tooling passes.
+const forceKnownTests = process.argv.includes('--force-known-tests')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
 const collectCoverage = coverageEnabled()
 const coveragePaths = qualityCoveragePaths(apiRoot)
@@ -346,12 +351,12 @@ try {
       // roster first, exactly as the gate itself would; only a first (empty-roster) population
       // skips this, since there is nothing yet to compare against.
       const currentKnown = current.knownTests ?? []
-      if (currentKnown.length > 0) {
+      if (currentKnown.length > 0 && !forceKnownTests) {
         const unexplained = unexplainedRosterLoss(currentKnown, identities, current.policyRemovals)
         if (unexplained.length) {
           console.error(`known tests REFUSED for ${relative}: ${unexplained.length} identity(ies) in the committed roster did not run this time and no policyRemovals row names them:`)
           for (const name of unexplained) console.error(`  ${name}`)
-          console.error('  Add a policyRemovals row (T-724 ruling 119a/b) if this is intentional, then re-run --write-known-tests. The committed roster is unchanged.')
+          console.error('  Add a policyRemovals row (T-724 ruling 119a/b) if this is intentional, or pass --force-known-tests for a deliberate identity-FORMAT change, then re-run --write-known-tests. The committed roster is unchanged.')
           refused = true
           continue
         }
