@@ -19,7 +19,7 @@ public sealed class CatalogueTests
     {
         using var stream = typeof(PlatformPackPreloadHostedService).Assembly.GetManifestResourceStream(
             "Harborline.Api.LocalNodeHost.Packs.platform-pack.export.json")!;
-        Assert.Equal("b3c2d53dde5880e3852fce68e6ad56b65e7aa78aca55ce59185623bdaa10977d",
+        Assert.Equal("7717911ff08ed71c8b51d2f2a59a633d147eef5934ffde0c6a5e8de22c456919",
             Convert.ToHexStringLower(SHA256.HashData(stream)));
     }
 
@@ -32,7 +32,7 @@ public sealed class CatalogueTests
         var contents = document.RootElement.GetProperty("contents").EnumerateArray().ToArray();
 
         Assert.Equal("harborline.platform", document.RootElement.GetProperty("key").GetString());
-        Assert.Equal(16, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
+        Assert.Equal(19, contents.Count(item => item.GetProperty("kind").GetString() == "RecordType"));
         var allowedKinds = new[]
         {
             "RecordType", "NavWorkspaceConfig", "RoleDefinition", "AuthorizationCapabilityBinding", "ViewDefinition", "FormDefinition", "CascadeDefaults",

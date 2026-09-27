@@ -814,8 +814,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         }
 
         // A verified declaration is not enough: content must have a live projection path in this build.
-        // NavWorkspaceConfig is intentionally absent because PackNavigationRoutes projects it directly
-        // from active immutable seeds on read. Standards and cascade defaults still have no consumer.
+        // NavWorkspaceConfig, Layout, Resource, and Bookable are intentionally absent because their
+        // consumers interpret active immutable declarative seeds directly; no executable projection is
+        // permitted for them (S-3). Standards and cascade defaults still have no consumer.
         var earlyRefusals = UnsupportedContentKindRefusals(contents);
         if (!collectRefusals && earlyRefusals.Count > 0)
         {

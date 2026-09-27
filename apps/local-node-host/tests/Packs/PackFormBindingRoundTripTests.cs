@@ -26,6 +26,7 @@ using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Install.Trust;
+using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
@@ -75,6 +76,7 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
     private KeyPair _key = null!;
     private IEntityTypeRegistry _registry = null!;
     private IFormDefinitionStore _forms = null!;
+    private InMemoryPackInstallStore _packStore = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private string _address = null!;
     private string _scratch = null!;
@@ -118,7 +120,8 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         var schemas = _app.Services.GetRequiredService<ISchemaRegistry>();
         var workflows = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
         var roleGate = _app.Services.GetRequiredService<IRoleGateAdmission>();
-        var packStore = new InMemoryPackInstallStore();
+        _packStore = new InMemoryPackInstallStore();
+        var packStore = _packStore;
         var projector = new PackSeedProjector(
             packStore,
             _registry,
@@ -207,6 +210,38 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             new FormBindingRef(new FormDefinitionId(FormKey), SemanticVersion.Parse(FormVersion)), resolved);
         var published = await _forms.GetAsync(new DefinitionCoordinates(tenant, FormKey, FormVersion));
         Assert.Equal(FormDefinitionStatus.Published, published.Status);
+    }
+
+    [Fact(DisplayName = "ticket 737: Layout, Resource, and Bookable definitions round-trip headlessly")]
+    public async Task Layout_and_Booking_definitions_round_trip_headlessly()
+    {
+        var packFile = await CliExportAsync(PackBody(
+            bindingKey: null,
+            typeContentVersion: "1.1.0",
+            additionalContents: LayoutAndBookingContents(),
+            includeBaseContents: false));
+
+        var verify = await CliAsync("pack", "verify", "--file", packFile);
+        Assert.Equal(0, verify.ExitCode);
+        using (var doc = JsonDocument.Parse(verify.Stdout))
+        {
+            Assert.Equal("Verified", doc.RootElement.GetProperty("verdict").GetString());
+        }
+
+        Assert.Equal(0, (await CliAsync("pack", "install", "--file", packFile)).ExitCode);
+        Assert.Equal(0, (await CliAsync(
+            "pack", "activate", "--pack-key", PackKey, "--version", "1.0.0")).ExitCode);
+
+        // A clean CLI exit code proves the CLI didn't fail; it does not prove the three
+        // definitions actually made it into the activated pack's seed layer (CodeRabbit
+        // 5327922061). Assert directly against the store the projector wrote to.
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var active = _packStore.GetActive(tenant, PackKey);
+        Assert.NotNull(active);
+        var seedKeys = active!.SeedItems.Select(item => (item.Key, item.Kind)).ToArray();
+        Assert.Contains(("layout.booking.surface", PackContentKind.Layout), seedKeys);
+        Assert.Contains(("booking.room", PackContentKind.Resource), seedKeys);
+        Assert.Contains(("booking.room-visit", PackContentKind.Bookable), seedKeys);
     }
 
     [Fact(DisplayName = "ticket 357: a binding naming a form the pack does not contain is refused at verify by name")]
@@ -391,7 +426,9 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         string? bindingKey,
         string typeContentVersion,
         IReadOnlyDictionary<string, string>? inspectionBindings = null,
-        IReadOnlyList<(string Key, string Version)>? dependencies = null)
+        IReadOnlyList<(string Key, string Version)>? dependencies = null,
+        IReadOnlyList<object>? additionalContents = null,
+        bool includeBaseContents = true)
     {
         var typeContent = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -409,25 +446,27 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             typeContent["inspectionFormBindings"] = inspectionBindings;
         }
 
-        var contents = new List<object>
+        var contents = new List<object>();
+        if (includeBaseContents)
         {
-            new
+            contents.Add(new
             {
                 key = TypeKey,
                 kind = "AssetTypeDefinition",
                 version = typeContentVersion,
                 content = typeContent,
-            },
-            FormContent(FormKey),
-        };
-        foreach (var formKey in inspectionBindings?.Values.Distinct(StringComparer.Ordinal) ?? [])
-        {
-            if (!string.Equals(formKey, FormKey, StringComparison.Ordinal)
-                && !string.Equals(formKey, "other.pack.form", StringComparison.Ordinal))
+            });
+            contents.Add(FormContent(FormKey));
+            foreach (var formKey in inspectionBindings?.Values.Distinct(StringComparer.Ordinal) ?? [])
             {
-                contents.Add(FormContent(formKey));
+                if (!string.Equals(formKey, FormKey, StringComparison.Ordinal)
+                    && !string.Equals(formKey, "other.pack.form", StringComparison.Ordinal))
+                {
+                    contents.Add(FormContent(formKey));
+                }
             }
         }
+        contents.AddRange(additionalContents ?? []);
 
         return new
         {
@@ -471,6 +510,13 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
             },
         },
     };
+
+    private static IReadOnlyList<object> LayoutAndBookingContents() =>
+    [
+        new { key = "layout.booking.surface", kind = "Layout", version = "1.0.0", content = new { definition = "layout" } },
+        new { key = "booking.room", kind = "Resource", version = "1.0.0", content = new { definition = "resource" } },
+        new { key = "booking.room-visit", kind = "Bookable", version = "1.0.0", content = new { definition = "bookable" } },
+    ];
 
     private static object Text(string en) => new
     {
