@@ -553,6 +553,49 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         Assert.Equal(active, _store.GetActive(Tenant, active.PackKey));
     }
 
+    [Fact(DisplayName = "T-742: the hint-free 1.1.5 successor installs and activates over the released "
+        + "1.1.3 without a pinned-tuple conflict on the changed form")]
+    public async Task Access_preload_1_1_5_successor_activates_over_the_released_1_1_3_predecessor()
+    {
+        // The released 1.1.3 pack publishes access.grant-a-role@1.0.1 WITH controlHint on the two
+        // value-domain fields. 1.1.5 changes that same form's content (the hints removed): if it kept
+        // publishing under the SAME (key, version) tuple 1.0.1, PackSeedProjector would find the existing,
+        // differently-content'd tuple and refuse the whole pack with pack.form.pinned_tuple_conflict. This
+        // proves 1.1.5's bumped form version (1.0.2) avoids that and the pack activates cleanly.
+        await PreloadPlatformThenAccessAsync();
+        var predecessorForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.0.1", predecessorForm!.Version.ToString());
+        Assert.Equal("select", predecessorForm.Overlay.Fields["reason"].ControlHint);
+
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
+            "Conformance", "Packs", "access-replacement", "access-administration-pack-1.1.5.export.json"));
+        var released = new PackFileCodec().TryDecode(bytes)!;
+        var trust = new InMemoryPackTrustStore([
+            new PackTrustRoot(TrustScope.OwnRoster, released.Envelope!.IssuerId, 1, TrustRootStatus.Current),
+        ]);
+        var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
+            TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
+            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        var installed = _installer.Install(bytes, context);
+        Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
+        var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, "1.1.5");
+        Assert.True(activation.Activated, JsonSerializer.Serialize(activation));
+
+        var active = _store.GetActive(Tenant, AccessAdministrationPreloadHostedService.PackKey)!;
+        Assert.Equal("1.1.5", active.Version);
+        var successorForm = await _forms.GetCurrentPublishedAsync(
+            new DefinitionAddress(Tenant, "access.grant-a-role"), CancellationToken.None);
+        Assert.Equal("1.0.2", successorForm!.Version.ToString());
+        Assert.Null(successorForm.Overlay.Fields["reason"].ControlHint);
+        Assert.Null(successorForm.Overlay.Fields["residency"].ControlHint);
+        // The superseded 1.0.1 tuple's content is untouched, only withdrawn as the new version takes over.
+        var supersededForm = await _forms.GetAsync(
+            new DefinitionCoordinates(Tenant, "access.grant-a-role", "1.0.1"), CancellationToken.None);
+        Assert.Equal(FormDefinitionStatus.Withdrawn, supersededForm!.Status);
+        Assert.Equal("select", supersededForm.Overlay.Fields["reason"].ControlHint);
+    }
+
     [Fact]
     public async Task Platform_preload_upgrades_exact_released_1_3_without_rewriting_immutable_forms()
     {
