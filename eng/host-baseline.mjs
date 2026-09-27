@@ -156,6 +156,7 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   const ranRosterIds = new Set(results
     .filter(row => row.outcome === 'Passed' || row.outcome === 'Failed')
     .map(row => row.rosterId ?? row.testName))
+  const rosterCollisions = rosterIdCollisions(results.map(row => row.rosterId ?? row.testName))
   // Fail-closed (2026-09-27 review): an unpopulated roster (knownTests: [], true of macOS/Ubuntu
   // until their first --write-known-tests run) must not silently drop disappearance coverage below
   // what the old permittedFailures-scoped "missing" check gave every named row. Fall back to
@@ -170,6 +171,7 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   // shows up in `ran`, needing no declaration).
   const disappeared = effectiveKnownTests.filter(name => !ran.has(name) && !removedNames.has(name))
   const problems = [...(trx?.problems ?? [])]
+  for (const id of rosterCollisions) problems.push(`host baseline ambiguous test identity: multiple results map to ${id}`)
   if (!counts) problems.push('host baseline incomplete: TRX counters unavailable; inspect the host test output')
   else {
     if (!(counts.total > 0)) problems.push('host baseline incomplete: TRX counted no tests; check test discovery')
