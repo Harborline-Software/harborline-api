@@ -52,11 +52,21 @@ public sealed class LayoutDenialDrainDaemon : BackgroundService
         while (await SafeWaitAsync(timer, stoppingToken).ConfigureAwait(false));
     }
 
-    /// <summary>Appends every unresolved denial, oldest first, and returns after every attempt finishes.</summary>
+    /// <summary>
+    /// Appends every unresolved denial, oldest first, and returns after every attempt finishes.
+    /// <paramref name="ct"/> bounds the daemon's own wait so shutdown is not delayed by a large backlog
+    /// or a stalled append; it does not cancel an append already running. <see cref="LayoutDenialAppender"/>
+    /// joins duplicate appends for the same entry (<c>_inFlight</c>) and the audit id makes a retry
+    /// idempotent, so a later drain (this daemon's next tick, or the reader path) safely resumes an
+    /// append this call stopped waiting on.
+    /// </summary>
     public async Task DrainAsync(CancellationToken ct = default)
     {
         foreach (var (entry, _) in await _outbox.ListUnresolvedAsync(ct).ConfigureAwait(false))
-            await _appender.AppendAsync(entry).ConfigureAwait(false);
+        {
+            ct.ThrowIfCancellationRequested();
+            await _appender.AppendAsync(entry).WaitAsync(ct).ConfigureAwait(false);
+        }
     }
 
     private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken ct)

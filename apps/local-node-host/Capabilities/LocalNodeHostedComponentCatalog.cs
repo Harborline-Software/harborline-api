@@ -530,9 +530,11 @@ internal static class LocalNodeHostedComponentCatalog
         where TRegistrar : class, IHostedService =>
         new(typeof(TRegistrar), activation);
 
+    private const int ExpectedOperationalCatalogCount = 32;
+
     private static void ValidateCatalog(ImmutableArray<LocalNodeHostedComponentDescriptor> catalog)
     {
-        if (catalog.Length != 32 ||
+        if (catalog.Length != ExpectedOperationalCatalogCount ||
             catalog.Select(item => item.ComponentKey)
                 .Distinct(StringComparer.Ordinal).Count() != catalog.Length ||
             catalog.Select(item => item.OperationalOrder).Distinct().Count() != catalog.Length ||
@@ -541,7 +543,7 @@ internal static class LocalNodeHostedComponentCatalog
             catalog.Select(item => item.ComponentType).Distinct().Count() != catalog.Length)
         {
             throw new InvalidOperationException(
-                "local-node.hosted-component.catalog_invalid: expected 31 unique ordered actors.");
+                $"local-node.hosted-component.catalog_invalid: expected {ExpectedOperationalCatalogCount} unique ordered actors.");
         }
     }
 }
