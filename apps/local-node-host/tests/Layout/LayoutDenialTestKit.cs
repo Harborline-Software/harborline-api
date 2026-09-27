@@ -26,7 +26,15 @@ internal static class LayoutDenialTestKit
 
     internal static LayoutBindingResolution Resolve(ILayoutBindingSources sources, ILayoutDecisionTrace trace, LayoutResolutionRequest request)
         => new LayoutBindingResolver(new GuardEvaluator(new FixedTime(At)))
-            .Resolve(Surface(), sources, LayoutBindingScope.Root(new Dictionary<string, JsonNode?>(StringComparer.Ordinal)), trace, request);
+            .Resolve(Surface(), sources, LayoutBindingScope.Root(new Dictionary<string, JsonNode?>(StringComparer.Ordinal)), trace, request,
+                AllowLayoutAccess.Instance);
+
+    private sealed class AllowLayoutAccess : ILayoutAccess
+    {
+        internal static readonly AllowLayoutAccess Instance = new();
+        public bool CanRead(LayoutBinding binding) => true;
+        public bool CanOpen(string surfaceId) => true;
+    }
 
     /// <summary>An owner card over a related record, then a field on the surface's own record.</summary>
     internal static LayoutDefinition Surface() => new(
@@ -56,15 +64,12 @@ internal static class LayoutDenialTestKit
     /// <summary>Answers every field from a fixed record and every related traversal with one outcome.</summary>
     internal sealed class OutcomeSources(LayoutRelatedResult outcome) : ILayoutBindingSources
     {
-        public bool TryResolveField(LayoutBindingScope scope, string fieldPath, out JsonNode? value)
-        {
-            value = JsonValue.Create($"{fieldPath}-value");
-            return true;
-        }
+        public LayoutFieldResult ResolveField(LayoutBindingScope scope, string fieldPath)
+            => LayoutFieldResult.Resolved(JsonValue.Create($"{fieldPath}-value"));
 
         public bool TryResolveQuery(LayoutBindingScope scope, string viewDefinitionId, out JsonNode? value) => None(out value);
         public bool TryResolveMeasure(LayoutBindingScope scope, string measurePath, out JsonNode? value) => None(out value);
-        public bool TryResolveTemplate(LayoutBindingScope scope, string templateDefinitionId, out JsonNode? value) => None(out value);
+        public bool TryResolveTemplate(LayoutBindingScope scope, string templateDefinitionId, string templateVersion, out JsonNode? value) => None(out value);
 
         public bool TryResolveCollection(LayoutBindingScope scope, string name, out IReadOnlyList<JsonNode?> rows)
         {

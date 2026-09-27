@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
-  "recordedAt": "2026-09-24 (T-731: platform main commit 8addec78, platform PR 118, which adds ILayoutDecisionTrace and LayoutRelatedDenial with the acting principal and typed target that the host stores and reads. Supersedes the T-243 pin at eda5e629, which this commit descends from; the packed producer inventory is unchanged.)",
+  "commit": "cbc84d5934314098b8f6eff3de94cfa5de3ea8f3",
+  "recordedAt": "2026-09-26 (T-735: platform main commit cbc84d59, the merge of platform PR 156, T-584 slice: released navigation lookup, which this ticket's api slice needs. cbc84d59 descends from 8addec78 (the prior T-731 pin) through platform PR 130 (T-583 slice 1), which added a required ILayoutAccess parameter to LayoutBindingResolver.Resolve; this PR fixes the resulting host-code break (see LayoutSurfaceHost.cs). Adds one new producer, Harborline.Foundation.Documents (T-593), packable since 8addec78; every other producer identity/assembly pair is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -25,6 +25,7 @@
     "Harborline.Foundation": "Harborline.Foundation.dll",
     "Harborline.Foundation.Authorization": "Harborline.Foundation.Authorization.dll",
     "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
+    "Harborline.Foundation.Documents": "Harborline.Foundation.Documents.dll",
     "Harborline.Foundation.FieldRuntime": "Harborline.Foundation.FieldRuntime.dll",
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
     "Harborline.Foundation.Forms.Engine": "Harborline.Foundation.Forms.Engine.dll",

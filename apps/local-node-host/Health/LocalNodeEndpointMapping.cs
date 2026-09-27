@@ -56,6 +56,7 @@ internal sealed class LocalNodeEndpointMapping : IAsyncDisposable
         Add<HostedPaymentApiEndpoint>(mappers, services, listener);
         Add<HostedJournalEntryApiEndpoint>(mappers, services, listener);
         Add<HostedAuditEventApiEndpoint>(mappers, services, listener);
+        Add<HostedLayoutDenialApiEndpoint>(mappers, services, listener);
         Add<HostedConsentRecordApiEndpoint>(mappers, services, listener);
         Add<HostedBillApiEndpoint>(mappers, services, listener);
         Add<HostedInvoiceApiEndpoint>(mappers, services, listener);

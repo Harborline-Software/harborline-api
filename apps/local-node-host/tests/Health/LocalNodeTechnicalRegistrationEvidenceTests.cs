@@ -63,11 +63,12 @@ public sealed class LocalNodeTechnicalRegistrationEvidenceTests
     // raises both columns by one again: 24 non-web, 29 webClient.
     // Ticket 213 slice 2 adds the consent expiry sweep (order 88), Always-activated, so both columns
     // rise by one more: 25 non-web, 30 webClient. Ticket 176 slice 2 then adds the platform-pack
-    // preload (order 153), so the regenerated evidence is 26 non-web and 31 webClient.
-    [InlineData(false, false, false, 26)]
-    [InlineData(true, false, false, 31)]
-    [InlineData(false, false, true, 26)]
-    [InlineData(true, true, true, 31)]
+    // preload (order 153), so the regenerated evidence is 26 non-web and 31 webClient. T-735 adds
+    // the always-active Layout-denial drain (order 89), making them 27 and 32 respectively.
+    [InlineData(false, false, false, 27)]
+    [InlineData(true, false, false, 32)]
+    [InlineData(false, false, true, 27)]
+    [InlineData(true, true, true, 32)]
     public void Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(
         bool webClient,
         bool llmProxy,
