@@ -64,7 +64,7 @@ rc=$?
 read -r scanned r3 <<<"$(printf '%s' "$report" | node -e '
   let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
     const i = s.indexOf("{"), j = s.lastIndexOf("}");
-    try { const r = JSON.parse(s.slice(i, j + 1)); const f = (r.r3 && (r.r3.scannedFiles ?? r.r3.files)) || 0; const hits = (r.r3 && r.r3.hits) || []; for (const h of hits.slice(0, 40)) console.error(`  ${h.file}:${h.line}  [${h.family}]`); if (hits.length > 40) console.error(`  ... ${hits.length - 40} more`); console.log(Array.isArray(f) ? f.length : f, (r.counts && r.counts.R3) || 0) }
+    try { const r = JSON.parse(s.slice(i, j + 1)); const f = (r.r3 && (r.r3.scannedFiles ?? r.r3.files)) || 0; const hits = (r.r3 && r.r3.hits) || []; for (const h of hits.slice(0, 40)) console.error(`  ${h.file}:${h.line}  [${h.family}]`); if (hits.length > 40) console.error(`  ... ${hits.length - 40} more`); for (const e of r.deadExemptions ?? []) console.error(`  dead exemption: ${JSON.stringify(e)}`); for (const v of r.violations ?? []) console.error(`  identity violation: ${JSON.stringify(v)}`); for (const o of r.retired?.over ?? []) console.error(`  retired count over baseline: ${JSON.stringify(o)}`); console.log(Array.isArray(f) ? f.length : f, (r.counts && r.counts.R3) || 0) }
     catch { console.log(0, -1) }
   })')"
 echo "identity-r3: scanned $scanned tracked files under $repo_root; R3 unexempted = $r3"
