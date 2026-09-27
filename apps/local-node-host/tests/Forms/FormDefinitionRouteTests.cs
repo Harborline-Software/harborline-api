@@ -382,6 +382,28 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
             .GetProperty("writeStandings")[0].GetString());
     }
 
+    [Fact(DisplayName = "T-691: PUT returns a non-disclosing 422 when persistence rejects a malformed section role")]
+    public async Task Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token()
+    {
+        var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["overlay"]!["sections"]![0]!["access"] = new JsonObject
+        {
+            ["readRoles"] = new JsonArray(JsonValue.Create("Administrator")),
+            ["writeRoles"] = new JsonArray(JsonValue.Create("Admin")),
+        };
+
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/malformed-section-role", body);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var document = JsonDocument.Parse(responseBody);
+        var refusal = document.RootElement;
+        Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
+        Assert.Equal("section:applicant.read", refusal.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
+    }
+
     private const string ConfigFormId = "config-form.v1";
 
     /// <summary>A save body carrying per-field config (F-17): a currency field with a
@@ -1942,6 +1964,44 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
         // The published GET-by-id head is UNCHANGED by the restore (the draft is not published).
         var head = await _client.GetFromJsonAsync<JsonElement>($"{DefBase}/{FormId}");
         Assert.Equal("edited", head.GetProperty("overlay").GetProperty("title").GetProperty("values").GetProperty("en").GetString());
+    }
+
+    [Fact(DisplayName = "T-691: restore returns a non-disclosing 422 when its source carries a malformed section role")]
+    public async Task Restore_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token()
+    {
+        const string restoreId = "restore-malformed-section-role";
+        var original = await _client.PutAsJsonAsync($"{DefBase}/{restoreId}", SaveBody());
+        Assert.Equal(HttpStatusCode.OK, original.StatusCode);
+
+        var tenant = NodeTenant.Resolve(_activeTeam);
+        var source = await _definitions.GetAsync(new DefinitionCoordinates(tenant, restoreId, "1.0.0"));
+        var malformedSource = source with
+        {
+            Version = new SemanticVersion(1, 0, 1),
+            Overlay = source.Overlay with
+            {
+                Sections = source.Overlay.Sections.Select(section => section with
+                {
+                    Access = section.Access with { ReadRoles = new[] { "Administrator" } },
+                }).ToArray(),
+            },
+        };
+
+        // Fixture setup models an already-stored legacy source revision. It writes through the
+        // test-only raw-store seam; the observable behavior under test is the public restore route.
+        await _app.Services.GetRequiredService<IFormDefinitionStore>().RegisterAsync(malformedSource);
+
+        using var response = await _client.PostAsJsonAsync(
+            $"{DefBase}/{restoreId}/restore", new { version = "1.0.1" });
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var document = JsonDocument.Parse(responseBody);
+        var refusal = document.RootElement;
+        Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
+        Assert.Equal("section:applicant.read", refusal.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "restore→save: the PUT after a restore SUCCEEDS and mints PAST the restored draft (no 409 — #1686 Finding 1)")]
