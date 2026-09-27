@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "suite": "apps/hull (vitest)",
+  "suite": "apps/capability-host (vitest)",
   "repository": "harborline-api",
   "sourcePin": "6dd14bbba29277f106584be96a81435e75614d63",
   "recordedAt": "2026-09-27 (T-965/T-724 ruling 119: first macOS-native measurement of the capability suite, from the verify-macos evidence artifact of PR 237 run 36289477797)",
