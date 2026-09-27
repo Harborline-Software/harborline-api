@@ -322,7 +322,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     private static IReadOnlyList<SchemaValidationError> CollectErrors(EvaluationResults results, JsonNode? schemaNode)
     {
         var collected = new List<SchemaValidationError>();
-        Walk(results, schemaNode, collected);
+        Walk(results, schemaNode, FailingEvaluationPaths(results), collected);
         if (collected.Count == 0)
         {
             // Defensive: IsValid was false but we found no errored leaves.
@@ -336,7 +336,36 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         return collected;
     }
 
-    private static void Walk(EvaluationResults node, JsonNode? schemaNode, List<SchemaValidationError> sink)
+    // Evaluation paths of every result that carries its own keyword error, across the whole tree
+    // (List output is flat, Hierarchical nests; this covers both).
+    private static HashSet<string> FailingEvaluationPaths(EvaluationResults root)
+    {
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<EvaluationResults>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            if (node.Errors is { Count: > 0 }) paths.Add(node.EvaluationPath.ToString());
+            if (node.Details is { Count: > 0 } children)
+                foreach (var child in children) pending.Push(child);
+        }
+        return paths;
+    }
+
+    // From JsonSchema.Net 9.4 an applicator (properties, items, allOf ...) whose subschema failed
+    // also carries a summary error for its own keyword. The subschema's error already reports that
+    // failure, so skip the parent's: one failure yields one code, matching the client mirror.
+    private static bool ReportedBySubschema(string evaluationPath, string keyword, HashSet<string> failingPaths)
+    {
+        if (string.IsNullOrEmpty(keyword)) return false;
+        var prefix = evaluationPath.TrimEnd('/') + "/" + keyword + "/";
+        foreach (var path in failingPaths)
+            if (path.StartsWith(prefix, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private static void Walk(EvaluationResults node, JsonNode? schemaNode, HashSet<string> failingPaths, List<SchemaValidationError> sink)
     {
         // Errors is a Dictionary<string, string>? on EvaluationResults —
         // keyed by the failing keyword (e.g. "type", "required", "minimum")
@@ -347,6 +376,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
             var evalPath = node.EvaluationPath.ToString();
             foreach (var kvp in keywordErrors)
             {
+                if (ReportedBySubschema(evalPath, kvp.Key, failingPaths)) continue;
                 EmitKeywordError(kvp.Key, kvp.Value, pointer, evalPath, schemaNode, sink);
             }
         }
@@ -356,7 +386,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
         {
             foreach (var child in children)
             {
-                Walk(child, schemaNode, sink);
+                Walk(child, schemaNode, failingPaths, sink);
             }
         }
     }
