@@ -82,5 +82,7 @@
     "apiCommit": "a384d911 (360 headless founder bootstrap + macOS arch-selected stat)",
     "platform": "macOS (mac16, self-hosted runner)",
     "configuration": "Release; re-pinned from the api #124 gate evidence -- the previous pin was 169 tests stale"
-  }
+  },
+  "knownTests": [],
+  "policyRemovals": []
 }

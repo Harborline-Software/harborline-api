@@ -50,19 +50,54 @@ export function readHostTrx(file) {
   }
 }
 
-export function compareHostBaseline({baseline, counts, adjustedFailed, newFailures, trx}) {
-  if (baseline.comparison !== 'named') {
-    // Keep the Windows verdict expression unchanged.
-    return {passed: Boolean(counts) && counts.total === baseline.totals.total && adjustedFailed === baseline.totals.failed && newFailures.length === 0}
+// Read vitest's --reporter=json output as the same {counts, results, problems} shape readHostTrx
+// gives the host step, so compareHostBaseline is one function for every baseline (T-724 ruling
+// 119d). Identity matches the existing repin-baseline.mjs convention: "<file basename> :: <test
+// title>" -- the leaf title, not the full ancestor-describe chain, and not the clone's absolute path.
+export function readVitestJsonAsTrx(file) {
+  try {
+    const report = JSON.parse(readFileSync(file, 'utf8'))
+    const results = report.testResults.flatMap(fileResult => {
+      const base = fileResult.name.replaceAll('\\', '/').split('/').at(-1)
+      return fileResult.assertionResults.map(assertion => {
+        const outcome = assertion.status === 'passed' ? 'Passed' : assertion.status === 'failed' ? 'Failed' : 'NotExecuted'
+        return {testName: `${base} :: ${assertion.title}`, outcome}
+      })
+    })
+    const counts = {
+      total: report.numTotalTests, passed: report.numPassedTests,
+      failed: report.numFailedTests, notExecuted: report.numPendingTests + (report.numTodoTests ?? 0),
+    }
+    return {counts, results, problems: []}
+  } catch (error) {
+    return {counts: null, results: [], problems: [`capability baseline incomplete: cannot read vitest JSON report ${file}: ${error.message}`]}
   }
-  const permitted = baseline.permittedFailures.map(row => row.test)
+}
+
+// T-724 ruling 119 (T-965): identity comparison, used for every baseline (host, per-OS, and
+// capability). The TOTAL is informational only -- two sibling PRs that each add tests must be able
+// to land in the same merge-queue batch without fighting over one pinned integer. What must hold
+// instead: every test identity in the baseline's committed `knownTests` list either ran (passed or
+// failed) or is named by a `policyRemovals` row as a deliberate removal/rename; no unlisted test
+// fails; and every `permittedFailures` row that stopped failing has its row removed (burn-down).
+// A test that moved from run to skipped counts as a disappearance (119c): `ran` below is built ONLY
+// from Passed/Failed outcomes, never NotExecuted/Skipped.
+export function compareHostBaseline({baseline, counts, adjustedFailed, newFailures, trx}) {
+  const permitted = (baseline.permittedFailures ?? []).map(row => row.test)
+  const knownTests = baseline.knownTests ?? []
+  const removedNames = new Set((baseline.policyRemovals ?? []).map(row => row.test))
   counts = trx?.counts
   const results = trx?.results ?? []
   const failed = results.filter(row => row.outcome === 'Failed').map(row => row.testName)
   const passedResults = results.filter(row => row.outcome === 'Passed')
   const passed = new Set(passedResults.map(row => row.testName))
+  const ran = new Set([...passed, ...failed])
   const burnDown = permitted.filter(name => passed.has(name))
-  const missing = permitted.filter(name => !failed.includes(name) && !passed.has(name))
+  // 119a/119b/119c: a known test that did not run this time (failed, passed, or renamed away) and
+  // is not named by a policyRemovals row is a disappearance -- fail and list it by name. A rename is
+  // a removal (old name, needs its own policyRemovals row) plus an addition (the new name simply
+  // shows up in `ran`, needing no declaration).
+  const disappeared = knownTests.filter(name => !ran.has(name) && !removedNames.has(name))
   const problems = [...(trx?.problems ?? [])]
   if (!counts) problems.push('host baseline incomplete: TRX counters unavailable; inspect the host test output')
   else {
@@ -79,8 +114,8 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   }
   for (const name of newFailures) problems.push(`host baseline unlisted failure: investigate: ${name}`)
   for (const name of burnDown) problems.push(`host baseline burn-down: remove row: ${name}`)
-  for (const name of missing) problems.push(`host baseline missing result: ${name}`)
+  for (const name of disappeared) problems.push(`host baseline test disappeared: add a policyRemovals row naming it if intentional, otherwise investigate: ${name}`)
   return {passed: problems.length === 0,
-    burnDown, missing, problems, tail: problems.join('\n'),
-    note: 'Named comparison: remove every burn-down row from permittedFailures; missing or unlisted failures are red.'}
+    burnDown, disappeared, problems, tail: problems.join('\n'),
+    note: 'Identity comparison (T-724 ruling 119): the total is informational. Remove every burn-down row from permittedFailures; a disappeared known test needs a policyRemovals row naming it, or the gate stays red.'}
 }

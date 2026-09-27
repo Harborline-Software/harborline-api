@@ -156,5 +156,7 @@
     "identity": "`test` is the identity the runner prints on its Failed line: the fully qualified name for a plain test, the DisplayName string when the test declares one (`method` then records the method, for the reader).",
     "rules": "Every row is exact, owned by a ticket, dated (firstSeen) and expiring. An expired or unowned row fails the gate. Validated by eng/flake-registry.mjs; ratcheted by REGISTERED_FLAKE_COUNT there, which must move in the same commit as any growth.",
     "retry": "ONE identical retry per registered row; both outcomes are recorded in the exact-clone report's host-flake-retry step."
-  }
+  },
+  "knownTests": [],
+  "policyRemovals": []
 }

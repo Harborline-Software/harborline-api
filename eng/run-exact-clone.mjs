@@ -19,7 +19,7 @@ import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
-import {baselineArgument, compareHostBaseline, resultNamesIn, readHostTrx} from './host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -28,6 +28,10 @@ import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './cove
 // therefore pins against this repo's HEAD instead of migration's, which is simpler and correct.
 const apiRoot = path.resolve(import.meta.dirname, '..')
 const record = process.argv.includes('--record')
+// T-724 ruling 119e: knownTests is a committed, sorted list of test identities, generated ONLY by
+// this tool (or the nightly/land repin tooling) and never hand-edited. `--write-known-tests`
+// refreshes it from what this run actually observed running; an ordinary gate run never writes it.
+const writeKnownTests = process.argv.includes('--write-known-tests')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
 const collectCoverage = coverageEnabled()
 const coveragePaths = qualityCoveragePaths(apiRoot)
@@ -266,7 +270,13 @@ try {
   run('boundary-check', 'bash', ['eng/verify-boundaries.sh'], clone)
 
   run('capability-typecheck', 'npx', ['tsc', '-p', 'tsconfig.json', '--noEmit'], path.join(clone, 'apps/capability-host'))
-  const capabilityTests = run('capability-tests', 'npx', ['vitest', 'run'], path.join(clone, 'apps/capability-host'), {expectNonZero: true})
+  // --reporter=json (in addition to the default console reporter) names every test, passed or
+  // failed, not only the failures a bare summary would count -- the capability-baseline-match
+  // identity comparison below needs the full roster, the same way TRX gives it to the host step.
+  const capabilityJsonPath = path.join(scratch, 'capability-tests.json')
+  const capabilityTests = run('capability-tests', 'npx',
+    ['vitest', 'run', '--reporter=default', '--reporter=json', `--outputFile=${capabilityJsonPath}`],
+    path.join(clone, 'apps/capability-host'), {expectNonZero: true})
 
   const countsOf = text => {
     const dotnet = text.match(/Failed:\s+(\d+),\s+Passed:\s+(\d+),\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)/)
@@ -275,9 +285,23 @@ try {
     if (vitest) return {failed: +(vitest[1] ?? 0), passed: +vitest[2], skipped: +(vitest[3] ?? 0), total: +vitest[4]}
     return null
   }
-  const hostTrx = hostBaseline.comparison === 'named' ? readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx')) : null
-  const hostCounts = hostBaseline.comparison === 'named' ? hostTrx.counts : countsOf(hostTests.fullOutput)
+  // The host step always requests a TRX (`--logger trx;LogFileName=host-tests.trx` above), so its
+  // per-test identities are always available; the comparison below is identity-based for every
+  // baseline now (T-724 ruling 119), never only for a baseline marked "named".
+  const hostTrx = readHostTrx(path.join(hostResultsDirectory, 'host-tests.trx'))
+  const hostCounts = hostTrx.counts
   const capabilityCounts = countsOf(capabilityTests.fullOutput)
+  const capabilityTrx = readVitestJsonAsTrx(capabilityJsonPath)
+
+  if (writeKnownTests) {
+    const ranNamesOf = trx => [...new Set(trx.results.filter(row => row.outcome !== 'NotExecuted').map(row => row.testName))].sort()
+    for (const [trx, relative] of [[hostTrx, BASELINES.host], [capabilityTrx, BASELINES.capability]]) {
+      const target = path.join(apiRoot, relative)
+      const current = JSON.parse(readFileSync(target, 'utf8'))
+      writeFileSync(target, `${JSON.stringify({...current, knownTests: ranNamesOf(trx)}, null, 2)}\n`)
+      console.log(`known tests written: ${relative} (${ranNamesOf(trx).length} identities)`)
+    }
+  }
 
   // Bounded retry for the named flaky tests, exactly as host-test-baseline.json's knownFlaky
   // entries prescribe, and ticket 284 caps at ONE identical retry: a second red is the gate's verdict.
@@ -300,7 +324,6 @@ try {
   //      nothing, so a stale registration cannot keep buying retries.
   // The trailing bracket is the duration, and it is NOT always numeric — vstest prints "[< 1 ms]"
   // for a fast test, so anchoring on a digit silently drops those rows. Match the bracket itself.
-  const failedNamesIn = text => resultNamesIn(text, 'Failed')
   const permittedNames = new Set((hostBaseline.permittedFailures ?? []).map(row => row.test))
   // Ticket 284: the registry is validated BEFORE it is used to rescue anything. An unowned or
   // expired row cannot buy a retry, because the row is what makes the retry legitimate.
@@ -316,9 +339,7 @@ try {
     ? new Map((hostBaseline.knownFlaky ?? []).map(row => [row.test, RETRY_LIMIT]))
     : new Map()
 
-  const observedFailures = hostBaseline.comparison === 'named'
-    ? hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
-    : failedNamesIn(hostTests.fullOutput)
+  const observedFailures = hostTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
   const unexpected = observedFailures.filter(name => !permittedNames.has(name))
   const retryable = unexpected.every(name => flakyLimits.has(name)) ? unexpected : []
   const retries = []
@@ -383,8 +404,8 @@ try {
 
   const hostComparison = compareHostBaseline({baseline: hostBaseline, counts: hostCounts,
     adjustedFailed, newFailures, trx: hostTrx})
-  if (hostBaseline.comparison === 'named' && !hostComparison.passed) {
-    // Keep the clone on a named failure so the operator can inspect both TRX and raw output.
+  if (!hostComparison.passed) {
+    // Keep the clone on an identity failure so the operator can inspect both TRX and raw output.
     retainScratch = true
     mkdirSync(hostResultsDirectory, {recursive: true})
     const outputFile = path.join(hostResultsDirectory, 'host-tests-output.txt')
@@ -411,11 +432,24 @@ try {
     rescuedByRetry: rescued,
     note: hostComparison.note ?? 'Counts AND failure identity (newFailures must be empty), after the bounded knownFlaky retry. Failure IDENTITY is pinned by name in host-test-baseline.json and must be reviewed on any change.',
   })
+  // T-724 ruling 119d: the same identity comparison as the host step, not an exact-count match --
+  // total is informational, a known test disappearing needs a policyRemovals row, and an unpermitted
+  // failure is red regardless of the total.
+  const capabilityPermittedNames = new Set((capabilityBaseline.permittedFailures ?? []).map(row => row.test))
+  const capabilityFailedNames = capabilityTrx.results.filter(row => row.outcome === 'Failed').map(row => row.testName)
+  const capabilityNewFailures = capabilityFailedNames.filter(name => !capabilityPermittedNames.has(name))
+  const capabilityComparison = compareHostBaseline({
+    baseline: capabilityBaseline, counts: capabilityTrx.counts, adjustedFailed: capabilityTrx.counts?.failed,
+    newFailures: capabilityNewFailures, trx: capabilityTrx,
+  })
+  for (const line of capabilityComparison.problems ?? []) console.log(line)
   steps.push({
     id: 'capability-baseline-match',
-    passed: Boolean(capabilityCounts) && capabilityCounts.total === capabilityBaseline.totals.total && capabilityCounts.failed === capabilityBaseline.totals.failed,
+    ...capabilityComparison,
+    baseline: BASELINES.capability,
     expected: capabilityBaseline.totals, observed: capabilityCounts,
-    note: 'Counts only, same as the host step. Failure IDENTITY is pinned by name in hull-test-baseline.json.',
+    newFailures: capabilityNewFailures,
+    note: capabilityComparison.note ?? 'Identity comparison (T-724 ruling 119): the total is informational. Failure IDENTITY is pinned by name in hull-test-baseline.json.',
   })
 
   const passed = steps.every(step => step.passed !== false)

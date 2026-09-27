@@ -8,7 +8,7 @@ import * as host from '../host-baseline.mjs'
 const root = path.resolve(import.meta.dirname, '../..')
 const fixture = path.join(import.meta.dirname, 'host-results.trx')
 const duplicate = 'TRX fixture: duplicate & <quoted> "name"'
-const baseline = {comparison: 'named', permittedFailures: [{test: duplicate}]}
+const baseline = {permittedFailures: [{test: duplicate}], knownTests: [duplicate]}
 const compare = trx => host.compareHostBaseline({baseline, trx, counts: trx.counts,
   adjustedFailed: trx.counts?.failed, newFailures: trx.results.filter(r => r.outcome === 'Failed' && r.testName !== duplicate).map(r => r.testName)})
 const countsFor = results => ({total: results.length, failed: results.filter(r => r.outcome === 'Failed').length,
@@ -88,8 +88,11 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
     assert.deepEqual(invocation[2], ['test', 'apps/local-node-host/tests/tests.csproj', '-c', 'Release', '--nologo', '--no-build', '-nodeReuse:false', '-maxcpucount:6',
       '--filter', 'Lane!=perf', '--logger', 'trx;LogFileName=host-tests.trx', '--results-directory', path.join(dir, 'TestResults', 'host')])
     assert.doesNotMatch(hostBlock, /console;verbosity|hostBaseline/)
-    assert.ok(/hostBaseline\.comparison === 'named' \? hostTrx\.counts : countsOf\(hostTests\.fullOutput\)/.test(source), 'named counts must come from TRX; Windows counts from console')
-    assert.match(source, /hostTrx\.results\.filter\(row => row\.outcome === 'Failed'\)\.map\(row => row\.testName\)/)
+    // T-724 ruling 119: every baseline is identity-based now, so host counts always come from TRX,
+    // never from the console summary regex (that route remains only for capability's text tail).
+    assert.match(source, /const hostTrx = readHostTrx\(path\.join\(hostResultsDirectory, 'host-tests\.trx'\)\)/)
+    assert.match(source, /const hostCounts = hostTrx\.counts/)
+    assert.match(source, /const observedFailures = hostTrx\.results\.filter\(row => row\.outcome === 'Failed'\)\.map\(row => row\.testName\)/)
     const compareBlock = source.slice(source.indexOf('  const hostComparison ='), source.indexOf("  steps.push({\n    id: 'host-baseline-match'"))
     assert.ok(compareBlock.includes('rawOutput'), 'comparison must persist raw output')
     const rawOutput = `${String.fromCharCode(27)}[31mraw host output\r\nTest Run Failed.\r\n`

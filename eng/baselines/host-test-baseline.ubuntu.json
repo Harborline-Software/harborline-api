@@ -67,5 +67,7 @@
     "apiCommit": "6145f0fb (302 s1)",
     "platform": "ubuntu-latest (GitHub hosted)",
     "configuration": "Release; PR #59 build-and-test run 34378443821: permitted 4, NEW none, 11 rows burned down by the 302 s1 health-check fix; totals derived (named comparison does not read them)"
-  }
+  },
+  "knownTests": [],
+  "policyRemovals": []
 }
