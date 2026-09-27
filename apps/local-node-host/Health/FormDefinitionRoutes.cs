@@ -481,6 +481,10 @@ public static class FormDefinitionRoutes
                     },
                 });
             }
+            catch (GateReferenceShapeException ex)
+            {
+                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
+            }
             catch (DefinitionProvenanceException ex)
             {
                 return Results.UnprocessableEntity(new { code = ex.Code });
@@ -631,6 +635,10 @@ public static class FormDefinitionRoutes
             catch (FormDefinitionConflictException)
             {
                 return Results.Conflict(new { code = "form_definition.revision_conflict", detail = new { formId, version = newVersion.ToString() } });
+            }
+            catch (GateReferenceShapeException ex)
+            {
+                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
             }
 
             return Results.Ok(new SaveFormDefinitionResponse(formId, newVersion.ToString()));
