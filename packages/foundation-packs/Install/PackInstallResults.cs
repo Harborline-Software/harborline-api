@@ -2,6 +2,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Install.Admission;
+using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.Foundation.Packs.Install.Merge;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
@@ -341,6 +342,15 @@ public sealed record PackInstallPreview(
     /// <summary>Stable refusal codes paired with their RFC 6901 locations.</summary>
     public IReadOnlyList<PackInstallRefusal> Refusals { get; init; }
         = Array.Empty<PackInstallRefusal>();
+
+    /// <summary>
+    /// Admission-time destination classifications for the verified candidate's content items. Each
+    /// item is classified through <see cref="Graph.PackPillarMap.ForKind"/> before transport,
+    /// compatibility, and domain-admission decisions, making the destination decision inspectable
+    /// without depending on the feature-graph read model (T-565).
+    /// </summary>
+    public IReadOnlyList<PackContentDestination> DestinationClassifications { get; init; }
+        = Array.Empty<PackContentDestination>();
 }
 
 /// <summary>
