@@ -60,7 +60,6 @@ fi
 # whose directory is not named after the repository. The JSON report is read for two numbers: the
 # R3 count (printed) and the scanned-file count (a scan that read nothing is a failure, not a pass).
 report=$(node "$checker" --root "$repo_root/.." --repo harborline-api --repo-root "$repo_root" --fail-on-r3 --json 2>&1)
-rc=$?
 read -r scanned r3 <<<"$(printf '%s' "$report" | node -e '
   let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
     const i = s.indexOf("{"), j = s.lastIndexOf("}");
@@ -73,8 +72,11 @@ if [ "${scanned:-0}" -eq 0 ] || [ "${r3:-0}" -lt 0 ]; then
   exit 1
 fi
 
-if [ $rc -ne 0 ] && [ $advisory -eq 1 ]; then
+# The shared checker also exits red for dead exemptions in its moving ledger. A row for a file
+# introduced by another unmerged PR is dead in this checkout; this gate owns the R3 count only.
+if [ "$r3" -gt 0 ] && [ $advisory -eq 1 ]; then
   echo "identity-r3: ADVISORY — the count above is not zero and this step is not blocking yet (ticket 267 owns the tail)."
   exit 0
 fi
-exit $rc
+if [ "$r3" -gt 0 ]; then exit 1; fi
+exit 0
