@@ -5,7 +5,7 @@ import {readFileSync, writeFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSyn
 import {spawnSync} from 'node:child_process'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, hullBaselineFor, HULL_WINDOWS, HULL_MACOS, normalizeIdentity} from '../host-baseline.mjs'
+import {baselineArgument, compareHostBaseline, resultNamesIn, hostBaselineFor, WINDOWS_BASELINE, MACOS_BASELINE, UBUNTU_BASELINE, hullBaselineFor, CAPABILITY_WINDOWS_BASELINE, CAPABILITY_MACOS_BASELINE, normalizeIdentity} from '../host-baseline.mjs'
 import {gitRetry} from './fixture-git-retry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
@@ -290,8 +290,8 @@ test('OS selection and the actual gate route carries the baseline', () => {
   // the capability suite permanently gates real chunks of itself on process.platform (the same
   // total either way, different identities) -- exactly why the host baseline already has one file
   // per OS.
-  assert.equal(hullBaselineFor('darwin'), HULL_MACOS)
-  for (const platform of ['win32', 'freebsd', 'linux']) assert.equal(hullBaselineFor(platform), HULL_WINDOWS)
+  assert.equal(hullBaselineFor('darwin'), CAPABILITY_MACOS_BASELINE)
+  for (const platform of ['win32', 'freebsd', 'linux']) assert.equal(hullBaselineFor(platform), CAPABILITY_WINDOWS_BASELINE)
   assert.match(runner, /capability: hullBaselineFor\(\)/)
 })
 test('119 review: a test identity is the same whether its path segments use \\ or /, and macOS\'s /private realpath quirk is stripped', () => {

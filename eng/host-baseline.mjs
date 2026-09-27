@@ -13,9 +13,9 @@ export const hostBaselineFor = (platform = process.platform) =>
 // design, permanently, not a regression -- exactly the reason the host suite already has a baseline
 // per OS. Only Windows and macOS run capability-baseline-match today (verify-shared's lane excludes
 // exact-clone entirely), so there is no _UBUNTU variant yet.
-export const HULL_WINDOWS = 'eng/baselines/hull-test-baseline.json'
-export const HULL_MACOS = 'eng/baselines/hull-test-baseline.macos.json'
-export const hullBaselineFor = (platform = process.platform) => platform === 'darwin' ? HULL_MACOS : HULL_WINDOWS
+export const CAPABILITY_WINDOWS_BASELINE = 'eng/baselines/hull-test-baseline.json'
+export const CAPABILITY_MACOS_BASELINE = 'eng/baselines/hull-test-baseline.macos.json'
+export const hullBaselineFor = (platform = process.platform) => platform === 'darwin' ? CAPABILITY_MACOS_BASELINE : CAPABILITY_WINDOWS_BASELINE
 
 // A capability test identity can carry the exact-clone's own path (e.g. the operational-environment
 // Python-worker table), and that path is OS-specific in two ways redactEvidence()'s placeholder
