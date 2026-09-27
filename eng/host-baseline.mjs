@@ -171,7 +171,7 @@ export function compareHostBaseline({baseline, counts, adjustedFailed, newFailur
   // shows up in `ran`, needing no declaration).
   const disappeared = effectiveKnownTests.filter(name => !ran.has(name) && !removedNames.has(name))
   const problems = [...(trx?.problems ?? [])]
-  for (const id of rosterCollisions) problems.push(`host baseline ambiguous test identity: multiple results map to ${id}`)
+  for (const id of rosterCollisions) problems.push(`baseline ambiguous test identity: multiple results map to ${id}`)
   if (!counts) problems.push('host baseline incomplete: TRX counters unavailable; inspect the host test output')
   else {
     if (!(counts.total > 0)) problems.push('host baseline incomplete: TRX counted no tests; check test discovery')
