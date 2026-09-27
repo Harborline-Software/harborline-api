@@ -75,10 +75,12 @@ jobs:
           path: .quality
           token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
 
-      - name: Install pnpm and Rust
-        run: |
-          npm install -g pnpm@10
-          rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.3
+
+      - name: Ensure Rust toolchain
+        run: rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
 
       - uses: ./.github/actions/platform-feed
 
@@ -259,6 +261,10 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.3
 
       - uses: ./.github/actions/platform-feed
 
