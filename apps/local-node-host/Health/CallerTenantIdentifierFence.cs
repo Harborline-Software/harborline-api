@@ -46,7 +46,7 @@ internal static class CallerTenantIdentifierFence
             }
             catch (InvalidDataException)
             {
-                return false;
+                throw new BadHttpRequestException("Malformed form body.");
             }
         }
 
@@ -63,7 +63,7 @@ internal static class CallerTenantIdentifierFence
         }
         catch (JsonException)
         {
-            return false;
+            throw new BadHttpRequestException("Malformed JSON body.");
         }
         finally
         {

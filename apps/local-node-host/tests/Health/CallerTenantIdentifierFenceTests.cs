@@ -17,6 +17,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 public sealed class CallerTenantIdentifierFenceTests
 {
     [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
     public async Task Every_registered_route_refuses_caller_supplied_tenant_ids()
     {
         var services = new ServiceCollection();
@@ -117,19 +118,46 @@ public sealed class CallerTenantIdentifierFenceTests
             using (var cleanForm = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
                 { Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["ordinary"] = "ok" }) })
                 Assert.Equal("ordinary=ok", await (await client.SendAsync(cleanForm)).Content.ReadAsStringAsync());
-            using (var malformedForm = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
-                { Content = new StringContent("x", Encoding.UTF8, "multipart/form-data") })
-                Assert.Equal("x", await (await client.SendAsync(malformedForm)).Content.ReadAsStringAsync());
-
             using (var clean = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
                 { Content = JsonContent.Create(new { ordinary = "ok" }) })
                 Assert.Contains("ordinary", await (await client.SendAsync(clean)).Content.ReadAsStringAsync());
             using (var scalar = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
                 { Content = JsonContent.Create("hello") })
                 Assert.Equal("\"hello\"", await (await client.SendAsync(scalar)).Content.ReadAsStringAsync());
-            using (var malformed = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
-                { Content = new StringContent("{", Encoding.UTF8, "application/json") })
-                Assert.Equal("{", await (await client.SendAsync(malformed)).Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            await app.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Theory]
+    [InlineData("multipart/form-data", "x")]
+    [InlineData("application/json", "{")]
+    public async Task Malformed_body_is_400_before_route_L985(string mediaType, string body)
+    {
+        var services = new ServiceCollection();
+        services.AddTestKernelClock();
+        services.AddLogging();
+        services.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());
+        services.AddSingleton(new NodeCallerSessionToken(null));
+        await using var provider = services.BuildServiceProvider();
+        await using var app = new SharedHostedWebApp(
+            provider,
+            Options.Create(new LocalNodeOptions { HealthPort = 0 }),
+            new LocalNodeExecutableEndpointRegistry(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SharedHostedWebApp>>(),
+            provider.GetRequiredService<TimeProvider>());
+        app.MapApiRoutes(routes => routes.MapDeviceReachableProductDataGroup()
+            .MapGet("/api/local-node/journal-entries", () => Results.Ok()));
+        await app.StartAsync(CancellationToken.None);
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.SelectedUrl!) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/local-node/journal-entries")
+                { Content = new StringContent(body, Encoding.UTF8, mediaType) };
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
         finally
         {
