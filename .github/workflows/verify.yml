@@ -226,6 +226,55 @@ jobs:
           path: |
             .claude/gate-evidence/
 
+  verify-perf-hosted:
+    # Trial the same timing gate on an ephemeral Linux VM before replacing mac16.
+    # A failing sample is evidence, not a merge blocker, while we measure runner noise.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - name: Runner identity
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: ./.github/actions/platform-feed
+
+      - name: Perf lane (Lane=perf)
+        run: |
+          set -o pipefail
+          mkdir -p .claude/gate-evidence
+          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false \
+            --filter "Lane=perf" \
+            --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence \
+            --logger "console;verbosity=detailed" \
+            -- RunConfiguration.TreatNoTestsAsError=true | tee .claude/gate-evidence/perf-tests.log
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-perf-hosted-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: .claude/gate-evidence/
+
   # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
   # lane, and since T-578 each is on the landing's critical path through the `verify` aggregator.
   verify-macos:
