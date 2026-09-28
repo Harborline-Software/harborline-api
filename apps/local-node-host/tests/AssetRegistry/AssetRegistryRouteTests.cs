@@ -483,6 +483,21 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Contains(building, path);
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Edge_Create_RefusesClientSuppliedEdgeId()
+    {
+        var building = await CreateEntityAsync("Building A");
+        var heater = await CreateEntityAsync("Water heater");
+
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/edges",
+            new { kind = "contains", from = building, to = heater, id = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var tree = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities/{building}/tree");
+        Assert.Empty(tree.GetProperty("children").EnumerateArray());
+    }
+
     [Fact(DisplayName = "edges: an endpoint that does not exist is rejected (static error, no payload reflection)")]
     public async Task Edge_Rejected_When_Endpoint_Missing()
     {

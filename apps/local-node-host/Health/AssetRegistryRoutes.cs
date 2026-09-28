@@ -531,6 +531,8 @@ public static class AssetRegistryRoutes
         app.MapPost($"{RouteBase}/edges", async (AddEdgeBody body, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
+            if (body?.Id is not null)
+                return Results.BadRequest(new { error = "client_supplied_id_not_allowed" });
             if (body is null || string.IsNullOrWhiteSpace(body.From) || string.IsNullOrWhiteSpace(body.To))
                 return Results.BadRequest(new { error = "from_and_to_required" });
             if (!TryParseKind(body.Kind, out var kind))
@@ -880,7 +882,7 @@ public static class AssetRegistryRoutes
         [property: JsonPropertyName("values")] JsonElement? Values = null,
         string? Id = null);
     /// <summary>Body for POST /edges.</summary>
-    public sealed record AddEdgeBody(string? Kind, string? From, string? To);
+    public sealed record AddEdgeBody(string? Kind, string? From, string? To, string? Id = null);
 
     /// <summary>Body for POST /types (create) and PUT /types/{id} (edit → override or update).</summary>
     /// <remarks>
