@@ -65,7 +65,7 @@ public sealed class CallerTenantIdentifierFenceTests
             foreach (var (method, path) in pairs)
             {
                 foreach (var spelling in new[]
-                    { "tenantId", "tenant_id", "tenant-id", "TENANTID", "tenant", "tenantIdentifier", "X-Tenant", "X-Tenant-Id" })
+                    { "tenantId", "tenant_id", "tenant-id", "TENANTID", "tenant", "tenantIdentifier", "X-Tenant", "X-Tenant-Id", "X-Tenant-Identifier" })
                 {
                     using var query = new HttpRequestMessage(new HttpMethod(method), $"{path}?{spelling}=other-team");
                     await AssertBadTenantAsync(client, query);

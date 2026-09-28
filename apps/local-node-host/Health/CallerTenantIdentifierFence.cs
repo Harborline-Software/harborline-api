@@ -31,7 +31,7 @@ internal static class CallerTenantIdentifierFence
     private static bool IsTenantKey(string key)
     {
         var normalized = string.Concat(key.Where(char.IsLetterOrDigit)).ToLowerInvariant();
-        return normalized is "tenant" or "tenantid" or "tenantidentifier" or "xtenant" or "xtenantid";
+        return normalized is "tenant" or "tenantid" or "tenantidentifier" or "xtenant" or "xtenantid" or "xtenantidentifier";
     }
 
     private static async Task<bool> BodyNamesTenantAsync(HttpRequest request, CancellationToken ct)
