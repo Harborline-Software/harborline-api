@@ -498,6 +498,22 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Empty(tree.GetProperty("children").EnumerateArray());
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Edge_Create_DeniedWriteCannotPersist()
+    {
+        var building = await CreateEntityAsync("Building A");
+        var heater = await CreateEntityAsync("Water heater");
+        _allowRecordWrites = false;
+
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/edges",
+            new { kind = "contains", from = building, to = heater });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var tree = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities/{building}/tree");
+        Assert.Empty(tree.GetProperty("children").EnumerateArray());
+    }
+
     [Fact(DisplayName = "edges: an endpoint that does not exist is rejected (static error, no payload reflection)")]
     public async Task Edge_Rejected_When_Endpoint_Missing()
     {

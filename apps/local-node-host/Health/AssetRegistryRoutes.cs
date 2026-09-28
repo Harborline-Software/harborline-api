@@ -530,7 +530,13 @@ public static class AssetRegistryRoutes
     {
         app.MapPost($"{RouteBase}/edges", async (AddEdgeBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             if (body?.Id is not null)
                 return Results.BadRequest(new { error = "client_supplied_id_not_allowed" });
             if (body is null || string.IsNullOrWhiteSpace(body.From) || string.IsNullOrWhiteSpace(body.To))
@@ -545,7 +551,7 @@ public static class AssetRegistryRoutes
                 Kind = kind,
                 From = new RegistryEntityId(body.From.Trim()),
                 To = new RegistryEntityId(body.To.Trim()),
-                EffectiveFrom = new Instant(clock.GetUtcNow()),
+                EffectiveFrom = new Instant(authority.At),
             };
 
             try
