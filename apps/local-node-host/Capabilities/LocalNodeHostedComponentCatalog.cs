@@ -425,6 +425,9 @@ internal static class LocalNodeHostedComponentCatalog
             Describe<Harborline.Api.LocalNodeHost.Data.Governance.ConsentExpirySweepDaemon>(
                 "local-node.job.consent-expiry-sweep", 88, LocalNodeHostedComponentKind.JobRunner,
                 LocalNodeHostedActivation.Always),
+            Describe<Harborline.Api.LocalNodeHost.Layout.LayoutDenialDrainDaemon>(
+                "local-node.job.layout-denial-drain", 89, LocalNodeHostedComponentKind.JobRunner,
+                LocalNodeHostedActivation.Always),
             Describe<Harborline.Api.LocalNodeHost.Data.Governance.HostedGovernanceGenesisService>(
                 "local-node.provisioner.governance-genesis", 90, LocalNodeHostedComponentKind.Provisioner,
                 LocalNodeHostedActivation.Always),
@@ -527,9 +530,11 @@ internal static class LocalNodeHostedComponentCatalog
         where TRegistrar : class, IHostedService =>
         new(typeof(TRegistrar), activation);
 
+    private const int ExpectedOperationalCatalogCount = 32;
+
     private static void ValidateCatalog(ImmutableArray<LocalNodeHostedComponentDescriptor> catalog)
     {
-        if (catalog.Length != 31 ||
+        if (catalog.Length != ExpectedOperationalCatalogCount ||
             catalog.Select(item => item.ComponentKey)
                 .Distinct(StringComparer.Ordinal).Count() != catalog.Length ||
             catalog.Select(item => item.OperationalOrder).Distinct().Count() != catalog.Length ||
@@ -538,7 +543,7 @@ internal static class LocalNodeHostedComponentCatalog
             catalog.Select(item => item.ComponentType).Distinct().Count() != catalog.Length)
         {
             throw new InvalidOperationException(
-                "local-node.hosted-component.catalog_invalid: expected 31 unique ordered actors.");
+                $"local-node.hosted-component.catalog_invalid: expected {ExpectedOperationalCatalogCount} unique ordered actors.");
         }
     }
 }

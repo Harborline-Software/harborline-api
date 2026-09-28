@@ -48,6 +48,16 @@ public sealed class LayoutDenialGateLog(
         _writes.Add(RecordAsync(new LayoutDenialOutboxEntry(Guid.NewGuid(), tenant, time.GetUtcNow(), denial)));
     }
 
+    /// <inheritdoc />
+    public void RecordFieldDenial(LayoutFieldDenial denial)
+    {
+        ArgumentNullException.ThrowIfNull(denial);
+        // ponytail: field-read denials (layout-auth-25) are logged only, not yet in the durable outbox — T-731's outbox is typed for related-binding denials only; extend it in a future ticket if field-level denial durability is needed.
+        logger.LogWarning(
+            "Layout field-read denial (request {RequestId}, block {BlockId}, field {FieldPath}, record {Record}, code {Code}).",
+            denial.RequestId, denial.BlockId, denial.FieldPath, denial.Record, denial.Code);
+    }
+
     /// <summary>Completes every outbox write this request started. The host awaits it before it answers.</summary>
     public Task WrittenAsync() => Task.WhenAll(_writes);
 

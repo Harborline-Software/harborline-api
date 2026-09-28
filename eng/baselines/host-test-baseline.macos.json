@@ -12,6 +12,7 @@
     "notExecuted": 0
   },
   "policy": [
+    "T-735 PR 236 keeps the four LocalNodeTechnicalRegistrationEvidenceTests theory cases but moves their display-name expectedActors arguments from 26/31 to 27/32 for the new always-active Layout-denial drain; the named roster follows those exact identities.",
     "Ticket 427 runtime: advance passed and total by 66 ordinary platform-independent cases, from 3969/3995 to 4035/4061. This is a documentary additive inventory adjustment from the focused 356-case Windows execution, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances and named comparison remain unchanged.",
     "Ticket 426 Standards adapter: four ordinary platform-independent cases advance this derived inventory from 3969/3995 to 3973/3999. Failure identities, allowances, skipped counts and named comparison remain unchanged; this is not a new macOS measurement.",
     "Ticket 427 and 398 integration: retain both features and add the eight reachability cases to the prior 78-case additive inventory, for +86 overall and 3969/3995 passed/total on macOS. This remains a documentary additive adjustment, not a fresh macOS measurement. Exact failure, skip, retry identities, allowances, and named comparison remain unchanged.",
@@ -2321,10 +2322,10 @@
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeProgramRegistrationCatalogTests.Every_AddHostedService_In_Program_Is_Declared_In_The_Catalog",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeProgramRegistrationCatalogTests.Every_Catalogued_Component_Is_Registered_In_Program",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Cannot_Be_Registered_Without_The_Actual_Validated_Service_Graph",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: False, expectedActors: 26)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: True, expectedActors: 26)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: False, schedulingDogfood: False, expectedActors: 31)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: True, schedulingDogfood: True, expectedActors: 31)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: False, expectedActors: 27)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: True, expectedActors: 27)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: False, schedulingDogfood: False, expectedActors: 32)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: True, schedulingDogfood: True, expectedActors: 32)",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Validation_Refuses_Missing_Duplicate_Opaque_Lifetime_And_Profile_Drift",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Program_Registers_Evidence_And_Configures_The_Build_Boundary_Factory_Once",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Provider_Factory_Rejects_Graph_Mutation_At_The_Actual_Build_Boundary",

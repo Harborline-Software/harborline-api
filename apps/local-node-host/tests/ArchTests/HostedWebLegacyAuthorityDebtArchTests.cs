@@ -103,7 +103,10 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // T-461 adds the proposed-change family beside it (435 -> 437) on the same 2026-09-07 exception and
         // at the same minimum 2/0 shape: one tenant resolution point for seven routes rather than one per
         // handler, and that tenant is the authorization subject of proposing, saving and releasing.
-        Assert.Equal(437, ledger.ReviewedAggregateDebtCeiling);
+        // T-735 adds the Layout denial-reader family (437 -> 440) on the same exception, at the same
+        // minimum 2/0 route shape plus its 1/0 hosted mapper: one server-derived active-team tenant
+        // resolution point, no static actor authority.
+        Assert.Equal(440, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));

@@ -90,8 +90,8 @@ public sealed class LayoutPublishRegisters(
     }
 
     /// <summary>Runs the platform's one publish-time admission path against the host-built registers.</summary>
-    public void ValidateForPublish(LayoutDefinition definition)
-        => LayoutDefinitionAdmission.ValidateForPublish(definition, Build());
+    public void ValidateForPublish(LayoutDefinition definition, ILayoutAccess author)
+        => LayoutDefinitionAdmission.ValidateForPublish(definition, Build(), author);
 
     private static readonly ContractRuleDefinition[] ReleasedValidationRules =
     [

@@ -14,10 +14,10 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)]);
 
-        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))));
+        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), AllowAccess.Instance);
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("signature"))))),
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new("signature")))), AllowAccess.Instance),
             LayoutDefinitionCodes.FieldControlUnknown);
     }
 
@@ -29,7 +29,7 @@ public sealed class LayoutPublishRegistersTests
             options: new(SupplyFieldControls: false));
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId))))),
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), AllowAccess.Instance),
             LayoutDefinitionCodes.FieldControlUnknown);
     }
 
@@ -38,10 +38,10 @@ public sealed class LayoutPublishRegistersTests
     {
         var host = Host(pageLayouts: [PackLayout], pageMasters: [PackMaster]);
 
-        host.ValidateForPublish(Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"]))));
+        host.ValidateForPublish(Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"]))), AllowAccess.Instance);
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(PageSurface(new("run", "pack.unknown", PackMaster.Id, ["body"])))),
+            () => host.ValidateForPublish(Sealed(PageSurface(new("run", "pack.unknown", PackMaster.Id, ["body"]))), AllowAccess.Instance),
             LayoutDefinitionCodes.PageReferenceUnknown);
     }
 
@@ -51,29 +51,31 @@ public sealed class LayoutPublishRegistersTests
         var host = Host();
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"])))),
+            () => host.ValidateForPublish(Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"]))), AllowAccess.Instance),
             LayoutDefinitionCodes.PageReferenceUnknown);
     }
 
     [Fact(DisplayName = "layout-bound-8: the host supplies released validation rules for publish and refuses an unregistered rule")]
     public void ReleasedAndUnknownValidationRulesGoThroughTheHostPublishSeam()
     {
-        var host = Host();
+        var host = Host(recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)]);
 
-        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))));
+        host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))), AllowAccess.Instance);
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, ["rules.unknown"])))),
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, ["rules.unknown"]))), AllowAccess.Instance),
             LayoutDefinitionCodes.ValidationRuleUnknown);
     }
 
     [Fact(DisplayName = "layout-bound-8: omitting the host validation-rule register fails closed")]
     public void OmittedValidationRuleRegisterRefusesTheSameReleasedRule()
     {
-        var host = Host(options: new(SupplyValidationRules: false));
+        var host = Host(
+            recordFields: [new("invoice.reference", FieldScalarValueShape.Text, HasValueDomain: false)],
+            options: new(SupplyValidationRules: false));
 
         AssertRefused(
-            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId])))),
+            () => host.ValidateForPublish(Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))), AllowAccess.Instance),
             LayoutDefinitionCodes.ValidationRuleUnknown);
     }
 
@@ -96,8 +98,15 @@ public sealed class LayoutPublishRegistersTests
 
     private static void AssertRefused(Action publish, string code)
     {
-        var refused = Assert.Throws<LayoutDefinitionAdmissionException>(publish);
+        var refused = Assert.Throws<DefinitionRefusalException>(publish);
         Assert.Contains(refused.Refusals, refusal => refusal.Code == code);
+    }
+
+    private sealed class AllowAccess : ILayoutAccess
+    {
+        public static AllowAccess Instance { get; } = new();
+        public bool CanRead(LayoutBinding binding) => true;
+        public bool CanOpen(string surfaceId) => true;
     }
 
     private static LayoutDefinition Sealed(LayoutDefinition definition)

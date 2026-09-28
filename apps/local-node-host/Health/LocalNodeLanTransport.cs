@@ -36,7 +36,7 @@ internal static class LocalNodeLanRoutePolicy
         "/api/local-node/reports", "/api/local-node/charts", "/api/local-node/workflows/definitions",
         "/api/local-node/workflow-confirmations", "/api/local-node/workflow-run-report",
         "/api/local-node/navigation/workspaces", "/api/local-node/packs/installed",
-        "/api/local-node/packs/graph",
+        "/api/local-node/packs/graph", "/api/local-node/layout/denials",
     ];
 
     internal static IReadOnlyList<string> AllowlistedRoots => DataRouteRoots;
