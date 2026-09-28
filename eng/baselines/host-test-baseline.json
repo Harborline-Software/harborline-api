@@ -4654,6 +4654,8 @@
     "≥3-node refute: a REVOKED member's transport key is DROPPED post-converge — rebuild-from-live subsumes the gap-#3 prune (no regression)"
   ],
   "policyRemovals": [
-    {"test":"Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder","reason":"T-519 replaces the combined source-order fact; its sealed-bootstrap assertion remains in AuthorizationSeed_SealedBootstrapRefuses and behavioral stage tests replace the source-text checks.","dated":"2026-09-27","owner":"T-519"}
+    {"test":"Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder","reason":"T-519 replaces the combined source-order fact; its sealed-bootstrap assertion remains in AuthorizationSeed_SealedBootstrapRefuses and behavioral stage tests replace the source-text checks.","dated":"2026-09-27","owner":"T-519"},
+    {"test":"Harborline.Api.LocalNodeHost.Tests.Entities.LocalNodeExclusiveEfContextCatalogTests.Catalog_Binds_The_Exact_16_Contexts_56_Migrations_And_15_Plus_1_Owners","reason":"T-291 adds the RosterDropLegacyPermissions migration, so the exact-inventory test now binds 57 migrations and is renamed to Catalog_Binds_The_Exact_16_Contexts_57_Migrations_And_15_Plus_1_Owners.","dated":"2026-09-28","owner":"T-291"},
+    {"test":"Harborline.Api.LocalNodeHost.Tests.Entities.RosterRecordRetirementTests.Durable_read_ignores_the_legacy_permission_field_without_parsing_it","reason":"T-291 retires the durable permission column, so a record carrying a permission field is refused rather than read around; the test continues as Record_carrying_a_permission_field_is_not_reconstructed_as_membership_evidence.","dated":"2026-09-28","owner":"T-291"}
   ]
 }

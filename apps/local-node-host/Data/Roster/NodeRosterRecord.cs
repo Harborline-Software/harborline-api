@@ -90,9 +90,6 @@ public sealed class NodeRosterRecord
     /// </summary>
     public string MintingSessionEvidence { get; set; } = string.Empty;
 
-    /// <summary>Legacy carried permission field. Retained for storage compatibility and ignored on read.</summary>
-    public required string PermissionsJson { get; set; }
-
     /// <summary>base64url of the admitter/revoker public key (the signer).</summary>
     public required string AdmittedByPublicKey { get; set; }
 
@@ -155,7 +152,6 @@ public sealed class NodeRosterRecord
             XWingPublicKeyB64Url = s.XWingPublicKeyB64Url ?? string.Empty,
             AdmittedViaTokenId = s.AdmittedViaTokenId ?? string.Empty,
             MintingSessionEvidence = s.MintingSessionEvidence ?? string.Empty,
-            PermissionsJson = string.Empty,
             AdmittedByPublicKey = s.AdmittedByPublicKey,
             AdmittedByPartyId = s.AdmittedByPartyId,
             NonceGuid = s.NonceGuid,

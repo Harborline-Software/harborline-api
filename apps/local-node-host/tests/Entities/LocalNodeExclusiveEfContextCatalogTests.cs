@@ -105,11 +105,13 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         // T-461: the proposed changes, their immutable saved versions and the signed released
         // packages offered for activation. None of the three is on the effective-generation path.
         "20260920100000_AddConfigurationProposals",
+        // T-291: the retired, unsigned roster permission set leaves the durable record.
+        "20260928120000_RosterDropLegacyPermissions",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_56_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_57_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

@@ -93,7 +93,6 @@ public sealed class NodeLocalRosterDbContext : DbContext
                 .HasColumnName("admitted_via_token_id").HasMaxLength(256).HasDefaultValue(string.Empty);
             e.Property(r => r.MintingSessionEvidence)
                 .HasColumnName("minting_session_evidence").HasMaxLength(256).HasDefaultValue(string.Empty);
-            e.Property(r => r.PermissionsJson).HasColumnName("permissions");
             e.Property(r => r.AdmittedByPublicKey).HasColumnName("admitted_by_key").HasMaxLength(256);
             e.Property(r => r.AdmittedByPartyId).HasColumnName("admitted_by_party").HasMaxLength(256);
             e.Property(r => r.NonceGuid).HasColumnName("nonce").HasMaxLength(64);
