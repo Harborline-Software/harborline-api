@@ -333,6 +333,39 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Contains(list.GetProperty("entities").EnumerateArray(), e => e.GetProperty("id").GetString() == id);
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Entities_Create_RefusesClientSuppliedRecordId()
+    {
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Client ID heater",
+            id = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Entities_Create_DenialPrecedesClientSuppliedRecordIdRefusal()
+    {
+        _allowRecordWrites = false;
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Denied client ID heater",
+            id = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
     [Fact(DisplayName = "entities: a pack-bound note persists validated values and returns an addressable audit id")]
     public async Task Entities_CreateBoundNote_PersistsValuesAndAuditReceipt()
     {

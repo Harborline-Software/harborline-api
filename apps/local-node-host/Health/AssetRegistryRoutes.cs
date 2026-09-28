@@ -359,6 +359,15 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
+            if (body.Id is not null)
+            {
+                if (await RequestAuthorization.RefusalAsync(
+                        http, RequestAuthorization.Authority(http, tenant, clock),
+                        TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                    .ConfigureAwait(false) is { } denied)
+                    return denied;
+                return Results.BadRequest(new { error = "client_id_forbidden" });
+            }
 
             var typeId = new EntityTypeId(body.Type.Trim());
             // The type must exist for this tenant (own row or shared seed) — never create an untyped entity.
@@ -868,7 +877,8 @@ public static class AssetRegistryRoutes
         string? Type,
         string? DisplayName,
         string? ScanKey,
-        [property: JsonPropertyName("values")] JsonElement? Values = null);
+        [property: JsonPropertyName("values")] JsonElement? Values = null,
+        string? Id = null);
     /// <summary>Body for POST /edges.</summary>
     public sealed record AddEdgeBody(string? Kind, string? From, string? To);
 
