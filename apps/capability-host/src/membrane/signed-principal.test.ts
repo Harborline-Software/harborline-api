@@ -274,6 +274,13 @@ describe('verifiable principal — replay rejection (P1b-2, ±30s window + seen-
     seen.record('n2', t0 + 120_000, t0 + 120_000)
     expect(seen.size).toBe(1) // n1 pruned (outside ±30s of the new now)
   })
+
+  it('keeps a nonce at exactly the replay horizon so a boundary replay is rejected', () => {
+    const seen = new SeenNonceSet(PRINCIPAL_TIMESTAMP_SKEW_SECONDS)
+    const issuedAt = Date.parse('2026-06-19T12:00:00.000Z')
+    expect(seen.record('boundary-nonce', issuedAt, issuedAt)).toBe(true)
+    expect(seen.record('boundary-nonce', issuedAt, issuedAt + 30_000)).toBe(false)
+  })
 })
 
 describe('verifiable principal — canonical signable form (P1b-2)', () => {
@@ -344,6 +351,14 @@ describe('verifiable principal — rejects ill-formed UTF-16 at the signing boun
   it('ensureWellFormedUtf16 THROWS on a lone LOW surrogate (U+DC00)', () => {
     expect(() => ensureWellFormedUtf16('\uDC00xy')).toThrow(/ill-formed UTF-16/)
     expect(() => ensureWellFormedUtf16('\uDC00xy')).toThrow(/index 0/)
+  })
+
+  it('rejects adjacent low surrogates rather than treating the first as a high-surrogate lead', () => {
+    expect(() => ensureWellFormedUtf16('\uDC00\uDC01')).toThrow(/unpaired surrogate at index 0/)
+  })
+
+  it('rejects a high surrogate followed by a non-surrogate above the low-surrogate range', () => {
+    expect(() => ensureWellFormedUtf16('\uD800\uE000')).toThrow(/unpaired surrogate at index 0/)
   })
 
   it('ensureWellFormedUtf16 THROWS on a high surrogate at the very end (no follower)', () => {
