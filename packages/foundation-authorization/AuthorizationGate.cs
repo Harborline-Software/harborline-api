@@ -286,8 +286,10 @@ public sealed class AuthorizationGate(
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Target.RecordId);
         var resource = request.Act.Operation.Value.Split(':', 2)[0];
         var expectedRecordKind = RecordKindFor(request.Act.Operation);
+        // packages:* acts address a pack, or (T-975) an asset type authored with the pack-authoring verb.
         var exactPackTarget = string.Equals(resource, "packages", StringComparison.Ordinal)
-            && string.Equals(request.Target.RecordKind, "pack", StringComparison.Ordinal);
+            && (string.Equals(request.Target.RecordKind, "pack", StringComparison.Ordinal)
+                || string.Equals(request.Target.RecordKind, "asset-type", StringComparison.Ordinal));
         if (!exactPackTarget
             && !string.Equals(request.Target.RecordKind, expectedRecordKind, StringComparison.Ordinal))
             throw new ArgumentException("The requested operation does not belong to the target record kind.", nameof(request));
