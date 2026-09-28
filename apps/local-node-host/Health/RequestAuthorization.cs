@@ -15,10 +15,11 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </summary>
 internal readonly record struct RouteRecord
 {
-    private RouteRecord(string? id, bool addressesTheInstall)
+    private RouteRecord(string? id, bool addressesTheInstall, string? kind = null)
     {
         Id = id;
         AddressesTheInstall = addressesTheInstall;
+        Kind = kind;
     }
 
     /// <summary>The addressed record's id.</summary>
@@ -27,9 +28,15 @@ internal readonly record struct RouteRecord
     /// <summary>Whether the act deliberately addresses the install rather than a record.</summary>
     internal bool AddressesTheInstall { get; }
 
+    /// <summary>The record kind when it is not the operation's own resource; null means <c>AuthorizationGate.RecordKindFor</c>.</summary>
+    internal string? Kind { get; }
+
     /// <summary>The act addresses the record <paramref name="id"/> names. A blank id is not "no record" —
     /// it is an unresolvable one, and the guard refuses it fail-closed.</summary>
     internal static RouteRecord Of(string? id) => new(id, addressesTheInstall: false);
+
+    /// <summary>The act addresses the record <paramref name="id"/> of an explicit <paramref name="kind"/> the gate admits for the operation (T-975: <c>asset-type</c> under <c>packages:author</c>).</summary>
+    internal static RouteRecord Of(string? id, string kind) => new(id, addressesTheInstall: false, kind);
 
     /// <summary>
     /// The act addresses the INSTALL rather than any one record — a list, or a create whose record does not
@@ -148,7 +155,7 @@ internal static class RequestAuthorization
                 return await PreDecidedAsync(http, authority, permission, ct).ConfigureAwait(false);
             var request = record.AddressesTheInstall
                 ? authority.InstallWide(operation)
-                : authority.Request(operation, AuthorizationGate.RecordKindFor(operation), record.Id!);
+                : authority.Request(operation, record.Kind ?? AuthorizationGate.RecordKindFor(operation), record.Id!);
             decision = await gate.DecideAsync(request, ct).ConfigureAwait(false);
         }
         catch (ArgumentException)

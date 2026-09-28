@@ -17,6 +17,7 @@ using Harborline.Api.Foundation.Definitions.Compatibility;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Kernel.Runtime.Teams;
@@ -148,7 +149,18 @@ public static class AssetRegistryRoutes
         // POST /types — create a tenant's own greenfield type (never an override; use PUT to edit a seed).
         app.MapPost($"{RouteBase}/types", async (TypeUpsertBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
+            // T-975: type definitions are package-authored records. The generated or supplied type id is
+            // the act's target, and this decision happens before every validation or registry read.
+            var typeId = body is null || string.IsNullOrWhiteSpace(body.Id)
+                ? EntityTypeId.NewId()
+                : new EntityTypeId(body.Id.Trim());
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
 
@@ -156,8 +168,6 @@ public static class AssetRegistryRoutes
             // nothing to narrow, so a valid one is simply not consulted.
             if (!TryParseDisposition(body.Disposition, out _, out var dispositionError))
                 return Results.BadRequest(new { error = dispositionError });
-
-            var typeId = string.IsNullOrWhiteSpace(body.Id) ? EntityTypeId.NewId() : new EntityTypeId(body.Id.Trim());
 
             // Create is create: a seed or an existing tenant row with this id must be edited via PUT.
             if (types.GetSeed(typeId) is not null)
@@ -168,12 +178,11 @@ public static class AssetRegistryRoutes
             if (!TryBuildDescriptor(body, out var descriptor, out var descriptorError))
                 return Results.BadRequest(new { error = descriptorError });
 
-            var at = new Instant(clock.GetUtcNow());
             try
             {
                 var created = await types.CreateTypeAsync(
                     new EntityType { Id = typeId, TenantId = tenant, Descriptor = descriptor, Provenance = CascadeLayer.Tenant },
-                    at, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
+                    new Instant(authority.At), NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
                 return Results.Created($"{RouteBase}/types/{created.Id.Value}",
                     ToTypeDetailWire(created.Id, created.Descriptor, created.Provenance.ToString(),
                         overridesSeed: false, seedExists: false, hasTenantRow: true));
@@ -188,13 +197,19 @@ public static class AssetRegistryRoutes
         // untouched); a tenant greenfield type is updated in place. Never mutates a shared seed.
         app.MapPut($"{RouteBase}/types/{{id}}", async (string id, TypeUpsertBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
+            var typeId = new EntityTypeId(id);
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
             if (!TryBuildDescriptor(body, out var descriptor, out var descriptorError))
                 return Results.BadRequest(new { error = descriptorError });
 
-            var typeId = new EntityTypeId(id);
             var seed = types.GetSeed(typeId);
             var existing = await types.GetTypeAsync(tenant, typeId, ct).ConfigureAwait(false);
 
@@ -218,15 +233,13 @@ public static class AssetRegistryRoutes
                 ? new DispositionedWire(kind.ToString().ToLowerInvariant(), losses.ToArray())
                 : null;
 
-            var at = new Instant(clock.GetUtcNow());
-
             try
             {
                 if (seed is not null)
                 {
                     // Editing a seeded type ALWAYS writes a tenant-scoped override — the seed is preserved.
                     var overrideRow = await types
-                        .OverrideSeedAsync(tenant, typeId, descriptor, at, CascadeLayer.Tenant, NodeCallerParty.Resolve(http).Value, ct)
+                        .OverrideSeedAsync(tenant, typeId, descriptor, new Instant(authority.At), CascadeLayer.Tenant, NodeCallerParty.Resolve(http).Value, ct)
                         .ConfigureAwait(false);
                     return Results.Ok(ToTypeDetailWire(overrideRow.Id, overrideRow.Descriptor,
                         overrideRow.Provenance.ToString(), overridesSeed: true, seedExists: true, hasTenantRow: true,
@@ -245,7 +258,7 @@ public static class AssetRegistryRoutes
                             Provenance = existing.Provenance,
                             OverrideOf = existing.OverrideOf,
                         },
-                        at, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
+                        new Instant(authority.At), NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
                     return Results.Ok(ToTypeDetailWire(updated.Id, updated.Descriptor, updated.Provenance.ToString(),
                         overridesSeed: updated.OverrideOf is not null, seedExists: false, hasTenantRow: true,
                         dispositioned));
@@ -265,15 +278,21 @@ public static class AssetRegistryRoutes
         // affordance is ticket 111's scope.
         app.MapPost($"{RouteBase}/types/{{id}}/revert", async (string id, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
             var typeId = new EntityTypeId(id);
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
             var seed = types.GetSeed(typeId);
             if (seed is null)
                 return Results.NotFound();
 
             try
             {
-                await types.RevertOverrideAsync(tenant, typeId, new Instant(clock.GetUtcNow()), NodeCallerParty.Resolve(http).Value, ct)
+                await types.RevertOverrideAsync(tenant, typeId, new Instant(authority.At), NodeCallerParty.Resolve(http).Value, ct)
                     .ConfigureAwait(false);
                 // The effective type is now the shared seed (whether an override was removed or it was a no-op).
                 return Results.Ok(ToTypeDetailWire(typeId, seed.Descriptor, seed.Provenance.ToString(),

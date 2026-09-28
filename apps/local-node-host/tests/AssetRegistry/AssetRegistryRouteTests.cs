@@ -21,6 +21,8 @@ using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Kernel.Audit;
@@ -76,6 +78,8 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
     private bool _allowRecordWrites = true;
+    private bool _allowPackageAuthoring = true;
+    private readonly List<AuthorizationGateRequest> _authorizationRequests = [];
 
     public async Task InitializeAsync()
     {
@@ -101,7 +105,9 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         // the forms engine so a submit fires the condition-capture projector).
         builder.Services.AddTestAuthorizationGate();
         builder.Services.AddSingleton(TestAuthorization.Gate(request =>
-            request.Act.Operation.Value != TeamRolePermissions.RecordsWrite || _allowRecordWrites));
+            (request.Act.Operation.Value != TeamRolePermissions.RecordsWrite || _allowRecordWrites)
+            && (request.Act.Operation.Value != Permission.PackagesAuthor || _allowPackageAuthoring),
+            request => _authorizationRequests.Add(request)));
         builder.Services.AddTestNodeForms(
             configureWriters: static (services, entityMutations, _) =>
                 services.AddSingleton(sp => new NodeEntityWriter(
@@ -704,6 +710,80 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
 
     // ── Type management (the Type Manager editor) ─────────────────────────────────────
 
+    [Fact(DisplayName = "types: denied packages:author cannot create a type or persist it")]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Types_Create_DeniedPackageAuthorCannotPersist()
+    {
+        using var allowed = await _client.PostAsJsonAsync($"{AssetBase}/types", new
+        {
+            id = "allowed-shed",
+            displayName = "Allowed shed",
+            traits = new[] { "container" },
+        });
+        Assert.Equal(HttpStatusCode.Created, allowed.StatusCode);
+
+        _authorizationRequests.Clear();
+        _allowPackageAuthoring = false;
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/types", new
+        {
+            id = "denied-shed",
+            displayName = "Denied shed",
+            traits = new[] { "container" },
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        AssertAssetTypeAuthoringRequest("denied-shed");
+        var absent = await _client.GetAsync($"{AssetBase}/types/denied-shed");
+        Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
+    }
+
+    [Fact(DisplayName = "types: denied packages:author cannot update a type or persist it")]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Types_Update_DeniedPackageAuthorCannotPersist()
+    {
+        using var allowed = await _client.PutAsJsonAsync($"{AssetBase}/types/water-heater", new
+        {
+            displayName = "Allowed boiler",
+            traits = new[] { "maintainable", "movable" },
+        });
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+
+        _authorizationRequests.Clear();
+        _allowPackageAuthoring = false;
+        using var denied = await _client.PutAsJsonAsync($"{AssetBase}/types/water-heater", new
+        {
+            displayName = "Denied boiler",
+            traits = new[] { "maintainable", "movable" },
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        AssertAssetTypeAuthoringRequest("water-heater");
+        var after = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/types/water-heater");
+        Assert.Equal("Allowed boiler", after.GetProperty("displayName").GetString());
+    }
+
+    [Fact(DisplayName = "types: denied packages:author cannot revert an override or persist it")]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Types_Revert_DeniedPackageAuthorCannotPersist()
+    {
+        using var allowed = await _client.PutAsJsonAsync($"{AssetBase}/types/water-heater", new
+        {
+            displayName = "Allowed boiler",
+            traits = new[] { "maintainable", "movable" },
+        });
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+
+        _authorizationRequests.Clear();
+        _allowPackageAuthoring = false;
+        using var denied = await _client.PostAsync($"{AssetBase}/types/water-heater/revert", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        AssertAssetTypeAuthoringRequest("water-heater");
+        var after = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/types/water-heater");
+        Assert.True(after.GetProperty("overridesSeed").GetBoolean());
+        Assert.Equal("Allowed boiler", after.GetProperty("displayName").GetString());
+    }
+
     [Fact(DisplayName = "types: create a tenant greenfield type → get by id → appears in the catalog")]
     public async Task Types_Create_Greenfield_Get_And_List()
     {
@@ -1124,6 +1204,15 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
 
     private static TeamContext TeamContextFor(TeamId teamId, string name)
         => new(teamId, name, new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
+
+    private void AssertAssetTypeAuthoringRequest(string typeId)
+    {
+        var request = Assert.Single(_authorizationRequests);
+        Assert.Equal(Permission.PackagesAuthor, request.Act.Operation.Value);
+        Assert.Equal("asset-type", request.Target.RecordKind);
+        Assert.Equal(typeId, request.Target.RecordId);
+        Assert.Equal(ActiveTeamTenantContext.ProjectTenantId(TeamA), request.Tenant);
+    }
 
     private static async Task<int> CountBoundRecordsAsync(IServiceProvider services, TenantId tenant)
     {
