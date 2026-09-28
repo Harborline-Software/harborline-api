@@ -283,7 +283,7 @@ public sealed record RosterRecordCrdtState(
     /// </summary>
     public MemberAdmissionRecord? ToAdmissionOrNull()
     {
-        if (Kind != RosterRecordKind.Admission) return null;
+        if (Kind != RosterRecordKind.Admission || UnmappedWireFields is { Count: > 0 }) return null;
         try
         {
             var admission = new AdmissionSignature(
@@ -350,7 +350,7 @@ public sealed record RosterRecordCrdtState(
     /// </summary>
     public MemberRevocationRecord? ToRevocationOrNull()
     {
-        if (Kind != RosterRecordKind.Revocation) return null;
+        if (Kind != RosterRecordKind.Revocation || UnmappedWireFields is { Count: > 0 }) return null;
         try
         {
             var signed = new RevocationSignature(
