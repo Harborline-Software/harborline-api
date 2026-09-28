@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -33,7 +31,6 @@ public sealed class LayoutDenialDrainDaemon : BackgroundService
     }
 
     /// <inheritdoc />
-    [SuppressMessage("Reliability", "CA1031", Justification = "The recovery daemon must log any non-cancellation drain failure and retry on the next interval.")]
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(_interval, _time);
@@ -47,10 +44,12 @@ public sealed class LayoutDenialDrainDaemon : BackgroundService
             {
                 break;
             }
+#pragma warning disable CA1031 // This recovery boundary must log any drain failure and retry.
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Layout denial outbox drain failed; will retry next interval.");
             }
+#pragma warning restore CA1031
         }
         while (await SafeWaitAsync(timer, stoppingToken).ConfigureAwait(false));
     }
