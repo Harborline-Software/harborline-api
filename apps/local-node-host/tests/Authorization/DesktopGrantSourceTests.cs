@@ -25,7 +25,7 @@ public sealed class DesktopGrantSourceTests
         var tenant = new TenantId("desktop-grant-source");
         var now = TimeProvider.System.GetUtcNow();
         await SeedAsync(provider, tenant, now);
-        var request = new AuthorizationWriteContext(new ActorId("local"), tenant, now)
+        var request = new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, now)
             .Request(AuthorizationOperation.Parse(Permission.OrgManageSettings), "org", "desktop");
         var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(request);
         Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
@@ -35,7 +35,7 @@ public sealed class DesktopGrantSourceTests
             tenant, "desktop-fixture");
         Assert.NotNull(grant);
         await provider.GetRequiredService<IGrantStore>().RevokeAsync(tenant, grant.GrantId,
-            new GrantRevocation(new ActorId("local"), now,
+            new GrantRevocation(TestDesktopOperator.Actor, now,
                 new GrantReason(GrantReasonCodes.RevocationReview, "regression revocation")));
         var refused = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(request);
         Assert.Equal(AuthorizationVerdict.Denied, refused.Verdict);
@@ -53,7 +53,7 @@ public sealed class DesktopGrantSourceTests
         await writer.WriteAsync(new InstallAuthorizationDefinition(new AuthorizationCapabilityDefinition(
             new AuthorizationCapabilityDefinitionId(Guid.NewGuid()), AccessGrantAuthorizationSeed.PackageId, 1, operation,
             new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.Of(RoleReference.Administrator, AccessGrantAuthorizationSeed.NodeOperatorRole))));
-        var actor = new ActorId("local");
+        var actor = TestDesktopOperator.Actor;
         await grants.AppendAsync(tenant, new AccessGrant(GrantId.New(), tenant, actor,
             AccessGrantAuthorizationSeed.NodeOperatorRole, ScopeExpression.Parse("/"), GrantResidency.Cache,
             new GrantValidity(now.AddMinutes(-1)), GranterKind.Person, actor, now.AddMinutes(-1),

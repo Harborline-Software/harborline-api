@@ -180,7 +180,8 @@ public static class NodeWorkflowComposition
                 // enlister is wired. The same request-scoped attribution source stamps the issued
                 // invoice's UpdatedBy; both remain optional so workflow-only composition resolves.
                 sp.GetService<Data.Audit.INodeAuditWriteEnlister>(),
-                sp.GetService<Data.Audit.INodeCallerAttributionSource>()));
+                sp.GetService<Data.Audit.INodeCallerAttributionSource>(),
+                sp.GetService<Data.Identity.NodeOperatorIdentity>()));
         services.AddSingleton<IWorkflowStepHandler>(sp =>
             new InvoiceApprovalHandler(
                 sp.GetRequiredService<ThresholdDecisionTable>(),

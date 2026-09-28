@@ -26,6 +26,8 @@ public sealed class ComposedHostOtlpExportTests
         var spanReceived = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var collectorBuilder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(collectorBuilder.Services);
         collectorBuilder.WebHost.UseUrls("http://127.0.0.1:0");
         await using var collector = collectorBuilder.Build();
         collector.MapPost("/v1/metrics", context => ReceiveOtlpPayloadAsync(context, metricReceived));
@@ -76,6 +78,8 @@ public sealed class ComposedHostOtlpExportTests
         var spanReceived = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var collectorBuilder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(collectorBuilder.Services);
         collectorBuilder.WebHost.UseUrls("http://127.0.0.1:0");
         await using var collector = collectorBuilder.Build();
         collector.MapPost("/v1/metrics", context => ReceiveOtlpPayloadAsync(context, metricReceived));

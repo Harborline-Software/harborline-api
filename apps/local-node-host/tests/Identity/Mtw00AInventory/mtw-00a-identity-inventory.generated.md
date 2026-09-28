@@ -10,7 +10,7 @@ readiness evidence.
 
 ## category-1-installation-identity-stores-and-records
 scan: apps/local-node-host/Data/Identity/**/*.cs excluding Migrations/
-owner-count: 73
+owner-count: 74
 - apps/local-node-host/Data/Identity/AccountCredentialRecoveryService.cs
 - apps/local-node-host/Data/Identity/AccountSetupAcceptanceService.cs
 - apps/local-node-host/Data/Identity/AccountSetupInvitationIssuer.cs
@@ -51,6 +51,7 @@ owner-count: 73
 - apps/local-node-host/Data/Identity/NodeGatePrincipal.cs
 - apps/local-node-host/Data/Identity/NodeLocalInstallationIdentityDbContext.cs
 - apps/local-node-host/Data/Identity/NodeLocalWebSessionDbContext.cs
+- apps/local-node-host/Data/Identity/NodeOperatorIdentity.cs
 - apps/local-node-host/Data/Identity/NodeRunLock.cs
 - apps/local-node-host/Data/Identity/RecoveryInvitationIssuer.cs
 - apps/local-node-host/Data/Identity/RecoveryInvitationRecord.cs
@@ -150,7 +151,7 @@ owner-count: 31
 
 ## category-5-legacy-active-team-and-static-actor-consumers
 scan: apps/local-node-host/{Health,Feed}/**/*.cs matching the ADR0153-R3 legacy-authority regexes; each line is PATH<TAB>tenant-global-hits<TAB>static-actor-hits
-owner-count: 99
+owner-count: 98
 - apps/local-node-host/Feed/ChannelFeedRoutes.cs	2	0
 - apps/local-node-host/Feed/HostedChannelFeedApiEndpoint.cs	2	0
 - apps/local-node-host/Health/AdmissionRoutes.cs	4	0
@@ -162,7 +163,7 @@ owner-count: 99
 - apps/local-node-host/Health/CalendarCollectionRoutes.cs	3	0
 - apps/local-node-host/Health/CalendarRoutes.cs	6	0
 - apps/local-node-host/Health/ChartOfAccountsRoutes.cs	2	0
-- apps/local-node-host/Health/CommsRoutes.cs	19	1
+- apps/local-node-host/Health/CommsRoutes.cs	17	0
 - apps/local-node-host/Health/ConfigurationActivationRoutes.cs	2	0
 - apps/local-node-host/Health/ConfigurationProposalRoutes.cs	2	0
 - apps/local-node-host/Health/ConsentRecordRoutes.cs	2	0
@@ -225,7 +226,6 @@ owner-count: 99
 - apps/local-node-host/Health/LeaseSubLedgerRoutes.cs	6	0
 - apps/local-node-host/Health/LifecycleRoutes.cs	5	0
 - apps/local-node-host/Health/LocalNodeHealthCheck.cs	4	0
-- apps/local-node-host/Health/NodeCallerParty.cs	0	2
 - apps/local-node-host/Health/NodeMutationIdempotency.cs	2	0
 - apps/local-node-host/Health/OrgBrandingRoutes.cs	7	0
 - apps/local-node-host/Health/PackComposeRoutes.cs	5	0
@@ -246,7 +246,7 @@ owner-count: 99
 - apps/local-node-host/Health/TeamRoutes.cs	5	0
 - apps/local-node-host/Health/ViewDefinitionRoutes.cs	5	0
 - apps/local-node-host/Health/WebSession/HostedEffectivePermissionsApiEndpoint.cs	1	0
-- apps/local-node-host/Health/WebSession/NodeWebSessionAuthority.cs	3	3
+- apps/local-node-host/Health/WebSession/NodeWebSessionAuthority.cs	3	0
 - apps/local-node-host/Health/WebSession/SelectedSessionIdentityRoutes.cs	3	0
 - apps/local-node-host/Health/WorkflowDefinitionRoutes.cs	4	0
 - apps/local-node-host/Health/WorkflowRunReportRoutes.cs	3	0

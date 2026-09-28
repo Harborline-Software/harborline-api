@@ -124,6 +124,8 @@ public sealed class FailClosedWebPlaneRouteFenceTests
             "Harborline.Api.LocalNodeHost.Health.SingleHostTrustedRequestFeature";
         const string selectedOnlyPath = "/ticket-066/selected-session-product-lan-refusal";
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services
             .AddTestKernelClock()
@@ -180,6 +182,8 @@ public sealed class FailClosedWebPlaneRouteFenceTests
         const string path = "/api/local-node/status/ticket-066-device-unattributed";
         var handlerCalls = 0;
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services
             .AddTestKernelClock()
@@ -712,6 +716,8 @@ public sealed class FailClosedWebPlaneRouteFenceTests
     private static WebApplication CreateApp()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         return builder.Build();
     }

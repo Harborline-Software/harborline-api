@@ -24,6 +24,8 @@ public sealed class DataExportRouteTests
     public async Task Host_route_exports_and_downloads_the_active_tenants_data()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddTestKernelClock();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();

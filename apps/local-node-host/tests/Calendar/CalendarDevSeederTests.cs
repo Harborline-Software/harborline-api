@@ -207,6 +207,8 @@ public sealed class CalendarDevSeederTests
         // mirroring HostedCalendarApiEndpoint) over a real Kestrel listener + drive them with HttpClient —
         // exactly the Harborline App's GET .../calendar/occurrences call.
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.

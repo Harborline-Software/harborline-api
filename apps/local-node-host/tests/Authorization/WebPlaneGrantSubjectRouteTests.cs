@@ -74,7 +74,8 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
             active,
             teams,
             AuthorizationSeedProfile.Production,
-            new FixedClock(At)).StartAsync(CancellationToken.None);
+            new FixedClock(At),
+            TestDesktopOperator.Identity()).StartAsync(CancellationToken.None);
 
         // The invited member's own live grant, issued to the PRINCIPAL - the key the grant store and the
         // closure reader use, exactly as InitialGrantIssuanceService issues it.
@@ -88,6 +89,7 @@ public sealed class WebPlaneGrantSubjectRouteTests : IAsyncLifetime
             At.AddHours(-1)));
 
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging(logging => logging.ClearProviders());
         outer.AddSingleton<IActiveTeamAccessor>(active);

@@ -963,6 +963,8 @@ public sealed class RoleGateAdmissionTests
     {
         Assert.Same(admission, lifecycle.RoleGateAdmission);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         var requestAuthorization = Substitute.For<IAuthorizationContext>();

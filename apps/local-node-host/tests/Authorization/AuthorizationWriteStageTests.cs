@@ -1526,7 +1526,7 @@ public sealed class AuthorizationWriteStageTests
             grants);
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production));
+            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Contains("sealed", refusal.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1588,7 +1588,7 @@ public sealed class AuthorizationWriteStageTests
 
         var (seed, configuration) = Seed(grants);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production));
+            await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Null((await configuration.ReadStateAsync(DefinitionId(Permission.ContactsRead))).Definition);
     }
 
@@ -1620,7 +1620,7 @@ public sealed class AuthorizationWriteStageTests
         var grantsBefore = (await grants.SnapshotAsync(tenant)).Count;
 
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, grants);
-        await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production);
+        await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
         Assert.Equal(definitionsBefore + 3, (await configuration.ListAsync(tenant)).Count);
         // Two installer seed grants now: the scheduler, and the desktop node operator's workshop:unlock.
@@ -1640,7 +1640,7 @@ public sealed class AuthorizationWriteStageTests
         Assert.Null(await grants.FindBySourceReferenceAsync(
             tenant, AccessGrantAuthorizationSeed.DevIndexerGrantSource));
 
-        await seed.InstallAsync(tenant, at.AddMinutes(1), AuthorizationSeedProfile.Production);
+        await seed.InstallAsync(tenant, at.AddMinutes(1), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
         Assert.Equal(definitionsBefore + 3, (await configuration.ListAsync(tenant)).Count);
         // Two installer seed grants now: the scheduler, and the desktop node operator's workshop:unlock.
@@ -1667,7 +1667,7 @@ public sealed class AuthorizationWriteStageTests
         var (seed, configuration) = Seed(grants);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await seed.InstallAsync(
-                new TenantId("second-tenant"), at, AuthorizationSeedProfile.Production));
+                new TenantId("second-tenant"), at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Null((await configuration.ReadStateAsync(DefinitionId(Permission.ContactsRead))).Definition);
     }
 
@@ -1700,7 +1700,7 @@ public sealed class AuthorizationWriteStageTests
         var seed = new AccessGrantAuthorizationSeed(writer, configuration, racingGrants);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production));
+            async () => await seed.InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor));
         Assert.Equal(InMemoryAuthorizationConfigurationStore.BootstrapFenceMismatchMessage, error.Message);
         Assert.False(await grants.HasAdministratorGrantEverAsync());
         Assert.Equal(1, checks);

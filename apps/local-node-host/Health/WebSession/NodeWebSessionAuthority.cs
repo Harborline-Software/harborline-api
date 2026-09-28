@@ -87,6 +87,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
     private readonly IInstallationIdentityV1AuthorityGate _v1AuthorityGate;
     private readonly TimeProvider _time;
     private readonly ILogger<NodeWebSessionAuthority> _logger;
+    private readonly NodeOperatorIdentity? _nodeOperator;
 
     /// <summary>Constructs the authority from the reused ADR-0097 hasher + ADR-0099 session store/options.</summary>
     public NodeWebSessionAuthority(
@@ -97,7 +98,8 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         IActiveTeamAccessor activeTeam,
         IInstallationIdentityV1AuthorityGate v1AuthorityGate,
         TimeProvider time,
-        ILogger<NodeWebSessionAuthority> logger)
+        ILogger<NodeWebSessionAuthority> logger,
+        NodeOperatorIdentity? nodeOperator = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(hasher);
@@ -116,6 +118,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         _v1AuthorityGate = v1AuthorityGate;
         _time = time;
         _logger = logger;
+        _nodeOperator = nodeOperator;
     }
 
     /// <inheritdoc />
@@ -205,6 +208,14 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
             return new(null, WebLoginFailureReason.CredentialMismatch);
         }
 
+        // Ticket 294 slice 3b: the founder credential signs in as the desktop actor (the founder's canonical
+        // tenant principal), the one key every plane uses. A node with no roster edge has no such actor.
+        if (_nodeOperator?.Principal is not { } operatorPrincipal)
+        {
+            LogLoginFailed(username, "no desktop actor: this node's key holds no roster edge");
+            return new(null, WebLoginFailureReason.AuthorityRefused);
+        }
+
         // Mint the expiring bearer session bound to the local operator + the active-team tenant.
         var tenant = NodeTenant.Resolve(_activeTeam);
         var now = _time.GetUtcNow();
@@ -212,7 +223,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         var record = new SessionRecord
         {
             SessionId = sessionId,
-            UserId = ActiveTeamAuthorizationContext.LocalUserId,
+            UserId = operatorPrincipal.Value,
             TenantId = tenant,
             IssuedUtc = now,
             AbsoluteExpiryUtc = now + _sessionOptions.AbsoluteLifetime,
@@ -223,7 +234,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
 
         _logger.LogInformation(
             "{AuditEventType}: web-client login succeeded for user {User} (tenant {Tenant}); session expires {ExpiresAt:o}.",
-            AuditPasswordLogin, ActiveTeamAuthorizationContext.LocalUserId, tenant.Value, record.AbsoluteExpiryUtc);
+            AuditPasswordLogin, operatorPrincipal.Value, tenant.Value, record.AbsoluteExpiryUtc);
 
         var displayName = string.IsNullOrWhiteSpace(_options.FounderDisplayName)
             ? _options.FounderUsername!
@@ -231,7 +242,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
         return new(
             new WebLoginResult(
                 sessionId,
-                ActiveTeamAuthorizationContext.LocalUserId,
+                operatorPrincipal.Value,
                 displayName,
                 record.AbsoluteExpiryUtc),
             null);

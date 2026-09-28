@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 
 using Harborline.Api.Blocks.People.Foundation.Models;
+using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -41,27 +42,22 @@ internal sealed class NodeCallerAttributionRefusedException()
 /// <remarks>
 /// It deliberately reads ONLY the request's selected-session feature; it does NOT consult
 /// <c>IPartyContext</c>/<c>ICurrentUser</c> or any ambient/AsyncLocal context holder (the resolver change is
-/// out of scope — 2611 follow-up territory). The single sourced <see cref="OperatorParty"/> value
-/// equals the former per-route <c>LocalActor</c> constant, so the fallback attribution is unchanged.
+/// out of scope — 2611 follow-up territory). Since ticket 294 slice 3b the operator fallback is the desktop
+/// actor (<see cref="NodeOperatorIdentity"/>: the founder's canonical tenant principal on the founding node),
+/// the same key the gate is asked about, not a compile-time constant.
 /// </remarks>
 internal static class NodeCallerParty
 {
     /// <summary>
-    /// The single-operator fallback identity (bootstrap/desktop path). Equals
-    /// <see cref="ActiveTeamAuthorizationContext.LocalUserId"/> — the value the former per-route
-    /// <c>LocalActor</c> constant carried.
-    /// </summary>
-    internal static PartyId OperatorParty { get; } = new(ActiveTeamAuthorizationContext.LocalUserId);
-
-    /// <summary>
     /// The acting party for <paramref name="httpContext"/>: the request's selected-session canonical
-    /// Party when a principal is bound; <see cref="OperatorParty"/> on the desktop plane; and a
+    /// Party when a principal is bound; the desktop actor on the desktop plane; and a
     /// <see cref="NodeCallerAttributionRefusedException"/> when the request is on the WEB plane but
     /// carries no principal — the one combination that is a bug rather than a supported path.
     /// </summary>
     /// <exception cref="NodeCallerAttributionRefusedException">
     /// A web-plane request reached attribution with no principal bound (card #3385).
     /// </exception>
+    /// <exception cref="InvalidOperationException">A desktop request on a node with no desktop actor.</exception>
     internal static PartyId Resolve(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
@@ -81,16 +77,24 @@ internal static class NodeCallerParty
             throw new NodeCallerAttributionRefusedException();
         }
 
-        return OperatorParty;
+        return Operator(NodeOperatorIdentity.From(httpContext.RequestServices));
     }
 
     /// <summary>
     /// The acting party from the immutable attribution projection carried across an in-request workflow
-    /// effect, or <see cref="OperatorParty"/> when the execution is genuinely detached.
+    /// effect, or the desktop actor <paramref name="nodeOperator"/> when the execution is genuinely detached.
     /// </summary>
-    internal static PartyId Resolve(NodeCallerAttribution? attribution)
+    internal static PartyId Resolve(NodeCallerAttribution? attribution, ActorId? nodeOperator)
     {
         var canonical = attribution?.MemberPartyId;
-        return string.IsNullOrWhiteSpace(canonical) ? OperatorParty : new PartyId(canonical);
+        return string.IsNullOrWhiteSpace(canonical) ? Operator(nodeOperator) : new PartyId(canonical);
     }
+
+    // No constant stands in for a missing operator: attributing to one is how two key spaces began.
+    private static PartyId Operator(ActorId? nodeOperator) =>
+        nodeOperator is { } actor
+            ? new PartyId(actor.Value)
+            : throw new InvalidOperationException(
+                "desktop_actor_unresolved: this node's signing key holds no roster edge, so a desktop act has "
+                + "no party to attribute it to.");
 }

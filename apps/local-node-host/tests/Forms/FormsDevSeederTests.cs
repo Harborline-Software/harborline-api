@@ -51,6 +51,8 @@ public sealed class FormsDevSeederTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Environment.EnvironmentName = Environments.Development; // force the dev seed gate ON.
         builder.Logging.ClearProviders();

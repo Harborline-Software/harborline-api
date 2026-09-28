@@ -537,7 +537,7 @@ public sealed class KernelClockIntegrationTests
         private async Task SeedOperatorGrantAsync()
         {
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
-            var principal = new ActorId(NodeCallerParty.OperatorParty.Value);
+            var principal = new ActorId(TestDesktopOperator.Party.Value);
             await Services.GetRequiredService<IGrantStore>().AppendAsync(
                 tenant,
                 new AccessGrant(

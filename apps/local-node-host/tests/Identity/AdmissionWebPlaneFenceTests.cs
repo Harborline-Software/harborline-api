@@ -291,6 +291,7 @@ public sealed class AdmissionWebPlaneFenceTests : IAsyncLifetime
             new TeamContext(new TeamId(Team), "Fence Team", teamServices, TimeProvider.System));
 
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging(b => b.ClearProviders());
         outer.AddSingleton<IActiveTeamAccessor>(activeTeam);

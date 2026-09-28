@@ -14,6 +14,8 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 public sealed class BootstrapClaimRedemptionTests
@@ -71,7 +73,7 @@ public sealed class BootstrapClaimRedemptionTests
                 Now,
                 persistedDevelopmentSet
                     ? AuthorizationSeedProfile.Development
-                    : AuthorizationSeedProfile.Production);
+                    : AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(provider));
             var redemption = provider.GetRequiredService<BootstrapClaimRedemptionService>();
             Assert.Equal(expected,
                 await redemption.IsSurfaceAvailableAsync(created.InstallationIdentityId!, Tenant));
@@ -677,7 +679,8 @@ public sealed class BootstrapClaimRedemptionTests
                 Now,
                 includeDevelopmentGrants
                     ? AuthorizationSeedProfile.Development
-                    : AuthorizationSeedProfile.Production);
+                    : AuthorizationSeedProfile.Production,
+                TestDesktopOperator.Actor);
         var sourceReferences = includeDevelopmentGrants
             ? new[]
             {
@@ -769,7 +772,8 @@ public sealed class BootstrapClaimRedemptionTests
                 GrantStore,
                 new InitialGrantIssuanceService(GrantStore, TestAuthorization.AllowGate(), clock),
                 AuthorizationSeedProfile.Development,
-                clock);
+                clock,
+                TestDesktopOperator.Identity());
             Target = new BootstrapGrantTarget(
                 Tenant,
                 Founder,

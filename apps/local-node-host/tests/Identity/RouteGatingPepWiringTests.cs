@@ -22,6 +22,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>
@@ -48,7 +50,7 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
             new TeamContext(Team, "L5 test team", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         var memberships = new InMemoryTeamRegistry();
         await memberships.AddMembershipAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             new TeamMembership(
                 Team.Value,
                 "L5 test team",
@@ -57,6 +59,7 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
                 TeamRole.Admin));
 
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging(logging => logging.ClearProviders());
         outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
@@ -67,12 +70,13 @@ public sealed class RouteGatingPepWiringTests : IAsyncLifetime
         // operation; a signed-in web member holds exactly what the per-request PEP resolver says, so the
         // narrowed/revoked session teeth still move the verdict.
         outer.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
-            (principal, permission) => string.Equals(principal, Harborline.Api.Blocks.AccessGrant.AccessGrantAuthorizationSeed.NodeOperatorPrincipal, StringComparison.Ordinal)
+            (principal, permission) => string.Equals(principal, TestDesktopOperator.Principal, StringComparison.Ordinal)
                 || _resolver.Holds(permission)));
         outer.AddSingleton(new NodeCallerSessionToken(CallerToken));
         outer.AddSingleton<IWebSelectedSessionPrincipalAuthority>(new FixedSelectedSessionAuthority());
         outer.AddDbContextFactory<NodeLocalSchedulingDbContext>(options => options.UseSqlite(
             $"Data Source={_dbPath};Pooling=False"));
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddNodeFinancialPosting();
         _outer = outer.BuildServiceProvider();
 

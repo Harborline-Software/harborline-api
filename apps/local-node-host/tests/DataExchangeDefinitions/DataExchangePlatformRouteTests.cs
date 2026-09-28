@@ -31,6 +31,8 @@ public sealed class DataExchangePlatformRouteTests
     public async Task Runtime_contract_reports_the_released_inbound_profile()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         await using var app = builder.Build();
         DataExchangePlatformRoutes.Map(app);

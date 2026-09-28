@@ -75,6 +75,7 @@ public sealed class PaymentApplicationUnapplyServiceSeamTests : IAsyncLifetime
             options.UseSqlite($"Data Source={databasePath};Pooling=False"));
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddNodeBillWrites();
         services.AddNodeInvoiceWrites();

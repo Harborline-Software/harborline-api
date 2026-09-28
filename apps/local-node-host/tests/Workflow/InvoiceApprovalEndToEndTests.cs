@@ -75,6 +75,8 @@ public sealed class InvoiceApprovalEndToEndTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<Harborline.Api.Foundation.Authorization.IAuthorizationContext>(
@@ -130,7 +132,7 @@ public sealed class InvoiceApprovalEndToEndTests : IAsyncLifetime
         var invoicePostingAccessor = invoicePosting;
 
         var workflowStore = new NodeEfWorkflowStore(_factory);
-        var liveContext = new NodeLiveInvoiceApprovalContext();
+        var liveContext = new NodeLiveInvoiceApprovalContext(null, null, Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity());
         var approvalHandler = new InvoiceApprovalHandler(
             NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(), liveContext);
         var dispatcher = new WorkflowTriggerDispatcher(workflowStore, new IWorkflowStepHandler[] { approvalHandler });

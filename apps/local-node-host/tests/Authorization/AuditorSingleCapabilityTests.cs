@@ -201,7 +201,7 @@ public sealed class AuditorSingleCapabilityTests
             var provider = services.BuildServiceProvider();
             var harness = new Harness(provider);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production);
+                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             return harness;
         }
 

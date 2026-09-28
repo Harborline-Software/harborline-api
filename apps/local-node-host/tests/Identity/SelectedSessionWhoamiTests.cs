@@ -497,6 +497,7 @@ public sealed class SelectedSessionWhoamiTests
             var legacy = new PermissiveLegacyAuthority();
 
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddTestKernelClock();
             outer.AddLogging();
             outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());

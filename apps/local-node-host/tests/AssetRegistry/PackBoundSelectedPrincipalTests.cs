@@ -179,7 +179,7 @@ public sealed class PackBoundSelectedPrincipalTests
                 configuration, configuration, new AuthorizationDefinitionAdmission(vocabulary),
                 new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
             await new AccessGrantAuthorizationSeed(seedWriter, configuration, grants)
-                .InstallAsync(Tenant, now.AddMinutes(-1), AuthorizationSeedProfile.Production);
+                .InstallAsync(Tenant, now.AddMinutes(-1), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var subject = new ActorId(grantedSubject);
             await grants.AppendAsync(Tenant, new AccessGrant(
                 GrantId.New(), Tenant, subject, AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/"),
@@ -191,6 +191,8 @@ public sealed class PackBoundSelectedPrincipalTests
                 new EmptyRecordStandingResolver(), configuration);
 
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,

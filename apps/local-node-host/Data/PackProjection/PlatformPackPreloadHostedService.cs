@@ -15,6 +15,8 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Data.Identity;
+
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>Installs the released platform catalogue seed through the ordinary pack path before Access.</summary>
@@ -33,12 +35,14 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
     private readonly IActiveTeamAccessor activeTeam;
     private readonly TimeProvider time;
     private readonly ILogger<PlatformPackPreloadHostedService> logger;
+    private readonly NodeOperatorIdentity? nodeOperator;
 
     public PlatformPackPreloadHostedService(IPackExporter exporter, NodePrincipalSigner signer,
         IPackInstaller installer, IPackInstallStore store, IPackTrustStore trustStore,
         IPackRevocationList revocation, IActiveTeamAccessor activeTeam, TimeProvider timeProvider,
-        ILogger<PlatformPackPreloadHostedService> logger)
+        ILogger<PlatformPackPreloadHostedService> logger, NodeOperatorIdentity? nodeOperator = null)
     {
+        this.nodeOperator = nodeOperator;
         this.exporter = exporter;
         this.signer = signer;
         this.installer = installer;
@@ -67,7 +71,7 @@ internal sealed class PlatformPackPreloadHostedService : IHostedService
         if (active is not null && active.Version == PackVersion) return;
 
         var context = new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(),
-            PackInstallRoutes.RevocationMaxAge, Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            PackInstallRoutes.RevocationMaxAge, Principal: nodeOperator?.Principal?.Value);
         if (store.GetVersion(tenant, PackKey, PackVersion) is null)
         {
             var exported = await exporter.ExportAsync(ReadExportRequest(signer.Signer.IssuerId.ToBase64Url()),

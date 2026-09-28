@@ -46,6 +46,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>
@@ -270,7 +272,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // MultiTeamBootstrapHostedService.EnrollOperatorAsync does on a single-office node.
             var memberships = new InMemoryTeamRegistry();
             await memberships.AddMembershipAsync(
-                ActiveTeamAuthorizationContext.NodeOperator,
+                TestDesktopOperator.Actor,
                 new TeamMembership(
                     OperatorTeam.Value,
                     "Operator Team",
@@ -281,6 +283,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ── The OUTER container: the production authorization composition, on a container with no HTTP
             //    pipeline — the geometry Program.cs builds via Host.CreateApplicationBuilder.
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddTestKernelClock();
             outer.AddLogging(b => b.ClearProviders());
             outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
@@ -307,6 +310,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             outer.AddDbContextFactory<NodeLocalSchedulingDbContext>(options =>
                 options.UseSqlite($"Data Source={schedulingDatabasePath};Pooling=False"));
             outer.AddNodeContacts();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddNodeFinancialPosting();
 
             // Listener prerequisites the shared app resolves from the outer container.
@@ -328,7 +332,7 @@ public sealed class WebPlaneAuthorizationFenceTests
             // ...seeded the way AuthorizationSeedHostedService seeds it at boot, so the desktop operator's
             // packages:operate holding is the real node-operator grant and not a fixture stub.
             await outerProvider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(OperatorTenant, TimeProvider.System.GetUtcNow(), AuthorizationSeedProfile.Production);
+                .InstallAsync(OperatorTenant, TimeProvider.System.GetUtcNow(), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
 
             await using (var localDb = await outerProvider
                 .GetRequiredService<IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>()
@@ -482,7 +486,7 @@ public sealed class WebPlaneAuthorizationFenceTests
         internal async Task AssertOperatorGrantDecisionAsync(bool allowed)
         {
             var decision = await _outerProvider.GetRequiredService<AuthorizationGate>().DecideAsync(
-                new AuthorizationWriteContext(ActiveTeamAuthorizationContext.NodeOperator, OperatorTenant,
+                new AuthorizationWriteContext(TestDesktopOperator.Actor, OperatorTenant,
                     TimeProvider.System.GetUtcNow()).Request(
                         AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "fence"));
             Assert.Equal(allowed, decision.Verdict == AuthorizationVerdict.Allowed);
@@ -503,7 +507,7 @@ public sealed class WebPlaneAuthorizationFenceTests
         internal async Task SetOperatorRoleAsync(TeamRole role) =>
             Assert.True(
                 await _memberships.SetRoleAsync(
-                    ActiveTeamAuthorizationContext.NodeOperator, OperatorTeam.Value, role),
+                    TestDesktopOperator.Actor, OperatorTeam.Value, role),
                 "the operator's membership edge must exist for the role flip to mean anything");
 
         /// <summary>A real request admitted by the listener's Accept-2 selected-session (WEB-plane) branch.</summary>

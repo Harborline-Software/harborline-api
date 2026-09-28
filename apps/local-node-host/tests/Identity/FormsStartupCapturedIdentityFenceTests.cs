@@ -241,7 +241,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             // MultiTeamBootstrapHostedService.EnrollOperatorAsync does on a single-office node.
             var memberships = new InMemoryTeamRegistry();
             await memberships.AddMembershipAsync(
-                ActiveTeamAuthorizationContext.NodeOperator,
+                TestDesktopOperator.Actor,
                 new TeamMembership(
                     OperatorTeam.Value,
                     "Operator Team",
@@ -252,11 +252,13 @@ public sealed class FormsStartupCapturedIdentityFenceTests
             // ── The OUTER container: the production compositions, on a container with no HTTP pipeline
             //    — the geometry Program.cs builds via Host.CreateApplicationBuilder.
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddLogging(b => b.ClearProviders());
             outer.AddTestKernelClock();
             outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
             outer.AddSingleton<IMutableTeamRegistry>(memberships);
             outer.AddSingleton<ITeamRegistry>(memberships);
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddNodeFinancialPosting();
 
             // The field encryptor the recovery coordinator supplies in the live host (INV-S3).
@@ -485,7 +487,7 @@ public sealed class FormsStartupCapturedIdentityFenceTests
         var founder = new Ed25519Signer(founderKey);
         const string founderParty = "forms-fixture-founder";
         var roster = MemberRoster.StableGenesis(OperatorTeam.Value, founderParty, founder, new Ed25519Verifier())
-            .Admit(founderParty, founder, ActiveTeamAuthorizationContext.LocalUserId, signer.IssuerId,
+            .Admit(founderParty, founder, TestDesktopOperator.Principal, signer.IssuerId,
                 PermissionCompositions.ForRole(role), new Ed25519Verifier(), DateTimeOffset.UnixEpoch, Guid.NewGuid());
         return new NodeTeamRoster(roster);
     }

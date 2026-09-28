@@ -495,8 +495,8 @@ builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.BackupRestore.NodeReh
 // construction, so the suffix guarantees distinctness even when two installs share an OS username; and
 // because the genesis self-admission binds THIS party id to THIS signer's key, the comms author↔signing-key
 // consistency the forge-proof gate checks holds by construction (the operator's own messages pass). This is
-// the ATTRIBUTION/party axis only — the financial actor axis (ActiveTeamAuthorizationContext.LocalUserId, used by the
-// soft-close bypass + ActiveTeamAuthorizationContext + the membership edge) is a SEPARATE concern, untouched.
+// the ATTRIBUTION/party axis only. Since ticket 294 slice 3b the desktop actor axis (NodeOperatorIdentity, read by
+// ActiveTeamAuthorizationContext and the membership edge) is this same roster party, not a compile-time constant.
 //
 // The genesis team id uses the configured LocalNode:TeamId when present (else a synthesized stable value);
 // it scopes the signed AdmissionRecord. The party→key binding the comms gate consumes does not depend on
@@ -627,6 +627,8 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
     var nodeRoster = new Harborline.Api.LocalNodeHost.Enrollment.NodeTeamRoster(genesisRoster);
     builder.Services.AddSingleton(nodeRoster);
     builder.Services.AddSingleton<Harborline.Api.Kernel.Sync.Handshake.ITrustedMemberKeyProvider>(nodeRoster);
+    // Ticket 294 slice 3b — the desktop plane's actor: the roster party bound to this node's key.
+    builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity>();
 
     // C5 — capture the genesis team id + party id for the roster-bound DM key provider (registered after AddNodeComms).
     capturedGenesisTeamId = genesisTeamId.ToString("D");

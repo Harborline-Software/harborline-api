@@ -29,20 +29,10 @@ internal sealed class AccessGrantAuthorizationSeed(
     public const string DevIndexerPrincipal = "sys.dev-indexer";
     public const string DevWorkflowSeederPrincipal = "sys.dev-workflow-seeder";
 
-    /// <summary>
-    /// The single-operator DESKTOP principal — the party a desktop-plane request carries when no
-    /// selected-session principal is bound (<c>NodeCallerParty.OperatorParty</c>). It is the founder on a
-    /// solo install, and it is the subject of the one seeded holding below.
-    /// </summary>
-    /// <remarks>
-    /// Must equal <c>ActiveTeamAuthorizationContext.LocalUserId</c> in the node host; that host cannot be referenced
-    /// from this package, so the two are pinned equal by
-    /// <c>LifecycleUnlockGrantEndToEndTests.The_seeded_node_operator_principal_is_the_desktop_caller_party</c>.
-    /// </remarks>
-    public const string NodeOperatorPrincipal = "local";
     internal const string SchedulerGrantSource = "authorization-seed:system-scheduler";
     internal const string DevIndexerGrantSource = "authorization-seed:system-dev-indexer";
     internal const string DevWorkflowSeederGrantSource = "authorization-seed:system-dev-workflow-seeder";
+    /// <summary>The node-operator holding's source reference; the host's one-time "local" rekey reads it.</summary>
     internal const string NodeOperatorGrantSource = "authorization-seed:node-operator";
     internal static ActorId AdditiveSeedPrincipal { get; } =
         new("installer:authorization-additive-seed");
@@ -196,10 +186,17 @@ internal sealed class AccessGrantAuthorizationSeed(
             new PermissionAtom(operation, ScopeExpression.Parse("/")), ReviewedOffers[operation.Value]))
         .ToArray();
 
+    /// <summary>
+    /// Installs the definitions and the system grants. <paramref name="nodeOperator"/> is the desktop plane's actor
+    /// (ticket 294 slice 3b: the host's roster party bound to its signing key, the founder's canonical tenant
+    /// principal on the founding node). This package cannot know it, so the host supplies it; with none, no
+    /// node-operator holding is written, because there is no one to hold it.
+    /// </summary>
     internal async ValueTask InstallAsync(
         TenantId tenant,
         DateTimeOffset at,
         AuthorizationSeedProfile profile,
+        ActorId? nodeOperator = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -250,9 +247,10 @@ internal sealed class AccessGrantAuthorizationSeed(
         // the node bootstrap wrote; the unlock decision now reads the grant closure, so the holding is
         // seeded HERE, where the decision reads it. Issued after the founding definitions above, so the
         // administrator-grant seal is never tripped by it (and it is not an Administrator grant anyway).
-        await EnsureSystemGrantAsync(
-            tenant, at, NodeOperatorPrincipal, NodeOperatorRole, NodeOperatorGrantSource, ct)
-            .ConfigureAwait(false);
+        if (nodeOperator is { } holder)
+            await EnsureSystemGrantAsync(
+                tenant, at, holder.Value, NodeOperatorRole, NodeOperatorGrantSource, ct)
+                .ConfigureAwait(false);
         if (profile.IncludeDevelopmentGrants)
         {
             await EnsureSystemGrantAsync(
@@ -332,14 +330,16 @@ internal sealed class AccessGrantAuthorizationSeed(
     internal static IReadOnlyList<InstallerSeedGrantEvidence> ExpectedInstallerSeedSet(
         TenantId tenant,
         DateTimeOffset at,
-        AuthorizationSeedProfile profile)
+        AuthorizationSeedProfile profile,
+        ActorId? nodeOperator = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         var expected = new List<InstallerSeedGrantEvidence>
         {
             SeedGrantFor(tenant, at, SchedulerPrincipal, SchedulerRole, SchedulerGrantSource),
-            SeedGrantFor(tenant, at, NodeOperatorPrincipal, NodeOperatorRole, NodeOperatorGrantSource),
         };
+        if (nodeOperator is { } holder)
+            expected.Add(SeedGrantFor(tenant, at, holder.Value, NodeOperatorRole, NodeOperatorGrantSource));
         if (profile.IncludeDevelopmentGrants)
         {
             expected.Add(SeedGrantFor(tenant, at, DevIndexerPrincipal, DevIndexerRole, DevIndexerGrantSource));
@@ -353,11 +353,12 @@ internal sealed class AccessGrantAuthorizationSeed(
     internal static bool IsExactInstallerSeedSet(
         TenantId tenant,
         IReadOnlyCollection<InstallerSeedGrantEvidence> actual,
-        AuthorizationSeedProfile profile)
+        AuthorizationSeedProfile profile,
+        ActorId? nodeOperator = null)
     {
         if (actual.Count == 0) return false;
         var at = actual.First().Grant.GrantedAt;
-        return EqualsExpected(ExpectedInstallerSeedSet(tenant, at, profile), actual);
+        return EqualsExpected(ExpectedInstallerSeedSet(tenant, at, profile, nodeOperator), actual);
     }
 
     private static bool EqualsExpected(

@@ -27,6 +27,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 /// <summary>T-398 whole-catalogue authorization reachability from the two sealed platform roots.</summary>
@@ -139,7 +141,7 @@ public sealed class ExposedViewAuthorizationReachabilityHealthCheckTests
         var restarted = Installer(store, Projector(store, services, restartedViews, restartedReports));
         var hosted = new PackSeedProjectionHostedService(
             restarted, new FixedActiveTeam(), NullLogger<PackSeedProjectionHostedService>.Instance,
-            store, new InMemoryPackTrustStore([]), PackRevocationList.Empty, TimeProvider.System);
+            store, new InMemoryPackTrustStore([]), PackRevocationList.Empty, TimeProvider.System, TestDesktopOperator.Identity());
 
         await hosted.StartAsync(CancellationToken.None);
 

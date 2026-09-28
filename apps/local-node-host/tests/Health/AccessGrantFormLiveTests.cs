@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 public sealed partial class ComposedHostBootSmokeTests
@@ -51,7 +53,8 @@ public sealed partial class ComposedHostBootSmokeTests
         await using var bootstrap = StartAccessHost();
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
-        await GrantAdministratorAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        await GrantAdministratorAsync(
+            bootstrap, new string('1', 64), TestDesktopOperator.HostOperator(new string('1', 64)));
         await using var host = StartAccessHost(bootstrap.DataDirectory);
         using var client = await AccessClientAsync(host);
         using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
@@ -94,7 +97,8 @@ public sealed partial class ComposedHostBootSmokeTests
         await using var bootstrap = StartAccessHost();
         await bootstrap.AwaitReadinessAsync();
         await bootstrap.StopAsync();
-        await GrantAdministratorAsync(bootstrap, new string('1', 64), NodeCallerParty.OperatorParty.Value);
+        await GrantAdministratorAsync(
+            bootstrap, new string('1', 64), TestDesktopOperator.HostOperator(new string('1', 64)));
         await using var host = StartAccessHost(bootstrap.DataDirectory);
         string issuedGrantId;
         using (var client = await AccessClientAsync(host))

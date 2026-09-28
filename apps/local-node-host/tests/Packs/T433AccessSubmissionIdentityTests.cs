@@ -38,7 +38,7 @@ public sealed partial class AccessAdministrationPreloadTests
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
         await new AccessGrantAuthorizationSeed(definitions, configuration, grants)
-            .InstallAsync(tenant, at, AuthorizationSeedProfile.Production);
+            .InstallAsync(tenant, at, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         await grants.AppendAsync(tenant, new AccessGrant(new GrantId(Guid.NewGuid()), tenant, actor,
             RoleReference.Administrator, ScopeExpression.Parse("/"), GrantResidency.Cache,
             new GrantValidity(at.AddDays(-1), null), GranterKind.Person, actor, at,

@@ -315,6 +315,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // in-memory store (a non-recoverable, non-node store) instead of NodeEfJournalStore.
         RegisterNodeDbFactory(services);
         services.AddSingleton<IJournalStore, InMemoryJournalStore>(); // WRONG for SC4-C2 (a)
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         using var provider = services.BuildServiceProvider();
@@ -395,6 +396,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // instead register the wrong one AFTER and prove the resolved type is not the node store.
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeBillWrites();
@@ -481,6 +483,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // Wire the recoverable journal store + posting (so AddNodeInvoiceWrites builds).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeInvoiceWrites();
@@ -567,6 +570,7 @@ public sealed class Sc4RecoverabilityGuardTests
         RegisterNodeDbFactory(services);
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeBillWrites();
@@ -664,6 +668,7 @@ public sealed class Sc4RecoverabilityGuardTests
         RegisterNodeDbFactory(services);
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeBankingWrites();
@@ -695,6 +700,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // The Step-2a posting slice the matching engine reads (IJournalStore == NodeEfJournalStore).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -790,6 +796,7 @@ public sealed class Sc4RecoverabilityGuardTests
         RegisterNodePayrollDbFactory(services);
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeBillWrites();
@@ -1001,6 +1008,7 @@ public sealed class Sc4RecoverabilityGuardTests
         RegisterNodeDbFactory(services);
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeAuditWrites();
@@ -1094,6 +1102,7 @@ public sealed class Sc4RecoverabilityGuardTests
         RegisterNodeDbFactory(services);
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
         services.AddNodeWorkflowEngine();
@@ -1145,6 +1154,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // The posting slice supplies TimeProvider (the engine + handler clock) the same way Program.cs does.
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1242,6 +1252,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // IAccountResolver the cartridges read).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1300,6 +1311,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // The posting slice the audit-write atomicity rides on (IJournalStore + TimeProvider).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1325,6 +1337,7 @@ public sealed class Sc4RecoverabilityGuardTests
 
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1364,6 +1377,7 @@ public sealed class Sc4RecoverabilityGuardTests
 
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1391,6 +1405,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // The Step-2a posting slice the invoice writes depend on (IJournalPostingService + IJournalStore).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1414,6 +1429,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // The Step-2a posting slice the bill writes depend on (IJournalPostingService).
         services.AddSingleton<NodeEfJournalStore>();
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 
@@ -1459,6 +1475,7 @@ public sealed class Sc4RecoverabilityGuardTests
 
         // The posting composition under test.
         services.AddTestAuthorizationGate();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
 

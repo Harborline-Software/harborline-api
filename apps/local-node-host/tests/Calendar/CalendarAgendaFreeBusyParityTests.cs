@@ -45,6 +45,8 @@ public sealed class CalendarAgendaFreeBusyParityTests
     public async Task Agenda_Matches_FreeBusy_For_Recurring_And_ResourceRole_LocalDay()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.
@@ -140,6 +142,8 @@ public sealed class CalendarAgendaFreeBusyParityTests
     public async Task Seeded_LA_Window_Resolves_To_Correct_Utc_Instants()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         // T-524: the free/busy read is gated, so the fixture composes the real gate, granting the read.

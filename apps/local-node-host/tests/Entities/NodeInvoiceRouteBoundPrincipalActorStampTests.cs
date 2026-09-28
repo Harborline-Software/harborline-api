@@ -23,6 +23,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
@@ -64,6 +66,8 @@ public sealed class NodeInvoiceRouteBoundPrincipalActorStampTests : IAsyncLifeti
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<Harborline.Api.Foundation.Authorization.IAuthorizationContext>(
@@ -183,7 +187,7 @@ public sealed class NodeInvoiceRouteBoundPrincipalActorStampTests : IAsyncLifeti
 
         // And it is NOT the single-operator fallback: this proves the bound principal drove the stamp,
         // not the unbound bootstrap/desktop path the existing route tests already cover.
-        Assert.NotEqual(NodeCallerParty.OperatorParty, persisted.CreatedBy.Value);
+        Assert.NotEqual(TestDesktopOperator.Party, persisted.CreatedBy.Value);
     }
 
     private static SelectedSessionRequestPrincipal BoundPrincipal(string canonicalParty) =>

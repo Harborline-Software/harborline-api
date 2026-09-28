@@ -25,6 +25,8 @@ public sealed class OperatorCliHeadlessEndToEndTests
     public async Task Cli_drives_authenticated_export_over_real_listener_without_gui()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddTestKernelClock();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();

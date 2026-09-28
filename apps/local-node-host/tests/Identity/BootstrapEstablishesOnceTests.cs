@@ -25,6 +25,8 @@ using NSubstitute;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>
@@ -165,9 +167,11 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
         return signer;
     }
 
-    /// <summary>This node's party id, derived exactly as the composition root derives it.</summary>
-    private string LocalPartyId() =>
-        $"os:test#{Convert.ToHexString(NodeSigner().Signer.IssuerId.AsSpan()[..4]).ToLowerInvariant()}";
+    /// <summary>
+    /// This node's party id. Ticket 294 slice 3b: it is also the desktop actor (the roster party bound to the
+    /// node key), so the registry projection and the conferred grant are keyed by it.
+    /// </summary>
+    private static string LocalPartyId() => BootResult.Operator.Value;
 
     /// <summary>The install's genesis roster: this node's key self-admitted as the founder.</summary>
     private MemberRoster GenesisRoster() => MemberRoster.StableGenesis(
@@ -684,7 +688,7 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
 
     private sealed class BootResult(ServiceProvider provider, string partyId, TeamId teamId) : IAsyncDisposable
     {
-        public static readonly ActorId Operator = new(ActiveTeamAuthorizationContext.LocalUserId);
+        public static readonly ActorId Operator = new("principal-bootstrap-founder-294");
 
         public IMutableTeamRegistry Memberships => provider.GetRequiredService<IMutableTeamRegistry>();
 

@@ -138,7 +138,7 @@ internal sealed class VerificationCandidateWorld
             // It confers nothing on the fixture's actor: the seed offers records:write to the member
             // and node-operator roles, and the actor holds a grant for neither.
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(_tenant, fixture.Instant, AuthorizationSeedProfile.Production, cancellationToken)
+                .InstallAsync(_tenant, fixture.Instant, AuthorizationSeedProfile.Production, ct: cancellationToken)
                 .ConfigureAwait(false);
 
             var vocabulary = provider.GetRequiredService<IRoleVocabularyStore>();

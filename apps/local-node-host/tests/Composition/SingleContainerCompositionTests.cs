@@ -83,6 +83,8 @@ public sealed class SingleContainerCompositionTests
     public async Task Shared_Web_App_Uses_The_Composition_Root_Service_Provider()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddTestKernelClock();
         builder.Services.AddSingleton(new NodeCallerSessionToken(configuredToken: null));
         await using var app = builder.Build();

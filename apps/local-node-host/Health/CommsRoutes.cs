@@ -94,41 +94,10 @@ public static class CommsRoutes
     /// </summary>
     public const string DmRosterRoute = RouteBase + "/dm/roster";
 
-    /// <summary>
-    /// The author party id stamped when no enrolled-member id is supplied (the dev / single-host overloads
-    /// that do not wire the trust roster). Matches the install-constant single-office operator.
-    /// </summary>
-    private const string FallbackAuthorPartyId = ActiveTeamAuthorizationContext.LocalUserId;
-
     // ── SINGLE-PROJECTION overloads (tests / dev) — map the bare + conversation routes scoped to ONE ─────────
     //    conversation (the projection's). The conversation-addressed route serves ONLY that conversation's id;
     //    any other id 404s. The SHIPPING host uses the registry overloads below for full conversation reach.
-
-    /// <summary>
-    /// Maps the comms routes over a SINGLE projection (the team channel, in tests). Uses the
-    /// <see cref="FallbackAuthorPartyId"/> author — for dev / single-host call-sites that do not wire the trust
-    /// roster. The SHIPPING host uses the registry overload.
-    /// </summary>
-    public static void Map(
-        IEndpointRouteBuilder app,
-        CommsCrdtProjection comms,
-        IOperationSigner signer,
-        IActiveTeamAccessor activeTeam,
-        TimeProvider timeProvider)
-        => Map(app, comms, signer, activeTeam, new NodeCallerSessionToken(null), FallbackAuthorPartyId, timeProvider);
-
-    /// <summary>
-    /// Maps the comms routes over a SINGLE projection with the inc-4 caller-auth guard. Uses the
-    /// <see cref="FallbackAuthorPartyId"/> author.
-    /// </summary>
-    public static void Map(
-        IEndpointRouteBuilder app,
-        CommsCrdtProjection comms,
-        IOperationSigner signer,
-        IActiveTeamAccessor activeTeam,
-        NodeCallerSessionToken callerAuth,
-        TimeProvider timeProvider)
-        => Map(app, comms, signer, activeTeam, callerAuth, FallbackAuthorPartyId, timeProvider);
+    //    Ticket 294 slice 3b: every overload names its author; none falls back to a constant operator id.
 
     /// <summary>
     /// Maps the comms routes over a SINGLE projection stamping <paramref name="activeMemberPartyId"/> as the

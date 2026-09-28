@@ -408,6 +408,7 @@ public sealed class AccountSetupAcceptRouteE2E
             var credentials = new WebChosenCredentialFactory(hasher);
 
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddFrozenKernelClock(time);
             outer.AddLogging();
             outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());

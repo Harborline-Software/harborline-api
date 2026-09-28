@@ -57,8 +57,8 @@ public static class NodeFinancialPostingComposition
         // slice 5 moved both soft-close override sites (JournalPostingService.AuthorizeSoftCloseAsync
         // and DefaultPaymentApplicationService.MayOverrideSoftCloseAsync) onto one AuthorizationGate
         // decision naming the fiscal period the override addresses, which left the registration with
-        // no consumer at all. The type is deleted; its install-constant actor id lives on
-        // ActiveTeamAuthorizationContext.LocalUserId, which names a caller and grants nothing.
+        // no consumer at all. The type is deleted; the caller is now
+        // the desktop actor (NodeOperatorIdentity, ticket 294 slice 3b), which names a caller and grants nothing.
 
         // ADR 0032 identity layer — per-org role resolution: the OS-user's role on the active org's
         // membership edge drives ICurrentUser.Roles. TryAdd so a host that wires a richer identity

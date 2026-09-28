@@ -60,6 +60,8 @@ public sealed class ErpnextImportPreviewRouteTests : IAsyncLifetime
         await File.WriteAllTextAsync(Path.Combine(_directory, "write-sentinel.txt"), "unchanged");
 
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         _logs = new RecordingLoggerProvider();

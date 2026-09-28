@@ -24,6 +24,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 /// <summary>
@@ -36,7 +38,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 /// <remarks>
 /// Slice 2 moved the unlock decision from the flat <c>TeamMembership.Permissions</c> set onto the access-grant
 /// closure, but left the founder's holding in the flat set. On the desktop plane the route principal is
-/// <c>NodeCallerParty.OperatorParty</c> (<c>"local"</c>) — no selected-session principal is bound — and the
+/// <c>TestDesktopOperator.Party</c> (<c>"local"</c>) — no selected-session principal is bound — and the
 /// install seeded no grant with that subject, so <c>unlock.granted</c> flipped from true to false. These two
 /// tests are that regression, and the fence that keeps the holding from becoming a blanket allow.
 /// </remarks>
@@ -69,7 +71,7 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
         services.AddAccessGrantModule();
         var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-            .InstallAsync(FounderTenant, At, AuthorizationSeedProfile.Production);
+            .InstallAsync(FounderTenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         return provider;
     }
 
@@ -100,11 +102,19 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
     }
 
     [Fact]
-    public void The_seeded_node_operator_principal_is_the_desktop_caller_party()
+    public async Task The_seeded_node_operator_principal_is_the_desktop_caller_party()
     {
-        // The seed lives in a package that cannot reference the node host, so this equality is what keeps
-        // the seeded subject and the desktop route's principal from drifting apart silently.
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        // Ticket 294 slice 3b: the seed lives in a package that cannot reference the node host, so the host
+        // hands it the desktop actor. The seeded subject must be exactly the party a desktop request carries.
+        await using var install = await SeededInstallAsync();
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection().AddTestDesktopOperator().BuildServiceProvider(),
+        };
+        var holding = await install.GetRequiredService<IGrantStore>()
+            .FindBySourceReferenceAsync(FounderTenant, AccessGrantAuthorizationSeed.NodeOperatorGrantSource);
+
+        Assert.Equal(NodeCallerParty.Resolve(http).Value, holding?.Subject.Value);
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -121,6 +131,8 @@ public sealed class LifecycleUnlockGrantEndToEndTests : IAsyncLifetime
         public static async Task<Harness> StartAsync(string dir, AuthorizationGate gate, TeamId activeTeam)
         {
             var builder = WebApplication.CreateBuilder();
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             var app = builder.Build();

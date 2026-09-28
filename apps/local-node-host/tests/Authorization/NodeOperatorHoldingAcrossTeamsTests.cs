@@ -119,7 +119,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
         await active.SetActiveAsync(SecondTeam, CancellationToken.None);
 
         var decision = await authority.AuthorizeAsync(new AuthorizationWriteContext(
-            new ActorId(AccessGrantAuthorizationSeed.NodeOperatorPrincipal),
+            new ActorId(TestDesktopOperator.Principal),
             NodeTenant.Resolve(active),
             At));
 
@@ -138,7 +138,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
 
         var decision = await provider.GetRequiredService<AuthorizationGate>().DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(AccessGrantAuthorizationSeed.NodeOperatorPrincipal), strangerTenant, At)
+                new ActorId(TestDesktopOperator.Principal), strangerTenant, At)
                 .InstallWide(AuthorizationOperation.Parse(Permission.PackagesOperate)));
 
         Assert.NotEqual(AuthorizationVerdict.Allowed, decision.Verdict);
@@ -148,7 +148,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
     {
         var decision = await gate.DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(AccessGrantAuthorizationSeed.NodeOperatorPrincipal), tenant, At)
+                new ActorId(TestDesktopOperator.Principal), tenant, At)
                 .InstallWide(AuthorizationOperation.Parse(operation)));
 
         Assert.True(
@@ -164,7 +164,7 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
     {
         var decision = await gate.DecideAsync(
             new AuthorizationWriteContext(
-                new ActorId(AccessGrantAuthorizationSeed.NodeOperatorPrincipal), tenant, At)
+                new ActorId(TestDesktopOperator.Principal), tenant, At)
                 .Request(AuthorizationOperation.Parse(operation), recordKind, "record-under-test"));
 
         Assert.True(
@@ -193,7 +193,8 @@ public sealed class NodeOperatorHoldingAcrossTeamsTests
             active,
             factory,
             AuthorizationSeedProfile.Production,
-            new FixedTimeProvider(At)).StartAsync(CancellationToken.None);
+            new FixedTimeProvider(At),
+            TestDesktopOperator.Identity()).StartAsync(CancellationToken.None);
 
         return (provider, factory, active);
     }

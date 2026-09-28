@@ -234,6 +234,7 @@ public sealed class DeclarativeWorkflowExecutionEndToEndTests : IAsyncLifetime
         services.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={_dbPath};Pooling=False"));
         services.AddSingleton<IJournalStore>(sp => new NodeEfJournalStore(
             sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), NodeJournalWriteAdapters.Create()));
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddSingleton<IAccountResolver, AlwaysPostableAccountResolver>();
         services.AddSingleton<IPeriodResolver>(new InMemoryPeriodResolver());

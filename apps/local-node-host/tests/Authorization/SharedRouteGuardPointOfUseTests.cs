@@ -236,6 +236,7 @@ public sealed class SharedRouteGuardPointOfUseTests
     private static DefaultHttpContext ContextWith(AuthorizationGate gate)
     {
         var services = new ServiceCollection();
+        services.AddTestDesktopOperator();
         services.AddSingleton(gate);
         services.AddTestKernelClock();
         return new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };

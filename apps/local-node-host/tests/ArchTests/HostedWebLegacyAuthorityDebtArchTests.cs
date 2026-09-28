@@ -106,7 +106,10 @@ public sealed class HostedWebLegacyAuthorityDebtArchTests
         // T-735 adds the Layout denial-reader family (437 -> 440) on the same exception, at the same
         // minimum 2/0 route shape plus its 1/0 hosted mapper: one server-derived active-team tenant
         // resolution point, no static actor authority.
-        Assert.Equal(440, ledger.ReviewedAggregateDebtCeiling);
+        // Ticket 294 slice 3b ratchets 440 -> 432: the desktop actor is the roster party bound to the node key, so
+        // the static operator id leaves NodeCallerParty (2), NodeWebSessionAuthority (3) and CommsRoutes (1 static,
+        // plus the two tenant tokens of the removed single-projection fallback-author overloads).
+        Assert.Equal(432, ledger.ReviewedAggregateDebtCeiling);
         Assert.Equal(
             ledger.ReviewedAggregateDebtCeiling,
             ledger.Budgets.Values.Sum(static debt => debt.GlobalTenant + debt.StaticActor));

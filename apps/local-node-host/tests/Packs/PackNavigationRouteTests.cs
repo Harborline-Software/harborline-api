@@ -401,6 +401,8 @@ public sealed class PackNavigationRouteTests
         bool inAudience = true)
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("HARBORLINE_PACK_NAVIGATION_TEST_URL") ?? "http://127.0.0.1:0");
         var app = builder.Build();
         if (selectedTenant is { } selected)

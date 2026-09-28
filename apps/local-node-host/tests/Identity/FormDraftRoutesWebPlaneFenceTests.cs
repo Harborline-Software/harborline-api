@@ -27,6 +27,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>Card #3481 — submission drafts remain desktop-only until MTW-3 supplies member permissions.</summary>
@@ -138,7 +140,7 @@ public sealed class FormDraftRoutesWebPlaneFenceTests
                 new TeamContext(OperatorTeam, "Operator Team", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
             var memberships = new InMemoryTeamRegistry();
             await memberships.AddMembershipAsync(
-                ActiveTeamAuthorizationContext.NodeOperator,
+                TestDesktopOperator.Actor,
                 new TeamMembership(
                     OperatorTeam.Value,
                     "Operator Team",
@@ -148,10 +150,12 @@ public sealed class FormDraftRoutesWebPlaneFenceTests
 
             var logs = new CapturingLoggerProvider();
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddLogging(b => b.ClearProviders().AddProvider(logs));
             outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
             outer.AddSingleton<IMutableTeamRegistry>(memberships);
             outer.AddSingleton<ITeamRegistry>(memberships);
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddNodeFinancialPosting();
             outer.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
@@ -159,7 +163,8 @@ public sealed class FormDraftRoutesWebPlaneFenceTests
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
                 Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
             outer.AddTestAuthorizationGate().AddTestNodeForms();
-            outer.AddNodeDraftPartyContext("34810000-0000-0000-0000-0000000000aa");
+            // Ticket 294 slice 3b: the genesis party IS the desktop actor the operator's drafts are keyed by.
+            outer.AddNodeDraftPartyContext(TestDesktopOperator.Principal);
             outer.AddHarborlineSubmissionDrafts();
             outer.AddSingleton(new NodeCallerSessionToken(CallerToken));
             outer.AddSingleton<IWebSelectedSessionPrincipalAuthority>(new FixedSelectedSessionAuthority());

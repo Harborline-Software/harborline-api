@@ -68,6 +68,8 @@ public sealed class PaymentWriteRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
@@ -97,6 +99,7 @@ public sealed class PaymentWriteRouteTests : IAsyncLifetime
         // Production composition: posting + AR/AP writes + payment writes + lease sub-ledger reads.
         builder.Services.AddSingleton<NodeEfJournalStore>();
         builder.Services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddNodeFinancialPosting();
         builder.Services.AddNodeBillWrites();
         builder.Services.AddNodeInvoiceWrites();

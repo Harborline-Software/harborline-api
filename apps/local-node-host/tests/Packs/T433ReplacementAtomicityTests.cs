@@ -14,6 +14,8 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Microsoft.Extensions.DependencyInjection;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed partial class AccessAdministrationPreloadTests
@@ -119,7 +121,7 @@ public sealed partial class AccessAdministrationPreloadTests
 
     private PackInstallContext ReplacementContext() => new(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
         DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
-        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        Principal: TestDesktopOperator.Principal);
 
     private PackExportRequest MixedReplacement(string version, bool refuse)
     {
@@ -196,7 +198,7 @@ public sealed partial class AccessAdministrationPreloadTests
         };
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         Assert.True(_installer.Install(await ExportAsync(replacement), context).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);
@@ -231,7 +233,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var bytes = await ExportAsync(replacement);
         var context = new PackInstallContext(Tenant, TrustingTheNodeKey(), PackRevocationList.Empty,
             DateTimeOffset.UtcNow, PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         Assert.True(_installer.Install(bytes, context).Installed);
         var activation = _installer.Activate(context, replacement.Key, replacement.Version);
         Assert.False(activation.Activated);

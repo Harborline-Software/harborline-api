@@ -99,6 +99,8 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddLogging();
         builder.Services.AddSingleton(TimeProvider.System);
@@ -134,7 +136,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             new AuthorizationDefinitionAdmission(_roles), new AuthorizationCapabilityBindingAdmission(),
             TestAuthorization.AllowGate(), grants);
         await new AccessGrantAuthorizationSeed(authorizationWriter, configuration, grants)
-            .InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production);
+            .InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         // The REAL host descriptor registries: the shipped definitions must be admissible by the
         // composed node, not by a stub. (They admit the two shipped items because neither is a view or
         // a report; a view over an unregistered entity type or an unregistered report kind still fails.)
@@ -202,7 +204,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             new NoActiveTeam(),
             TimeProvider.System,
-            NullLogger<AccessAdministrationPreloadHostedService>.Instance);
+            NullLogger<AccessAdministrationPreloadHostedService>.Instance, TestDesktopOperator.Identity());
 
         _platformPreload = new PlatformPackPreloadHostedService(
             new PackExporter(
@@ -219,7 +221,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             new NoActiveTeam(),
             TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance);
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
 
         _app.Use(async (http, next) =>
         {
@@ -397,7 +399,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(),
             PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         var platform = await ExportAsync(new PackExportRequest(
             PlatformPackPreloadHostedService.PackKey,
             PlatformPackPreloadHostedService.PackVersion,
@@ -529,7 +531,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         ]);
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         var installed = _installer.Install(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, previousVersion);
@@ -576,7 +578,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
         ]);
         var context = new PackInstallContext(Tenant, trust, PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         var installed = _installer.Install(bytes, context);
         Assert.True(installed.Installed, JsonSerializer.Serialize(installed));
         var activation = _installer.Activate(context, AccessAdministrationPreloadHostedService.PackKey, "1.1.5");
@@ -605,7 +607,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             TimeProvider.System.GetUtcNow(),
             PackInstallRoutes.RevocationMaxAge,
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            Principal: TestDesktopOperator.Principal);
         var fixtureBytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
             "Conformance", "Packs", "platform", "platform-pack-1.3.0.export.json"));
         Assert.Equal("EF1308048DFC3553A912594CA3E9133222905581B64A315D709A743A3F24E1C4",
@@ -1040,7 +1042,7 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
             PackRevocationList.Empty,
             new NoActiveTeam(),
             TimeProvider.System,
-            NullLogger<AccessAdministrationPreloadHostedService>.Instance);
+            NullLogger<AccessAdministrationPreloadHostedService>.Instance, TestDesktopOperator.Identity());
     }
 
     /// <summary>The committed export document's grant-form field metadata, read where it is shipped.</summary>

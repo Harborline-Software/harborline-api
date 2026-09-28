@@ -16,6 +16,8 @@ using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 public sealed class UnattributedGrantCompositionTests
@@ -114,7 +116,7 @@ public sealed class UnattributedGrantCompositionTests
 
     internal static async Task SeedAsync(IServiceProvider services, string binding)
     {
-        await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(Tenant, Now, AuthorizationSeedProfile.Production);
+        await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(Tenant, Now, AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
         await SeedPartyAsync(services, Tenant, "party-admin", Admin, "resolved");
         if (binding != "missing")
             await SeedPartyAsync(services, binding == "wrong-tenant" ? new TenantId("other-tenant") : Tenant,

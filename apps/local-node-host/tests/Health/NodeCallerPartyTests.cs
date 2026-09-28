@@ -7,6 +7,7 @@ using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
@@ -30,8 +31,8 @@ public sealed class NodeCallerPartyTests
         Assert.Equal("party:bob", bobParty.Value);
         Assert.NotEqual(aliceParty, bobParty);
         // Neither real member collapses to the operator fallback.
-        Assert.NotEqual(NodeCallerParty.OperatorParty, aliceParty);
-        Assert.NotEqual(NodeCallerParty.OperatorParty, bobParty);
+        Assert.NotEqual(TestDesktopOperator.Party, aliceParty);
+        Assert.NotEqual(TestDesktopOperator.Party, bobParty);
     }
 
     [Fact]
@@ -42,14 +43,18 @@ public sealed class NodeCallerPartyTests
         // desktop plane (bootstrap, hosted services, detached workflow effects), so the fallback
         // MUST survive. Assert the plane signal too: the desktop path is "no web principal bound",
         // not merely "no request feature set".
-        var http = new DefaultHttpContext();
+        // Ticket 294 slice 3b: the operator is the desktop actor the composition resolves, not a constant.
+        var http = new DefaultHttpContext
+        {
+            RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+                new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddTestDesktopOperator()),
+        };
 
         Assert.False(NodeCallerAttributionScope.HasBoundWebPrincipal);
 
         var party = NodeCallerParty.Resolve(http);
 
-        Assert.Equal(NodeCallerParty.OperatorParty, party);
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, party.Value);
+        Assert.Equal(TestDesktopOperator.Party, party);
     }
 
     [Fact]
@@ -70,7 +75,7 @@ public sealed class NodeCallerPartyTests
 
         // The refusal must not silently carry the operator identity forward in any form.
         Assert.DoesNotContain(
-            NodeCallerParty.OperatorParty.Value,
+            TestDesktopOperator.Party.Value,
             refusal.Message,
             StringComparison.Ordinal);
     }
@@ -86,7 +91,7 @@ public sealed class NodeCallerPartyTests
         var party = NodeCallerParty.Resolve(http);
 
         Assert.Equal("party:alice", party.Value);
-        Assert.NotEqual(NodeCallerParty.OperatorParty, party);
+        Assert.NotEqual(TestDesktopOperator.Party, party);
     }
 
     private static NodeCallerAttribution AttributionFor(string canonicalParty) => new(

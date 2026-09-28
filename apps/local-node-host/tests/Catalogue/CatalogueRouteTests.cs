@@ -69,6 +69,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
@@ -116,7 +118,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             PackRevocationList.Empty,
             _activeTeam,
             TimeProvider.System,
-            NullLogger<PlatformPackPreloadHostedService>.Instance);
+            NullLogger<PlatformPackPreloadHostedService>.Instance, TestDesktopOperator.Identity());
 
         var definitions = _app.Services.GetRequiredService<AuthorizedFormDefinitionLifecycle>();
         _app.Use(async (http, next) =>
@@ -376,7 +378,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         PackRevocationList.Empty,
         TimeProvider.System.GetUtcNow(),
         PackInstallRoutes.RevocationMaxAge,
-        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        Principal: TestDesktopOperator.Principal);
 
     private static object Text(string en) => new
     {

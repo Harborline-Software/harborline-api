@@ -135,7 +135,7 @@ public sealed class LayoutSurfaceHostParityTests(ITestOutputHelper output)
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production);
+                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             await provider.GetRequiredService<IGrantStore>().AppendAsync(Tenant, new AccessGrant(
                 GrantId.New(), Tenant, Member, AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/"),
                 GrantResidency.Cache, new GrantValidity(At.AddHours(-1)), GranterKind.Person, new ActorId("tenant-admin"),
