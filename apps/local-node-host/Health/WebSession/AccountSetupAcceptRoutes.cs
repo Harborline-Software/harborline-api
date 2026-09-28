@@ -45,7 +45,6 @@ public static class AccountSetupAcceptRoutes
     /// </remarks>
     public sealed record AcceptRequest(
         string? Code,
-        string? TenantId,
         string? Username,
         string? Password)
     {
@@ -54,8 +53,7 @@ public static class AccountSetupAcceptRoutes
         /// record prints every property, so one structured-logging call or exception message
         /// carrying <c>{Request}</c> would put the joiner's chosen password AND their single-use
         /// invitation code in the node log — the code is bearer authority until it is consumed, and
-        /// the password is a live credential. Tenant and username are non-secret: one is a workspace
-        /// identifier the inviter hands out, the other is the name the joiner is about to be known by.
+        /// the password is a live credential. Username is the name the joiner is about to be known by.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -75,9 +73,7 @@ public static class AccountSetupAcceptRoutes
         private bool PrintMembers(StringBuilder builder)
         {
             ArgumentNullException.ThrowIfNull(builder);
-            builder.Append("Code = <redacted>, TenantId = ");
-            builder.Append(TenantId);
-            builder.Append(", Username = ");
+            builder.Append("Code = <redacted>, Username = ");
             builder.Append(Username);
             builder.Append(", Password = <redacted>");
             return true;
@@ -133,8 +129,8 @@ public static class AccountSetupAcceptRoutes
         // Reuse the pairing-redeem limiter before the memory-hard credential derivation. The first
         // scope is an opaque fingerprint of the invitation rather than the source address: colleagues
         // redeeming distinct invitations behind one NAT do not consume each other's per-invitation
-        // allowance. The second scope is fixed to this route rather than the browser-supplied tenant id,
-        // so cycling guessed codes or tenant ids cannot evade the node-wide load bound.
+        // allowance. The second scope is fixed to this route so cycling guessed codes cannot evade
+        // the node-wide load bound.
         if (!rateLimiter.TryAcquireScopes(
                 InvitationScope(request?.Code),
                 $"route:{AcceptPath}"))
@@ -157,7 +153,6 @@ public static class AccountSetupAcceptRoutes
         var result = await authority.AcceptAsync(
                 new AccountSetupAcceptCommand(
                     request?.Code ?? string.Empty,
-                    request?.TenantId ?? string.Empty,
                     request?.Username ?? string.Empty,
                     credential.CredentialHash,
                     credential.CredentialCeremonyId),
@@ -168,7 +163,7 @@ public static class AccountSetupAcceptRoutes
         {
             case AccountSetupAcceptStatus.Accepted:
                 antiforgery.ExpireAnonymousBinding(context.Response);
-                return Results.Ok(new AcceptResponse(Guid.Parse(request!.TenantId!).ToString("D")));
+                return Results.Ok(new AcceptResponse(result.TenantId!));
             case AccountSetupAcceptStatus.UsernameConflict:
                 _ = await antiforgery.IssueAnonymousAsync(context).ConfigureAwait(false);
                 return Results.Json(

@@ -333,6 +333,55 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Contains(list.GetProperty("entities").EnumerateArray(), e => e.GetProperty("id").GetString() == id);
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Entities_Create_RefusesClientSuppliedRecordId()
+    {
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Client ID heater",
+            id = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Entities_Create_DenialPrecedesClientSuppliedRecordIdRefusal()
+    {
+        _allowRecordWrites = false;
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Denied client ID heater",
+            id = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Entities_Create_UnboundDeniedWriteCannotPersist()
+    {
+        _allowRecordWrites = false;
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Denied unbound heater",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
     [Fact(DisplayName = "entities: a pack-bound note persists validated values and returns an addressable audit id")]
     public async Task Entities_CreateBoundNote_PersistsValuesAndAuditReceipt()
     {
@@ -448,6 +497,37 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         var childTree = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities/{heater}/tree");
         var path = childTree.GetProperty("path").EnumerateArray().Select(p => p.GetString()).ToArray();
         Assert.Contains(building, path);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Edge_Create_RefusesClientSuppliedEdgeId()
+    {
+        var building = await CreateEntityAsync("Building A");
+        var heater = await CreateEntityAsync("Water heater");
+
+        using var refused = await _client.PostAsJsonAsync($"{AssetBase}/edges",
+            new { kind = "contains", from = building, to = heater, id = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var tree = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities/{building}/tree");
+        Assert.Empty(tree.GetProperty("children").EnumerateArray());
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Edge_Create_DeniedWriteCannotPersist()
+    {
+        var building = await CreateEntityAsync("Building A");
+        var heater = await CreateEntityAsync("Water heater");
+        _allowRecordWrites = false;
+
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/edges",
+            new { kind = "contains", from = building, to = heater });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var tree = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities/{building}/tree");
+        Assert.Empty(tree.GetProperty("children").EnumerateArray());
     }
 
     [Fact(DisplayName = "edges: an endpoint that does not exist is rejected (static error, no payload reflection)")]

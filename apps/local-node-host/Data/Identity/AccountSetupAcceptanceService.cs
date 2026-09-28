@@ -52,12 +52,12 @@ public enum AccountSetupAcceptStatus
 /// <summary>Non-secret result of one acceptance.</summary>
 public sealed record AccountSetupAcceptResult(
     AccountSetupAcceptStatus Status,
-    string? AccountId);
+    string? AccountId,
+    string? TenantId = null);
 
 /// <summary>Browser-supplied acceptance command. Only the raw code proves authority; the rest is joiner input.</summary>
 public sealed record AccountSetupAcceptCommand(
     string RawCode,
-    string TenantId,
     string Username,
     string CredentialHash,
     string CredentialCeremonyId);
@@ -153,24 +153,23 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
         if (string.IsNullOrWhiteSpace(command.RawCode) ||
             string.IsNullOrWhiteSpace(command.Username) ||
             string.IsNullOrWhiteSpace(command.CredentialHash) ||
-            string.IsNullOrWhiteSpace(command.CredentialCeremonyId) ||
-            !Guid.TryParse(command.TenantId, out var parsedTenant))
+            string.IsNullOrWhiteSpace(command.CredentialCeremonyId))
         {
             return Refused(AccountSetupAcceptStatus.InvitationRefused);
         }
 
-        var tenantId = parsedTenant.ToString("D");
-        var tenant = new TenantId(tenantId);
         var now = _timeProvider.GetUtcNow();
 
         // ── GATE 1: validate the still-unconsumed invitation and read its SIGNED inviter pins. ──
         var invitation = await _invitationStore
-            .ReadPendingAsync(command.RawCode, tenantId, WebSetupInvitationPurpose.AccountSetup, now, cancellationToken)
+            .ReadPendingAsync(command.RawCode, WebSetupInvitationPurpose.AccountSetup, now, cancellationToken)
             .ConfigureAwait(false);
-        if (invitation is null)
+        if (invitation is null || !Guid.TryParse(invitation.TenantId, out var parsedTenant))
         {
             return Refused(AccountSetupAcceptStatus.InvitationRefused);
         }
+        var tenantId = parsedTenant.ToString("D");
+        var tenant = new TenantId(tenantId);
 
         // ── GATE 2: inviter mandate-attenuation re-verification (ADR 0077 §2.1-0(b)). ──
         // Resolve the bound role definition; only the gate may compare its atoms to the inviter's grants.
@@ -351,7 +350,7 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
             return Refused(AccountSetupAcceptStatus.InvitationRefused);
         }
 
-        return new AccountSetupAcceptResult(AccountSetupAcceptStatus.Accepted, accountId);
+        return new AccountSetupAcceptResult(AccountSetupAcceptStatus.Accepted, accountId, tenantId);
     }
 
     private static AccountSetupAcceptResult Refused(AccountSetupAcceptStatus status) => new(status, null);

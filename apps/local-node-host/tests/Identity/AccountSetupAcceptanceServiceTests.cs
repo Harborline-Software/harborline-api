@@ -50,7 +50,7 @@ public sealed class AccountSetupAcceptanceServiceTests
             authorization: new FixedAuthorizationClosure(PermissionAtomSet.Empty),
             initialRole: AdmittedRole.Role.ToString(), installedRole: AdmittedRole,
             roleDigest: InvitationInitialRole.Digest(AdmittedRole, PermissionAtomSet.Empty));
-        var command = new AccountSetupAcceptCommand(fixture.RawCode, fixture.TenantId, "holder",
+        var command = new AccountSetupAcceptCommand(fixture.RawCode, "holder",
             ArgonHash, Guid.NewGuid().ToString("N"));
         Assert.Equal(AccountSetupAcceptStatus.Accepted, (await fixture.Service.AcceptAsync(command)).Status);
         await using var grants = fixture.SearchStore.CreateContext();
@@ -81,7 +81,7 @@ public sealed class AccountSetupAcceptanceServiceTests
                 condition == "changed" ? PermissionAtomSet.Of(PermissionAtom.Parse("records:read@/")) : roleAtoms),
             mandateAllowed: condition != "lost-mandate", inviterMember: condition != "lost-membership");
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "holder", ArgonHash, "refused-holder"));
+            fixture.RawCode, "holder", ArgonHash, "refused-holder"));
         Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
         Assert.Equal(0, fixture.PartyBinding.MintCalls);
         await using var grants = fixture.SearchStore.CreateContext();
@@ -101,7 +101,7 @@ public sealed class AccountSetupAcceptanceServiceTests
             initialRole: AdmittedRole.Role.ToString(), installedRole: AdmittedRole,
             roleDigest: InvitationInitialRole.Digest(AdmittedRole, roleAtoms), gateRead: reads.Add);
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "holder", ArgonHash, "scope-refusal"));
+            fixture.RawCode, "holder", ArgonHash, "scope-refusal"));
         Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
         var mandate = Assert.Single(reads, request => request.RequiredGrantAtoms is not null);
         Assert.Equal("members:manage", mandate.Act.Operation.Value);
@@ -118,7 +118,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         await using var fixture = await AcceptanceFixture.CreateAsync(inviterRoles: new[] { ShipRole.Captain });
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.Accepted, result.Status);
         Assert.NotNull(result.AccountId);
@@ -174,7 +174,7 @@ public sealed class AccountSetupAcceptanceServiceTests
 
         // The invitation is single-use: a replay of the same code is refused with no new account.
         var replay = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
         Assert.Equal(AccountSetupAcceptStatus.InvitationRefused, replay.Status);
     }
 
@@ -213,7 +213,7 @@ public sealed class AccountSetupAcceptanceServiceTests
             requestedPermissions: requested);
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.Accepted, result.Status);
         await using var grants = fixture.SearchStore.CreateContext();
@@ -233,7 +233,7 @@ public sealed class AccountSetupAcceptanceServiceTests
             requestedPermissions: PermissionSet.Empty);
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.Accepted, result.Status);
     }
@@ -249,7 +249,7 @@ public sealed class AccountSetupAcceptanceServiceTests
             authorization: new FixedAuthorizationClosure(authorized: false));
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
     }
@@ -261,7 +261,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         await using var fixture = await AcceptanceFixture.CreateAsync(inviterRoles: new[] { ShipRole.Captain });
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            "wrong-code", fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            "wrong-code", "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.InvitationRefused, result.Status);
         await using var identity = fixture.IdentityFactory.CreateDbContext();
@@ -277,7 +277,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         await using var fixture = await AcceptanceFixture.CreateAsync(inviterRoles: Array.Empty<ShipRole>());
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
         await using var identity = fixture.IdentityFactory.CreateDbContext();
@@ -294,7 +294,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         await using var fixture = await AcceptanceFixture.CreateAsync(inviterRoles: new[] { ShipRole.OOD });
 
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.AuthorityRefused, result.Status);
     }
@@ -306,7 +306,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         await using var fixture = await AcceptanceFixture.CreateAsync(inviterRoles: new[] { ShipRole.Captain });
         // The founder already owns the normalized username "FOUNDER"; the joiner cannot reuse it.
         var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "founder", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "founder", ArgonHash, Guid.NewGuid().ToString("N")));
 
         Assert.Equal(AccountSetupAcceptStatus.UsernameConflict, result.Status);
         await using (var identity = fixture.IdentityFactory.CreateDbContext())
@@ -317,7 +317,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         }
 
         var retry = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
         Assert.Equal(AccountSetupAcceptStatus.Accepted, retry.Status);
     }
 
@@ -330,7 +330,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             var result = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-                fixture.RawCode, fixture.TenantId, "founder", ArgonHash, Guid.NewGuid().ToString("N")));
+                fixture.RawCode, "founder", ArgonHash, Guid.NewGuid().ToString("N")));
             Assert.Equal(AccountSetupAcceptStatus.UsernameConflict, result.Status);
         }
 
@@ -342,7 +342,7 @@ public sealed class AccountSetupAcceptanceServiceTests
         }
 
         var afterBound = await fixture.Service.AcceptAsync(new AccountSetupAcceptCommand(
-            fixture.RawCode, fixture.TenantId, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
+            fixture.RawCode, "joiner", ArgonHash, Guid.NewGuid().ToString("N")));
         Assert.Equal(AccountSetupAcceptStatus.InvitationRefused, afterBound.Status);
     }
 
@@ -369,7 +369,6 @@ public sealed class AccountSetupAcceptanceServiceTests
             new PairingRedeemRateLimiter(perSourceMax: 1_000, perTenantMax: 1_000, clock: TimeProvider.System),
             new AccountSetupAcceptRoutes.AcceptRequest(
                 "valid-invitation-code",
-                Guid.NewGuid().ToString("D"),
                 "joiner",
                 "chosen password"),
             context);

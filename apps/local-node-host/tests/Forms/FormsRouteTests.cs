@@ -12,10 +12,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
+using Harborline.Api.Foundation.RuleEngine;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -63,6 +65,8 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private MutableActiveTeamAccessor _activeTeam = null!;
+    private CancellationTokenSource? _graphTimeout;
+    private readonly CancellingGraphClock _graphClock = new();
 
     public async Task InitializeAsync()
     {
@@ -82,6 +86,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
+        builder.Services.AddFrozenKernelClock(_graphClock);
         var formWriter = builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IAuthorizedFormEntityWriter));
         builder.Services.Remove(formWriter);
         builder.Services.AddSingleton<IAuthorizedFormEntityWriter>(services => new PausedFormEntityWriter(
@@ -148,6 +153,8 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         _app.Use(async (http, next) =>
         {
             if (_selected is not null) http.Features.Set(_selected);
+            if (_graphTimeout is not null && http.Request.Path.Value?.EndsWith("/timeout.rule.v1/submit", StringComparison.Ordinal) == true)
+                http.RequestAborted = _graphTimeout.Token;
             await next(http);
         });
 
@@ -243,6 +250,62 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
         Assert.Equal("PASS", FieldByName(fields, "result").GetProperty("value").GetString());
         // PII field: redacted (null value) even on read-back.
         Assert.Equal(JsonValueKind.Null, FieldByName(fields, "inspector").GetProperty("value").ValueKind);
+    }
+
+    [Fact]
+    public async Task Submit_real_rule_graph_timeout_returns_retryable_503()
+    {
+        const string timeoutFormId = "timeout.rule.v1";
+        var store = _app.Services.GetRequiredService<IFormDefinitionStore>();
+        var original = await store.GetCurrentPublishedAsync(new(TenantA, FormId));
+        Assert.NotNull(original);
+        var definition = original with
+        {
+            Id = new FormDefinitionId(timeoutFormId),
+            Status = FormDefinitionStatus.Draft,
+            Overlay = original.Overlay with
+            {
+                Rules = [new RuleDefinition(
+                    Envelope: new("restrict.active", "1.0.0", TenantA, CascadeLayer.Tenant, null, []),
+                    Tier: RuleTier.JsonLogic,
+                    Scope: RuleScope.Field,
+                    ScopeTarget: "station",
+                    Expression: """{"==":[{"var":"station"},"Burj Khalifa"]}""",
+                    Action: RuleActionKind.Validate)],
+            },
+        };
+        await store.RegisterAsync(definition);
+        await store.PublishAsync(new DefinitionCoordinates(TenantA, timeoutFormId, definition.Version.ToString()));
+
+        using var cancellation = new CancellationTokenSource();
+        _graphTimeout = cancellation;
+        _graphClock.CancelOnSecondRead(cancellation);
+        var response = await _client.PostAsJsonAsync($"{Base}/{timeoutFormId}/submit",
+            new { station = "Burj Khalifa", result = "PASS" });
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(RuleEngineCodes.Timeout, body.GetProperty("code").GetString());
+        Assert.True(body.GetProperty("detail").GetProperty("retryable").GetBoolean());
+    }
+
+    private sealed class CancellingGraphClock : TimeProvider
+    {
+        private CancellationTokenSource? _cancellation;
+        private int _readsUntilCancellation;
+
+        public void CancelOnSecondRead(CancellationTokenSource cancellation)
+        {
+            _cancellation = cancellation;
+            _readsUntilCancellation = 2;
+        }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (_cancellation is not null && --_readsUntilCancellation == 0)
+                _cancellation.Cancel();
+            return TimeProvider.System.GetUtcNow();
+        }
     }
 
     [Fact(DisplayName = "submit: a schema-invalid candidate is a 422 with JSON-Pointer errors")]

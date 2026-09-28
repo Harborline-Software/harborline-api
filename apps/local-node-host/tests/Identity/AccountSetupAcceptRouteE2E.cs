@@ -85,11 +85,11 @@ public sealed class AccountSetupAcceptRouteE2E
     public async Task Admitted_user_invitation_redeems_and_authenticates_without_member_role()
     {
         await using var h = await Harness.CreateAsync(admittedUser: true);
-        var redeem = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        var redeem = await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword);
         Assert.Equal(HttpStatusCode.OK, redeem.StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await h.SignInAsync(JoinerUsername, JoinerPassword)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized,
-            (await h.RedeemAsync(h.RawCode, h.TenantId, "changed", JoinerPassword)).StatusCode);
+            (await h.RedeemAsync(h.RawCode, "changed", JoinerPassword)).StatusCode);
     }
 
     [Fact(DisplayName = "A redeemed invitation leaves the joiner able to sign in with the password they chose")]
@@ -97,7 +97,7 @@ public sealed class AccountSetupAcceptRouteE2E
     {
         await using var h = await Harness.CreateAsync();
 
-        var redeem = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        var redeem = await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword);
         Assert.Equal(HttpStatusCode.OK, redeem.StatusCode);
         var accepted = await redeem.Content.ReadFromJsonAsync<AcceptedBody>();
         Assert.Equal(h.TenantId, accepted!.TenantId);
@@ -125,7 +125,7 @@ public sealed class AccountSetupAcceptRouteE2E
 
         Assert.Equal(
             HttpStatusCode.OK,
-            (await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword)).StatusCode);
+            (await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword)).StatusCode);
 
         var wrong = await h.SignInAsync(JoinerUsername, JoinerPassword + " not");
         Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
@@ -144,7 +144,7 @@ public sealed class AccountSetupAcceptRouteE2E
 
         Assert.Equal(
             HttpStatusCode.OK,
-            (await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword)).StatusCode);
+            (await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword)).StatusCode);
 
         var firstFailure = await h.SignInAsync(
             $"  {JoinerUsername.ToUpperInvariant()}  ",
@@ -165,14 +165,14 @@ public sealed class AccountSetupAcceptRouteE2E
     {
         await using var h = await Harness.CreateAsync();
 
-        var refused = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, password: string.Empty);
+        var refused = await h.RedeemAsync(h.RawCode, JoinerUsername, password: string.Empty);
         Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
         var error = await refused.Content.ReadFromJsonAsync<ErrorBody>();
         Assert.Equal("credential_rejected", error!.Error);
 
         // The invitation is single-use and irreversible, so this is the property that matters: an
         // input the human can simply correct must not have cost them their one code.
-        var retry = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        var retry = await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword);
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await h.SignInAsync(JoinerUsername, JoinerPassword)).StatusCode);
     }
@@ -182,7 +182,7 @@ public sealed class AccountSetupAcceptRouteE2E
     {
         await using var h = await Harness.CreateAsync();
 
-        var conflict = await h.RedeemAsync(h.RawCode, h.TenantId, "founder", JoinerPassword);
+        var conflict = await h.RedeemAsync(h.RawCode, "founder", JoinerPassword);
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Equal("username_taken", (await conflict.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
 
@@ -192,7 +192,7 @@ public sealed class AccountSetupAcceptRouteE2E
         Assert.Null(afterConflict.ConsumedAtUtc);
         Assert.Equal(2, afterConflict.OwnerVersion);
 
-        var retry = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        var retry = await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword);
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.NotNull((await h.ReadInvitationAsync()).ConsumedAtUtc);
         Assert.Equal(HttpStatusCode.OK, (await h.SignInAsync(JoinerUsername, JoinerPassword)).StatusCode);
@@ -207,7 +207,7 @@ public sealed class AccountSetupAcceptRouteE2E
         // while placing a hard ceiling on the names one administrator-issued invitation can probe.
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            var conflict = await h.RedeemAsync(h.RawCode, h.TenantId, "founder", JoinerPassword);
+            var conflict = await h.RedeemAsync(h.RawCode, "founder", JoinerPassword);
             Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
             Assert.Equal("username_taken", (await conflict.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
         }
@@ -216,7 +216,7 @@ public sealed class AccountSetupAcceptRouteE2E
         Assert.NotNull(bounded.ConsumedAtUtc);
         Assert.Equal(4, bounded.OwnerVersion);
 
-        var afterBound = await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword);
+        var afterBound = await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword);
         Assert.Equal(HttpStatusCode.Unauthorized, afterBound.StatusCode);
         Assert.Equal("acceptance_failed", (await afterBound.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
     }
@@ -228,7 +228,7 @@ public sealed class AccountSetupAcceptRouteE2E
 
         var bare = await h.PostAsync(
             AccountSetupAcceptRoutes.AcceptPath,
-            new { code = h.RawCode, tenantId = h.TenantId, username = JoinerUsername, password = JoinerPassword },
+            new { code = h.RawCode, username = JoinerUsername, password = JoinerPassword },
             antiforgeryToken: null,
             cookie: null);
         Assert.Equal(HttpStatusCode.BadRequest, bare.StatusCode);
@@ -236,7 +236,7 @@ public sealed class AccountSetupAcceptRouteE2E
 
         Assert.Equal(
             HttpStatusCode.OK,
-            (await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword)).StatusCode);
+            (await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword)).StatusCode);
     }
 
     [Fact(DisplayName = "A second redemption of the same code is refused non-enumerating")]
@@ -246,9 +246,9 @@ public sealed class AccountSetupAcceptRouteE2E
 
         Assert.Equal(
             HttpStatusCode.OK,
-            (await h.RedeemAsync(h.RawCode, h.TenantId, JoinerUsername, JoinerPassword)).StatusCode);
+            (await h.RedeemAsync(h.RawCode, JoinerUsername, JoinerPassword)).StatusCode);
 
-        var replay = await h.RedeemAsync(h.RawCode, h.TenantId, "someone-else", JoinerPassword);
+        var replay = await h.RedeemAsync(h.RawCode, "someone-else", JoinerPassword);
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
         Assert.Equal("acceptance_failed", (await replay.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
     }
@@ -258,7 +258,6 @@ public sealed class AccountSetupAcceptRouteE2E
     {
         var request = new AccountSetupAcceptRoutes.AcceptRequest(
             Code: "invitation-code-that-is-bearer-authority",
-            TenantId: "11111111-2222-3333-4444-555555555555",
             Username: JoinerUsername,
             Password: JoinerPassword);
 
@@ -271,7 +270,6 @@ public sealed class AccountSetupAcceptRouteE2E
 
         // The non-secret members still print — this is a redaction, not a silenced ToString. Without
         // this half, a PrintMembers that emitted nothing at all would pass the two asserts above.
-        Assert.Contains("11111111-2222-3333-4444-555555555555", printed, StringComparison.Ordinal);
         Assert.Contains(JoinerUsername, printed, StringComparison.Ordinal);
     }
 
@@ -465,14 +463,13 @@ public sealed class AccountSetupAcceptRouteE2E
         /// <summary>The browser's two-step: fetch anonymous antiforgery state, then POST with it.</summary>
         public async Task<HttpResponseMessage> RedeemAsync(
             string code,
-            string tenantId,
             string username,
             string password)
         {
             var (token, cookie) = await IssueAntiforgeryAsync();
             return await PostAsync(
                 AccountSetupAcceptRoutes.AcceptPath,
-                new { code, tenantId, username, password },
+                new { code, username, password },
                 token,
                 cookie);
         }

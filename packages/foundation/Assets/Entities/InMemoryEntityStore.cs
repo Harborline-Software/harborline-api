@@ -634,7 +634,14 @@ public sealed class InMemoryEntityStore : IEntityStore, IEntityMutationStore, IP
     public static EntityId DeriveEntityId(SchemaId schema, CreateOptions options)
     {
         if (options.ExplicitLocalPart is { Length: > 0 } explicitLocal)
+        {
+            // The 16-byte digest below always occupies this Base32 shape; reserve it for server-minted IDs.
+            if (explicitLocal.Length == 26 &&
+                explicitLocal.All(c => c is >= 'a' and <= 'z' or >= '2' and <= '7') &&
+                "aeimquy4".Contains(explicitLocal[25], StringComparison.Ordinal))
+                throw new ArgumentException("Explicit local part is reserved for schema-derived IDs.", nameof(options));
             return new EntityId(options.Scheme, options.Authority, explicitLocal);
+        }
 
         var input = Encoding.UTF8.GetBytes($"{schema.Value}|{options.Authority}|{options.Nonce}|{options.Issuer.Value}");
         Span<byte> digest = stackalloc byte[32];

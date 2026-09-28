@@ -84,7 +84,7 @@ public sealed class NPrincipalAcceptanceE2E
             var credential = founder.Credentials.Create(password);
             Assert.NotNull(credential);
             var accepted = await founder.Acceptance.AcceptAsync(new AccountSetupAcceptCommand(
-                issued.Code, tenant.Value, username, credential.CredentialHash, credential.CredentialCeremonyId));
+                issued.Code, username, credential.CredentialHash, credential.CredentialCeremonyId));
             Assert.Equal(AccountSetupAcceptStatus.Accepted, accepted.Status);
 
             var handle = await LoginAsync(founder, username, password, tenant.Value);

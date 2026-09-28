@@ -20,7 +20,10 @@ public sealed class AssetRegistryAuthorizedReadFenceTests
         // records:read decision the route resolves for the record it addresses.
         var reads = RawMutationPortSymbolInventoryTests.DiscoverCalls(
             [typeof(AssetRegistryRoutes).Assembly],
-            target => target.DeclaringType == typeof(IRegistryEntityRepository),
+            target => target.DeclaringType == typeof(IRegistryEntityRepository)
+                && target.Name is nameof(IRegistryEntityRepository.GetByIdAsync)
+                    or nameof(IRegistryEntityRepository.ListByTenantAsync)
+                    or nameof(IRegistryEntityRepository.ListByTypeAsync),
             type => IsNestedWithin(type, typeof(AssetRegistryRoutes)));
         var guards = RawMutationPortSymbolInventoryTests.DiscoverCalls(
             [typeof(AssetRegistryRoutes).Assembly],

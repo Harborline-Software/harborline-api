@@ -199,7 +199,8 @@ internal static class SubmitValidationGate
 
             foreach (var page in overlay.Pages!)
             {
-                if (page.VisibleWhen is not { } guard)
+                var guard = page.VisibleWhen;
+                if (guard is null)
                 {
                     continue;
                 }
@@ -216,7 +217,8 @@ internal static class SubmitValidationGate
                 // T-687: the seam returns a compile fault as Invalid(rule.compile.*) rather than throwing.
                 // Same refusal path (and admission constant) as the rule-set compile fault: an
                 // uncompilable guard is an uninterpretable restriction, not a hidden page.
-                if (verdict.Error?.Code is { } compileCode && compileCode.StartsWith("rule.compile.", StringComparison.Ordinal))
+                var compileCode = verdict.Error?.Code;
+                if (compileCode is not null && compileCode.StartsWith("rule.compile.", StringComparison.Ordinal))
                 {
                     return GateResult.Empty with
                     {
@@ -310,7 +312,8 @@ internal static class SubmitValidationGate
 
             foreach (var outcome in result.Validations)
             {
-                if (outcome.Validity is not { Ok: false } validity)
+                var validity = outcome.Validity;
+                if (validity is null || validity.Ok)
                 {
                     continue;
                 }

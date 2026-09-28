@@ -582,7 +582,6 @@ public sealed class KernelClockIntegrationTests
             key,
             version = "0.0.1",
             status = "Draft",
-            tenant = "server-owned",
             title = LocalizedText("Clock proof"),
             mutability = "Locked",
             initialState = "Draft",
@@ -768,7 +767,6 @@ public sealed class KernelClockIntegrationTests
             var accepted = await Services.GetRequiredService<IAccountSetupAcceptanceAuthority>().AcceptAsync(
                 new AccountSetupAcceptCommand(
                     issued!.Code,
-                    tenant.Value,
                     "ticket-238-revocation-target",
                     credential!.CredentialHash,
                     credential.CredentialCeremonyId));

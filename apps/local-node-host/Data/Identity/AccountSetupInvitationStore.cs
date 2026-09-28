@@ -242,13 +242,11 @@ internal sealed class AccountSetupInvitationStore(
     /// </summary>
     public async Task<AccountSetupInvitationConsumeResult?> ReadPendingAsync(
         string rawCode,
-        string tenantId,
         WebSetupInvitationPurpose expectedPurpose,
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
-        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
         if (expectedPurpose != WebSetupInvitationPurpose.AccountSetup)
         {
             return null;
@@ -260,7 +258,6 @@ internal sealed class AccountSetupInvitationStore(
         var row = await context.AccountSetupInvitations.AsNoTracking()
             .SingleOrDefaultAsync(item =>
                     item.TokenDigest == digest &&
-                    item.TenantId == tenantId &&
                     item.Purpose == expectedPurpose,
                 cancellationToken)
             .ConfigureAwait(false);

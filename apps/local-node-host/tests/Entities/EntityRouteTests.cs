@@ -181,6 +181,21 @@ public sealed class EntityRouteTests : IAsyncLifetime
         Assert.Equal("Acme Holdings LLC", doc.GetProperty("legalName").GetString());
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-3")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        using var response = await _client.PostAsJsonAsync(Route, new
+        {
+            legalName = "Client ID LLC",
+            id = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var entities = await _client.GetFromJsonAsync<JsonElement>(Route);
+        Assert.Empty(entities.GetProperty("entities").EnumerateArray());
+    }
+
     [Fact(DisplayName = "Entity route: same Idempotency-Key replays one instance with the same response shape")]
     public async Task Create_SameIdempotencyKey_ReplaysOneInstance()
     {
