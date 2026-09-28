@@ -47,6 +47,21 @@ describe('DeviceCapabilityProfile contract', () => {
     ).toThrow(/fastMemoryBytes/)
   })
 
+  it.each([
+    ['a negative detection timestamp', { detectedAtMs: -1 }, /detectedAtMs/],
+    ['an unrecognized operating-system family', { osFamily: 'plan9' }, /osFamily/],
+    ['an empty architecture', { architecture: '' }, /architecture/],
+    ['a non-string architecture', { architecture: 64 }, /architecture/],
+    ['a negative system-memory byte count', { systemMemoryBytes: -1 }, /systemMemoryBytes/],
+    ['an unrecognized fast-memory kind', { fastMemoryKind: 'sharedVram' }, /fastMemoryKind/],
+    ['an unrecognized bandwidth class', { bandwidthClass: 'extreme' }, /bandwidthClass/],
+    ['an unrecognized bandwidth evidence value', { bandwidthEvidence: 'measured' }, /bandwidthEvidence/],
+    ['an unrecognized detection status', { detectionStatus: 'failed' }, /detectionStatus/],
+    ['an unrecognized limitation code', { limitations: ['bandwidthUnavailable', 'futureCode'] }, /limitations/],
+  ] as const)('rejects %s from the host payload', (_description, overrides, message) => {
+    expect(() => parseDeviceCapabilityProfile({ ...assistantProfile, ...overrides })).toThrow(message)
+  })
+
   it('rejects a tier that exceeds the supplied memory evidence', () => {
     expect(() =>
       parseDeviceCapabilityProfile({

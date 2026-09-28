@@ -111,6 +111,15 @@ describe('WorkflowDefinition contract', () => {
     )
   })
 
+  it('refuses record standings that are not complete bare identifiers', () => {
+    expect(() => parseRecordStandingReference('1handler')).toThrow(
+      'authorization.gate_reference.required_standings_invalid',
+    )
+    expect(() => parseRecordStandingReference('handler/temporary')).toThrow(
+      'authorization.gate_reference.required_standings_invalid',
+    )
+  })
+
   it('the four trigger kinds are the engine kinds (none net-new)', () => {
     const kinds: WorkflowTriggerKind[] = ['Event', 'Schedule', 'HumanAction', 'DependencyComplete']
     expect(new Set(invoiceApproval.triggers.map((t) => t.kind)).has('Event')).toBe(true)
