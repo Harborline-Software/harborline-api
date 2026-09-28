@@ -248,6 +248,8 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
             UseLanListenerGate(_app, _lanDeviceSessionAuthority, _lanRateLimiter!);
         }
 
+        CallerTenantIdentifierFence.Use(_app);
+
         // inc-4 F1 — LISTENER-LEVEL caller-auth: gate ALL routes by default. The web-session
         // authority (when present) is an ADDITIONAL accept path for a per-user browser bearer.
         UseListenerCallerAuth(
@@ -329,6 +331,7 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         {
             UseLanListenerGate(_app, _lanDeviceSessionAuthority, _lanRateLimiter!);
         }
+        CallerTenantIdentifierFence.Use(_app);
         UseListenerCallerAuth(
             _app,
             callerAuth,

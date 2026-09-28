@@ -341,13 +341,13 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         // ── Step 5: joiner accepts (the REAL #2614 saga → real grant + epoch + membership). ──────────
         var joinerHash = h.Hasher.HashPassword(HashUser, JoinerPassword);
         var accept = await h.Acceptance.AcceptAsync(new AccountSetupAcceptCommand(
-            inviteCode, tenantId, JoinerUsername, joinerHash, Guid.NewGuid().ToString("N")));
+            inviteCode, JoinerUsername, joinerHash, Guid.NewGuid().ToString("N")));
         Assert.Equal(AccountSetupAcceptStatus.Accepted, accept.Status);
 
         // GATE-1 single-use (F2): a SECOND accept with the same code is refused before any mint — the
         // invitation was consumed on first use (ConsumeAndReadAsync is single-use + serializable).
         var replay = await h.Acceptance.AcceptAsync(new AccountSetupAcceptCommand(
-            inviteCode, tenantId, JoinerUsername, joinerHash, Guid.NewGuid().ToString("N")));
+            inviteCode, JoinerUsername, joinerHash, Guid.NewGuid().ToString("N")));
         Assert.Equal(AccountSetupAcceptStatus.InvitationRefused, replay.Status);
 
         // ── Step 6: joiner session — same REAL challenge → select → materialize path. ────────────────
@@ -655,7 +655,6 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         var joinerHash = h.Hasher.HashPassword(HashUser, JoinerPassword);
         var accepted = await h.Acceptance.AcceptAsync(new AccountSetupAcceptCommand(
             issued!.Code,
-            tenantId,
             JoinerUsername,
             joinerHash,
             Guid.NewGuid().ToString("N")));
