@@ -472,7 +472,7 @@ jobs:
         shell: bash
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      NUGET_PACKAGES: ${{ runner.temp }}\nuget
+      NUGET_PACKAGES: C:\nuget-runner
       HARBORLINE_VERIFY_LANE: host
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
