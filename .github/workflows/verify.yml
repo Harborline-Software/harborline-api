@@ -228,7 +228,7 @@ jobs:
 
   verify-perf-hosted:
     # Trial the same timing gate on an ephemeral Linux VM before replacing mac16.
-    # A failing sample is evidence, not a merge blocker, while we measure runner noise.
+    # The required verify job does not depend on this lane while we measure runner noise.
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       (github.event_name == 'schedule' ||
@@ -238,7 +238,6 @@ jobs:
         github.event.pull_request.draft == false))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    continue-on-error: true
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
     steps:
