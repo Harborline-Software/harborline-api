@@ -366,6 +366,22 @@ public sealed class AssetRegistryRouteTests : IAsyncLifetime
         Assert.Empty(list.GetProperty("entities").EnumerateArray());
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Entities_Create_UnboundDeniedWriteCannotPersist()
+    {
+        _allowRecordWrites = false;
+        using var denied = await _client.PostAsJsonAsync($"{AssetBase}/entities", new
+        {
+            type = "water-heater",
+            displayName = "Denied unbound heater",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{AssetBase}/entities?type=water-heater");
+        Assert.Empty(list.GetProperty("entities").EnumerateArray());
+    }
+
     [Fact(DisplayName = "entities: a pack-bound note persists validated values and returns an addressable audit id")]
     public async Task Entities_CreateBoundNote_PersistsValuesAndAuditReceipt()
     {

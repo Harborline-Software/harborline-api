@@ -436,6 +436,11 @@ public static class AssetRegistryRoutes
                 }
             }
 
+            var unboundAuthority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, unboundAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false) is { } unboundDenied)
+                return unboundDenied;
             var entity = new RegistryEntity
             {
                 Id = RegistryEntityId.NewId(),
@@ -444,7 +449,7 @@ public static class AssetRegistryRoutes
                 DisplayName = body.DisplayName.Trim(),
                 PropertyForm = propertyForm,
                 ScanKey = string.IsNullOrWhiteSpace(body.ScanKey) ? null : body.ScanKey.Trim(),
-                CreatedAt = new Instant(clock.GetUtcNow()),
+                CreatedAt = new Instant(unboundAuthority.At),
             };
             await entities.UpsertAsync(entity, entity.CreatedAt, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
 
