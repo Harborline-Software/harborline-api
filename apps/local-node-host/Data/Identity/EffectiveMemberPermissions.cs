@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
@@ -22,6 +23,12 @@ internal static class EffectiveMemberPermissions
         new(partyId,
             roster.Contains(partyId) || roster.Contains(principal.Value),
             IsEjected(roster, partyId, principal));
+
+    /// <summary>The roster party bound to <paramref name="nodeSigner"/>'s key, live or ejected; null when none.</summary>
+    /// <remarks>Admissions retain revoked keys, so an ejected node party still resolves and reads as ejected.</remarks>
+    internal static string? NodeParty(MemberRoster roster, IOperationSigner nodeSigner) =>
+        roster.Members.FirstOrDefault(member => member.PublicKey.Equals(nodeSigner.IssuerId))?.PartyId
+        ?? roster.EnumerateAdmissions().FirstOrDefault(member => member.PublicKey.Equals(nodeSigner.IssuerId))?.PartyId;
 
     // During the identity migration, either existing key can carry the signed removal. Check the
     // principal the gate reads as well as the canonical party, before accepting any live edge or grant.
