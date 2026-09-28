@@ -94,6 +94,7 @@ public sealed class ProductRouteMemberAuthorizationTests
                 Path.GetTempPath(), $"authz-probe-{Guid.NewGuid():N}.db");
 
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddTestKernelClock();
             outer.AddLogging(b => b.ClearProviders());
             outer.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={databasePath}"));

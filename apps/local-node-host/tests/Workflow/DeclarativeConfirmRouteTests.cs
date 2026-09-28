@@ -69,6 +69,8 @@ public sealed class DeclarativeConfirmRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
@@ -84,6 +86,7 @@ public sealed class DeclarativeConfirmRouteTests : IAsyncLifetime
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite(connectionString));
         builder.Services.AddSingleton<IJournalStore>(sp => new NodeEfJournalStore(
             sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(), NodeJournalWriteAdapters.Create()));
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddNodeFinancialPosting();
         builder.Services.AddSingleton<IAccountResolver, AlwaysPostableAccountResolver>();
         builder.Services.AddSingleton<IPeriodResolver>(new InMemoryPeriodResolver());

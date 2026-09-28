@@ -94,14 +94,6 @@ public sealed class MultiTeamBootstrapHostedService : IHostedService
         _logger = logger;
     }
 
-    /// <summary>
-    /// The OS-user actor of this single-office node. Mirrors <see cref="ActiveTeamAuthorizationContext.LocalUserId"/>
-    /// (the single-operator user id) so the membership edge, the financial user context, and the contact
-    /// write-actor all agree. It is NEVER granted directly: <see cref="ResolveActor"/> returns it only for
-    /// the one party this actor IS, so an establishment belonging to some other party is not projected here.
-    /// </summary>
-    private static readonly ActorId NodeOperator = new(ActiveTeamAuthorizationContext.LocalUserId);
-
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -325,7 +317,9 @@ public sealed class MultiTeamBootstrapHostedService : IHostedService
         !string.IsNullOrWhiteSpace(partyId) &&
         LocalLiveMember() is { } local &&
         string.Equals(partyId, local.PartyId, StringComparison.Ordinal)
-            ? NodeOperator
+            // Ticket 294 slice 3b: the local actor IS that party (the founder's canonical tenant principal on the
+            // founding node), the key ActiveTeamAuthorizationContext reads the registry and asks the gate by.
+            ? new ActorId(local.PartyId)
             : (ActorId?)null;
 
     /// <summary>
@@ -415,7 +409,7 @@ public sealed class MultiTeamBootstrapHostedService : IHostedService
         // Seed-grows-into-tree (ADR 0144 D3): the genesis founder holds the full informal-default role graph.
         // The workshop:unlock mode-entry holding (ADR 0144 AD.1) is NOT in this set: the unlock decision reads
         // the access-grant closure (ticket 205 slice 2), so the founder's holding is seeded as a grant by
-        // AccessGrantAuthorizationSeed (NodeOperatorRole for NodeOperatorPrincipal) — where the gate reads it.
+        // AccessGrantAuthorizationSeed (NodeOperatorRole for the desktop actor) — where the gate reads it.
         // Composing it here as well would be a second, inert copy of the same authority.
         var founderPermissions = PermissionCompositions.ForRole(TeamRole.Admin);
         var membership = new TeamMembership(

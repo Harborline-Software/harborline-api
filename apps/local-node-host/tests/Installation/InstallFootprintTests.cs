@@ -152,6 +152,7 @@ public sealed class InstallFootprintTests : IDisposable
         }
 
         var outerServices = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outerServices);
         outerServices.AddHarborlineInstallFootprint(
             _directory,
             Path.Combine(_directory, "installation", "install.identity"));

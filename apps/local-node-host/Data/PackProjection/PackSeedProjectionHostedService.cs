@@ -11,6 +11,8 @@ using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Data.Identity;
+
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>
@@ -45,7 +47,8 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
         IPackInstallStore store,
         IPackTrustStore trust,
         IPackRevocationList revocation,
-        TimeProvider time)
+        TimeProvider time,
+        NodeOperatorIdentity? nodeOperator = null)
         : this(
             installer as IPackProjectionReconciler
                 ?? throw new InvalidOperationException("The composed pack installer cannot reconcile projections."),
@@ -67,7 +70,7 @@ internal sealed class PackSeedProjectionHostedService : IHostedService
                     // Re-enter ordinary activation with a fresh gate decision and projection authority.
                     var result = await installer.ActivateAsync(new PackInstallContext(
                         tenant, trust, revocation, time.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
-                        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal), pack.PackKey, pack.Version, ct).ConfigureAwait(false);
+                        Principal: nodeOperator?.Principal?.Value), pack.PackKey, pack.Version, ct).ConfigureAwait(false);
                     if (!result.Activated || !result.Projected || result.ProjectionResult is IPackProjectionRefusalReport { ProjectionRefused: true })
                     {
                         refused++;

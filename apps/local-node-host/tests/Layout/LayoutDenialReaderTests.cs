@@ -89,7 +89,7 @@ public sealed class LayoutDenialReaderTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production);
+                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var grants = provider.GetRequiredService<IGrantStore>();
             var member = AccessGrantAuthorizationSeed.MemberRole;
             await grants.AppendAsync(Tenant, Grant(Both, RoleReference.Auditor, "/"));

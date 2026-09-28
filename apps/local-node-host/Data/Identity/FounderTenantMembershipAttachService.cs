@@ -126,7 +126,7 @@ internal sealed class FounderTenantMembershipAttachService
     /// <summary>The founder's canonical tenant principal. Deterministic in the ceremony coordinates.</summary>
     /// <remarks>
     /// Keyed on the ceremony correlation and the tenant — NOT on the account id, which a governed
-    /// recovery may legitimately change, and never on <c>ActiveTeamAuthorizationContext.LocalUserId</c>, which
+    /// recovery may legitimately change, and never on the retired desktop constant <c>"local"</c>, which
     /// ADR 0160 R3-D forbids the web plane from falling back to.
     /// </remarks>
     internal static PrincipalUserId DerivePrincipal(TenantId tenant, string ceremonyCorrelationId) =>

@@ -73,6 +73,7 @@ public sealed class AmbientContextAdapterPointOfUseTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(TimeProvider.System);
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
 
         Assert.DoesNotContain(

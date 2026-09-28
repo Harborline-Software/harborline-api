@@ -19,6 +19,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
@@ -164,7 +166,7 @@ public sealed class NodeAttributionEnvelopeTests : IAsyncLifetime
         var members = rows.Select(r => ParseAttribution(r.Payload).GetProperty("member_party_id").GetString()).ToHashSet();
         Assert.Contains("party:alice", members);
         Assert.Contains("party:bob", members);
-        Assert.DoesNotContain(ActiveTeamAuthorizationContext.LocalUserId, members);
+        Assert.DoesNotContain(TestDesktopOperator.Principal, members);
     }
 
     [Fact(DisplayName = "Tamper-evidence: altering ANY attribution field in the signed payload (member_party_id) makes the node signature FAIL to verify — the attestation binds the attribution content")]
@@ -211,20 +213,20 @@ public sealed class NodeAttributionEnvelopeTests : IAsyncLifetime
         await store.SaveAtomicForTestAsync(
             LocalTenantId,
             BalancedPosted("JE-ATTR-OP", 42m),
-            Authority(ActiveTeamAuthorizationContext.LocalUserId));
+            Authority(TestDesktopOperator.Principal));
 
         await using var ctx = await _factory.CreateDbContextAsync();
         var row = Assert.Single(await ctx.Set<NodeAuditEventRow>()
             .Where(r => r.TenantId == LocalTenantId.Value).ToListAsync());
 
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, row.Actor);
+        Assert.Equal(TestDesktopOperator.Principal, row.Actor);
         var attribution = ParseAttribution(row.Payload);
         Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
             attribution.GetProperty("schema").GetString());
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, attribution.GetProperty("member_party_id").GetString());
+        Assert.Equal(TestDesktopOperator.Principal, attribution.GetProperty("member_party_id").GetString());
         Assert.Equal(_signer.Signer.IssuerId.ToBase64Url(),
             attribution.GetProperty("attesting_public_key").GetString());
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId,
+        Assert.Equal(TestDesktopOperator.Principal,
             ParseAuthority(row.Payload).GetProperty("principal").GetString());
 
         var op = NodeAuditSignaturePayload.TryReconstruct(row, _signer.Signer.IssuerId, row.Signature!);

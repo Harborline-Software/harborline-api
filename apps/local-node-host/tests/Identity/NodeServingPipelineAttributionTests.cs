@@ -25,6 +25,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>
@@ -93,7 +95,7 @@ public sealed class NodeServingPipelineAttributionTests
         // THE assertion this card exists for. On unfixed main request attribution does not propagate; the enlister sees a
         // null attribution, and Actor collapses to the operator constant.
         Assert.Equal(MemberParty, row.Actor);
-        Assert.NotEqual(ActiveTeamAuthorizationContext.LocalUserId, row.Actor);
+        Assert.NotEqual(TestDesktopOperator.Principal, row.Actor);
 
         var attribution = ParseAttribution(row.Payload);
         Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
@@ -121,13 +123,13 @@ public sealed class NodeServingPipelineAttributionTests
 
         var row = await fixture.SingleAuditRowAsync();
 
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, row.Actor);
+        Assert.Equal(TestDesktopOperator.Principal, row.Actor);
         var attribution = ParseAttribution(row.Payload);
         Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
             attribution.GetProperty("schema").GetString());
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId,
+        Assert.Equal(TestDesktopOperator.Principal,
             attribution.GetProperty("member_party_id").GetString());
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId,
+        Assert.Equal(TestDesktopOperator.Principal,
             ParseAuthority(row.Payload).GetProperty("principal").GetString());
 
         var op = NodeAuditSignaturePayload.TryReconstruct(row, fixture.IssuerId, row.Signature!);
@@ -147,7 +149,7 @@ public sealed class NodeServingPipelineAttributionTests
         var rows = await fixture.AuditRowsAsync();
         Assert.Equal(2, rows.Count);
         Assert.Equal(MemberParty, rows[0].Actor);
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, rows[1].Actor);
+        Assert.Equal(TestDesktopOperator.Principal, rows[1].Actor);
 
         // The hash chain links across both rows, and BOTH classify Verified through the production
         // reader. The operator-fallback row is byte-shaped exactly like every row written before this
@@ -217,6 +219,7 @@ public sealed class NodeServingPipelineAttributionTests
             // ── The OUTER container: EXACTLY the production audit composition, on a container with no
             //    HTTP pipeline — the same geometry Program.cs builds via Host.CreateApplicationBuilder.
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddLogging();
             outer.AddSingleton<IHarborlineEntityModule, FinancialLedgerEntityModule>();
             outer.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();

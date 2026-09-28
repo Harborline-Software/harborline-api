@@ -31,6 +31,8 @@ using Harborline.Api.LocalNodeHost.Tests;
 using Xunit;
 
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.AssetRegistry;
 
 /// <summary>
@@ -73,7 +75,7 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
             new TeamContext(Team, "Spatial route test team", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         var memberships = new InMemoryTeamRegistry();
         await memberships.AddMembershipAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             new TeamMembership(
                 Team.Value,
                 "Spatial route test team",
@@ -82,6 +84,7 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
                 TeamRole.Admin));
 
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging(logging => logging.ClearProviders());
         outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
@@ -95,11 +98,12 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
         // selected-session permission set the fixture flips, so the role-map and no-spatial:read teeth still
         // move the verdict.
         outer.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
-            (principal, permission) => string.Equals(principal, Harborline.Api.Blocks.AccessGrant.AccessGrantAuthorizationSeed.NodeOperatorPrincipal, StringComparison.Ordinal)
+            (principal, permission) => string.Equals(principal, TestDesktopOperator.Principal, StringComparison.Ordinal)
                 || _resolver.Holds(permission)));
         outer.AddSingleton<IHarborlineEntityModule, HomeEpochEntityModule>();
         outer.AddSingleton<IHarborlineEntityModule, SpatialFrameEntityModule>();
         outer.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddNodeFinancialPosting();
         _outer = outer.BuildServiceProvider();
 

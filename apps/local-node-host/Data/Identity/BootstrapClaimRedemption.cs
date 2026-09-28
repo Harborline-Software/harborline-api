@@ -449,6 +449,8 @@ internal sealed class BootstrapClaimRedemptionService
     private readonly IGrantStore _grantStore;
     private readonly InitialGrantIssuanceService _grantIssuance;
     private readonly AuthorizationSeedProfile _seedProfile;
+    // Ticket 294 slice 3b: the seed's node-operator holding names the desktop actor, so exactness needs it.
+    private readonly NodeOperatorIdentity? _nodeOperator;
     private readonly TimeProvider _timeProvider;
 
     internal Func<IDisposable>? FenceAttemptScopeForTests { get; set; }
@@ -458,8 +460,10 @@ internal sealed class BootstrapClaimRedemptionService
         IGrantStore grantStore,
         InitialGrantIssuanceService grantIssuance,
         AuthorizationSeedProfile seedProfile,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        NodeOperatorIdentity? nodeOperator = null)
     {
+        _nodeOperator = nodeOperator;
         _identityFactory = identityFactory ?? throw new ArgumentNullException(nameof(identityFactory));
         _grantStore = grantStore ?? throw new ArgumentNullException(nameof(grantStore));
         _grantIssuance = grantIssuance ?? throw new ArgumentNullException(nameof(grantIssuance));
@@ -686,7 +690,8 @@ internal sealed class BootstrapClaimRedemptionService
                 (ScopeExpressionType)reader.GetInt32(5),
                 reader.IsDBNull(27) ? null : reader.GetString(27)));
         }
-        return !AccessGrantAuthorizationSeed.IsExactInstallerSeedSet(tenant, grants, _seedProfile);
+        return !AccessGrantAuthorizationSeed.IsExactInstallerSeedSet(
+            tenant, grants, _seedProfile, _nodeOperator?.Principal);
     }
 
     private static async Task<long> AppendPreparedGrantAsync(

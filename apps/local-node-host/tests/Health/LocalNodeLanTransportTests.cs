@@ -23,6 +23,8 @@ using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 /// <summary>Automatable W4 transport conformance coverage for the LAN listener.</summary>
@@ -276,14 +278,18 @@ public sealed class LocalNodeLanTransportTests : IDisposable
         // AuthorizationGate decision keyed by the request's own principal. The claim W4-C22 makes has not
         // changed and is asserted on the site that carries it now: a device-plane request with no bound
         // principal must NOT be resolved as the desktop operator, whose grants are not the device's.
-        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions
+                .BuildServiceProvider(new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddTestDesktopOperator()),
+        };
 
-        Assert.Equal(NodeCallerParty.OperatorParty, NodeCallerParty.Resolve(http));
+        Assert.Equal(TestDesktopOperator.Party, NodeCallerParty.Resolve(http));
         using (NodeCallerAttributionScope.EnterDevice("device-1", "tenant-a", "principal-1"))
         {
             Assert.Throws<NodeCallerAttributionRefusedException>(() => NodeCallerParty.Resolve(http));
         }
-        Assert.Equal(NodeCallerParty.OperatorParty, NodeCallerParty.Resolve(http));
+        Assert.Equal(TestDesktopOperator.Party, NodeCallerParty.Resolve(http));
     }
 
     [Fact(DisplayName = "W4-C23: LAN source attempts and concurrent handshakes are capped")]
@@ -606,6 +612,8 @@ public sealed class LocalNodeLanTransportTests : IDisposable
             ILanDeviceSessionAuthority authority)
         {
             var builder = WebApplication.CreateBuilder();
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             builder.Environment.EnvironmentName = Environments.Development;

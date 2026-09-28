@@ -62,15 +62,17 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://[::1]:0");
         builder.Logging.ClearProviders();
         _activeTeam = new MutableActiveTeamAccessor(Context(TeamA));
         _memberships = new InMemoryTeamRegistry();
         await _memberships.AddMembershipAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             Membership(TeamA, TeamRole.Admin));
         await _memberships.AddMembershipAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             Membership(TeamB, TeamRole.Admin));
         builder.Services.AddSingleton<IActiveTeamAccessor>(_activeTeam);
         builder.Services.AddSingleton<IMutableTeamRegistry>(_memberships);
@@ -212,7 +214,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         string path)
     {
         Assert.True(await _memberships.SetRoleAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             TeamA.Value,
             TeamRole.Viewer));
         var tenant = new TenantId(TeamA.Value.ToString("D"));
@@ -220,7 +222,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         var grant = await grants.FindBySourceReferenceAsync(tenant, "desktop-fixture");
         Assert.NotNull(grant);
         await grants.RevokeAsync(tenant, grant.GrantId, new GrantRevocation(
-            ActiveTeamAuthorizationContext.NodeOperator, Now,
+            TestDesktopOperator.Actor, Now,
             new GrantReason(GrantReasonCodes.RevocationReview, "remove manage-settings authority")));
         ResetDependencyCounts();
         using var request = new HttpRequestMessage(method, path);
@@ -270,7 +272,7 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
         Assert.Equal(1, result!.Revision);
         Assert.Equal("EmptyBinding", result.Warning);
         Assert.Empty(result.EffectiveRoles);
-        Assert.Equal(NodeCallerParty.OperatorParty.Value, result.ChangedBy);
+        Assert.Equal(TestDesktopOperator.Party.Value, result.ChangedBy);
         Assert.Equal(Now, result.ChangedAt);
         var row = Assert.Single(await _catalogue.ListAsync(NodeTenant.Resolve(_activeTeam)));
         Assert.Equal(1, row.BindingRevision);

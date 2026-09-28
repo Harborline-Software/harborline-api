@@ -161,6 +161,11 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         // the health endpoint is mapped.
         builder.Services.AddSingleton(sp =>
             outerServices.GetRequiredService<Harborline.Api.Kernel.Runtime.Teams.IActiveTeamAccessor>());
+        // Ticket 294 slice 3b — the desktop actor a desktop-plane request is attributed to and gated as.
+        if (outerServices.GetService<Data.Identity.NodeOperatorIdentity>() is { } nodeOperator)
+        {
+            builder.Services.AddSingleton(nodeOperator);
+        }
         var desktopAuthorization = outerServices.GetService<Data.Financial.ActiveTeamAuthorizationContext>();
         if (desktopAuthorization is not null)
         {

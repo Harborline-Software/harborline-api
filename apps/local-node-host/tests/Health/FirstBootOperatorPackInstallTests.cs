@@ -12,6 +12,8 @@ using Harborline.Api.LocalNodeHost.Health;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 /// <summary>
@@ -99,7 +101,7 @@ public sealed partial class ComposedHostBootSmokeTests
         Assert.NotEmpty(principals);
         Assert.DoesNotContain(signingKeyId, principals);
         Assert.All(principals, principal =>
-            Assert.Equal(NodeCallerParty.OperatorParty.Value, principal));
+            Assert.Equal(TestDesktopOperator.HostOperator(rootSeedHex), principal));
     }
 
     private const string FirstBootPackKey = "ticket379.first-boot";

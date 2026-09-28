@@ -323,6 +323,8 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
         {
             var builder = WebApplication.CreateBuilder(
                 new WebApplicationOptions { EnvironmentName = "Development" });
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.Services.AddLogging();
             builder.Services.AddInMemoryAssetTypeSystem();
             builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,

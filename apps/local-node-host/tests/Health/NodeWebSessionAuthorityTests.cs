@@ -22,6 +22,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
 /// <summary>
@@ -225,6 +227,7 @@ public sealed class NodeWebSessionAuthorityTests
     private static async Task<Harness> StartAsync(bool provisionCredential = true)
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         var audit = new AuditCapture();
         outer.AddLogging(b => b.AddProvider(audit));
         outer.AddTestKernelClock();
@@ -247,6 +250,7 @@ public sealed class NodeWebSessionAuthorityTests
         outer.AddSingleton<IInstallationIdentityV1AuthorityGate>(
             new ConfigurableV1AuthorityGate());
         outer.AddSingleton<WebLoginRateLimiter>();
+        outer.AddTestDesktopOperator();
         outer.AddSingleton<INodeWebSessionAuthority, NodeWebSessionAuthority>();
 
         var outerProvider = outer.BuildServiceProvider();
@@ -712,7 +716,8 @@ public sealed class NodeWebSessionAuthorityTests
             new SingleTeamAccessor(team),
             new ConfigurableV1AuthorityGate(),
             clock,
-            NullLogger<NodeWebSessionAuthority>.Instance);
+            NullLogger<NodeWebSessionAuthority>.Instance,
+            TestDesktopOperator.Identity());
 
         var login = (await authority.LoginAsync(FounderUser, FounderPassword, CancellationToken.None)).Login;
         Assert.NotNull(login);
@@ -789,7 +794,8 @@ public sealed class NodeWebSessionAuthorityTests
             new SingleTeamAccessor(team),
             gate,
             TimeProvider.System,
-            NullLogger<NodeWebSessionAuthority>.Instance);
+            NullLogger<NodeWebSessionAuthority>.Instance,
+            TestDesktopOperator.Identity());
     }
 
     [Fact(DisplayName =
@@ -858,7 +864,8 @@ public sealed class NodeWebSessionAuthorityTests
             new SingleTeamAccessor(team),
             gate,
             TimeProvider.System,
-            NullLogger<NodeWebSessionAuthority>.Instance);
+            NullLogger<NodeWebSessionAuthority>.Instance,
+            TestDesktopOperator.Identity());
         var login = (await authority.LoginAsync(
             FounderUser,
             FounderPassword,

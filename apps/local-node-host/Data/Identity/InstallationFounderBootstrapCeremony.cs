@@ -472,7 +472,8 @@ public static class InstallationFounderBootstrapCeremonyRegistration
             provider.GetRequiredService<Harborline.Api.Blocks.AccessGrant.IGrantStore>(),
             provider.GetRequiredService<InitialGrantIssuanceService>(),
             seedProfile,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<NodeOperatorIdentity>()));
         services.AddSingleton(provider => new InstallationFounderBootstrapCeremony(
             provider.GetRequiredService<InstallationFounderBootstrapService>(),
             provider.GetRequiredService<IOptions<NodeWebClientOptions>>(),

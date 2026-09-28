@@ -25,6 +25,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
@@ -66,6 +68,8 @@ public sealed class BillRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
@@ -404,7 +408,7 @@ public sealed class BillRouteTests : IAsyncLifetime
 
         var persisted = await _bills.GetAsync(LocalTenantId, new Harborline.Api.Blocks.FinancialAp.Models.BillId(id!), new Instant(System.TimeProvider.System.GetUtcNow()).Value);
         Assert.NotNull(persisted);
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, persisted!.ApprovedByUserId);
+        Assert.Equal(TestDesktopOperator.Principal, persisted!.ApprovedByUserId);
     }
 
     [Fact(DisplayName = "Bill approve: no bound principal accepts the operator id in the request body")]
@@ -416,7 +420,7 @@ public sealed class BillRouteTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync(
             $"{BillsRoute}/{id}/approve",
-            new { approvedByUserId = ActiveTeamAuthorizationContext.LocalUserId });
+            new { approvedByUserId = TestDesktopOperator.Principal });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

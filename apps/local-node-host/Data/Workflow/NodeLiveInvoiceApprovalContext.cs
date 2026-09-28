@@ -14,6 +14,8 @@ using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Data.Identity;
+
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
 /// <summary>
@@ -71,6 +73,7 @@ public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
 {
     private readonly INodeAuditWriteEnlister? _auditEnlister;
     private readonly INodeCallerAttributionSource? _attributionSource;
+    private readonly NodeOperatorIdentity? _nodeOperator;
 
     /// <summary>Construct without optional audit attribution collaborators.</summary>
     public NodeLiveInvoiceApprovalContext()
@@ -86,10 +89,12 @@ public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
     /// </summary>
     internal NodeLiveInvoiceApprovalContext(
         INodeAuditWriteEnlister? auditEnlister,
-        INodeCallerAttributionSource? attributionSource = null)
+        INodeCallerAttributionSource? attributionSource = null,
+        NodeOperatorIdentity? nodeOperator = null)
     {
         _auditEnlister = auditEnlister;
         _attributionSource = attributionSource;
+        _nodeOperator = nodeOperator;
     }
 
     /// <inheritdoc />
@@ -220,7 +225,8 @@ public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
             // is not wired (direct-construction slice/E2E tests) — behaviour byte-unchanged there.
             // Draft → Issued, stamping the JE id — staged on the SAME context so it co-commits with the JE +
             // the advance (mirrors the F3 IssuedInvoiceWriteScope atomicity, inline here).
-            var actingParty = NodeCallerParty.Resolve(_attributionSource?.TryResolveCurrent());
+            var actingParty = NodeCallerParty.Resolve(
+                _attributionSource?.TryResolveCurrent(), _nodeOperator?.Principal);
             var issued = invoice with
             {
                 Status = InvoiceStatus.Issued,

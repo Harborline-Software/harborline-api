@@ -253,6 +253,7 @@ public sealed class SelectedSessionRequestPrincipalTests
                 new FixedTimeProvider(Now));
 
             var outer = new ServiceCollection();
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddTestKernelClock();
             outer.AddLogging();
             outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());

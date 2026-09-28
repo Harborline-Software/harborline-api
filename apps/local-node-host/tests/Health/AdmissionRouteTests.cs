@@ -180,6 +180,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
 
         // Real SharedHostedWebApp over its outer container (provides the IActiveTeamAccessor + caller-auth token).
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         if (clock is null)
             outer.AddTestKernelClock();
         else
@@ -693,6 +694,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
             Microsoft.Extensions.Logging.Abstractions.NullLogger<NodeEnrollmentJoinService>.Instance);
 
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new FakeActiveTeamAccessor(teamContext));

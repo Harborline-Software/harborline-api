@@ -16,6 +16,7 @@ public sealed class SharedHostedWebAppSealTests
     public async Task RouteFenceViolation_Refuses_Shared_Listener_Start()
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());

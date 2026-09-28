@@ -271,7 +271,7 @@ public sealed class AuthorizationTraceReadTests
             var keys = KeyPair.Generate();
             var harness = new Harness(provider, keys, new Ed25519Signer(keys), subject);
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production);
+                .InstallAsync(Tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var grants = provider.GetRequiredService<IGrantStore>();
             // The subject and the stranger are ordinary members; the auditor is the sealed platform role.
             await grants.AppendAsync(Tenant, Grant(harness.Subject, AccessGrantAuthorizationSeed.MemberRole));

@@ -31,8 +31,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Drafts;
 /// </para>
 /// <para>
 /// <b>Single-operator resolver.</b> <see cref="NodeOperatorPartyResolver"/> maps the local operator
-/// (<see cref="ActiveTeamAuthorizationContext.LocalUserId"/>) to a STABLE PartyId derived from the roster's
-/// genesis party id, and returns null (⇒ fail-closed block) for any other principal. Tenant isolation
+/// (the desktop actor, which since ticket 294 slice 3b is the roster's genesis party itself) to a STABLE
+/// PartyId derived from that genesis party id, and returns null (⇒ fail-closed block) for any other principal. Tenant isolation
 /// is preserved by the tenant element of the draft key, not the party. When a roster-backed
 /// per-org resolver lands, only this registration changes (the ADR-0102 D4 swap seam).
 /// </para>
@@ -112,10 +112,12 @@ public sealed class NodeAuthorizationTenantContext : ITenantContext
 public sealed class NodeOperatorPartyResolver : IPrincipalPartyResolver
 {
     private readonly Guid _operatorPartyId;
+    private readonly string _genesisPartyId;
 
     /// <summary>Constructs the resolver, deriving the operator's stable PartyId from the genesis party id.</summary>
     public NodeOperatorPartyResolver(string genesisPartyId)
     {
+        _genesisPartyId = genesisPartyId;
         _operatorPartyId = DeriveOperatorPartyId(genesisPartyId);
     }
 
@@ -123,7 +125,9 @@ public sealed class NodeOperatorPartyResolver : IPrincipalPartyResolver
     public ValueTask<Guid?> ResolveAsync(string userId, TenantId tenantId, CancellationToken ct = default)
     {
         // Fail-closed for any principal other than the local operator.
-        var partyId = string.Equals(userId, ActiveTeamAuthorizationContext.LocalUserId, StringComparison.Ordinal)
+        // Ticket 294 slice 3b: the local operator's user id IS the genesis party (the desktop actor).
+        var partyId = !string.IsNullOrWhiteSpace(_genesisPartyId)
+                && string.Equals(userId, _genesisPartyId, StringComparison.Ordinal)
             ? (Guid?)_operatorPartyId
             : null;
         return ValueTask.FromResult(partyId);
@@ -140,8 +144,7 @@ public sealed class NodeOperatorPartyResolver : IPrincipalPartyResolver
         {
             return parsed;
         }
-        var seed = string.IsNullOrWhiteSpace(genesisPartyId) ? ActiveTeamAuthorizationContext.LocalUserId : genesisPartyId;
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes("node-operator-party:" + seed));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes("node-operator-party:" + genesisPartyId));
         return new Guid(hash.AsSpan(0, 16));
     }
 }

@@ -26,6 +26,8 @@ using Harborline.Api.LocalNodeHost.Health.WebSession;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 
 /// <summary>Proves an authenticated LAN device cannot borrow desktop grants on a gated route.</summary>
@@ -48,7 +50,7 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
             new TeamContext(Team, "Device-plane test team", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         var memberships = new InMemoryTeamRegistry();
         await memberships.AddMembershipAsync(
-            ActiveTeamAuthorizationContext.NodeOperator,
+            TestDesktopOperator.Actor,
             new TeamMembership(
                 Team.Value,
                 "Device-plane test team",
@@ -57,6 +59,8 @@ public sealed class DevicePlaneRouteGatingTests : IAsyncLifetime
                 TeamRole.Admin));
 
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<IActiveTeamAccessor>(activeTeam);

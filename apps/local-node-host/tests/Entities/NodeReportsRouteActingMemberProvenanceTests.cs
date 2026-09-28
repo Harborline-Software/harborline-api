@@ -28,6 +28,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
@@ -91,6 +93,8 @@ public sealed class NodeReportsRouteActingMemberProvenanceTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddTestAuthorizationGate();
@@ -168,7 +172,7 @@ public sealed class NodeReportsRouteActingMemberProvenanceTests : IAsyncLifetime
         // The principal the pre-fix route recorded for EVERY member. Derived here independently, by the
         // same rule the route applies, so this is the real negative — the operator identity can never
         // appear as a readable substring of an opaque hashed principal.
-        var operatorPrincipal = DeriveProvenancePrincipal(NodeCallerParty.OperatorParty.Value);
+        var operatorPrincipal = DeriveProvenancePrincipal(TestDesktopOperator.Party.Value);
         var recorded = new[] { alicePrincipal, bobPrincipal };
 
         // Scan the WHOLE recorded set for the operator-derived principal FIRST, so a collapse to the
@@ -189,7 +193,7 @@ public sealed class NodeReportsRouteActingMemberProvenanceTests : IAsyncLifetime
     {
         var recorded = await RunAsAsync(actingMember: null);
 
-        Assert.Equal(DeriveProvenancePrincipal(NodeCallerParty.OperatorParty.Value), recorded);
+        Assert.Equal(DeriveProvenancePrincipal(TestDesktopOperator.Party.Value), recorded);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────────────────────────────

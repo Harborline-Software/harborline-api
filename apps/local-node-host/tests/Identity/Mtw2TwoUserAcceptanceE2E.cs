@@ -407,7 +407,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         Assert.Contains(FounderParty, members);
         Assert.Contains(joinerPrincipal.CanonicalParty.Value, members);
         Assert.Equal(2, members.Distinct(StringComparer.Ordinal).Count());
-        Assert.DoesNotContain(ActiveTeamAuthorizationContext.LocalUserId, members);
+        Assert.DoesNotContain(TestDesktopOperator.Principal, members);
 
         // Attestation integrity — every JE-posted audit row's node signature VERIFIES, and the reader
         // surfaces both as Verified.
@@ -485,7 +485,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         Assert.Contains(FounderParty, lockHolders);
         Assert.Contains(joinerPrincipal.CanonicalParty.Value, lockHolders);
         Assert.Equal(2, lockHolders.Distinct(StringComparer.Ordinal).Count());
-        Assert.DoesNotContain(ActiveTeamAuthorizationContext.LocalUserId, lockHolders);
+        Assert.DoesNotContain(TestDesktopOperator.Principal, lockHolders);
 
         // The refusal is observed in the durable row too: a status-only assertion would pass even if
         // the lock were silently cleared.
@@ -535,7 +535,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
 
         Assert.Equal(FounderParty, founderDefinition!.Owner.Value);
         Assert.Equal(FounderParty, joinerDefinition!.Owner.Value);
-        Assert.NotEqual(ActiveTeamAuthorizationContext.LocalUserId, founderDefinition.Owner.Value);
+        Assert.NotEqual(TestDesktopOperator.Principal, founderDefinition.Owner.Value);
 
         // The submit half: the capability SUBJECT lands on the instance entity as its creation issuer.
         var founderSubmit = await formsRoutes.PostAsAsync(
@@ -556,7 +556,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
         Assert.Contains(FounderParty, issuers);
         Assert.Contains(joinerPrincipal.CanonicalParty.Value, issuers);
         Assert.Equal(2, issuers.Distinct(StringComparer.Ordinal).Count());
-        Assert.DoesNotContain(ActiveTeamAuthorizationContext.LocalUserId, issuers);
+        Assert.DoesNotContain(TestDesktopOperator.Principal, issuers);
 
         // ── Step 8: founder revokes the joiner via the REAL admin authority (grant revocation). ──────
         var joinerGrantId = await h.ResolveJoinerGrantIdAsync(tenantId);
@@ -914,7 +914,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
                 .InstallAsync(
                     new TenantId(canonicalTenantId),
                     time.GetUtcNow(),
-                    AuthorizationSeedProfile.Production);
+                    AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var liveAuthorization = new DefinitionJoinedAuthorizationReader(grantStore, authorizationStore);
             // Ticket 293 slice 4 fix 4 - the REAL gate over the REAL grant store and the installed role
             // definitions. AllowGate() cannot stand in for it any more: the roster supplies no deciding set, so
@@ -1117,7 +1117,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             await using var grants = SearchStore.CreateContext();
             var grantId = await grants.Grants.AsNoTracking()
                 .Where(g => g.TenantId == tenantId && g.SubjectId != FounderPrincipal &&
-                    g.SubjectId != AccessGrantAuthorizationSeed.NodeOperatorPrincipal &&
+                    g.SubjectId != TestDesktopOperator.Principal &&
                     !g.SubjectId.StartsWith("sys."))
                 .Select(g => g.GrantId)
                 .SingleAsync();
@@ -1503,6 +1503,8 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             {
                 EnvironmentName = "Development",
             });
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             builder.Services.AddTestKernelClock();
@@ -1675,6 +1677,8 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             IWebSelectedSessionPrincipalAuthority selectedSessionPrincipals)
         {
             var builder = WebApplication.CreateBuilder();
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
             var app = builder.Build();

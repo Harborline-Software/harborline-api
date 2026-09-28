@@ -263,7 +263,7 @@ public sealed class AuthorizationTraceRouteTests
         public IServiceProvider Services => LocalNodeHostRuntime.CurrentServices!;
         public HttpClient Client { get; private set; } = null!;
         public TenantId Tenant => NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
-        public ActorId Actor => new(NodeCallerParty.OperatorParty.Value);
+        public ActorId Actor => Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(Services)!.Value;
         public DateTimeOffset Now => Services.GetRequiredService<TimeProvider>().GetUtcNow();
         public static async Task<Host> OpenAsync()
         {

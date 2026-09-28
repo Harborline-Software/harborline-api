@@ -133,6 +133,7 @@ public sealed class WebLoginLockoutTests
     private static async Task<Harness> StartAsync(NodeWebLoginLockoutOptions lockout)
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         var audit = new AuditCapture();
         outer.AddLogging(b => b.AddProvider(audit));
 
@@ -153,6 +154,7 @@ public sealed class WebLoginLockoutTests
         outer.AddHarborlinePasswordHashing<NodeWebUser>();
         outer.AddHarborlineSessionEstablishment();
         outer.AddSingleton<IInstallationIdentityV1AuthorityGate>(new AllowingV1AuthorityGate());
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddSingleton<INodeWebSessionAuthority, NodeWebSessionAuthority>();
 
         var clock = new MutableTimeProvider(DateTimeOffset.Parse("2026-08-06T12:00:00Z"));

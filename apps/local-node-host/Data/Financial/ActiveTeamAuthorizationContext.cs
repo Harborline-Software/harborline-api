@@ -21,19 +21,6 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// Synchronous identity contracts bridge the asynchronous gate without caching permission verdicts.</remarks>
 public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizationContext
 {
-    /// <summary>
-    /// The install-constant local operator user id — the ACTOR axis (distinct from the data tenant,
-    /// which is active-team-derived per ADR 0032). Ticket 194 moved it here from the deleted
-    /// <c>StaticNodeUserContext</c>: that type existed only to answer one permission string with a
-    /// constant, and the constant is gone. The id itself is not a grant and never was — it names who
-    /// the desktop caller is, and what they may do is decided by <see cref="AuthorizationGate"/> at
-    /// each act's point of use.
-    /// </summary>
-    public const string LocalUserId = "local";
-
-    /// <summary>The single-office OS-user actor.</summary>
-    public static readonly ActorId NodeOperator = new(LocalUserId);
-
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly IMutableTeamRegistry _memberships;
     private readonly NodeTeamRoster? _roster;
@@ -41,6 +28,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     private readonly TimeProvider _timeProvider;
     private readonly AuthorizationGate _gate;
     private readonly AuthorizationRefusalAudit? _refusalAudit;
+    private readonly NodeOperatorIdentity? _nodeOperator;
 
     /// <summary>
     /// Construct over the active-team accessor + the membership store, and - where the composition has them -
@@ -53,8 +41,10 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         NodeTeamRoster? roster = null,
         IOperationSigner? nodeSigner = null,
         AuthorizationGate? gate = null,
-        AuthorizationRefusalAudit? refusalAudit = null)
+        AuthorizationRefusalAudit? refusalAudit = null,
+        NodeOperatorIdentity? nodeOperator = null)
     {
+        _nodeOperator = nodeOperator;
         _activeTeam = activeTeam ?? throw new ArgumentNullException(nameof(activeTeam));
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _roster = roster;
@@ -64,8 +54,18 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
+    /// <summary>
+    /// The desktop caller (ticket 294 slice 3b): the roster party bound to this node's signing key, which on the
+    /// founding node is the founder's canonical tenant principal, the key the grant store and the web plane use.
+    /// It is not a grant; what it may do is decided by <see cref="AuthorizationGate"/> at each act's point of use.
+    /// Null when the composition has no roster or the key holds no edge, and then every act is refused.
+    /// </summary>
+    private ActorId? Operator =>
+        _nodeOperator?.Principal ?? new NodeOperatorIdentity(_roster, _nodeSigner).Principal;
+
     /// <inheritdoc />
-    public string UserId => NodeOperator.Value;
+    /// <remarks>Empty when there is no desktop actor; nothing is attributed to a constant in its place.</remarks>
+    public string UserId => Operator?.Value ?? string.Empty;
 
     /// <inheritdoc />
     public IReadOnlyList<string> Roles
@@ -103,31 +103,26 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     internal async ValueTask<AuthorizationDecision?> DecideAsync(string? permission)
     {
         var active = _activeTeam.Active;
-        if (active is null) return null;
+        if (active is null || Operator is not { } actor) return null;
         var tenant = ActiveTeamTenantContext.ProjectTenantId(active.TeamId);
         var at = _timeProvider.GetUtcNow();
-        var membership = ResolveActiveMembership();
-        var inputs = new AuthorizationRosterInputs(NodeOperator.Value, false, false);
-        if (_roster is not null && _nodeSigner is not null)
-        {
-            var roster = _roster.Current;
-            // Admissions retain revoked keys, so their ejection reaches the gate as evidence too.
-            var partyId = roster.Members.FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId
-                ?? roster.EnumerateAdmissions().FirstOrDefault(member => member.PublicKey.Equals(_nodeSigner.IssuerId))?.PartyId;
-            if (partyId is not null)
-                inputs = EffectiveMemberPermissions.Read(roster, partyId, NodeOperator);
-        }
+        var membership = ResolveActiveMembership(actor);
+        // The actor IS the roster party; admissions retain revoked keys, so an ejection reaches the gate too.
+        // (Evidence only: the gate derives its own roster facts through its constraint reader.)
+        var inputs = _roster is { } roster
+            ? EffectiveMemberPermissions.Read(roster.Current, actor.Value, actor)
+            : new AuthorizationRosterInputs(actor.Value, false, false);
         AuthorizationDecision? decision = null;
         // A role label previously required at least one allowed act. Each candidate still asks the gate;
         // an empty input set asks it once as well, so absence has refusal evidence.
         var candidates = permission is null
-            ? (await _gate.InstallRootPermissionsAsync(NodeOperator, tenant, at, CancellationToken.None)
+            ? (await _gate.InstallRootPermissionsAsync(actor, tenant, at, CancellationToken.None)
                 .ConfigureAwait(false)).Permissions.DefaultIfEmpty(TeamRolePermissions.RecordsRead)
             : [permission];
         foreach (var candidate in candidates)
         {
             if (!TryParsePermission(candidate, out var operation)) continue;
-            decision = await _gate.DecideAsync(new AuthorizationWriteContext(NodeOperator, tenant, at)
+            decision = await _gate.DecideAsync(new AuthorizationWriteContext(actor, tenant, at)
                 .Request(operation, AuthorizationGate.RecordKindFor(operation), "desktop") with
                 {
                     Roster = inputs with { RegistryMember = membership is not null }
@@ -157,7 +152,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     /// The OS-user's membership edge in the active org, or <c>null</c> when no team is active or the operator
     /// is not a member of it. Carries boot membership metadata and the role label for display only.
     /// </summary>
-    private TeamMembership? ResolveActiveMembership()
+    private TeamMembership? ResolveActiveMembership(ActorId actor)
     {
         var active = _activeTeam.Active;
         if (active is null)
@@ -166,7 +161,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         }
 
         // The registry is read only for membership evidence and display metadata.
-        var task = _memberships.GetMembershipsAsync(NodeOperator);
+        var task = _memberships.GetMembershipsAsync(actor);
         var memberships = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
         foreach (var m in memberships)
         {
@@ -182,5 +177,5 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
     /// The OS-user's <see cref="TeamRole"/> in the active org, or <c>null</c> when no team is active or
     /// the operator is not a member of it. Retained for the display-role projection (<see cref="Roles"/>).
     /// </summary>
-    private TeamRole? ResolveActiveRole() => ResolveActiveMembership()?.Role;
+    private TeamRole? ResolveActiveRole() => Operator is { } actor ? ResolveActiveMembership(actor)?.Role : null;
 }

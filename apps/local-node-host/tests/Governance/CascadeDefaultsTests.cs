@@ -110,7 +110,7 @@ public sealed class CascadeDefaultsTests
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
         var writer = new AuthorizationDefinitionWriter(configuration, configuration, new AuthorizationDefinitionAdmission(roles),
             new AuthorizationCapabilityBindingAdmission(), TestAuthorization.AllowGate(), grants);
-        await new AccessGrantAuthorizationSeed(writer, configuration, grants).InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production);
+        await new AccessGrantAuthorizationSeed(writer, configuration, grants).InstallAsync(Tenant, TestAuthorization.At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
         var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem();
         services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
             Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();

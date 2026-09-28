@@ -17,6 +17,8 @@ public sealed class NodeAssetRegistryCompositionTests
         {
             EnvironmentName = Environments.Development,
         });
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
             Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
         builder.Services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,

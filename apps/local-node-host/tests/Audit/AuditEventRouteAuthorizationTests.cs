@@ -108,6 +108,8 @@ public sealed class AuditEventRouteAuthorizationTests
             var authorization = await SeededAuthorizationAsync(tenant, grantAuditor);
 
             var builder = WebApplication.CreateBuilder();
+            // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
             builder.WebHost.UseUrls("http://127.0.0.1:0");
             builder.Logging.ClearProviders();
 
@@ -159,7 +161,7 @@ public sealed class AuditEventRouteAuthorizationTests
             services.AddAccessGrantModule();
             var provider = services.BuildServiceProvider();
             await provider.GetRequiredService<AccessGrantAuthorizationSeed>()
-                .InstallAsync(tenant, At, AuthorizationSeedProfile.Production);
+                .InstallAsync(tenant, At, AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             if (!grantAuditor)
             {
                 // The caller keeps every other holding the seed gives it and loses ONLY audit:read, by the

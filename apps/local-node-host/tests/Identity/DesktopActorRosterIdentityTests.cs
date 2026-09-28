@@ -15,10 +15,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.Identity;
 /// <summary>
 /// Ticket 294 slice 3 — the ejection refusal is keyed by the same identity on every plane. The gate never
 /// consults caller-supplied roster facts; it derives them through the PRODUCTION
-/// <see cref="NodeAuthorizationRosterConstraintReader"/>. The desktop plane asks the gate about the
-/// single-operator actor, so that reader must resolve the actor to the roster party this node's signing key
-/// is bound to, exactly as the boot's projection does, or an ejected founder keeps every grant held under the
-/// desktop actor.
+/// <see cref="NodeAuthorizationRosterConstraintReader"/>. The desktop plane asks the gate about its actor, which
+/// must be the roster party this node's signing key is bound to (slice 3a mapped the old constant onto it; slice 3b
+/// made the actor that party), or an ejected founder keeps every grant held under the desktop actor.
 /// </summary>
 public sealed class DesktopActorRosterIdentityTests
 {
@@ -26,7 +25,10 @@ public sealed class DesktopActorRosterIdentityTests
     private static readonly TenantId Tenant = new(Team.ToString("D"));
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeMilliseconds(1_752_640_000_000);
     private const string NodeParty = "principal-node-294";
-    private static readonly ActorId DesktopActor = new(ActiveTeamAuthorizationContext.LocalUserId);
+
+    // Ticket 294 slice 3b: the desktop actor is what the desktop plane presents, the party bound to the node key.
+    private static ActorId DesktopActor(MemberRoster roster, IOperationSigner node) =>
+        new NodeOperatorIdentity(new Harborline.Api.LocalNodeHost.Enrollment.NodeTeamRoster(roster), node).Principal!.Value;
 
     [Theory]
     [Trait("PlanCard", "294-s3")]
@@ -44,8 +46,9 @@ public sealed class DesktopActorRosterIdentityTests
                 PermissionCompositions.Admin, verifier, Now, Guid.NewGuid())
             .Revoke("founder", NodeParty);
 
-        var decision = await DecideAsync(roster, new Ed25519Signer(node),
-            presentDesktopActor ? DesktopActor : new ActorId(NodeParty));
+        var nodeSigner = new Ed25519Signer(node);
+        var decision = await DecideAsync(roster, nodeSigner,
+            presentDesktopActor ? DesktopActor(roster, nodeSigner) : new ActorId(NodeParty));
 
         Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
         Assert.True(decision.Evidence.Roster!.Ejected);
@@ -63,7 +66,8 @@ public sealed class DesktopActorRosterIdentityTests
             .Admit("founder", founderSigner, NodeParty, node.PrincipalId,
                 PermissionCompositions.Admin, verifier, Now, Guid.NewGuid());
 
-        var decision = await DecideAsync(roster, new Ed25519Signer(node), DesktopActor);
+        var nodeSigner = new Ed25519Signer(node);
+        var decision = await DecideAsync(roster, nodeSigner, DesktopActor(roster, nodeSigner));
 
         Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
         Assert.True(decision.Evidence.Roster!.Member);

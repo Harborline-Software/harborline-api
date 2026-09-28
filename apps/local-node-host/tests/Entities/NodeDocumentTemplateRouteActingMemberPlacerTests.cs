@@ -36,6 +36,8 @@ using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
@@ -95,6 +97,8 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
@@ -197,8 +201,8 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
 
         // Scan the WHOLE recorded set for the single-operator identity FIRST, so a collapse to the constant
         // fails here rather than being masked by a narrower per-member comparison downstream.
-        Assert.DoesNotContain(ActiveTeamAuthorizationContext.LocalUserId, placers);
-        Assert.DoesNotContain(NodeCallerParty.OperatorParty.Value, placers);
+        Assert.DoesNotContain(TestDesktopOperator.Principal, placers);
+        Assert.DoesNotContain(TestDesktopOperator.Party.Value, placers);
 
         // The positive teeth: each member's OWN party is on their own document's hold. These are asserted
         // as equalities (not merely "not the constant"), so a route that recorded some other non-constant
@@ -215,7 +219,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         var holdId = await IssueAsAsync(actingMember: null, invoiceId: AliceInvoiceId);
         var placer = await PlacerOfAsync(holdId);
 
-        Assert.Equal(NodeCallerParty.OperatorParty.Value, placer.Value);
+        Assert.Equal(TestDesktopOperator.Party.Value, placer.Value);
     }
 
     // T-687: the vendored engine still throws on an uncompilable guard until the api consumes the platform

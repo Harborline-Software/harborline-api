@@ -35,7 +35,7 @@ public sealed class RosterGrantEquivalenceTests
         var closure = provider.GetRequiredService<IAuthorizationClosureReader>();
         foreach (var (shape, principal) in new[]
                  {
-                     ("root", new ActorId("local")), ("narrow", new ActorId("narrow")),
+                     ("root", TestDesktopOperator.Actor), ("narrow", new ActorId("narrow")),
                      ("lapsed", new ActorId("lapsed")), ("revoked", new ActorId("revoked")),
                      ("absent", new ActorId("absent")),
                  })
@@ -58,7 +58,7 @@ public sealed class RosterGrantEquivalenceTests
         _ = await AppendAsync(grants, "replicated", "/", At.AddMinutes(-1), At.AddMinutes(1));
         var gate = provider.GetRequiredService<AuthorizationGate>();
 
-        var local = await DecideAsync(gate, new ActorId("local"));
+        var local = await DecideAsync(gate, TestDesktopOperator.Actor);
         var replicated = await DecideAsync(gate, new ActorId("replicated"));
 
         Assert.Equal(local.Verdict, replicated.Verdict);

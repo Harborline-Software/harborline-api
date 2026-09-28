@@ -7,6 +7,8 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
 /// <summary>Boot registry labels and permission sets cannot authorize a desktop caller.</summary>
@@ -35,7 +37,7 @@ public sealed class ActiveTeamRoleResolutionTests
     private static async Task<(FakeActiveTeamAccessor accessor, ActiveTeamAuthorizationContext sut)> BuildAsync()
     {
         var registry = new InMemoryTeamRegistry();
-        var op = ActiveTeamAuthorizationContext.NodeOperator;
+        var op = TestDesktopOperator.Actor;
         await registry.AddMembershipAsync(op, Membership(AdminOrg, TeamRole.Admin));
         await registry.AddMembershipAsync(op, Membership(ViewerOrg, TeamRole.Viewer));
 
@@ -47,7 +49,8 @@ public sealed class ActiveTeamRoleResolutionTests
             gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.GateWithRoster(
                 allowed: false,
                 roster: new Harborline.Api.Foundation.Authorization.AuthorizationRosterInputs(
-                    op.Value, Member: false, Ejected: false) { RegistryMember = true }));
+                    op.Value, Member: false, Ejected: false) { RegistryMember = true }),
+            nodeOperator: TestDesktopOperator.Identity());
         return (accessor, sut);
     }
 
@@ -96,9 +99,10 @@ public sealed class ActiveTeamRoleResolutionTests
             gate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.GateWithRoster(
                 allowed: false,
                 roster: new Harborline.Api.Foundation.Authorization.AuthorizationRosterInputs(
-                    ActiveTeamAuthorizationContext.NodeOperator.Value, Member: false, Ejected: false)
+                    TestDesktopOperator.Actor.Value, Member: false, Ejected: false)
                     { RegistryMember = false }),
-            refusalAudit: audit);
+            refusalAudit: audit,
+            nodeOperator: TestDesktopOperator.Identity());
         var query = new Harborline.Api.Kernel.Audit.AuditQuery(ActiveTeamTenantContext.ProjectTenantId(AdminOrg));
         Assert.Empty(sut.Roles);
         Assert.Empty(sut.Roles);
@@ -134,6 +138,6 @@ public sealed class ActiveTeamRoleResolutionTests
     public async Task UserId_IsTheOsOperator()
     {
         var (_, sut) = await BuildAsync();
-        Assert.Equal(ActiveTeamAuthorizationContext.LocalUserId, sut.UserId);
+        Assert.Equal(TestDesktopOperator.Principal, sut.UserId);
     }
 }

@@ -50,6 +50,20 @@ public static class GenesisStartupMessages
     /// <c>NodeGatePrincipal</c>) cannot be derived. There is no shell-derived fallback: minting an
     /// <c>os:&lt;user&gt;</c> party here is what put the roster and the grant store on two key spaces.
     /// </summary>
+    /// <summary>
+    /// Ticket 294 slice 3b. The grant store still holds rows keyed by the retired desktop actor <c>"local"</c>, and
+    /// this node's signing key holds no edge in the signed roster, so there is no canonical principal to rekey
+    /// them to. Nothing is rewritten: the rows stay as they are and the node does not start.
+    /// </summary>
+    public const string DesktopActorUnresolvedCode = "DESKTOP_ACTOR_UNRESOLVED";
+
+    /// <summary>Re-admit this node's key, or re-found the install; the retired rows are never guessed onto a key.</summary>
+    public const string DesktopActorUnresolved = DesktopActorUnresolvedCode +
+        ": The grant store holds grants keyed by the retired desktop actor \"local\", and this node's signing " +
+        "key holds no edge in the signed roster, so there is no canonical principal to rekey them to. Nothing was " +
+        "changed. To recover, have a current member re-admit this node through enrollment and restart, or " +
+        "re-found the install against a fresh data directory (no production installs exist — ADR 0066).";
+
     public const string PartyUnresolvedCode = "GENESIS_PARTY_UNRESOLVED";
 
     /// <summary>Run founder setup before starting the node, or re-found the install.</summary>

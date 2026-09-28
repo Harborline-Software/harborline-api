@@ -91,6 +91,7 @@ public sealed class SharedHostedWebAppCallerAuthTests
     private static async Task<(SharedHostedWebApp App, HttpClient Client)> StartAsync(string? sessionToken)
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());
@@ -132,6 +133,7 @@ public sealed class SharedHostedWebAppCallerAuthTests
         bool enabled)
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());
@@ -218,6 +220,7 @@ public sealed class SharedHostedWebAppCallerAuthTests
     public async Task ExecutableRegistry_Includes_A_Concurrent_InFlight_Mapper()
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());
@@ -639,6 +642,7 @@ public sealed class SharedHostedWebAppCallerAuthTests
     private static async Task<(SharedHostedWebApp App, HttpClient Client)> StartWithRecoveryRouteAsync()
     {
         var outer = new ServiceCollection();
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
         outer.AddTestKernelClock();
         outer.AddLogging();
         outer.AddSingleton<IActiveTeamAccessor>(new NoTeamAccessor());

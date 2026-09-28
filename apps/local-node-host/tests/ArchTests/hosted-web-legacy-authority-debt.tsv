@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	440
+# reviewed-aggregate-debt-ceiling	432
+# 2026-09-28 (294 s3b) ratchet 440 -> 432	the desktop actor is the roster party bound to the node key: the static operator id is gone from NodeCallerParty, NodeWebSessionAuthority and CommsRoutes, whose two single-projection fallback-author overloads were removed.
 # 2026-09-26 (T-735) reviewed ratchet 437 -> 440	new Layout denial-reader route family at the minimum 2/0 route shape plus its 1/0 hosted mapper: server-derived active-team tenant and no static actor authority.
 # 2026-09-20 (T-461) reviewed ratchet 435 -> 437	new hosted route family for proposed changes, saved versions and released packages at the minimum 2/0 shape: one tenant resolution point per file rather than one per handler, which would have been 7, and that tenant IS the authorization subject of every act in the family. Same shape and same reason as the T-644 configuration-activation row.
 # 2026-09-19 (T-644) reviewed ratchet 433 -> 435	new hosted route family for configuration-generation activation at the minimum 2/0 shape: one tenant resolution point per file, and that tenant IS the authorization subject of prepare and activate, as for POST /packs/check.
@@ -21,7 +22,7 @@ Health/BillRoutes.cs	12	0
 Health/CalendarCollectionRoutes.cs	3	0
 Health/CalendarRoutes.cs	6	0
 Health/ChartOfAccountsRoutes.cs	2	0
-Health/CommsRoutes.cs	19	1
+Health/CommsRoutes.cs	17	0
 Health/ContactRoutes.cs	16	0
 Health/DataExchangeDefinitionRoutes.cs	5	0
 Health/DeclarativeConfirmRoutes.cs	8	0
@@ -80,7 +81,6 @@ Health/LeaseSubLedgerRoutes.cs	6	0
 Health/LifecycleRoutes.cs	5	0
 Health/LayoutDenialRoutes.cs	2	0
 Health/LocalNodeHealthCheck.cs	4	0
-Health/NodeCallerParty.cs	0	2
 Health/NodeMutationIdempotency.cs	2	0
 Health/OrgBrandingRoutes.cs	7	0
 Health/PackComposeRoutes.cs	5	0
@@ -101,7 +101,7 @@ Health/SyncStatusRoutes.cs	4	0
 Health/TeamRoutes.cs	5	0
 Health/ViewDefinitionRoutes.cs	5	0
 Health/WebSession/HostedEffectivePermissionsApiEndpoint.cs	1	0
-Health/WebSession/NodeWebSessionAuthority.cs	3	3
+Health/WebSession/NodeWebSessionAuthority.cs	3	0
 Health/WebSession/SelectedSessionIdentityRoutes.cs	3	0
 Health/WorkflowDefinitionRoutes.cs	4	0
 Health/WorkflowRunReportRoutes.cs	3	0

@@ -27,6 +27,9 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 /// </summary>
 public sealed class CommsRouteTests : IAsyncLifetime
 {
+    // Ticket 294 slice 3b: the single-projection overload names its author; nothing falls back to "local".
+    private const string SingleProjectionAuthor = "comms-author-under-test";
+
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private string _dir = null!;
@@ -37,6 +40,8 @@ public sealed class CommsRouteTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
@@ -63,7 +68,8 @@ public sealed class CommsRouteTests : IAsyncLifetime
         _signer = new NodePrincipalSigner(seed);
 
         // Map the SAME production routes (mirrors HostedCommsApiEndpoint wiring — no [FromServices]).
-        CommsRoutes.Map(_app, _crdt, _signer.Signer, NodeTestActiveTeam.Accessor, TimeProvider.System);
+        CommsRoutes.Map(_app, _crdt, _signer.Signer, NodeTestActiveTeam.Accessor, new NodeCallerSessionToken(null),
+            SingleProjectionAuthor, TimeProvider.System);
 
         await _app.StartAsync();
 
@@ -108,7 +114,7 @@ public sealed class CommsRouteTests : IAsyncLifetime
             // This test maps the routes via the 4-arg overload (no roster wired — the dev/single-host path),
             // which stamps the FallbackAuthorPartyId ("local"). The SHIPPING path stamps the active enrolled
             // member's per-node-distinct id — proven by Post_Stamps_ActiveEnrolledMember_PartyId below.
-            Assert.Equal("local", m.GetProperty("authorPartyId").GetString());
+            Assert.Equal(SingleProjectionAuthor, m.GetProperty("authorPartyId").GetString());
             Assert.Equal(nodeIssuer, m.GetProperty("authorIssuerId").GetString());
             Assert.False(string.IsNullOrWhiteSpace(m.GetProperty("signature").GetString()));
         }

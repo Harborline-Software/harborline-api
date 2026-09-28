@@ -17,6 +17,8 @@ using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
 
+using Harborline.Api.LocalNodeHost.Data.Identity;
+
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>
@@ -77,6 +79,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
     private readonly IActiveTeamAccessor _activeTeam;
     private readonly TimeProvider _time;
     private readonly ILogger<AccessAdministrationPreloadHostedService> _logger;
+    private readonly NodeOperatorIdentity? _nodeOperator;
 
     /// <summary>Constructs the preload over the ordinary export + install seams.</summary>
     public AccessAdministrationPreloadHostedService(
@@ -88,8 +91,10 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
         IPackRevocationList revocation,
         IActiveTeamAccessor activeTeam,
         TimeProvider timeProvider,
-        ILogger<AccessAdministrationPreloadHostedService> logger)
+        ILogger<AccessAdministrationPreloadHostedService> logger,
+        NodeOperatorIdentity? nodeOperator = null)
     {
+        _nodeOperator = nodeOperator;
         _exporter = exporter ?? throw new ArgumentNullException(nameof(exporter));
         _signer = signer ?? throw new ArgumentNullException(nameof(signer));
         _installer = installer ?? throw new ArgumentNullException(nameof(installer));
@@ -164,9 +169,9 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
             _revocation,
             _time.GetUtcNow(),
             PackInstallRoutes.RevocationMaxAge,
-            // The preload acts as the node operator, whose ordinary `packages:operate` holding the
-            // authorization seed already grants — not as a privileged installer of "our own" package.
-            Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+            // The preload acts as the node operator (the desktop actor), whose ordinary `packages:operate`
+            // holding the authorization seed already grants — not as a privileged installer of "our own" package.
+            Principal: _nodeOperator?.Principal?.Value);
 
         if (!pending)
         {

@@ -20,6 +20,8 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed class AccessNavigationUpgradeCompositionTests
@@ -41,7 +43,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
             {
                 var services = host.Services;
                 await services.GetRequiredService<AccessGrantAuthorizationSeed>().InstallAsync(
-                    Tenant, services.GetRequiredService<TimeProvider>().GetUtcNow(), AuthorizationSeedProfile.Production);
+                    Tenant, services.GetRequiredService<TimeProvider>().GetUtcNow(), AuthorizationSeedProfile.Production, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services));
                 await InstallPreviousVersionAsync(services);
                 using (var before = await NavigationAsync(services)) Assert.False(before.RootElement.GetProperty("configured").GetBoolean());
                 await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
@@ -104,7 +106,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
     private static PackInstallContext Context(IServiceProvider services) => new(
         Tenant, services.GetRequiredService<IPackTrustStore>(), services.GetRequiredService<IPackRevocationList>(),
         services.GetRequiredService<TimeProvider>().GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
-        Principal: AccessGrantAuthorizationSeed.NodeOperatorPrincipal);
+        Principal: Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.From(services)?.Value);
 
     private static async Task AssertNavigationAsync(IServiceProvider services)
     {

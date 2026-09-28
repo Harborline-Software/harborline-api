@@ -94,6 +94,8 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateBuilder();
+        // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<Harborline.Api.Foundation.Authorization.IAuthorizationContext>(
@@ -102,6 +104,8 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         // registers an allow-all authorization context registers the matching allow-all gate.
         builder.Services.AddTestKernelClock();
         builder.Services.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.AllowAll());
+        // Ticket 294 slice 3b: the desktop actor the unbound (operator-fallback) requests are attributed to.
+        Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
 
         _dir = Path.Combine(Path.GetTempPath(), "harborline-approval-audit-attr-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
@@ -164,7 +168,8 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         // so invoice metadata and its co-committed signed audit row name the same actor.
         var liveContext = new NodeLiveInvoiceApprovalContext(
             new NodeAuditWriteEnlister(_signer.Signer),
-            _attribution);
+            _attribution,
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity());
         var approvalHandler = new InvoiceApprovalHandler(
             NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(), liveContext);
         var dispatcher = new WorkflowTriggerDispatcher(workflowStore, new IWorkflowStepHandler[] { approvalHandler });
@@ -257,17 +262,17 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         Assert.Equal(1, await JournalEntryCountAsync());
         var issuedDetail = await _client.GetFromJsonAsync<JsonElement>($"{InvoicesRoute}/{invoiceId}");
         Assert.Equal("Issued", issuedDetail.GetProperty("data").GetProperty("status").GetString());
-        Assert.Equal(NodeCallerParty.OperatorParty, (await InvoiceAsync(invoiceId)).UpdatedBy);
+        Assert.Equal(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party, (await InvoiceAsync(invoiceId)).UpdatedBy);
 
         await using var ctx = await _factory.CreateDbContextAsync();
         var row = Assert.Single(await ctx.Set<NodeAuditEventRow>().ToListAsync());
-        Assert.Equal(NodeCallerParty.OperatorParty.Value, row.Actor);
+        Assert.Equal(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party.Value, row.Actor);
         Assert.NotNull(row.Signature);
         using var payload = JsonDocument.Parse(row.Payload);
         var authority = payload.RootElement.GetProperty("authority");
         Assert.Equal(NodeAuditWriteEnlister.CarriedDecisionAttributionSchema,
             payload.RootElement.GetProperty("attribution").GetProperty("schema").GetString());
-        Assert.Equal(NodeCallerParty.OperatorParty.Value, authority.GetProperty("principal").GetString());
+        Assert.Equal(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party.Value, authority.GetProperty("principal").GetString());
         Assert.StartsWith("ledger:post@/records/", authority.GetProperty("act").GetString());
         Assert.Equal("journal-entry", authority.GetProperty("target").GetProperty("record_kind").GetString());
         Assert.True(_verifier.Verify(Assert.IsType<SignedOperation<string>>(
@@ -301,7 +306,7 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         var issued = await InvoiceAsync(invoiceId);
         Assert.Equal(InvoiceStatus.Issued, issued.Status);
         Assert.Equal(new PartyId(memberParty), issued.UpdatedBy);
-        Assert.NotEqual(NodeCallerParty.OperatorParty, issued.UpdatedBy);
+        Assert.NotEqual(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party, issued.UpdatedBy);
 
         await using var ctx = await _factory.CreateDbContextAsync();
         var row = Assert.Single(await ctx.Set<NodeAuditEventRow>().ToListAsync());
@@ -686,7 +691,7 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionRealCompositionTests
             Assert.NotNull(activeTeam);
             var tenant = ActiveTeamTenantContext.ProjectTenantId(activeTeam.TeamId);
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            await SeedGrantAsync(services, tenant, NodeCallerParty.OperatorParty.Value);
+            await SeedGrantAsync(services, tenant, NodeOperatorIdentity.From(services)!.Value.Value);
             // Ticket 272 slice 4: the overriding party is resolved through the authorization gate, so it
             // must be a real party that may itself post this journal entry. A second grant makes this
             // installation's delegated approver an actual second set of eyes rather than a typed string.

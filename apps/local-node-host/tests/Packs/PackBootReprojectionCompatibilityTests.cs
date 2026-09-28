@@ -22,6 +22,8 @@ using Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 using Xunit;
 
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 /// <summary>
@@ -78,7 +80,7 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
         var logger = new RestoreLogger();
         var hosted = new PackSeedProjectionHostedService(
             installer, new FixedActiveTeam(new TeamId(Guid.Parse(Tenant.Value))), logger,
-            store, new InMemoryPackTrustStore([]), PackRevocationList.Empty, TimeProvider.System);
+            store, new InMemoryPackTrustStore([]), PackRevocationList.Empty, TimeProvider.System, TestDesktopOperator.Identity());
 
         await hosted.StartAsync(CancellationToken.None);
 
