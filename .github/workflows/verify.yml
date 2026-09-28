@@ -493,6 +493,9 @@ jobs:
         with:
           version: 11.1.3
 
+      - name: Check pnpm entry point before the host build
+        run: node --input-type=module -e "import {resolveCommand} from './eng/lib/resolve-command.mjs'; console.log(resolveCommand('pnpm', ['--version']).args[0])"
+
       - uses: ./.github/actions/platform-feed
 
       - name: Read the quality pin
