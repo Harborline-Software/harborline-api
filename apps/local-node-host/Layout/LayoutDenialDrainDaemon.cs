@@ -36,20 +36,14 @@ public sealed class LayoutDenialDrainDaemon : BackgroundService
         using var timer = new PeriodicTimer(_interval, _time);
         do
         {
-            try
-            {
-                await DrainAsync(stoppingToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-#pragma warning disable CA1031 // This recovery boundary must log any drain failure and retry.
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Layout denial outbox drain failed; will retry next interval.");
-            }
-#pragma warning restore CA1031
+            var pending = DrainAsync(stoppingToken);
+            await pending.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (pending.IsCanceled && stoppingToken.IsCancellationRequested) break;
+
+            var failure = pending.Exception?.GetBaseException()
+                ?? (pending.IsCanceled ? new TaskCanceledException(pending) : null);
+            if (failure is not null)
+                _logger.LogError(failure, "Layout denial outbox drain failed; will retry next interval.");
         }
         while (await SafeWaitAsync(timer, stoppingToken).ConfigureAwait(false));
     }
