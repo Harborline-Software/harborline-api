@@ -223,7 +223,7 @@ public sealed class SqlCipherEncryptedStore : IEncryptedStore, IAsyncDisposable
             var connection = RequireOpen();
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
-                "SELECT key FROM kv_store WHERE key LIKE $p ORDER BY key ASC;";
+                "SELECT key FROM kv_store WHERE key LIKE $p ESCAPE '\\' ORDER BY key ASC;";
             cmd.Parameters.AddWithValue("$p", EscapeLike(prefix) + "%");
 
             var results = new List<string>();
