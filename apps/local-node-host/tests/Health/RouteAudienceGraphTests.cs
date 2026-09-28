@@ -1,3 +1,7 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.RegularExpressions;
+
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.LocalNodeHost.Capabilities;
@@ -8,6 +12,58 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 [Collection("Harborline process environment")]
 public sealed class RouteAudienceGraphTests
 {
+    [Fact]
+    public async Task Every_production_route_refuses_caller_supplied_tenant_identifiers()
+    {
+        foreach (var profile in LocalNodeHostedComponentCatalog.SupportedEndpointProfiles)
+        {
+            await CaptureProfileAsync(profile, async (snapshot, baseUri) =>
+            {
+                using var client = new HttpClient { BaseAddress = baseUri };
+                var wildcardMethods = new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS" };
+                var pairs = snapshot.Endpoints.SelectMany(endpoint => endpoint.HttpMethods.SelectMany(method =>
+                    (method == "*" ? wildcardMethods : [method]).Select(verb =>
+                        (Method: verb, endpoint.RoutePattern)))).ToArray();
+                Assert.NotEmpty(pairs);
+                Assert.DoesNotContain(snapshot.Endpoints, endpoint =>
+                    Regex.IsMatch(endpoint.RoutePattern, @"\{[^}]*tenant[^}]*\}", RegexOptions.IgnoreCase));
+
+                foreach (var (method, route) in pairs)
+                {
+                    var path = Regex.Replace(route, @"\{[^{}]+\}", match =>
+                        match.Value.Contains(":guid", StringComparison.OrdinalIgnoreCase)
+                            ? "00000000-0000-0000-0000-000000000001"
+                            : match.Value.Contains(":int", StringComparison.OrdinalIgnoreCase)
+                                ? "1" : "sample");
+                    foreach (var spelling in new[] { "tenantId", "tenant_id", "tenant-id", "X-Tenant-Id" })
+                    {
+                        using var query = new HttpRequestMessage(new HttpMethod(method), $"{path}?{spelling}=other-team");
+                        await AssertTenantRefusalAsync(client, query, method, route, "query");
+                        using var header = new HttpRequestMessage(new HttpMethod(method), path);
+                        header.Headers.TryAddWithoutValidation(spelling, "other-team");
+                        await AssertTenantRefusalAsync(client, header, method, route, "header");
+                        if (spelling == "tenantId" && route is "/api/session/select" or "/api/session/switch")
+                            continue;
+                        using var body = new HttpRequestMessage(new HttpMethod(method), path)
+                        {
+                            Content = JsonContent.Create(new Dictionary<string, string> { [spelling] = "other-team" }),
+                        };
+                        await AssertTenantRefusalAsync(client, body, method, route, "body");
+                    }
+                }
+            });
+        }
+    }
+
+    private static async Task AssertTenantRefusalAsync(
+        HttpClient client, HttpRequestMessage request, string method, string route, string site)
+    {
+        using var response = await client.SendAsync(request);
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest,
+            $"{method} {route} {site}: expected 400, got {(int)response.StatusCode}");
+        Assert.Contains("request.tenant-id-not-accepted", await response.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public void Compatibility_Baseline_Apparatus_Is_Absent()
     {
@@ -155,7 +211,8 @@ public sealed class RouteAudienceGraphTests
     }
 
     private static async Task<LocalNodeExecutableEndpointSnapshot> CaptureProfileAsync(
-        LocalNodeHostedComponentProfile profile)
+        LocalNodeHostedComponentProfile profile,
+        Func<LocalNodeExecutableEndpointSnapshot, Uri, Task>? verify = null)
     {
         var dataDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -166,7 +223,7 @@ public sealed class RouteAudienceGraphTests
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            await LocalNodeHostRuntime.StartAsync(
+            var baseUri = await LocalNodeHostRuntime.StartAsync(
                     "ticket-066-graph-token",
                     dataDirectory,
                     timeout.Token)
@@ -177,6 +234,8 @@ public sealed class RouteAudienceGraphTests
                 LocalNodeHostRuntime.CurrentServices);
             var registry = services.GetRequiredService<LocalNodeExecutableEndpointRegistry>();
             Assert.True(registry.IsSealed);
+            if (verify is not null)
+                await verify(registry.Current, baseUri);
             return registry.Current;
         }
         finally

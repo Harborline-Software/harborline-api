@@ -10,6 +10,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Harborline.Api.Tests/Harborline.Api.Tests.csproj" />
     <Project Path="packages/contracts/tests/Harborline.Contracts.Tests.csproj" />
+    <Project Path="packages/foundation/tests/Harborline.Foundation.Tests.csproj" />
     <Project Path="packages/foundation-localfirst/tests/Harborline.Foundation.LocalFirst.Tests.csproj" />
     <Project Path="packages/foundation-rule-engine/tests/Harborline.Foundation.RuleEngine.Tests.csproj" />
   </Folder>

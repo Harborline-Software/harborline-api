@@ -133,6 +133,9 @@ public static class EntityRoutes
                 is { } denied)
                 return denied;
 
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
+
             var entityId = LegalEntityId.NewId();
 
             LegalEntityWritten written;
@@ -224,4 +227,5 @@ public sealed record CreateEntityRequest(
     [property: JsonPropertyName("legalName")] string LegalName,
     [property: JsonPropertyName("kind")] string Kind = "Llc",
     [property: JsonPropertyName("taxClassification")] string TaxClassification = "DisregardedEntity",
-    [property: JsonPropertyName("commonControlGroupId")] string? CommonControlGroupId = null);
+    [property: JsonPropertyName("commonControlGroupId")] string? CommonControlGroupId = null,
+    [property: JsonPropertyName("id")] string? Id = null);

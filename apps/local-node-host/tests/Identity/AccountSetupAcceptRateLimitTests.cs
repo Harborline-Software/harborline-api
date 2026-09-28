@@ -68,17 +68,14 @@ public sealed class AccountSetupAcceptRateLimitTests
         Assert.Equal(invitationAttemptCompatibilityFloor, credentials.Calls);
     }
 
-    [Fact(DisplayName = "Cycling invitation and tenant input cannot evade the route-wide load bound")]
+    [Fact(DisplayName = "Cycling invitation input cannot evade the route-wide load bound")]
     public async Task Route_Wide_Bound_Cannot_Be_Evaded_By_Cycling_Request_Input()
     {
         var credentials = new CountingCredentialFactory();
         var limiter = new PairingRedeemRateLimiter(perSourceMax: 10, perTenantMax: 1, clock: TimeProvider.System);
 
         var first = await InvokeAsync(credentials, limiter, Request("invitation-a", "invitee-a"));
-        var secondRequest = Request("invitation-b", "invitee-b") with
-        {
-            TenantId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        };
+        var secondRequest = Request("invitation-b", "invitee-b");
         var throttled = await InvokeAsync(credentials, limiter, secondRequest);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, first);
@@ -89,7 +86,6 @@ public sealed class AccountSetupAcceptRateLimitTests
     private static AccountSetupAcceptRoutes.AcceptRequest Request(string code, string username) =>
         new(
             Code: code,
-            TenantId: "11111111-2222-3333-4444-555555555555",
             Username: username,
             Password: "correct horse battery staple");
 

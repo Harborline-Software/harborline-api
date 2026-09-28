@@ -4654,6 +4654,7 @@
     "≥3-node refute: a REVOKED member's transport key is DROPPED post-converge — rebuild-from-live subsumes the gap-#3 prune (no regression)"
   ],
   "policyRemovals": [
-    {"test":"Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder","reason":"T-519 replaces the combined source-order fact; its sealed-bootstrap assertion remains in AuthorizationSeed_SealedBootstrapRefuses and behavioral stage tests replace the source-text checks.","dated":"2026-09-27","owner":"T-519"}
+    {"test":"Harborline.Api.LocalNodeHost.Tests.Authorization.AuthorizationWriteStageTests.AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder","reason":"T-519 replaces the combined source-order fact; its sealed-bootstrap assertion remains in AuthorizationSeed_SealedBootstrapRefuses and behavioral stage tests replace the source-text checks.","dated":"2026-09-27","owner":"T-519"},
+    {"test":"Cycling invitation and tenant input cannot evade the route-wide load bound","reason":"T-946 refuses caller-supplied tenant identifiers at every route, so the account-setup rate-limit test no longer cycles tenant input; it continues as \"Cycling invitation input cannot evade the route-wide load bound\".","dated":"2026-09-28","owner":"T-946"}
   ]
 }

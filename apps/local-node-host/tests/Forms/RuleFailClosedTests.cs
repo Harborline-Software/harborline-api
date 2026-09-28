@@ -184,6 +184,29 @@ public sealed class RuleFailClosedTests
         Assert.True(result.IsSaveBlocked);
     }
 
+    [Fact]
+    public async Task Submit_gate_propagates_a_real_rule_graph_timeout_instead_of_saving()
+    {
+        using var cancelled = new CancellationTokenSource();
+        var clock = new CancellingTimeProvider(SubmittedAt, cancelled);
+        var context = await CreateServicesAsync(RestrictingRule(
+            id: "restrict.active",
+            expression: """{"==":[{"var":"name"},"ok"]}""",
+            action: RuleActionKind.Validate,
+            scope: RuleScope.Field,
+            scopeTarget: "name"), services => services.AddFrozenKernelClock(clock));
+        await using var services = context.Services;
+        var engine = services.GetRequiredService<IFormEngine>();
+        var token = await IssueReadWriteTokenAsync(services);
+        using var candidate = JsonDocument.Parse("""{"name":"ok"}""");
+        Assert.True((await engine.ValidateAsync(FormId, candidate, token, CancellationToken.None)).IsValid);
+        clock.CancelOnNextRead = true;
+
+        await Assert.ThrowsAsync<RuleEngineTimeoutException>(() =>
+            engine.SaveWithReceiptAsync(FormId, candidate, token,
+                TestAuthorization.FormWrite(token, FormId, SubmittedAt), cancelled.Token));
+    }
+
     // ── Render is projection (advisory): the degrade may stand, but never silently ──
 
     [Fact]
@@ -657,6 +680,21 @@ public sealed class RuleFailClosedTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class CancellingTimeProvider(DateTimeOffset now, CancellationTokenSource cancellation) : TimeProvider
+    {
+        public bool CancelOnNextRead { get; set; }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (CancelOnNextRead)
+            {
+                CancelOnNextRead = false;
+                cancellation.Cancel();
+            }
+            return now;
+        }
     }
 
     private sealed class UnusedFieldEncryptor : IFieldEncryptor

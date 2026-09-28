@@ -359,6 +359,15 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             if (body is null || string.IsNullOrWhiteSpace(body.Type) || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
+            if (body.Id is not null)
+            {
+                if (await RequestAuthorization.RefusalAsync(
+                        http, RequestAuthorization.Authority(http, tenant, clock),
+                        TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                    .ConfigureAwait(false) is { } denied)
+                    return denied;
+                return Results.BadRequest(new { error = "client_id_forbidden" });
+            }
 
             var typeId = new EntityTypeId(body.Type.Trim());
             // The type must exist for this tenant (own row or shared seed) — never create an untyped entity.
@@ -427,6 +436,11 @@ public static class AssetRegistryRoutes
                 }
             }
 
+            var unboundAuthority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, unboundAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false) is { } unboundDenied)
+                return unboundDenied;
             var entity = new RegistryEntity
             {
                 Id = RegistryEntityId.NewId(),
@@ -435,7 +449,7 @@ public static class AssetRegistryRoutes
                 DisplayName = body.DisplayName.Trim(),
                 PropertyForm = propertyForm,
                 ScanKey = string.IsNullOrWhiteSpace(body.ScanKey) ? null : body.ScanKey.Trim(),
-                CreatedAt = new Instant(clock.GetUtcNow()),
+                CreatedAt = new Instant(unboundAuthority.At),
             };
             await entities.UpsertAsync(entity, entity.CreatedAt, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);
 
@@ -521,7 +535,15 @@ public static class AssetRegistryRoutes
     {
         app.MapPost($"{RouteBase}/edges", async (AddEdgeBody body, HttpContext http, CancellationToken ct) =>
         {
-            var tenant = NodeTenant.Resolve(activeTeam);
+            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+                ?? NodeTenant.Resolve(activeTeam);
+            var authority = RequestAuthorization.Authority(http, tenant, clock);
+            if (await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false) is { } denied)
+                return denied;
+            if (body?.Id is not null)
+                return Results.BadRequest(new { error = "client_supplied_id_not_allowed" });
             if (body is null || string.IsNullOrWhiteSpace(body.From) || string.IsNullOrWhiteSpace(body.To))
                 return Results.BadRequest(new { error = "from_and_to_required" });
             if (!TryParseKind(body.Kind, out var kind))
@@ -534,7 +556,7 @@ public static class AssetRegistryRoutes
                 Kind = kind,
                 From = new RegistryEntityId(body.From.Trim()),
                 To = new RegistryEntityId(body.To.Trim()),
-                EffectiveFrom = new Instant(clock.GetUtcNow()),
+                EffectiveFrom = new Instant(authority.At),
             };
 
             try
@@ -868,9 +890,10 @@ public static class AssetRegistryRoutes
         string? Type,
         string? DisplayName,
         string? ScanKey,
-        [property: JsonPropertyName("values")] JsonElement? Values = null);
+        [property: JsonPropertyName("values")] JsonElement? Values = null,
+        string? Id = null);
     /// <summary>Body for POST /edges.</summary>
-    public sealed record AddEdgeBody(string? Kind, string? From, string? To);
+    public sealed record AddEdgeBody(string? Kind, string? From, string? To, string? Id = null);
 
     /// <summary>Body for POST /types (create) and PUT /types/{id} (edit → override or update).</summary>
     /// <remarks>
