@@ -46,8 +46,10 @@ function entryScript(name) {
   if (name === 'pnpm') {
     const shim = shimDirectory('pnpm')
     if (shim) {
-      const cli = join(shim, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
-      if (existsSync(cli)) return cli
+      // npm -g places the package under the shim; pnpm/action-setup uses node_modules/.bin.
+      const candidates = [join(shim, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+        join(shim, '..', 'pnpm', 'bin', 'pnpm.cjs')]
+      return candidates.find(candidate => existsSync(candidate)) ?? null
     }
     return null
   }
