@@ -23,7 +23,8 @@ namespace Harborline.Api.Foundation.Assets.Entities;
 /// </param>
 /// <param name="ExplicitLocalPart">
 /// If non-null, overrides the deterministic local-part derivation. Useful when an external
-/// system already owns the identifier (e.g. migrating existing records).
+/// system already owns the identifier (e.g. migrating existing records). The 26-character
+/// lowercase Base32 shape of schema-derived IDs is reserved and refused here.
 /// </param>
 /// <param name="Binding">
 /// Optional immutable definition-and-engine provenance to co-commit with the entity.
