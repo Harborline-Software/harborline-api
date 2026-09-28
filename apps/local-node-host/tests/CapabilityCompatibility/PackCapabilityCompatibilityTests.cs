@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Blobs;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
@@ -154,6 +155,49 @@ public sealed class PackCapabilityCompatibilityTests
         Assert.Equal("missing-capability-form", unmet.DeclaredBy);
     }
 
+    [Fact]
+    public async Task Preview_refuses_standards_catalog_by_the_named_transport_rule()
+    {
+        var standards = new PackContentItem(
+            "transported-standard",
+            PackContentKind.StandardsCatalog,
+            "1.0.0",
+            Array.Empty<byte>(),
+            Cid.FromBytes(Array.Empty<byte>()));
+
+        var transportRefusal = Assert.Single(PackTransportRuleCheck.FindRefusals([standards]));
+        Assert.Equal(PackInstallCodes.RefusedUnsupportedStandardsCatalog, transportRefusal.Code);
+
+        using var fixture = await CreateFixtureAsync(new JsonObject(), kind: PackContentKind.StandardsCatalog);
+        var preview = fixture.Installer.Preview(fixture.PackBytes, fixture.Context);
+
+        Assert.Equal(PackInstallVerdict.Refused, preview.Verdict);
+        Assert.Contains(PackInstallCodes.RefusedUnsupportedStandardsCatalog, preview.RefusalCodes);
+    }
+
+    [Fact]
+    public async Task Preview_records_every_content_destination_classified_during_admission()
+    {
+        var form = new PackContentItem(
+            "admitted-form",
+            PackContentKind.FormDefinition,
+            "1.0.0",
+            Array.Empty<byte>(),
+            Cid.FromBytes(Array.Empty<byte>()));
+
+        var destination = Assert.Single(PackDestinationClassifier.Classify([form]));
+        Assert.Equal("admitted-form", destination.ContentKey);
+        Assert.Equal(PackPillar.Forms, destination.Pillar);
+
+        using var fixture = await CreateFixtureAsync(new JsonObject());
+        var preview = fixture.Installer.Preview(fixture.PackBytes, fixture.Context);
+
+        Assert.Equal(PackInstallVerdict.WouldInstall, preview.Verdict);
+        var admittedDestination = Assert.Single(preview.DestinationClassifications);
+        Assert.Equal("missing-capability-form", admittedDestination.ContentKey);
+        Assert.Equal(PackPillar.Forms, admittedDestination.Pillar);
+    }
+
     private static JsonObject EnvelopeRequirement(string capability, string? minimumPlatformVersion = null)
         => new()
         {
@@ -172,7 +216,8 @@ public sealed class PackCapabilityCompatibilityTests
 
     private static async Task<Fixture> CreateFixtureAsync(
         JsonNode content,
-        IPackPlatformCompatibility? platform = null)
+        IPackPlatformCompatibility? platform = null,
+        PackContentKind kind = PackContentKind.FormDefinition)
     {
         var keyPair = KeyPair.Generate();
         var codec = new PackFileCodec();
@@ -193,7 +238,7 @@ public sealed class PackCapabilityCompatibilityTests
                 [
                     new PackContentSource(
                         "missing-capability-form",
-                        PackContentKind.FormDefinition,
+                        kind,
                         "1.0.0",
                         content),
                 ],

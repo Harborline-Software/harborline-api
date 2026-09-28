@@ -117,7 +117,7 @@ jobs:
     # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
     # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
     # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
-    needs: [verify-shared, verify-macos, verify-windows, verify-perf]
+    needs: [verify-shared, verify-macos, verify-windows, verify-perf-hosted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -131,40 +131,14 @@ jobs:
             exit 1
           fi
           echo "$NEEDS"
-          jq -e 'del(.["verify-perf"]) | all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
-          # verify-perf (Q38, T-724 ruling 9): success, or skipped because PERF_HOST_OFFLINE_SINCE says
-          # mac16 is offline -- for at most 72 hours after that instant, after which the skip fails.
-          perf=$(jq -r '.["verify-perf"].result' <<< "$NEEDS")
-          if [ "$perf" = "success" ]; then exit 0; fi
-          since="${{ vars.PERF_HOST_OFFLINE_SINCE }}"
-          if [ "$perf" != "skipped" ] || [ -z "$since" ]; then
-            echo "::error::verify-perf did not succeed (result: $perf)"
-            exit 1
-          fi
-          since_s=$(date -u -d "$since" +%s) || { echo "::error::PERF_HOST_OFFLINE_SINCE is not a date: $since"; exit 1; }
-          age_h=$(( ($(date -u +%s) - since_s) / 3600 ))
-          if [ "$age_h" -lt 0 ]; then
-            echo "::error::PERF_HOST_OFFLINE_SINCE is in the future ($since); a future instant cannot extend the 72h skip"
-            exit 1
-          fi
-          if [ "$age_h" -ge 72 ]; then
-            echo "::error::verify-perf has been skipped since $since (${age_h}h, limit 72h): mac16 (perf-quiet) must come back, or the owner rules again"
-            exit 1
-          fi
-          echo "::warning::verify-perf skipped: mac16 (perf-quiet) marked offline since $since (${age_h}h of the 72h allowed); the Layout timing-parity tests did not run"
+          jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
 
   verify-perf:
-    # Owner ruling Q38 (T-724 rulings 7 to 9, T-268 option A): the wall-clock timing-parity tests
-    # (trait Lane=perf, the LayoutTimingParity collection) run here, alone, on mac16's one perf-quiet
-    # registration, and no host lane runs them (eng/run-exact-clone.mjs filters Lane!=perf). One runner
-    # registration runs one job at a time, so nothing shares the box with these samples. Nobody runs
-    # anything on mac16 by hand (ruling 8).
+    # Advisory comparison with the hosted perf gate during mac16's retirement window. The
+    # LayoutTimingParity collection runs alone on mac16; the host lanes exclude Lane=perf.
     #
-    # When mac16 is offline, set the repository variable PERF_HOST_OFFLINE_SINCE to the UTC instant it
-    # went down (for example 2026-09-26T04:00:00Z). This job is then skipped, the `verify` aggregator
-    # says so, and it fails once the skip is 72 hours old (ruling 9). Clear the variable when mac16
-    # returns. The workflow token cannot read runner status, so the variable is set by hand; while it
-    # is unset and mac16 is down, this job waits for the runner and `verify` waits with it.
+    # PERF_HOST_OFFLINE_SINCE skips this comparison if mac16 is offline. It no longer affects
+    # the required verify context.
     #
     # T-662: the fork guard, character for character the one the other lanes carry.
     if: >-
@@ -225,6 +199,54 @@ jobs:
           retention-days: 14
           path: |
             .claude/gate-evidence/
+
+  verify-perf-hosted:
+    # Required timing-parity gate on a fresh Linux VM; mac16 runs the same tests as an
+    # advisory comparison during its retirement window.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - name: Runner identity
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: ./.github/actions/platform-feed
+
+      - name: Perf lane (Lane=perf)
+        run: |
+          set -o pipefail
+          mkdir -p .claude/gate-evidence
+          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false \
+            --filter "Lane=perf" \
+            --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence \
+            --logger "console;verbosity=detailed" \
+            -- RunConfiguration.TreatNoTestsAsError=true | tee .claude/gate-evidence/perf-tests.log
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-perf-hosted-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: .claude/gate-evidence/
 
   # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
   # lane, and since T-578 each is on the landing's critical path through the `verify` aggregator.
@@ -447,6 +469,90 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: verify-windows-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            .git/harborline-api-verify-receipt.json
+            .git/harborline-api-quality-decision.json
+            .claude/gate-evidence/
+
+  verify-windows-hosted:
+    # Trial the full Windows host lane on a fresh VM. The required verify context still depends on
+    # verify-windows (winbox); this job is advisory until its PR and merge-group receipts match.
+    # Dependabot PRs have no access to the Actions secret needed for private pinned checkouts.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_PACKAGES: C:\nuget-runner
+      HARBORLINE_VERIFY_LANE: host
+      HARBORLINE_GATE_QUALITY: '1'
+      HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
+    steps:
+      - name: Runner identity
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.3
+
+      - name: Check pnpm entry point before the host build
+        run: node --input-type=module -e "import {resolveCommand} from './eng/lib/resolve-command.mjs'; console.log(resolveCommand('pnpm', ['--version']).args[0])"
+
+      - uses: ./.github/actions/platform-feed
+
+      - name: Read the quality pin
+        id: quality_pin
+        run: echo "commit=$(node -p "require('./eng/quality-pin.json').commit")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-control
+          ref: main
+          path: .control
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-quality
+          ref: ${{ steps.quality_pin.outputs.commit }}
+          path: .quality
+          token: ${{ secrets.HARBORLINE_PINS_TOKEN }}
+
+      - name: Use pinned checkouts
+        run: |
+          printf '.control/\n.quality/\n.platform/\n' >> .git/info/exclude
+          echo "HARBORLINE_CONTROL_REPO=$GITHUB_WORKSPACE/.control" >> "$GITHUB_ENV"
+          echo "HARBORLINE_QUALITY_REPO=$GITHUB_WORKSPACE/.quality" >> "$GITHUB_ENV"
+          echo "HARBORLINE_PLATFORM_REPO=$GITHUB_WORKSPACE/.platform" >> "$GITHUB_ENV"
+
+      - name: Host lane (exact-clone against the Windows baseline)
+        run: bash eng/verify.sh
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-windows-hosted-evidence-${{ github.run_id }}
           if-no-files-found: ignore
           retention-days: 14
           path: |

@@ -3,14 +3,16 @@
   "suite": "Harborline.Api.LocalNodeHost.Tests",
   "repository": "harborline-api",
   "sourcePin": "PENDING",
-  "recordedAt": "2026-09-27T21:51:47Z",
+  "recordedAt": "2026-09-27T21:53:47Z",
   "totals": {
-    "total": 4531,
-    "passed": 4510,
+    "total": 4537,
+    "passed": 4516,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-735 PR 236: Layout HTTP denial reader and drain wiring add four passing host facts: LayoutCompositionTests (one), LayoutDenialDrainDaemonTests (one), and LayoutDenialRouteTests (two). The four LocalNodeTechnicalRegistrationEvidenceTests theory cases remain in place, but their display-name expectedActors arguments move from 26/31 to 27/32 for the new always-active drain. Branch Windows exact-clone run 36333802894 measured the four-case delta; merged over main's 4533/4512 baseline, the provisional tuple is 4537 total, 4516 passed, zero failed and 21 skipped, pending Windows CI confirmation.",
+    "T-565 PR 235: the named transport-rule and destination-classification admission steps add two passing PackCapabilityCompatibilityTests cases. No test is removed or skipped. Windows CI run 36280778335 observed 4509 cases against the 4507-case base; current main adds two independent T-691 cases, so the merged count is 4511. The same CI run found that the new PackInstaller calls moved three reviewed navigation call sites down seven lines; their exact inventory is updated in this PR. The merged count remains provisional until CI measures this head.",
     "T-737 (PR 232) follow-up: CodeRabbit review comments 4113220972 and 5327922061. 4113220972 found DropSummaryOnlyApplicatorErrors compared a candidate error's evaluation path against the applicator's OWN evaluation path rather than its subtree root, so an unrelated deeper failure anywhere in the schema could silence a root-level applicator failure; fixed to compare against `{EvaluationPath}/{Code}`. Adds one case, SchemaValidationErrorFlatteningTests.An_unrelated_nested_failure_does_not_silence_a_root_level_applicator_failure (verified red against the prior compare, green after the fix), over the 4513/4492 base from this same PR's first CodeRabbit round. 5327922061 strengthened PackFormBindingRoundTripTests.Layout_and_Booking_definitions_round_trip_headlessly to assert the activated pack's SeedItems directly instead of only CLI exit codes; no case added or removed by that change. A native Windows exact-clone at commit e0079517 measured 4514 total, 4493 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-737 (PR 232) adopts the platform's Layout and Booking content kinds and pillars, and its own PR review (CodeRabbit 4112934954) fixed a JSON-Schema error-flattening regression the platform-pin move introduced. Six host cases are added over the 4507/4486 T-736 base: PackLayoutBookingTests (three facts -- API pack identities match the pinned platform identities, the two kinds have distinct wire values, and neither falls through to Other), PackFormBindingRoundTripTests.Layout_and_Booking_definitions_round_trip_headlessly (one fact), and SchemaValidationErrorFlatteningTests (two facts covering the CodeRabbit finding: independent same-location keyword failures both survive flattening, and an applicator summary still drops in favor of its specific child). AccessAdministrationPreloadTests.First_boot_activates_platform_then_access_and_a_second_boot_is_idempotent is corrected in place (64 -> 67 platform-pack seed items, from the three new RecordType kinds) with no case added or removed. A native Windows exact-clone at commit c5e4ea4 (merge of feat/t-737-layout-booking-kinds onto main after PR 226) measured 4513 total, 4492 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
     "T-519 PR 229: the AuthorizationDefinitionWriter six-stage write-pipeline order (authorize, bind, mutate, validate, commit, react) moves to a kernel-owned declaration (WritePipelineStage/WritePipeline in packages/kernel-runtime), and the writer now walks that kernel order instead of hand-writing per-stage string literals; WritePipeline.Order is wrapped with Array.AsReadOnly so a caller cannot cast it back to a mutable array. The old combined fact AuthorizationDefinitionWriter_AuthorizeStageUsesGateAndPreservesSixStageOrder is REMOVED: it ran seven AssertBefore source-text order checks against AuthorizationDefinitionWriter.cs and then, in the same method body, exercised the sealed-bootstrap-refusal scenario. Its AssertBefore checks are deleted outright (superseded by the kernel-owned order below); its sealed-bootstrap-refusal body is RETAINED but RENAMED to AuthorizationSeed_SealedBootstrapRefuses. Four new facts land: the rename just named, plus three genuinely new behavioural facts, AuthorizationDefinitionWriter_AuthorizeRefusalStopsBeforeBindCommitAndReact, AuthorizationDefinitionWriter_ValidateRefusalRunsBindAndMutateButStopsBeforeCommitAndReact and AuthorizationDefinitionWriter_RunsEachRealStageInKernelOrder, and one more new fact, WritePipeline_OrderCannotBeMutatedByACallerHoldingIt, proving the AsReadOnly hardening. Identity accounting: -1 (old combined name) +5 (the rename plus four new facts) = net +4, taking the pre-PR baseline of 4506/4485 to the measured 4510/4489 (zero failed, 21 skipped unchanged). AuthorizationDefinitionWriter_DeniedOrdinaryAndBootstrapWritesNeverReachStore is pre-existing, unchanged by this PR, and not part of this delta. The shared AssertBefore helper itself is kept (not removed) because FormEngine_GatesBeforeTokenBindingAndEntityCreate and PackInstaller_GatesInstallActivateDeactivateBeforeAdmissionOrTransaction still use it for their own, unrelated gate-ordering checks. A native Windows exact-clone at commit 78d8bb7c (branch merged with main 1241b0fd, T-576 PR 227) measured 4510 total, 4489 passed, zero failed and 21 skipped, with newFailures empty and rescuedByRetry 0. Its only failing check was the previous 4506-case count inventory. Provisional until the Windows CI measurement on the merged head confirms it.",
@@ -131,23 +133,23 @@
   },
   "deltaFromPrevious": {
     "previousTotals": {
-      "total": 4524,
-      "passed": 4503,
+      "total": 4533,
+      "passed": 4512,
       "failed": 0,
       "notExecuted": 21
     },
-    "change": "total 4524 -> 4531; passed 4503 -> 4510; failed and notExecuted unchanged",
-    "cause": "T-737 adds six Layout and Booking content cases plus one schema validation regression case; no test identity is removed or skipped.",
-    "detectedBy": "Calculated from the T-519 baseline plus seven T-737 passing cases; pending Windows CI measurement.",
-    "arithmeticCrossCheck": "4524 + 7 = 4531; passed = total - notExecuted = 4531 - 21 = 4510."
+    "change": "total 4533 -> 4537; passed 4512 -> 4516; failed and notExecuted unchanged",
+    "cause": "T-735 adds four passing host facts covering Layout composition, denial drain cancellation, and the denial HTTP route; no existing test or skip identity changes.",
+    "detectedBy": "Branch Windows exact-clone run 36333802894 established the four-case delta; pending Windows CI measurement on the merged head.",
+    "arithmeticCrossCheck": "4533 + 4 = 4537; passed = total - notExecuted = 4537 - 21 = 4516."
   },
   "suiteRenamedFrom": "Harborline.LocalNodeHost.Tests (harborline-api b7bb1654; 063 wave 3 slice 5); earlier: Shipyard.LocalNodeHost.Tests (harborline-api 0df02af); the previous revision still carried the pre-rename name.",
   "measuredAt": {
-    "apiCommit": "82cab8e",
+    "apiCommit": "PENDING",
     "platform": "native Windows",
-    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit 8addec780ad3e7e0bbf98963424e6e5c3f25a8bb",
+    "configuration": "destination exact-clone: HEAD cloned to a scratch directory and built from the commit alone; platform feed packed from the eng/platform-pin.json commit cbc84d5934314098b8f6eff3de94cfa5de3ea8f3",
     "sdk": "11.0.100-rc.1.26425.128",
-    "runs": "Provisional: pending the Windows CI measurement on the merged head.",
+    "runs": "Windows CI run 36333802894 measured the tuple on this PR; pending confirmation on the updated head.",
     "note": "This measured tuple describes native Windows only. Ubuntu and macOS use their separate host baseline files."
   },
   "verdictVocabulary": {
@@ -2400,10 +2402,10 @@
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeProgramRegistrationCatalogTests.Every_AddHostedService_In_Program_Is_Declared_In_The_Catalog",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeProgramRegistrationCatalogTests.Every_Catalogued_Component_Is_Registered_In_Program",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Cannot_Be_Registered_Without_The_Actual_Validated_Service_Graph",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: False, expectedActors: 26)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: True, expectedActors: 26)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: False, schedulingDogfood: False, expectedActors: 31)",
-    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: True, schedulingDogfood: True, expectedActors: 31)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: False, expectedActors: 27)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: False, llmProxy: False, schedulingDogfood: True, expectedActors: 27)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: False, schedulingDogfood: False, expectedActors: 32)",
+    "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(webClient: True, llmProxy: True, schedulingDogfood: True, expectedActors: 32)",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Evidence_Validation_Refuses_Missing_Duplicate_Opaque_Lifetime_And_Profile_Drift",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Program_Registers_Evidence_And_Configures_The_Build_Boundary_Factory_Once",
     "Harborline.Api.LocalNodeHost.Tests.Health.LocalNodeTechnicalRegistrationEvidenceTests.Provider_Factory_Rejects_Graph_Mutation_At_The_Actual_Build_Boundary",

@@ -1261,12 +1261,31 @@ else
 builder.Services.AddTransient<LocalNodeHealthCheck>();
 builder.Services.AddSingleton<WorkflowCatalogueLintReports>();
 builder.Services.AddSingleton<ExposedViewAuthorizationReachabilityReports>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutSurfaceOptions>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.NodeEfLayoutDenialOutbox>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutDenialAlarms>();
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutDenialAppender>(sp => new(
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.NodeEfLayoutDenialOutbox>(),
+    sp.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>(),
+    sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Harborline.Layout.DenialAppender")));
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutSurfaceHost>(sp => new(
+    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.NodeEfLayoutDenialOutbox>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.LayoutDenialAppender>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.LayoutDenialAlarms>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Harborline.Layout.SurfaceHost"),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Layout.LayoutSurfaceOptions>()));
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Layout.LayoutDenialReader>();
+builder.Services.AddTransient<Harborline.Api.LocalNodeHost.Layout.LayoutDenialHealthCheck>();
 ResilientWindowsEventLogRegistration.AddAvailabilityCheck(
     builder.Services.AddHealthChecks()
         .AddCheck<LocalNodeHealthCheck>("local-node")
         .AddCheck<AuthorizationHealthCheck>("authorization")
         .AddCheck<WorkflowCatalogueLintHealthCheck>("workflow-catalogue-lint")
         .AddCheck<ExposedViewAuthorizationReachabilityHealthCheck>("exposed-view-authorization-reachability")
+        .AddCheck<Harborline.Api.LocalNodeHost.Layout.LayoutDenialHealthCheck>("layout-denials")
         .AddCheck<LocalNodeLivenessCheck>("local-node-liveness", tags: ["live"])
         .AddCheck<LocalNodeReadinessCheck>("local-node-readiness", tags: ["ready"]));
 
@@ -1404,6 +1423,11 @@ builder.Services.AddHarborlineLocalFirst();
 // IAuthorizationContext. Registered before SharedHostedWebApp so the path is mapped before Kestrel starts.
 builder.Services.AddNodeTenantGovernance(
     localNodeOptions.DataDirectory ?? System.IO.Path.Combine(AppContext.BaseDirectory, "data"));
+// T-735, catalog priority 89: ordered immediately after the consent expiry sweep that
+// AddNodeTenantGovernance just registered (catalog priority 88) and before the governance genesis
+// provisioner below (90) — the catalog order must match the order Program.cs actually registers in
+// (see LocalNodeHostedComponentCatalog.CreateOperationalCatalog).
+builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Layout.LayoutDenialDrainDaemon>();
 // Genesis backstop: after MultiTeamBootstrap seeds the active team, ensure the tenant is born in setup
 // phase (idempotent). Runs after MultiTeamBootstrapHostedService (registered above) so the active team is
 // set by its StartAsync.

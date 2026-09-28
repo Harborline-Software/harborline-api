@@ -101,9 +101,13 @@ public sealed class LayoutSurfaceHost(
         }
 
         var context = new AuthorizationWriteContext(principal, tenant, time.GetUtcNow());
-        var resolver = new LayoutBindingResolver(new GuardEvaluator(time));
         var request = new LayoutResolutionRequest(requestId, principal.Value);
         var decisions = new Dictionary<string, AuthorizationDecision>(StringComparer.Ordinal);
+        var open = await gate.DecideAsync(
+            context.Request(LayoutOpen, AuthorizationGate.RecordKindFor(LayoutOpen), definition.Envelope.Identity), ct)
+            .ConfigureAwait(false);
+        var access = new LayoutGateAccess(open.Verdict == AuthorizationVerdict.Allowed);
+        var resolver = new LayoutBindingResolver(new GuardEvaluator(time));
 
         // The platform source is synchronous and the gate is not, so the related targets are decided
         // first: each discovery pass records the targets it has no decision for, the gate decides them,
@@ -113,7 +117,7 @@ public sealed class LayoutSurfaceHost(
         {
             var undecided = new HashSet<string>(StringComparer.Ordinal);
             resolver.Resolve(definition, new AuthorizedRelatedSources(values, relationships, decisions, undecided),
-                root, NoTrace.Instance, request, ct);
+                root, NoTrace.Instance, request, access, ct);
             if (undecided.Count == 0) break;
             foreach (var recordId in undecided)
                 decisions[recordId] = await gate.DecideAsync(
@@ -122,7 +126,7 @@ public sealed class LayoutSurfaceHost(
 
         var trace = new LayoutDenialGateLog(outbox, appender, alarms, tenant, time, logger);
         var resolution = resolver.Resolve(definition,
-            new AuthorizedRelatedSources(values, relationships, decisions, undecided: null), root, trace, request, ct);
+            new AuthorizedRelatedSources(values, relationships, decisions, undecided: null), root, trace, request, access, ct);
         await trace.WrittenAsync().ConfigureAwait(false);
         // Every piece of denial-side work, the signed gate-log append included, finishes inside the floor.
         // Nothing path-dependent runs after the deadline. The append never throws; a failure stays in the
@@ -179,11 +183,27 @@ public sealed class LayoutSurfaceHost(
         => (blocks ?? []).Any(block => block.RelatedRelationship is { Length: > 0 } || DeclaresRelatedBinding(block.Children));
 
     private static readonly AuthorizationOperation RecordsRead = AuthorizationOperation.Parse(TeamRolePermissions.RecordsRead);
+    private static readonly AuthorizationOperation LayoutOpen = AuthorizationOperation.Parse("layout:open");
 
     private sealed class NoTrace : ILayoutDecisionTrace
     {
         public static readonly NoTrace Instance = new();
         public void RecordDenial(LayoutRelatedDenial denial) { }
+        public void RecordFieldDenial(LayoutFieldDenial denial) { }
+    }
+
+    /// <summary>One request's Layout access answers, built over the host authorization gate.</summary>
+    private sealed class LayoutGateAccess(bool canOpen) : ILayoutAccess
+    {
+        public bool CanOpen(string surfaceId) => canOpen;
+
+        public bool CanRead(LayoutBinding binding)
+        {
+            // ponytail: the route pipeline already admits records:read on the root record before this host
+            // runs. This slice proves RELATED-target parity (layout-eng-31); per-binding root-scope
+            // query/measure narrowing (layout-eng-15) needs a future real per-binding read register.
+            return true;
+        }
     }
 
     /// <summary>The host's values, with each related traversal answered from the gate's records:read decision.</summary>
@@ -193,10 +213,11 @@ public sealed class LayoutSurfaceHost(
         IReadOnlyDictionary<string, AuthorizationDecision> decisions,
         HashSet<string>? undecided) : ILayoutBindingSources
     {
-        public bool TryResolveField(LayoutBindingScope scope, string fieldPath, out JsonNode? value) => values.TryResolveField(scope, fieldPath, out value);
+        public LayoutFieldResult ResolveField(LayoutBindingScope scope, string fieldPath) => values.ResolveField(scope, fieldPath);
         public bool TryResolveQuery(LayoutBindingScope scope, string viewDefinitionId, out JsonNode? value) => values.TryResolveQuery(scope, viewDefinitionId, out value);
         public bool TryResolveMeasure(LayoutBindingScope scope, string measurePath, out JsonNode? value) => values.TryResolveMeasure(scope, measurePath, out value);
-        public bool TryResolveTemplate(LayoutBindingScope scope, string templateDefinitionId, out JsonNode? value) => values.TryResolveTemplate(scope, templateDefinitionId, out value);
+        public bool TryResolveTemplate(LayoutBindingScope scope, string templateDefinitionId, string templateVersion, out JsonNode? value)
+            => values.TryResolveTemplate(scope, templateDefinitionId, templateVersion, out value);
         public bool TryResolveCollection(LayoutBindingScope scope, string name, out IReadOnlyList<JsonNode?> rows) => values.TryResolveCollection(scope, name, out rows);
 
         public LayoutRelatedResult ResolveRelated(LayoutBindingScope scope, string relationship)

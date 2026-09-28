@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {execFileSync, spawnSync} from 'node:child_process'
@@ -28,11 +28,11 @@ test('builder accepts the full manifest and refuses a second producer before pac
     rmSync(directory, {recursive: true, force: true})
   }
 })
-test('the checked-in platform pin parses and names a 40-hex commit and 29 producers', () => {
+test('the checked-in platform pin parses and names a 40-hex commit and 30 producers', () => {
   const pin = readPin()
   assert.match(pin.commit, /^[a-f0-9]{40}$/)
   assert.equal(pin.repository, 'Harborline-Software/harborline-platform')
-  assert.equal(Object.keys(pin.producers).length, 29)
+  assert.equal(Object.keys(pin.producers).length, 30)
 })
 test('nuget.config declares the built local feed beside nuget.org', () => {
   assertFeed()
@@ -58,7 +58,7 @@ test('the local-node host consumes the T-460 activation contracts from the pinne
   assert.doesNotMatch(project, /<ProjectReference[^>]+(?:harborline-platform|builder-definitions)/i)
 })
 
-test('nested and sibling layouts plan the same 29 packages and version without enclosing build targets', () => {
+test('nested and sibling layouts plan the same 30 packages and version without enclosing build targets', () => {
   // Dry-run the real builder, then evaluate its pack properties with real MSBuild (no restore).
   const directory = mkdtempSync(path.join(tmpdir(), 'platform-layout-'))
   const api = path.join(directory, 'api')
@@ -113,7 +113,7 @@ test('nested and sibling layouts plan the same 29 packages and version without e
     assert.equal(plans[1].packedVersion, plans[0].packedVersion)
     for (const [index, platform] of [sibling, nested].entries()) {
       const plan = plans[index]
-      assert.equal(plan.commands.length, 29)
+      assert.equal(plan.commands.length, 30)
       assert.deepEqual(plan.commands.map(args => path.basename(args[1], '.csproj')).sort(), Object.keys(pin.producers).sort())
       for (const args of plan.commands) assert.ok(args.includes(`-p:HarborlinePackedVersion=${plan.packedVersion}`))
       const [, project, ...args] = plan.commands[0]
@@ -122,7 +122,8 @@ test('nested and sibling layouts plan the same 29 packages and version without e
         '-getProperty:ManagePackageVersionsCentrally', '-getProperty:DirectoryPackagesPropsPath', '-getItem:PackageReference'],
       {cwd: platform, encoding: 'utf8'}))
       assert.equal(evaluated.Properties.ManagePackageVersionsCentrally, 'true')
-      assert.equal(path.resolve(evaluated.Properties.DirectoryPackagesPropsPath), path.join(platform, 'Directory.Packages.props'))
+      assert.equal(realpathSync.native(evaluated.Properties.DirectoryPackagesPropsPath),
+        realpathSync.native(path.join(platform, 'Directory.Packages.props')))
       assert.deepEqual(evaluated.Items.PackageReference, [], `${index === 0 ? 'sibling' : 'nested'} layout inherited enclosing PackageReferences`)
     }
   } finally {

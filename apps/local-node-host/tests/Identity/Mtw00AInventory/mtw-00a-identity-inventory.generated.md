@@ -150,7 +150,7 @@ owner-count: 31
 
 ## category-5-legacy-active-team-and-static-actor-consumers
 scan: apps/local-node-host/{Health,Feed}/**/*.cs matching the ADR0153-R3 legacy-authority regexes; each line is PATH<TAB>tenant-global-hits<TAB>static-actor-hits
-owner-count: 97
+owner-count: 99
 - apps/local-node-host/Feed/ChannelFeedRoutes.cs	2	0
 - apps/local-node-host/Feed/HostedChannelFeedApiEndpoint.cs	2	0
 - apps/local-node-host/Health/AdmissionRoutes.cs	4	0
@@ -197,6 +197,7 @@ owner-count: 97
 - apps/local-node-host/Health/HostedInvoiceApiEndpoint.cs	2	0
 - apps/local-node-host/Health/HostedJournalEntryApiEndpoint.cs	2	0
 - apps/local-node-host/Health/HostedKgSearchApiEndpoint.cs	2	0
+- apps/local-node-host/Health/HostedLayoutDenialApiEndpoint.cs	1	0
 - apps/local-node-host/Health/HostedLeaseSubLedgerApiEndpoint.cs	2	0
 - apps/local-node-host/Health/HostedLifecycleApiEndpoint.cs	2	0
 - apps/local-node-host/Health/HostedOrgBrandingApiEndpoint.cs	2	0
@@ -220,6 +221,7 @@ owner-count: 97
 - apps/local-node-host/Health/JournalEntryRoutes.cs	10	0
 - apps/local-node-host/Health/KgActionApprovalTaskRoutes.cs	8	0
 - apps/local-node-host/Health/KgSearchRoutes.cs	2	0
+- apps/local-node-host/Health/LayoutDenialRoutes.cs	2	0
 - apps/local-node-host/Health/LeaseSubLedgerRoutes.cs	6	0
 - apps/local-node-host/Health/LifecycleRoutes.cs	5	0
 - apps/local-node-host/Health/LocalNodeHealthCheck.cs	4	0

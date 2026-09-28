@@ -749,6 +749,14 @@
       "status": "deferred"
     },
     {
+      "id": "local-node-http:GET:apps/local-node-host/Health/LayoutDenialRoutes.cs:RouteBase",
+      "kind": "local-node-http",
+      "method": "GET",
+      "routeExpression": "RouteBase",
+      "source": "apps/local-node-host/Health/LayoutDenialRoutes.cs",
+      "status": "deferred"
+    },
+    {
       "id": "local-node-http:GET:apps/local-node-host/Health/LeaseRoutes.cs:$\"{RouteBase}/{{name}}\"",
       "kind": "local-node-http",
       "method": "GET",

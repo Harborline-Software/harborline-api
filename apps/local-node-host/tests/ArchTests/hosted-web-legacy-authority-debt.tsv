@@ -1,5 +1,6 @@
 # baseline-sha	d3e730192f0478fdf9d1dffc67b2b35841ee7f07
-# reviewed-aggregate-debt-ceiling	437
+# reviewed-aggregate-debt-ceiling	440
+# 2026-09-26 (T-735) reviewed ratchet 437 -> 440	new Layout denial-reader route family at the minimum 2/0 route shape plus its 1/0 hosted mapper: server-derived active-team tenant and no static actor authority.
 # 2026-09-20 (T-461) reviewed ratchet 435 -> 437	new hosted route family for proposed changes, saved versions and released packages at the minimum 2/0 shape: one tenant resolution point per file rather than one per handler, which would have been 7, and that tenant IS the authorization subject of every act in the family. Same shape and same reason as the T-644 configuration-activation row.
 # 2026-09-19 (T-644) reviewed ratchet 433 -> 435	new hosted route family for configuration-generation activation at the minimum 2/0 shape: one tenant resolution point per file, and that tenant IS the authorization subject of prepare and activate, as for POST /packs/check.
 # 2026-09-17 (T-576) ratchet 437 -> 433	shared report-run admission resolves the tenant once per request.
@@ -50,6 +51,7 @@ Health/HostedEntityApiEndpoint.cs	2	0
 Health/HostedFormsApiEndpoint.cs	2	0
 Health/HostedInvoiceApiEndpoint.cs	2	0
 Health/HostedJournalEntryApiEndpoint.cs	2	0
+Health/HostedLayoutDenialApiEndpoint.cs	1	0
 Health/HostedKgSearchApiEndpoint.cs	2	0
 Health/HostedLeaseSubLedgerApiEndpoint.cs	2	0
 Health/HostedLifecycleApiEndpoint.cs	2	0
@@ -76,6 +78,7 @@ Health/KgActionApprovalTaskRoutes.cs	8	0
 Health/KgSearchRoutes.cs	2	0
 Health/LeaseSubLedgerRoutes.cs	6	0
 Health/LifecycleRoutes.cs	5	0
+Health/LayoutDenialRoutes.cs	2	0
 Health/LocalNodeHealthCheck.cs	4	0
 Health/NodeCallerParty.cs	0	2
 Health/NodeMutationIdempotency.cs	2	0
