@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {execFileSync, spawnSync} from 'node:child_process'
@@ -122,7 +122,8 @@ test('nested and sibling layouts plan the same 29 packages and version without e
         '-getProperty:ManagePackageVersionsCentrally', '-getProperty:DirectoryPackagesPropsPath', '-getItem:PackageReference'],
       {cwd: platform, encoding: 'utf8'}))
       assert.equal(evaluated.Properties.ManagePackageVersionsCentrally, 'true')
-      assert.equal(path.resolve(evaluated.Properties.DirectoryPackagesPropsPath), path.join(platform, 'Directory.Packages.props'))
+      assert.equal(realpathSync.native(evaluated.Properties.DirectoryPackagesPropsPath),
+        realpathSync.native(path.join(platform, 'Directory.Packages.props')))
       assert.deepEqual(evaluated.Items.PackageReference, [], `${index === 0 ? 'sibling' : 'nested'} layout inherited enclosing PackageReferences`)
     }
   } finally {
