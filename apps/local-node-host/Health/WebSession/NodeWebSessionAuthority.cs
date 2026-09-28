@@ -59,7 +59,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
     // state — the node emits these via structured logging with the canonical labels. Durable
     // hash-chained auth-audit rows (NodeAuditEventRow) are a documented follow-up; the node's audit
     // chain is financial-only today).
-    private const string AuditPasswordLogin = "Auth.SessionEstablished.PasswordLogin";
+    private const string AuditSessionEstablished = "Auth.SessionEstablished.PasswordLogin";
     private const string AuditLoginFailed = "Auth.LoginFailed";
     private const string AuditSignedOut = "Auth.SignedOut";
 
@@ -234,7 +234,7 @@ public sealed class NodeWebSessionAuthority : INodeWebSessionAuthority
 
         _logger.LogInformation(
             "{AuditEventType}: web-client login succeeded for user {User} (tenant {Tenant}); session expires {ExpiresAt:o}.",
-            AuditPasswordLogin, operatorPrincipal.Value, tenant.Value, record.AbsoluteExpiryUtc);
+            AuditSessionEstablished, operatorPrincipal.Value, tenant.Value, record.AbsoluteExpiryUtc);
 
         var displayName = string.IsNullOrWhiteSpace(_options.FounderDisplayName)
             ? _options.FounderUsername!
