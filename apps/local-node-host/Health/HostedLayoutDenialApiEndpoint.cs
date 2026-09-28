@@ -19,7 +19,10 @@ public sealed class HostedLayoutDenialApiEndpoint(
     {
         sharedApp.MapApiRoutes(app => LayoutDenialRoutes.Map(
             app.MapDeviceReachableProductDataGroup(), reader, activeTeam, time));
-        logger.LogInformation("Layout denial reader API registered at GET {RouteBase}.", LayoutDenialRoutes.RouteBase);
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Layout denial reader API registered at GET {RouteBase}.", LayoutDenialRoutes.RouteBase);
+        }
         return Task.CompletedTask;
     }
 

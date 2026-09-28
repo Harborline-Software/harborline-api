@@ -58,6 +58,9 @@ bash "$repo_root/eng/tests/verify-lane.test.sh" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
 node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
+# T-724 ruling 119e: the nightly drift report between a run's observed identities and the committed
+# knownTests roster (eng/known-tests-drift.mjs) never writes anything itself.
+node --test "$repo_root/eng/tests/known-tests-drift.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/exact-clone-platform-feed.test.mjs" || exit 1
 node --test "$repo_root/eng/tests/normalize-roslyn-sarif.test.mjs" || exit 1

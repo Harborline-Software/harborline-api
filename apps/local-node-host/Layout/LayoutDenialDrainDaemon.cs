@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -31,6 +33,7 @@ public sealed class LayoutDenialDrainDaemon : BackgroundService
     }
 
     /// <inheritdoc />
+    [SuppressMessage("Reliability", "CA1031", Justification = "The recovery daemon must log any non-cancellation drain failure and retry on the next interval.")]
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(_interval, _time);

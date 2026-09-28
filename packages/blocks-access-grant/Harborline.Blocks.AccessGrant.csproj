@@ -31,6 +31,8 @@
     <!-- L675 — PackProjectionAuthority: the carried decision a pack's role/binding projection writes
          under, so the definition writer never re-decides. Already transitive via foundation-forms. -->
     <ProjectReference Include="..\foundation-packs\Harborline.Foundation.Packs.csproj" />
+    <!-- ADR-0038: the kernel owns the only permitted write-pipeline order. -->
+    <ProjectReference Include="..\kernel-runtime\Harborline.Kernel.Runtime.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
