@@ -477,12 +477,6 @@ jobs:
       HARBORLINE_GATE_QUALITY: '1'
       HARBORLINE_GATE_COVERAGE: ${{ github.event_name == 'merge_group' && '1' || '' }}
     steps:
-      - name: Git Bash on PATH
-        shell: pwsh
-        run: |
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\usr\bin'
-
       - name: Runner identity
         run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
