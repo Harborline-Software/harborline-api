@@ -133,6 +133,22 @@ public sealed class BankMatchCrashResumeTests : IAsyncLifetime
         Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
     }
 
+    [Fact(DisplayName = "T-988 bank: a transition whose link already left the expected state writes neither the link nor the line")]
+    public async Task Transition_FromAStateTheLinkLeft_WritesNothing()
+    {
+        // A racing accept read Proposed, then another caller accepted first: the persisted state decides.
+        await Accept().AcceptAsync(Tenant, _linkId);
+        var repo = new NodeEfMatchLinkRepository(_factory);
+        var stale = (await Link()) with { State = MatchLinkState.Reversed };
+
+        var moved = await repo.TransitionWithLineAsync(
+            stale, MatchLinkState.Proposed, (await Line()) with { State = ReconciliationState.Unmatched });
+
+        Assert.False(moved);
+        Assert.Equal(MatchLinkState.Accepted, (await Link()).State);
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
     private async Task<MatchLinkId> AddLink(decimal amount)
     {
         var id = MatchLinkId.NewId();
