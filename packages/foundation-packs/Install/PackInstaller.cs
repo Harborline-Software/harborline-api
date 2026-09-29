@@ -283,25 +283,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     .Where(dependency => dependency.Key != pack.PackKey) // a self-reference is this very pack.
                     .Select(dependency => new KernelPackageDependency(dependency.Key, dependency.Version))
                     .ToArray()), StringComparer.Ordinal);
-        // ponytail: until S9 (D5) the platform root is required only when a closure member declares it, so an
-        // inactive platform pack is stood in by an empty 0.0.0 floor that any declared pin on it refuses. S9
-        // deletes these lines and every closure is rooted at the Active platform pack.
+        // D5: the resolver roots every closure at the platform pack, so an inactive platform refuses any other target.
         const string platform = KernelPackageClosure.PlatformPackageKey;
-        var floorPending = !active.ContainsKey(platform);
-        if (floorPending)
-        {
-            active[platform] = "0.0.0";
-            manifests[platform] = new KernelPackageManifest(platform, "0.0.0", []);
-        }
         try
         {
-            var closure = KernelPackageClosure.Resolve([target.PackKey], manifests.Values, active);
-            var declarer = floorPending
-                ? closure.Packages.FirstOrDefault(pack => pack.Dependencies.Any(dependency => dependency.Key == platform))
-                : null;
-            if (declarer is null) return null;
-            var (code, message) = PlatformRequired(declarer.Key);
-            return new(false, target.PackKey, target.Version, code, message, Decision: decision);
+            KernelPackageClosure.Resolve([target.PackKey], manifests.Values, active);
+            return null;
         }
         catch (KernelClosureRefusalException refusal)
         {
@@ -309,7 +296,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             var last = refusal.Path[^1];
             var (error, detail) = refusal.Code switch
             {
-                _ when floorPending && last == platform => PlatformRequired(refusal.Path[^2]),
+                _ when refusal.Path is [platform] => (PackInstallCodes.ActivatePlatformPackRequired,
+                    $"the platform pack '{platform}' must be active before '{target.PackKey}' can activate."),
                 KernelClosureErrors.DependencyInactive => (PackInstallCodes.ActivateDependencyInactive,
                     $"closure path {path}: '{last}' is installed but not active."),
                 KernelClosureErrors.DependencyBelowPin => (PackInstallCodes.ActivateDependencyBelowPin,
@@ -322,9 +310,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             };
             return new(false, target.PackKey, target.Version, error, detail, Decision: decision);
         }
-
-        (string, string) PlatformRequired(string declarer) => (PackInstallCodes.ActivatePlatformPackRequired,
-            $"the platform dependency '{platform}' declared by '{declarer}' must be active before '{target.PackKey}' can activate.");
     }
 
     private PackActivationOutcome? FindActivationCompositionRefusal(
@@ -1366,7 +1351,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     }
 
     /// <summary>The Active packs, ordinal order, whose declared closure runs through <paramref name="packKey"/>,
-    /// transitively. S9 (D5) adds every other Active pack when <paramref name="packKey"/> is the platform pack.</summary>
+    /// transitively. Every other Active pack depends on the platform pack, which roots every closure (D5).</summary>
     private static IReadOnlyList<string> ActiveDependents(IReadOnlyList<InstalledPack> installed, string packKey)
     {
         var active = installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active).ToList();
@@ -1375,7 +1360,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             grew = false;
             foreach (var pack in active)
-                if (!reached.Contains(pack.PackKey) && pack.Dependencies.Any(dependency => reached.Contains(dependency.Key)))
+                if (!reached.Contains(pack.PackKey) && (packKey == KernelPackageClosure.PlatformPackageKey
+                        || pack.Dependencies.Any(dependency => reached.Contains(dependency.Key))))
                     grew = reached.Add(pack.PackKey);
         }
         reached.Remove(packKey);

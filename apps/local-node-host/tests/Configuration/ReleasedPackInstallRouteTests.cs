@@ -93,6 +93,7 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
 
         var activeTeam = new ActiveTeam(new TeamContext(TeamA, "Team A", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         _tenant = NodeTenant.Resolve(activeTeam);
+        PlatformPackTestPreload.Activate(_store, _tenant);
 
         var builder = WebApplication.CreateBuilder();
         // Ticket 294 slice 3b: the desktop actor (no compile-time operator id).

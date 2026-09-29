@@ -29,6 +29,7 @@ using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Audit;
 
@@ -319,6 +320,7 @@ public sealed class AuthoritySnapshotTests
         var recorded = new RecordingPackInstallAudit();
         var gateCalls = 0;
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, Tenant);
         var codec = new PackFileCodec();
         var installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
