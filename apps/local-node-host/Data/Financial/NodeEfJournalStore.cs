@@ -163,7 +163,15 @@ public sealed class NodeEfJournalStore : IJournalStore
         }
 
         ctx.Set<JournalEntry>().Add(entry);
-        await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (entry.SourceReference is { Length: > 0 } && NodePersistenceConflict.IsDuplicate(ex))
+        {
+            throw new JournalSourceReferenceConflictException(
+                $"JournalEntry '{entry.Id.Value}': source reference '{entry.SourceReference}' is already posted.", ex);
+        }
     }
 
     /// <inheritdoc />

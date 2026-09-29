@@ -367,9 +367,10 @@ public static class JournalEntryRoutes
     /// SourceReference so the tenant-scoped unique index and posting-service replay survive a restart.
     /// NodeMutationIdempotency has already validated the header shape.
     /// </summary>
-    private static string? ManualIdempotencyReference(HttpContext http, AuthorizationWriteContext authority) =>
+    private static string? ManualIdempotencyReference(
+        HttpContext http, AuthorizationWriteContext authority, string route = "manual-je") =>
         http.Request.Headers[IdempotencyContract.HeaderName] is { Count: 1 } key && !string.IsNullOrEmpty(key[0])
-            ? $"manual-je:{authority.Principal.Value}:{key[0]}"
+            ? $"{route}:{authority.Principal.Value}:{key[0]}"
             : null;
 
     private static bool SameManualRequest(JournalEntry posted, JournalEntry draft) =>
@@ -407,6 +408,28 @@ public static class JournalEntryRoutes
             // T-974: the path id names the existing entry; the new reversing entry's id is server-minted.
             if (body?.Id is not null)
                 return Results.BadRequest(new { code = "request.record-id-not-accepted" });
+
+            // A keyed retry replays BEFORE the Posted check: after the first reversal the original is Reversed,
+            // and the retry must still get the first 201 (DES-0029 ck-6). The reverse key has its own route scope.
+            var replayReference = ManualIdempotencyReference(http, authority, "manual-je-reverse");
+            async Task<IResult?> ReplayAsync()
+            {
+                if (replayReference is null)
+                    return null;
+                var prior = await store.FindBySourceReferenceAsync(LocalTenantId, replayReference, ct).ConfigureAwait(false);
+                if (prior is null)
+                    return null;
+                var sameRequest = prior.ReversalOf?.Value == id &&
+                    (string.IsNullOrWhiteSpace(body?.ReversalDate) ||
+                     (DateOnly.TryParse(body.ReversalDate, out var date) && date == prior.EntryDate));
+                return sameRequest
+                    ? Results.Created($"{RouteBase}/{prior.Id.Value}", new JournalEntryDetailResponse(JournalEntryDetailWire.From(prior)))
+                    : Results.Conflict(new { code = "authorization.idempotency_key_reused" });
+            }
+
+            if (await ReplayAsync().ConfigureAwait(false) is { } replay)
+                return replay;
+
             var original = store.Snapshot(LocalTenantId).FirstOrDefault(e => e.Id.Value == id);
             if (original is null)
             {
@@ -454,7 +477,8 @@ public static class JournalEntryRoutes
                 entryDate:    reversalDate,
                 memo:         memo.Length > 200 ? memo[..200] : memo,
                 lines:        reversedLines,
-                createdAtUtc: new Instant(at))
+                createdAtUtc: new Instant(at),
+                sourceReference: replayReference)
             {
                 ChartId     = original.ChartId,
                 Status      = JournalEntryStatus.Draft,
@@ -469,8 +493,9 @@ public static class JournalEntryRoutes
             }
             catch (JournalEntryNotReversibleException)
             {
-                // Passed the Posted check above, then lost the store's write lock to a concurrent reversal.
-                return Results.BadRequest(new { error = "already_reversed" });
+                // Passed the Posted check above, then lost the store's write lock to a concurrent reversal
+                // (which may be this same keyed request's retry).
+                return await ReplayAsync().ConfigureAwait(false) ?? Results.BadRequest(new { error = "already_reversed" });
             }
             catch (Exception)
             {
