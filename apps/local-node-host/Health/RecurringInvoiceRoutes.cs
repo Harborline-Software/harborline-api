@@ -124,6 +124,9 @@ public static class RecurringInvoiceRoutes
         app.MapPost(RouteBase, async (CreateRecurringScheduleBody body, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-974: the server mints the schedule id; a caller-constructed one is refused, never coerced.
+            if (body?.Id is not null || body?.ScheduleId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null
                 || string.IsNullOrWhiteSpace(body.CustomerId)
                 || string.IsNullOrWhiteSpace(body.ArAccountId)
@@ -202,6 +205,10 @@ public static class RecurringInvoiceRoutes
         app.MapPost($"{RouteBase}/{{id}}/generate", async (string id, GenerateScheduleBody? body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
+            // T-974: the path id names the existing schedule; generated invoice ids are server-derived per
+            // occurrence, so a caller-constructed one is refused.
+            if (body?.Id is not null || body?.InvoiceId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             var scheduleId = new RecurringInvoiceScheduleId(id);
             var schedule = await recurring.GetScheduleAsync(LocalTenantId, scheduleId, ct).ConfigureAwait(false);
             if (schedule is null) return Results.NotFound();
@@ -231,7 +238,9 @@ public static class RecurringInvoiceRoutes
         IReadOnlyList<CreateRecurringLineBody> Lines,
         DateOnly? EndsOn = null,
         int? LookaheadHorizonDays = null,
-        int? GenerateLeadDays = null);
+        int? GenerateLeadDays = null,
+        string? Id = null,
+        string? ScheduleId = null);
 
     /// <summary>Line template within <see cref="CreateRecurringScheduleBody"/>.</summary>
     public sealed record CreateRecurringLineBody(
@@ -243,7 +252,7 @@ public static class RecurringInvoiceRoutes
         string? PropertyId = null);
 
     /// <summary>Optional body for the generate route.</summary>
-    public sealed record GenerateScheduleBody(DateOnly? AsOf = null);
+    public sealed record GenerateScheduleBody(DateOnly? AsOf = null, string? Id = null, string? InvoiceId = null);
 
     // ── Response DTOs (field-identical to the Bridge contract) ───────────────────────
 
