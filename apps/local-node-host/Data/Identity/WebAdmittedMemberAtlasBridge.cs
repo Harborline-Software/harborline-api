@@ -86,21 +86,28 @@ internal sealed class WebAdmittedMemberAtlasBridge
     }
 
     /// <summary>
-    /// The admission's grant conferral, through the ONE derivation the 3a boot backfill also uses. The
+    /// The admission's grant conferral, through the ONE derivation (the ck-10 conferral pipeline). The
     /// configuration store is built over the grant factory this bridge already holds — no new constructor
-    /// seam, and every existing composition site keeps working. The role vocabulary is empty on purpose:
-    /// <c>StageAdmissionGrantAsync</c> always supplies the admission's own per-admission vocabulary, so the
-    /// constructor's reader is never consulted on this path.
+    /// seam, and every existing composition site keeps working. The role vocabulary is empty on purpose: the
+    /// pipeline always supplies the admission's own per-admission vocabulary, so the constructor's reader is
+    /// never consulted on this path. With <paramref name="within"/> it joins the roster save's transaction;
+    /// without it, it commits under its own fence.
     /// ponytail: an empty vocabulary reader here, inject the composed one if any other member of the store
     /// is ever called from this bridge.
     /// </summary>
     private Task<AccessGrant?> ConferAdmissionGrantAsync(
-        TenantId tenant, string admittedPartyId, string admitterPartyId, PermissionSet permissions,
-        MemberRoster admitted, CancellationToken cancellationToken) =>
-        new NodeEfAuthorizationConfigurationStore(_grantFactory, new InMemoryRoleVocabulary([]))
-            .ConferAdmissionGrantAsync(
-                tenant, admittedPartyId, admitterPartyId, permissions,
-                _timeProvider.GetUtcNow(), AdmissionConferralAuthority.SignedAdmission(admitted), cancellationToken);
+        DbContext? within, TenantId tenant, string admittedPartyId, string admitterPartyId,
+        PermissionSet permissions, MemberRoster admitted, CancellationToken cancellationToken)
+    {
+        var store = new NodeEfAuthorizationConfigurationStore(_grantFactory, new InMemoryRoleVocabulary([]));
+        var authority = AdmissionConferralAuthority.SignedAdmission(admitted);
+        var at = _timeProvider.GetUtcNow();
+        return within is null
+            ? store.ConferAdmissionGrantAsync(
+                tenant, admittedPartyId, admitterPartyId, permissions, at, authority, cancellationToken)
+            : store.ConferAdmissionGrantWithinAsync(
+                within, tenant, admittedPartyId, admitterPartyId, permissions, at, authority, cancellationToken);
+    }
 
     /// <summary>
     /// The #3107 FRONT DOOR — admit a web-admitted member's first device from the single-use device-pairing
@@ -389,13 +396,14 @@ internal sealed class WebAdmittedMemberAtlasBridge
         }
 
         // ADR 0066 clause 3 / ticket 293 slice 4 — THE ADMISSION CONFERS THE ADMITTED PARTY'S GRANT.
-        // This is the one place both admission paths (pairing and first enrollment) commit a roster edge, so
+        // This is the one place both admission paths (pairing and first enrollment) derive a roster edge, so
         // one conferral here covers both admitters. The atoms are the permission set the admission itself
         // carried; the scope is the install root; the key is the roster party id, which since ticket 294
         // slice 2a is the canonical tenant principal id (see
-        // NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync for why the gate finds it there).
-        // A conferral failure THROWS out of the bridge before the outcome is admitted, so the caller never
-        // publishes the roster record: no half state where a party is on the roster with no grant.
+        // NodeEfAuthorizationConfigurationStore.ConferAdmissionGrantAsync for why the gate finds it there).
+        // ck-10: the conferral is carried on the outcome, not run here. The admitter runs it inside the
+        // transaction that saves the roster record (AtlasAdmissionOutcome.ConferGrantAsync), so a refused save
+        // leaves no grant and a refused conferral leaves no roster record: neither half lands alone.
         //
         // What it ADDS, precisely (fix 4, D2). At this instant the atoms are a copy of what the principal
         // already holds: grantedPermissions was derived above from this subject's own closure read, and pin 4
@@ -406,10 +414,9 @@ internal sealed class WebAdmittedMemberAtlasBridge
         // enrollment itself does not depend on. WebAdmittedMemberAtlasBridgeTests pins exactly that — revoke
         // the membership grant after admitting and the admitted member is still allowed; delete this call and
         // it is refused.
-        await ConferAdmissionGrantAsync(
-                tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, result.Roster, cancellationToken)
-            .ConfigureAwait(false);
-        return AtlasAdmissionOutcome.Admit(result.Roster, grantedPermissions);
+        var admitted = result.Roster;
+        return AtlasAdmissionOutcome.Admit(admitted, grantedPermissions, (within, ct) => ConferAdmissionGrantAsync(
+            within, tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, admitted, ct));
     }
 
     /// <summary>
@@ -504,8 +511,20 @@ internal sealed class WebAdmittedMemberAtlasBridge
         /// </summary>
         public PermissionSet? ConferredPermissions { get; }
 
-        internal static AtlasAdmissionOutcome Admit(MemberRoster roster, PermissionSet conferredPermissions) =>
-            new(true, roster, null, conferredPermissions);
+        internal static AtlasAdmissionOutcome Admit(
+            MemberRoster roster, PermissionSet conferredPermissions,
+            Func<DbContext?, CancellationToken, Task<AccessGrant?>> confer) =>
+            new(true, roster, null, conferredPermissions) { _confer = confer };
+
+        private Func<DbContext?, CancellationToken, Task<AccessGrant?>>? _confer;
+
+        /// <summary>
+        /// ck-10: confers the admitted party's grant through the conferral pipeline. The admitter passes the
+        /// roster context whose save records this admission, so the grant commits in that transaction or not at
+        /// all; null commits it under its own fence. A refused admission confers nothing.
+        /// </summary>
+        internal Task<AccessGrant?> ConferGrantAsync(DbContext? within, CancellationToken ct) =>
+            (_confer ?? throw new InvalidOperationException("A refused admission confers nothing."))(within, ct);
 
         internal static AtlasAdmissionOutcome Refuse(string reason) => new(false, null, reason, null);
 

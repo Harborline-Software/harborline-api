@@ -70,7 +70,23 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     /// ck-10: the conferral runs the six ADR 0038 stages (<see cref="AuthorizationDefinitionWriter"/>), and its
     /// commit stage stages the definitions, the grant and the audit in this fence.
     /// </summary>
-    internal async Task<AccessGrant?> ConferAdmissionGrantAsync(
+    internal Task<AccessGrant?> ConferAdmissionGrantAsync(
+        TenantId tenant,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset at,
+        AdmissionConferralAuthority authority,
+        CancellationToken ct = default) =>
+        ConferCoreAsync(null, tenant, admittedPartyId, admittedByPartyId, permissions, at, authority, ct);
+
+    /// <summary>
+    /// ck-10: the live conferral inside the transaction that saves the admission's roster record. The conferral
+    /// joins <paramref name="within"/>'s connection and open transaction (one SQLite database), so the roster
+    /// record, its audit, the grant, its definitions and the conferral's audit commit together or not at all.
+    /// </summary>
+    internal Task<AccessGrant?> ConferAdmissionGrantWithinAsync(
+        DbContext within,
         TenantId tenant,
         string admittedPartyId,
         string admittedByPartyId,
@@ -79,20 +95,53 @@ public sealed class NodeEfAuthorizationConfigurationStore(
         AdmissionConferralAuthority authority,
         CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(within);
+        return ConferCoreAsync(within, tenant, admittedPartyId, admittedByPartyId, permissions, at, authority, ct);
+    }
+
+    private async Task<AccessGrant?> ConferCoreAsync(
+        DbContext? within,
+        TenantId tenant,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset at,
+        AdmissionConferralAuthority authority,
+        CancellationToken ct)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedPartyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedByPartyId);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(authority);
         using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await using var db = await CreateContextAsync(ct).ConfigureAwait(false);
-        return await HomeEpochFenceTransaction.RunAsync(db, async () =>
+        if (within is not null) await JoinAsync(db, within, ct).ConfigureAwait(false);
+        async Task<AccessGrant?> ConferAsync()
         {
             var id = StableId(tenant.Value + ":admission:" + admittedPartyId);
             return await AuthorizationDefinitionWriter.ConferAdmissionAsync(
                 new AdmissionConferral(tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id,
                     "roster-admission:" + id.ToString("D")),
                 authority, new ConferralUnit(this, db), pipelineObserver, ct).ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
+        }
+        return within is null
+            ? await HomeEpochFenceTransaction.RunAsync(db, ConferAsync, ct).ConfigureAwait(false)
+            : await ConferAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Moves <paramref name="db"/> onto <paramref name="within"/>'s connection and open transaction.</summary>
+    private static async Task JoinAsync(NodeLocalSearchDbContext db, DbContext within, CancellationToken ct)
+    {
+        var transaction = within.Database.CurrentTransaction?.GetDbTransaction()
+            ?? throw new InvalidOperationException("An admission conferral joins the roster write's open transaction.");
+        // A second database cannot share this commit (the PackProjectionSqliteUnit.Join rule).
+        if (!string.Equals(db.Database.GetConnectionString(), within.Database.GetConnectionString(), StringComparison.Ordinal))
+            throw new InvalidOperationException("An admission conferral must share the roster write's SQLite database.");
+        var own = db.Database.GetDbConnection();
+        await own.CloseAsync().ConfigureAwait(false);
+        db.Database.SetDbConnection(within.Database.GetDbConnection(), contextOwnsConnection: false);
+        await own.DisposeAsync().ConfigureAwait(false);
+        await db.Database.UseTransactionAsync(transaction, ct).ConfigureAwait(false);
     }
 
     /// <summary>

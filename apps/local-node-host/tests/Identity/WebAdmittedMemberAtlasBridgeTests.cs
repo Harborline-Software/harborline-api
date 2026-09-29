@@ -639,9 +639,10 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
 
     /// <summary>
     /// ADR 0066 clause 3 — the admission CONFERS the admitted party's grant, and that grant is what the real
-    /// gate then answers from. The review's mutation MR1 (delete the
-    /// <c>ConferAdmissionGrantAsync</c> call before <c>AtlasAdmissionOutcome.Admit</c>) left every admission test
-    /// green; this is the test that goes red under it.
+    /// gate then answers from. The review's mutation MR1 (drop the conferral the admission outcome carries) left
+    /// every admission test green; this is the test that goes red under it. ck-10: the admitter runs the
+    /// conferral inside its roster save (PairingTokenGatedAdmitterTests pins that ordering); here it commits
+    /// under its own fence.
     /// </summary>
     /// <remarks>
     /// The other writer of a grant under this same subject key is
@@ -670,6 +671,7 @@ public sealed class WebAdmittedMemberAtlasBridgeTests
             roster, FounderPartyId, founder.Signer, tokenId, Membership(),
             PartyId, joiner.Key.PrincipalId, cancellationToken: CancellationToken.None);
         Assert.True(outcome.Admitted);
+        Assert.NotNull(await outcome.ConferGrantAsync(null, CancellationToken.None));
 
         // After it, the real gate allows the act the conferred set carries — and only that act.
         Assert.Equal(AuthorizationVerdict.Allowed, (await AskRealGateAsync(store)).Verdict);

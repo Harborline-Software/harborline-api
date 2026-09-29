@@ -46,10 +46,10 @@ namespace Harborline.Api.LocalNodeHost.Enrollment;
 ///   <item><see cref="AdmissionCoordinator.AdmitOverInvite"/> — redeems the invite single-use (replay / expiry /
 ///     unknown → fail-closed) and SIGNS the joining (party, principal-key) into the roster
 ///     (<see cref="MemberRoster.Admit"/> — no-escalation + admitter-key-binding enforced inside).</item>
-///   <item><see cref="NodeTeamRoster.AdmitPeer"/> — wire the admitted peer's TRANSPORT key into A's trust map
-///     additively (so A's <c>MemberSetTrustPolicy</c> trusts B's wire HELLO).</item>
 ///   <item>publish the new admission to the roster-sync doctype so it converges to every peer, with the SoD
 ///     compensating-control audit event (the "second set of eyes") committed in the same save (T-986).</item>
+///   <item><see cref="NodeTeamRoster.AdmitPeer"/> — only once that save commits (ck-10), wire the admitted peer's
+///     TRANSPORT key into A's trust map additively (so A's <c>MemberSetTrustPolicy</c> trusts B's wire HELLO).</item>
 ///   <item><see cref="WireEnrollment.BuildResponse"/> — A's team-scoped transport key + the team genesis anchor +
 ///     the synced roster + the per-member transport-key map: the bootstrap B adopts.</item>
 /// </list>
@@ -208,14 +208,10 @@ public sealed class WireEnrollmentAdmitter
 
         var newRoster = result.Roster;
 
-        // (3) Wire the admitted peer's TRANSPORT key into A's trust map additively — A now trusts B's wire HELLO.
-        //     C5 — ALSO record B's DM public key (when present) so A can derive a per-conversation DM seal key with B.
-        _roster.AdmitPeer(newRoster, request.JoiningPartyId, joiningTransportKey, joiningDmKey);
-
         // (4) Publish the new admission to the roster-sync doctype so it converges to every peer — STAMPING the
         //     joiner's team-scoped TRANSPORT key onto the synced record (INFO-2; the ≥3-node mesh fix). A holds the
-        //     joiner's transport key (the joiner supplied it over the admission channel; it is what AdmitPeer just
-        //     recorded), so the synced admission record now CARRIES it. Every converging member (including peers
+        //     joiner's transport key (the joiner supplied it over the admission channel; it is what AdmitPeer
+        //     records after the commit), so the synced admission record now CARRIES it. Every converging member (including peers
         //     admitted earlier, e.g. B when this admits C) harvests it from the converged roster and trusts the new
         //     peer's wire HELLO directly — not only via the admitting hub. The key rides UNSIGNED-by-association,
         //     outside the signed admission payload, honored only because this party is in the genesis-rooted roster.
@@ -247,6 +243,11 @@ public sealed class WireEnrollmentAdmitter
                     ct: token))
                 .ConfigureAwait(false);
         }
+
+        // (5b) Only after the commit — wire the admitted peer's TRANSPORT key into A's trust map additively, so A
+        //     trusts B's wire HELLO only once the admission is durable (a refused save leaves no trust).
+        //     C5 — ALSO record B's DM public key (when present) so A can derive a per-conversation DM seal key with B.
+        _roster.AdmitPeer(newRoster, request.JoiningPartyId, joiningTransportKey, joiningDmKey);
 
         // (6) Build the A→B bootstrap response. A's team-scoped transport key comes from the ACTIVE TEAM's
         //     INodeIdentityProvider (the #1296-F2 source of truth — the SAME key A presents on the wire HELLO).
