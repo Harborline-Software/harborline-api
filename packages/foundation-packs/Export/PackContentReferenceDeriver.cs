@@ -16,9 +16,9 @@ namespace Harborline.Api.Foundation.Packs.Export;
 /// external app — one of the pack's declared <c>Dependencies[]</c> keys (a content-grain reference implies a
 /// pack-level dependency, so the two agree). A reference to a sibling leaf in the SAME pack is intra-app
 /// wiring and is dropped (§6.3: "only references whose <c>toPackKey</c> differs from the pack's own key are
-/// emitted"). A reference the composer cannot resolve to a declared dependency is left for the author to
-/// declare (not guessed) — so a pack that references another app WITHOUT declaring the dependency simply
-/// emits no edge (and the graph, for such a pack, falls back to the G1 body-parse — backward-compatible).
+/// emitted"). A reference the composer cannot resolve to a declared dependency is not guessed and not
+/// dropped: it is returned as undeclared, and the export and install gates refuse it (ADR 0028, DES-0014 K9,
+/// T-152 decision D7).
 /// </para>
 /// <para>
 /// <b>Namespace resolution.</b> Content keys are app-namespaced (<c>core-records.property</c>,
@@ -47,6 +47,18 @@ public static class PackContentReferenceDeriver
         string ownPackKey,
         IReadOnlyList<PackContentSource> contents,
         IEnumerable<string> declaredDependencyKeys)
+        => Derive(ownPackKey, contents, declaredDependencyKeys, out _);
+
+    /// <summary>
+    /// <see cref="Derive(string, IReadOnlyList{PackContentSource}, IEnumerable{string})"/>, also returning every
+    /// reference that resolves to neither this pack nor a declared dependency. ADR 0028 and DES-0014 K9
+    /// (T-152, D7): such an edge is refused by the export gate and the install gate, never dropped.
+    /// </summary>
+    public static IReadOnlyList<PackContentReferenceEdge>? Derive(
+        string ownPackKey,
+        IReadOnlyList<PackContentSource> contents,
+        IEnumerable<string> declaredDependencyKeys,
+        out IReadOnlyList<PackUndeclaredContentReference> undeclared)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownPackKey);
         ArgumentNullException.ThrowIfNull(contents);
@@ -67,6 +79,8 @@ public static class PackContentReferenceDeriver
         var ownContentKeys = new HashSet<string>(contents.Select(c => c.Key), StringComparer.Ordinal);
 
         var edges = new List<PackContentReferenceEdge>();
+        var unresolved = new List<PackUndeclaredContentReference>();
+        undeclared = unresolved;
         foreach (var item in contents)
         {
             foreach (var reference in PackContentReferenceExtractor.Extract(item.Kind, item.Content))
@@ -78,10 +92,16 @@ public static class PackContentReferenceDeriver
                 }
 
                 var toPackKey = ResolveOwningPackKey(reference.ToContentKey, knownKeys);
-                if (toPackKey is null || string.Equals(toPackKey, ownPackKey, StringComparison.Ordinal))
+                if (toPackKey is null)
                 {
-                    // Unresolvable (the author did not declare the dependency) or resolved to self ⇒ drop.
+                    // The target belongs to no declared dependency: a boundary violation the caller refuses.
+                    unresolved.Add(new PackUndeclaredContentReference(item.Key, reference.ToContentKey));
                     continue;
+                }
+
+                if (string.Equals(toPackKey, ownPackKey, StringComparison.Ordinal))
+                {
+                    continue; // resolved to self ⇒ intra-app, not an edge.
                 }
 
                 edges.Add(new PackContentReferenceEdge(
@@ -144,3 +164,8 @@ public static class PackContentReferenceDeriver
         return ((int)a.Relation).CompareTo((int)b.Relation);
     }
 }
+
+/// <summary>A content reference that resolves to neither its own pack nor a declared dependency (K9).</summary>
+/// <param name="FromContentKey">The referencing item's content key.</param>
+/// <param name="ToContentKey">The referenced content key.</param>
+public sealed record PackUndeclaredContentReference(string FromContentKey, string ToContentKey);

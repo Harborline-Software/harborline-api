@@ -66,6 +66,21 @@ public sealed class PackContentKindAdmissionTests
         Assert.Null(decoded);
     }
 
+    [Fact(DisplayName = "T-981: the codec names the pointer of the content kind it refused")]
+    public void Unknown_Content_Kind_Names_Its_Pointer()
+    {
+        var codec = new PackFileCodec();
+
+        Assert.Null(codec.TryDecode(PackFileWith("9999"), out var unknown));
+        Assert.Equal("/contents/0/kind", unknown);
+        Assert.Null(codec.TryDecode(PackFileWith(kindProperty: null), out var absent));
+        Assert.Equal("/contents/0/kind", absent);
+        Assert.NotNull(codec.TryDecode(PackFileWith("\"FormDefinition\""), out var known));
+        Assert.Null(known);
+        Assert.Null(codec.TryDecode(Utf8("not json"), out var malformed));
+        Assert.Null(malformed);
+    }
+
     [Fact(DisplayName = "ticket 150 control: a kind this node DOES know still decodes")]
     public void Known_Content_Kind_Still_Decodes()
     {

@@ -33,6 +33,9 @@ public static class PackValidationCodes
     /// <summary>A declared dependency itself declares dependencies (deps-of-deps) — single-level
     /// violated, fail-closed refuse (architect fold A9).</summary>
     public const string TransitiveDependency = "pack.validation.dependency.transitive";
+    /// <summary>A content item references another package the pack does not declare as a dependency (K9,
+    /// ADR 0028, T-152). The target is the referencing item's key.</summary>
+    public const string ReferenceDependencyUndeclared = "pack.validation.reference.dependency_undeclared";
     /// <summary>A declared capability requirement is blank.</summary>
     public const string CapabilityRequirementBlank = "pack.validation.capability.blank";
 
