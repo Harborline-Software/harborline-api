@@ -1,0 +1,89 @@
+##### m1m2-active-team
+5221	51	Killed	Block removal mutation	{}	ArchTests.ActiveTeamTenantBindingArchTests.DifferentActiveTeam_YieldsDifferentTenant ; ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved ; ArchTests.ActiveTeamTenantBindingArchTests.SwitchingAct
+5223	68	Killed	Equality mutation	active is not null	ArchTests.ActiveTeamTenantBindingArchTests.DifferentActiveTeam_YieldsDifferentTenant ; ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved ; ArchTests.ActiveTeamTenantBindingArchTests.S
+5224	69	Killed	Block removal mutation	{}	ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved
+##### m3-selected-session
+43165	31	Survived	Block removal mutation	{}	
+43167	39	Survived	Statement mutation	;	
+43168	40	Killed	Equality mutation	_principal is null	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+43180	80	Killed	Null coalescing mutation (remove left)	string.Empty	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+43181	80	Killed	String mutation	"Stryker was here!"	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+##### m4-selection
+15405	83	Survived	Statement mutation	;	
+15407	92	Killed	String mutation	(challengeHandle!=null)	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15408	92	Killed	String mutation	(challengeHandle!="")	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15409	92	Killed	String mutation	(challengeHandle.Trim()!="")	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15410	92	Killed	Negate expression	!(string.IsNullOrWhiteSpace(challengeHandle))	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15412	110	Survived	Boolean mutation	true	
+15413	111	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	admission.IsAllowed	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15415	119	Survived	Boolean mutation	true	
+15417	122	Killed	Equality mutation	row.HandleDigest != challengeDigest	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15418	123	Survived	Boolean mutation	true	
+15419	126	Survived	Logical mutation	challenge is null || challenge.ConsumedAtUtc is not null || challenge.	
+15420	126	Killed	Negate expression	!(challenge is null || challenge.ConsumedAtUtc is not null || challeng	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15421	126	Survived	Logical mutation	challenge is null || challenge.ConsumedAtUtc is not null && challenge.	
+15422	126	Survived	Logical mutation	challenge is null && challenge.ConsumedAtUtc is not null	
+15423	126	Killed	Equality mutation	challenge is not null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15424	126	Killed	Equality mutation	challenge.ConsumedAtUtc is null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15425	126	Killed	Equality mutation	challenge.RevokedAtUtc is null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15427	133	Survived	Boolean mutation	true	
+15428	134	Killed	Equality mutation	authority is not null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles ; Identity.WebTenantSelectionAuthorityTests.Invalid_Explicit_Tenant_R
+15429	135	Killed	Block removal mutation	{}	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles ; Identity.WebTenantSelectionAuthorityTests.Invalid_Explicit_Tenant_Refuses_Without
+15532	354	Survived	Boolean mutation	true	
+15534	357	Survived	Logical mutation	row.AccountId == challenge.AccountId && row.Status == InstallationAcco	
+15535	357	Survived	Logical mutation	row.AccountId == challenge.AccountId || row.Status == InstallationAcco	
+15536	357	Killed	Equality mutation	row.AccountId != challenge.AccountId	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15537	358	Killed	Equality mutation	row.Status != InstallationAccountStatus.Active	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15538	359	Killed	Equality mutation	row.SecurityVersion != challenge.AccountSecurityVersion	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15539	360	Survived	Boolean mutation	true	
+15540	361	Killed	Equality mutation	current is not null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15542	371	Survived	Boolean mutation	true	
+15543	373	Killed	Equality mutation	requestedTenantId is not null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15551	387	Survived	String mutation	""	
+15552	388	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	candidates.Any(item => item.TenantId.Value == tenantId)	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profi
+15553	388	Killed	Linq method mutation (Any() to All())	candidates.All	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15554	388	Killed	Equality mutation	item.TenantId.Value != tenantId	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+15556	399	Survived	Boolean mutation	true	
+15557	400	Killed	Equality mutation	membership is not null	Identity.WebTenantSelectionAuthorityTests.Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles
+##### m5-switch
+15722	77	Survived	Statement mutation	;	
+15726	86	Survived	String mutation	(selectedHandle!=null)	
+15727	86	Survived	String mutation	(selectedHandle!="")	
+15728	86	Survived	String mutation	(selectedHandle.Trim()!="")	
+15731	91	Survived	String mutation	""	
+15732	93	Survived	Boolean mutation	true	
+15733	94	Survived	Logical mutation	oldSession is null && string.Equals(oldSession.TenantId, targetTenantI	
+15734	94	Survived	Negate expression	!(oldSession is null || string.Equals(oldSession.TenantId, targetTenan	
+15735	94	Survived	Equality mutation	oldSession is not null	
+15737	101	Survived	Boolean mutation	true	
+15738	103	Killed	Equality mutation	existingHome is not null	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15740	105	Survived	LogicalNotExpression to un-LogicalNotExpression mutation	await RequireCurrentActiveSessionAsync( oldSession, _timeProvider.GetU	
+15741	109	Survived	Boolean mutation	true	
+15743	118	Survived	Boolean mutation	true	
+15744	119	Killed	Logical mutation	target is null && !await OldAuthorityIsCurrentAsync(oldSession, correl	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15745	119	Killed	Negate expression	!(target is null || !await OldAuthorityIsCurrentAsync(oldSession, corr	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15746	119	Killed	Equality mutation	target is not null	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15841	364	Survived	Boolean mutation	true	
+15842	365	Killed	Linq method mutation (SingleOrDefault() to Single())	candidates.Single	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15843	366	Killed	Equality mutation	item.TenantId.Value != targetTenantId	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15844	367	Killed	Equality mutation	candidate is not null	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15845	368	Killed	Block removal mutation	{}	Identity.WebTenantSwitchAuthorityTests.Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written
+15878	423	Survived	Boolean mutation	true	
+15879	425	Survived	Logical mutation	row.AccountId == session.AccountId && row.Status == InstallationAccoun	
+15880	425	Survived	Logical mutation	row.AccountId == session.AccountId || row.Status == InstallationAccoun	
+15881	425	Survived	Equality mutation	row.AccountId != session.AccountId	
+15882	426	Survived	Equality mutation	row.Status != InstallationAccountStatus.Active	
+15883	427	Survived	Equality mutation	row.SecurityVersion != session.AccountSecurityVersion	
+15884	428	Survived	Boolean mutation	true	
+15885	429	Survived	Logical mutation	account is not null || await _sessions.FindActiveAsync( session.Handle	
+15886	429	Survived	Equality mutation	account is null	
+15887	429	Survived	Equality mutation	await _sessions.FindActiveAsync( session.HandleDigest, account.Securit	
+15888	434	Survived	Boolean mutation	true	
+15890	442	Survived	Boolean mutation	true	
+15891	444	Survived	Equality mutation	row.CorrelationId != correlationId	
+15892	445	Survived	Boolean mutation	true	
+14bd9c5da9aa0ad8444994a0f1d4f59a755ad7d57150adf03670407af06e0f7e *ck4-reports/m1m2-active-team.mutation-report.json
+c1fa122b2ed83749afd20ed6d9fafd0b562133014c8da1abdbf67a9d217be7f8 *ck4-reports/m3-selected-session.mutation-report.json
+e8842026ee39e9b1a0af0383379ad319a360964e16e17e7b8ac1ca9e5ce03b30 *ck4-reports/m4-selection.mutation-report.json
+27cb88f9888e7518465948626919aba1836d163cc4cc3f70f2e959ca87363ed3 *ck4-reports/m5-switch.mutation-report.json
+a39d7e4bb3ff4ad17668bacd1ef81504a19c802e5d4fd3169cb9431700c8b2e8 *ck4-reports/m6-fence.mutation-report.json
