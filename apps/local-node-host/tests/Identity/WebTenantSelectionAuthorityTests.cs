@@ -73,6 +73,7 @@ public sealed class WebTenantSelectionAuthorityTests
     [InlineData("")]
     [InlineData("not-a-tenant-id")]
     [Trait("PlanCard", "MTW-2")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public async Task Invalid_Explicit_Tenant_Refuses_Without_Consuming_Challenge(string tenantId)
     {
         await using var fixture = await SelectionFixture.CreateAsync();
@@ -88,6 +89,7 @@ public sealed class WebTenantSelectionAuthorityTests
 
     [Fact]
     [Trait("PlanCard", "MTW-2")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public async Task Unknown_And_Unusable_Tenants_Have_Equivalent_External_Refusals_And_Documented_Read_Profiles()
     {
         await using var unknown = await SelectionFixture.CreateAsync();

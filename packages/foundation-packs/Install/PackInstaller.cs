@@ -822,7 +822,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // NavWorkspaceConfig, Layout, Resource, and Bookable are intentionally absent because their
         // consumers interpret active immutable declarative seeds directly; no executable projection is
         // permitted for them (S-3). Standards never travel; cascade defaults require a consumer.
-        var earlyRefusals = PackTransportRuleCheck.FindRefusals(contents).ToList();
+        var earlyRefusals = PackCompiledShapeCheck.FindRefusals(contents).ToList();
+        earlyRefusals.AddRange(PackTransportRuleCheck.FindRefusals(contents));
         earlyRefusals.AddRange(UnsupportedCascadeDefaultsRefusals(contents));
         if (!collectRefusals && earlyRefusals.Count > 0)
         {
@@ -830,12 +831,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             // independent of the authoring order in the export. CHECK collects the whole list below.
             var refusal = earlyRefusals.MinBy(refusal => refusal.Code switch
             {
+                PackInstallCodes.RefusedCompiledShapeReplacement => -1,
                 PackInstallCodes.RefusedUnsupportedStandardsCatalog => 0,
                 PackInstallCodes.RefusedUnsupportedCascadeDefaults => 1,
                 _ => 2,
             })!;
             return refusal.Code switch
             {
+                PackInstallCodes.RefusedCompiledShapeReplacement => HardRefusal(
+                    manifest.Key, manifest.Version, PackInstallCodes.RefusedCompiledShapeReplacement,
+                    revocationStale, signerB64, epoch, scope, refusals: [refusal],
+                    destinationClassifications: destinationClassifications),
                 PackInstallCodes.RefusedUnsupportedStandardsCatalog => HardRefusal(
                     manifest.Key, manifest.Version, PackInstallCodes.RefusedUnsupportedStandardsCatalog,
                     revocationStale, signerB64, epoch, scope, refusals: [refusal],

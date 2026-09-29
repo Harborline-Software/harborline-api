@@ -102,6 +102,49 @@ public sealed class KernelClockIntegrationTests
         Assert.Equal(1, clock.ActReadCount);
     }
 
+    [Fact(DisplayName = "T-909 ck-9: the composed KernelClock reads the root time provider, one authority")]
+    public async Task Kernel_clock_reads_the_root_time_provider()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        var kernelClock = fixture.Services.GetRequiredService<Harborline.Kernel.Core.KernelClock>();
+        clock.ArmAdvancingBoundary(FrozenAt);
+
+        DateTimeOffset read;
+        using (clock.BeginAct())
+            read = kernelClock.GetUtcNow();
+
+        Assert.Equal(FrozenAt, read);
+        Assert.Equal(1, clock.ActReadCount);
+    }
+
+    [Fact(DisplayName = "T-909 ck-9: the accounting period's omitted date defaults from the host clock")]
+    public async Task Accounting_period_default_date_follows_the_host_clock()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+
+        var period = await fixture.OpenAccountingPeriodAsync();
+
+        var today = DateOnly.FromDateTime(FrozenAt.UtcDateTime);
+        var start = DateOnly.Parse(period.GetProperty("startDate").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+        var end = DateOnly.Parse(period.GetProperty("endDate").GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(start <= today && today <= end, $"{start}..{end} does not cover the host clock's {today}.");
+    }
+
+    [Fact(DisplayName = "T-909 ck-9: an unparseable stored instant is refused, not re-dated to wall time")]
+    public void Unparseable_stored_instant_is_refused_not_redated()
+    {
+        var message = new Harborline.Api.LocalNodeHost.Data.Comms.MessageCrdtState(
+            "message-909", Tenant.Value, "team", "party", "issuer", "not-an-instant", "body", "nonce", "signature");
+        var roster = new RosterRecordCrdtState(
+            "record-909", RosterRecordKind.Admission, "team", "party", "key", "admin-key", "admin-party",
+            "not-an-instant", "nonce", "signature", IsGenesis: false);
+
+        Assert.Throws<FormatException>(() => Harborline.Api.LocalNodeHost.Data.Comms.NodeMessage.FromCrdtState(message));
+        Assert.Throws<FormatException>(() => NodeRosterRecord.FromCrdtState(roster));
+    }
+
     [Fact]
     public async Task ProductionComposition_SuppliesTheFormSubmitActClock_PinnedToTheAdmittedInstant()
     {
@@ -345,6 +388,24 @@ public sealed class KernelClockIntegrationTests
                 default:
                     throw new ArgumentOutOfRangeException(nameof(operation));
             }
+        }
+
+        internal async Task<JsonElement> OpenAccountingPeriodAsync()
+        {
+            await SeedOperatorGrantAsync();
+            await using (var context = await _nodeFactory.CreateDbContextAsync())
+            {
+                context.Set<ChartOfAccounts>().Add(new ChartOfAccounts(
+                    new ChartOfAccountsId("clock-chart"), new LegalEntityId("clock-entity"), "Clock chart", "USD",
+                    1, 1, null, true, new Instant(FrozenAt), new Instant(FrozenAt)));
+                await context.SaveChangesAsync();
+            }
+
+            using var client = Client();
+            using var response = await client.PostAsJsonAsync($"{AccountingPeriodRoutes.RouteBase}/open", new { });
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.True(response.StatusCode == HttpStatusCode.OK, body);
+            return JsonDocument.Parse(body).RootElement.Clone();
         }
 
         internal async Task<DateTimeOffset[]> JournalPostAsync()

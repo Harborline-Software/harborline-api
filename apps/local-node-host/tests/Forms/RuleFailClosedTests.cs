@@ -256,6 +256,39 @@ public sealed class RuleFailClosedTests
         Assert.Contains("act clock", ex.Message, StringComparison.Ordinal);
     }
 
+    // ── ck-7 S3 (platform #200, rules-ck-28 / forms-ck-13): an unsupplied scope root cannot read the candidate ──
+    // Nothing binds caller / clock / record_type from the principal, and `caller.x` lowered to the flat
+    // field read `field.caller.x`, so a client candidate carrying a top-level "caller.x" property satisfied
+    // a rule meant to read the authenticated principal and the submit committed. Refused at compile now.
+
+    [Theory]
+    [InlineData("caller.role", "owner")]
+    [InlineData("caller.id", "attacker")]
+    [InlineData("caller", "attacker")]
+    [InlineData("clock.now", "2000-01-01")]
+    [InlineData("record_type.id", "spoofed")]
+    public async Task Unsupplied_scope_root_cannot_be_spoofed_from_the_candidate(string path, string spoofed)
+    {
+        var context = await CreateServicesAsync(
+            HarborlineOverlay.Empty with
+            {
+                Rules = new[] { RestrictingRule("guard.root", $$$"""{"==":[{"var":"{{{path}}}"},"{{{spoofed}}}"]}""", RuleActionKind.Validate) },
+            },
+            """{"type":"object"}""");
+        await using var services = context.Services;
+        var engine = services.GetRequiredService<IFormEngine>();
+        var token = await IssueReadWriteTokenAsync(services);
+        // Field reads are flat, so the spoof is a top-level property literally named after the path.
+        using var candidate = JsonDocument.Parse($$$"""{"name":"x","{{{path}}}":"{{{spoofed}}}"}""");
+
+        var ex = await Assert.ThrowsAsync<FormValidationException>(() =>
+            engine.SaveWithReceiptAsync(FormId, candidate, token, TestAuthorization.FormWrite(token, FormId, SubmittedAt), CancellationToken.None));
+
+        var error = Assert.Single(ex.Result.Errors, e => e.Code == FormDefinitionCodes.RulesUncompilable);
+        Assert.Equal("guard.root", error.Params!["rule"]);
+        Assert.Equal(RuleEngineCodes.CompileBadGrammar, error.Params["code"]);
+    }
+
     // ── Render is projection (advisory): the degrade may stand, but never silently ──
 
     [Fact]

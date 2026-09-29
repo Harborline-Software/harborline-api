@@ -473,6 +473,7 @@ public static class InstallationFounderBootstrapCeremonyRegistration
             provider.GetRequiredService<InitialGrantIssuanceService>(),
             seedProfile,
             provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<Harborline.Kernel.Core.KernelClock>(),
             provider.GetService<NodeOperatorIdentity>()));
         services.AddSingleton(provider => new InstallationFounderBootstrapCeremony(
             provider.GetRequiredService<InstallationFounderBootstrapService>(),

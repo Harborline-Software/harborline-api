@@ -39,6 +39,9 @@
          PackageSafetyFloorReattachment. Consumed from the released package (central pin, Justification
          "platform") - never copied into this repository. -->
     <PackageReference Include="Harborline.Blocks.BuilderDefinitions" />
+    <!-- T-909 ck-1: the compiled bootstrap floor and its replacement predicate have ONE producer, the
+         platform's CompiledBootstrapCatalogue; admission refuses a pack that re-declares one of its shapes. -->
+    <PackageReference Include="Harborline.Kernel.Core" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>
