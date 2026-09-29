@@ -177,6 +177,42 @@ public sealed class ChartOfAccountsManagementRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
     }
 
+    [Fact(DisplayName = "COA create: a client-supplied account id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        await SeedChartAsync();
+
+        var refused = await _client.PostAsJsonAsync(MgmtRoute, new
+        {
+            id = "client-constructed-id",
+            code = "8100",
+            name = "Custom Income",
+            type = "Revenue",
+            subtype = "OperatingIncome",
+            currency = "USD",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var list = await _client.GetFromJsonAsync<JsonElement>(MgmtRoute);
+        Assert.DoesNotContain(list.GetProperty("accounts").EnumerateArray(),
+            account => account.GetProperty("code").GetString() == "8100");
+
+        var created = await _client.PostAsJsonAsync(MgmtRoute, new
+        {
+            code = "8100",
+            name = "Custom Income",
+            type = "Revenue",
+            subtype = "OperatingIncome",
+            currency = "USD",
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "COA create: pre-seed (no chart) returns 400 no_chart")]
     public async Task Create_NoChart_Returns400()
     {

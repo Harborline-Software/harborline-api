@@ -355,6 +355,24 @@ public sealed class InvoiceRouteTests : IAsyncLifetime
         Assert.Equal("no_lines", doc.GetProperty("error").GetString());
     }
 
+    [Fact(DisplayName = "Invoice create: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        using var refused = await _client.PostAsJsonAsync(InvoicesRoute, NewInvoiceBody(id: "client-constructed-id"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        using var detail = await _client.GetAsync($"{InvoicesRoute}/client-constructed-id");
+        Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{InvoicesRoute}?chartId=CH-1");
+        Assert.Empty(Data(list).EnumerateArray());
+
+        var minted = Data(await CreateDraftAsync()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Invoice create: a duplicate externalRef in the same chart 409s")]
     public async Task Create_DuplicateExternalRef_Conflicts()
     {

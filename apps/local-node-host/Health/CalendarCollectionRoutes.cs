@@ -83,6 +83,9 @@ public static class CalendarCollectionRoutes
             if (callerAuth.Validate(httpRequest) is NodeCallerSessionToken.Decision.Reject)
                 return NodeCallerSessionToken.RejectResult();
 
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.Name))
                 return Results.BadRequest(new { error = "name_required" });
 
@@ -193,7 +196,8 @@ public sealed record CreateCalendarBody(
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("kind")] string? Kind,
     [property: JsonPropertyName("colorToken")] string? ColorToken,
-    [property: JsonPropertyName("resource")] string? Resource);
+    [property: JsonPropertyName("resource")] string? Resource,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>One owned calendar on the wire — an opaque id handle + the display name (never a raw ref as label).</summary>
 public sealed record CalendarWire(

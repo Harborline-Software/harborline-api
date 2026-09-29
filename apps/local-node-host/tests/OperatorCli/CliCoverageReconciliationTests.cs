@@ -92,7 +92,7 @@ public sealed class CliCoverageReconciliationTests
         Dictionary<string, string> Verbs,
         Dictionary<string, string> Exemptions);
 
-    private static async Task<LocalNodeExecutableEndpointSnapshot> CaptureRichestProfileAsync()
+    internal static async Task<LocalNodeExecutableEndpointSnapshot> CaptureRichestProfileAsync()
     {
         // The all-components profile maps the largest executable graph; ticket 066's audience proof
         // walks every profile and shows the others map strict subsets of these route families.
