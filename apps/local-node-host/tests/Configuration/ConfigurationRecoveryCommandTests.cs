@@ -12,6 +12,8 @@ using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
+using Harborline.Api.Kernel.Security.Keys;
+using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Packs;
@@ -164,16 +166,19 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Verb_composition_resolves_the_evidence_delivery()
+    public async Task Verb_composition_resolves_the_evidence_delivery_over_the_durable_trail()
     {
+        // The verb's own store registration, so the trail it resolves is the one the running host reads.
+        var rootSeed = RandomNumberGenerator.GetBytes(32);
         var services = new ServiceCollection();
-        services.AddSingleton(_db.Factory);
-        ConfigurationRecoveryCommand.AddEvidenceDelivery(services, RandomNumberGenerator.GetBytes(32), new FixedTime(Recovered));
+        services.AddSqlCipherLocalNodeDbContext(rootSeed: rootSeed, databasePath: Path.Combine(_dataDirectory, "local-node.db"),
+            keyDerivation: new SqlCipherKeyDerivation());
+        ConfigurationRecoveryCommand.AddEvidenceDelivery(services, rootSeed, new FixedTime(Recovered));
         await using var provider = services.BuildServiceProvider();
 
-        var evidence = provider.GetRequiredService<ConfigurationEvidenceOutbox>();
-
-        Assert.NotNull(evidence);
+        Assert.NotNull(provider.GetRequiredService<ConfigurationEvidenceOutbox>());
+        Assert.IsType<Harborline.Api.Kernel.Audit.AuthorityCapturingAuditTrail>(
+            provider.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>());
     }
 
     [Fact]

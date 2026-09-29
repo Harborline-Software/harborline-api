@@ -12,6 +12,7 @@ using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Kernel.Core;
@@ -128,6 +129,10 @@ public static class ConfigurationRecoveryCommand
         {
             await using (var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
                 await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+            // The kernel audit trail the stranded evidence is appended to lives in the same store.
+            await using (var trailContext = await provider.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>()
+                .CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
+                await trailContext.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
             result = await RecoverAsync(factory, new KernelClock(timeProvider), request, new DataDirectoryOwnership(runLock),
                 provider.GetRequiredService<ConfigurationEvidenceOutbox>(), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
