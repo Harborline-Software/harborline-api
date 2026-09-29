@@ -15,7 +15,7 @@ public sealed class IdentityContractArchTests(Xunit.Abstractions.ITestOutputHelp
         Assert.Equal(typeof(TenantId), Assert.Single(types, type => type.Name == nameof(TenantId)));
         Assert.Equal("Harborline.Contracts", typeof(TenantId).Assembly.GetName().Name);
         var implementors = types.Where(type => !type.IsInterface &&
-            typeof(Harborline.Api.Foundation.MultiTenancy.ITenantScoped).IsAssignableFrom(type)).ToArray();
+            typeof(Harborline.Foundation.MultiTenancy.ITenantScoped).IsAssignableFrom(type)).ToArray();
         Assert.NotEmpty(implementors);
         output.WriteLine("Platform marker implementors: " + implementors.Count(type =>
             type.Assembly.GetName().Name!.StartsWith("Harborline.Api.", StringComparison.Ordinal) &&

@@ -7,7 +7,7 @@ using Harborline.Api.Blocks.FinancialAr.Models;
 using Harborline.Api.Blocks.FinancialAr.Services;
 using Harborline.Api.Blocks.FinancialLedger.Services;
 using Harborline.Api.Foundation.Events;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.LocalNodeHost.Data;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;

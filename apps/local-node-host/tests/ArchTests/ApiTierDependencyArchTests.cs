@@ -33,7 +33,6 @@ public sealed class ApiTierDependencyArchTests
         ("packages/kernel-audit/Harborline.Kernel.Audit.csproj", "packages/foundation-authorization/Harborline.Foundation.Authorization.csproj"),
         // Ticket 199: AuditRecord carries typed Actor/Target/Act identity primitives from the admitted decision.
         ("packages/kernel-audit/Harborline.Kernel.Audit.csproj", "packages/foundation-identity-atlas/Harborline.Foundation.IdentityAtlas.csproj"),
-        ("packages/kernel-audit/Harborline.Kernel.Audit.csproj", "packages/foundation-multitenancy/Harborline.Foundation.MultiTenancy.csproj"),
         ("packages/kernel-buckets/Harborline.Kernel.Buckets.csproj", "packages/foundation/Harborline.Foundation.csproj"),
         ("packages/kernel-crdt/Harborline.Kernel.Crdt.csproj", "packages/foundation/Harborline.Foundation.csproj"),
         ("packages/kernel-event-bus/Harborline.Kernel.EventBus.csproj", "packages/foundation/Harborline.Foundation.csproj"),

@@ -9,7 +9,7 @@ namespace Harborline.Api.Foundation.Authorization.DependencyInjection;
 /// <summary>
 /// Startup assertion for ADR 0091 R2 amendment A1. Verifies that the four
 /// tenant-context-related interface bindings
-/// (<see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>,
+/// (<see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>,
 /// <see cref="ICurrentUser"/>, <see cref="IAuthorizationContext"/>,
 /// <see cref="ITenantContext"/> facade) all resolve to the SAME scoped
 /// instance. A future DI registration that diverges any one of the bindings
@@ -39,7 +39,7 @@ public sealed class TenantContextScopeAssertion : IHostedService
     {
         using var scope = _scopeFactory.CreateScope();
 
-        var multiTenancy = scope.ServiceProvider.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>();
+        var multiTenancy = scope.ServiceProvider.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>();
         var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUser>();
         var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationContext>();
         var facade = scope.ServiceProvider.GetRequiredService<ITenantContext>();

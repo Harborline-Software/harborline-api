@@ -10,7 +10,6 @@ using Microsoft.Extensions.Options;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Capabilities;
 using Harborline.Api.Foundation.Crypto;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.SecurityPolicy.Models;
 using Harborline.Api.Foundation.SecurityPolicy.Validation;
 using Harborline.Api.Foundation.Ship.Common;

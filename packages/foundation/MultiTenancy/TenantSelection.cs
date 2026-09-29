@@ -135,7 +135,7 @@ public abstract record TenantSelection
     /// Implicit cast from <see cref="TenantId"/> to
     /// <see cref="TenantSelection"/> (produces
     /// <see cref="ForSingle"/>). Lives on the target type to avoid a
-    /// circular <c>foundation → foundation-multitenancy</c> package
+    /// circular <c>foundation → Harborline.Foundation.MultiTenancy</c> package
     /// dependency.
     /// </summary>
     public static implicit operator TenantSelection(TenantId id) => new ForSingle(id);

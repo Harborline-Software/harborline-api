@@ -1,6 +1,5 @@
 using Harborline.Api.Blocks.Payroll.Models;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.Payroll.Services;
 

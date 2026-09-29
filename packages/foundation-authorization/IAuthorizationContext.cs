@@ -4,7 +4,7 @@ namespace Harborline.Api.Foundation.Authorization;
 /// Policy-evaluation primitive. Returns <c>true</c> iff the caller has the
 /// named permission. Distinct from caller identity
 /// (<see cref="ICurrentUser"/>) and tenant resolution
-/// (<see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>) per ADR
+/// (<see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>) per ADR
 /// 0091 Option B decomposition.
 /// </summary>
 /// <remarks>

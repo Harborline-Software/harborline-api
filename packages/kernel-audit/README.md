@@ -126,5 +126,5 @@ The third control — **CP/AP automated gates** (ADR 0128) — needs no new buil
 ## What you get from this contract
 
 - **Append-only by definition.** No update, no delete. GDPR Article 17 erasure is the future `IComplianceQuery` surface's responsibility.
-- **Tenant-scoped reads.** `AuditQuery.TenantId` is mandatory. Cross-tenant audit is not in v0 (ADR 0049 §"Open questions" tracks whether `IMayHaveTenant` ever applies here).
+- **Tenant-scoped reads.** `AuditQuery.TenantId` is mandatory. Cross-tenant audit is not in v0 (ADR 0049 §"Open questions" tracks whether a nullable-tenant marker ever applies here).
 - **Substrate-impl insulation.** Storage can swap to a compliance-specific WORM store without rippling into application code — same pattern as `ICrdtDocument` over Loro/YDotNet (ADR 0028) and `IPostingEngine` over `IEventLog`.

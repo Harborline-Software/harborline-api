@@ -5,7 +5,6 @@ using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.Banking.Data;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Integrations.Payments;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
 

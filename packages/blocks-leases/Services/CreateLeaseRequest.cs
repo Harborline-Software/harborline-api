@@ -10,7 +10,7 @@ namespace Harborline.Api.Blocks.Leases.Services;
 public sealed record CreateLeaseRequest
 {
     /// <summary>Owning tenant for the new lease. Required by the
-    /// <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/> contract on <see cref="Lease"/>.</summary>
+    /// <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/> contract on <see cref="Lease"/>.</summary>
     public required TenantId TenantId { get; init; }
 
     /// <summary>The unit to be covered by the lease.</summary>

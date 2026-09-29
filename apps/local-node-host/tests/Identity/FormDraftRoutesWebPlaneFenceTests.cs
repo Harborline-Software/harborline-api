@@ -157,7 +157,7 @@ public sealed class FormDraftRoutesWebPlaneFenceTests
             outer.AddSingleton<ITeamRegistry>(memberships);
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(outer);
             outer.AddNodeFinancialPosting();
-            outer.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
+            outer.AddSingleton<Harborline.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
                 Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,

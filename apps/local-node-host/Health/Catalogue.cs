@@ -29,7 +29,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Kernel.Core;
 
-using AmbientTenantContext = Harborline.Api.Foundation.MultiTenancy.ITenantContext;
+using AmbientTenantContext = Harborline.Foundation.MultiTenancy.ITenantContext;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 

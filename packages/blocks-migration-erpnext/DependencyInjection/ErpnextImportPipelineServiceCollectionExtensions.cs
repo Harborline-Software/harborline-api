@@ -18,7 +18,7 @@ using Harborline.Api.Blocks.People.Foundation.Migration;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Import.Extraction;
-using MultiTenancy = Harborline.Api.Foundation.MultiTenancy;
+using MultiTenancy = Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.Migration.Erpnext.DependencyInjection;
 

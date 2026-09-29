@@ -27,13 +27,13 @@
   <ItemGroup>
     <!-- ADR 0101 Rev 3.1 Wave 1 substrate:
          - foundation            → Assets.Common primitives (TenantId, Instant)
-         - foundation-multitenancy → IMustHaveTenant / ITenantScoped markers
+         - Harborline.Foundation.MultiTenancy (platform package) → IMustHaveTenant / ITenantScoped markers
          - foundation-integrations → Money (typed money from the start; read-side only, no posting path)
          - foundation-forms      → FormDefinitionId (content-addressed) + SemanticVersion (per-entity pin)
          NO reference on blocks-assets or blocks-property-equipment — the Asset Type System is a fresh
          generic model, not a fork of either frozen domain (A1). The freeze guard proves this. -->
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\foundation-integrations\Harborline.Foundation.Integrations.csproj" />
     <ProjectReference Include="..\foundation-forms\Harborline.Foundation.Forms.csproj" />
   </ItemGroup>

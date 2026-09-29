@@ -135,7 +135,7 @@
          DeriveSubjectKeyAsync + ISubjectErasureRegistry. The KG vector index seals each record's embedding under
          the record's per-subject sub-key, so crypto-shredding a subject (destroying their per-subject key) makes
          their embeddings permanently undecryptable — the index is not a shred bypass. foundation-recovery
-         references only foundation + foundation-multitenancy + kernel-security + kernel-audit (all already in
+         references only foundation + the platform Harborline.Foundation.MultiTenancy package + kernel-security + kernel-audit (all already in
          this host's graph), so this adds no new kernel CRDT-writer TypeRef — the SC4-T9(b) Layer-1 IL scan stays
          green. -->
     <ProjectReference Include="..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj" />

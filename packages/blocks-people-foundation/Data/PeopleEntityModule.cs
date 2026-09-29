@@ -17,7 +17,7 @@ namespace Harborline.Api.Blocks.People.Foundation.Data;
 /// <list type="bullet">
 ///   <item><see cref="Party"/> — canonical person/organization master;
 ///         tombstone-not-delete; Tags as JSONB; RevisionVector as JSONB;
-///         implements <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/>
+///         implements <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/>
 ///         via <c>TenantId</c> field (automatic global query filter applied
 ///         by <see cref="SignalBridgeDbContext.ApplyTenantQueryFilters"/>).</item>
 ///   <item><see cref="EmailAddress"/> — append-only email history rows per party;
@@ -45,13 +45,13 @@ namespace Harborline.Api.Blocks.People.Foundation.Data;
 ///
 /// <para>
 /// <b>Global tenant query filters.</b> <see cref="Party"/> implements
-/// <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/>;
+/// <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/>;
 /// <see cref="SignalBridgeDbContext.ApplyTenantQueryFilters"/> applies the
 /// ambient-tenant filter automatically. The EF repo also uses
 /// <see cref="Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.IgnoreQueryFilters{TEntity}"/>
 /// + explicit TenantId WHERE clause for defence-in-depth (ADR 0092).
 /// The contact-history tables (EmailAddress, PhoneNumber, PartyAddress, PartyRole)
-/// do not implement <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/>
+/// do not implement <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/>
 /// directly — they carry a <c>TenantId</c> column that the EF repo filters
 /// explicitly, providing the same isolation guarantee at the read layer.
 /// </para>

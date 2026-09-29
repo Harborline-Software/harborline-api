@@ -8,7 +8,6 @@ using Microsoft.Extensions.Logging;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Capabilities;
 using Harborline.Api.Foundation.Crypto;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Wayfinder;
 using Harborline.Api.Kernel.Audit;
 

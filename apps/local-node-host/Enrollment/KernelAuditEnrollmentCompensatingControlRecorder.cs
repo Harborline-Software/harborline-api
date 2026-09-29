@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Audit.Payloads;
 
