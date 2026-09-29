@@ -1562,7 +1562,9 @@ builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Config
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationVerifier>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Packs.Trust.IPackTrustStore>(),
-    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>()));
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.IPackInstallStore>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
 // App-layer FEATURE GRAPH (G1 keystone; design note app-layer-feature-graph-2026-07-07). The rebuildable
 // content-edge-index provider + the read-model that assembles per-app contributions (grouped by pillar) +
 // cross-app edges from install state, surfaced read-only at GET /packs/graph. Registered here so the seed
