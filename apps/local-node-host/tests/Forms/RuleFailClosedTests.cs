@@ -254,6 +254,11 @@ public sealed class RuleFailClosedTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.SaveWithReceiptAsync(
             FormId, candidate, token, TestAuthorization.FormWrite(token, FormId, SubmittedAt), CancellationToken.None));
         Assert.Contains("act clock", ex.Message, StringComparison.Ordinal);
+
+        // The route's pre-save check at the admitted instant refuses the same way (T-540 route slice).
+        var validateEx = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.ValidateAtAsync(
+            FormId, candidate, token, SubmittedAt, CancellationToken.None));
+        Assert.Contains("act clock", validateEx.Message, StringComparison.Ordinal);
     }
 
     // ── Render is projection (advisory): the degrade may stand, but never silently ──

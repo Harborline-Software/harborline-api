@@ -89,6 +89,8 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
         builder.Services.AddFrozenKernelClock(_graphClock);
+        // T-540: a submit's rule gates read the act clock the root mints, so that clock shares the countdown.
+        builder.Services.AddSingleton<Func<DateTimeOffset, TimeProvider>>(_graphClock.At);
         var formWriter = builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IAuthorizedFormEntityWriter));
         builder.Services.Remove(formWriter);
         builder.Services.AddSingleton<IAuthorizedFormEntityWriter>(services => new PausedFormEntityWriter(
@@ -307,6 +309,18 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             if (_cancellation is not null && --_readsUntilCancellation == 0)
                 _cancellation.Cancel();
             return TimeProvider.System.GetUtcNow();
+        }
+
+        /// <summary>The act clock pinned to <paramref name="at"/>; each read counts toward the same cancellation.</summary>
+        public TimeProvider At(DateTimeOffset at) => new ActClock(this, at);
+
+        private sealed class ActClock(CancellingGraphClock host, DateTimeOffset at) : TimeProvider
+        {
+            public override DateTimeOffset GetUtcNow()
+            {
+                _ = host.GetUtcNow();
+                return at;
+            }
         }
     }
 

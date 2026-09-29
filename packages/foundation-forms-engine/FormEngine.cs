@@ -318,11 +318,23 @@ public sealed class FormEngine : IFormEngine
     }
 
     /// <inheritdoc />
-    public async Task<ValidationResult> ValidateAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
+    public Task<ValidationResult> ValidateAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
+        => ValidateCoreAsync(form, candidate, token, _timeProvider.GetUtcNow(), _timeProvider, ct);
+
+    /// <inheritdoc />
+    public Task<ValidationResult> ValidateAtAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, DateTimeOffset at, CancellationToken ct)
+    {
+        var actClock = _actClock ?? throw new InvalidOperationException(
+            "No act clock is composed: a submit evaluates its rules at the admitted instant, and the composition root must supply the pinned-clock factory.");
+        return ValidateCoreAsync(form, candidate, token, at, actClock(at), ct);
+    }
+
+    private async Task<ValidationResult> ValidateCoreAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token,
+        DateTimeOffset now, TimeProvider clock, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(token);
-        EnsureNotExpired(token, _timeProvider.GetUtcNow());
+        EnsureNotExpired(token, now);
         RequireAction(token, FormCapabilityAction.Write);
 
         // A query, not a command: an unresolved form is a NotFound validation
@@ -348,7 +360,7 @@ public sealed class FormEngine : IFormEngine
 
         // F-20: the query surfaces the SAME combined verdict the save command enforces
         // (schema + rule gate, hidden-respecting) so a client pre-check has parity.
-        var (result, pruned) = await ValidateForSubmitAsync(formDef, candidate, _timeProvider, ct).ConfigureAwait(false);
+        var (result, pruned) = await ValidateForSubmitAsync(formDef, candidate, clock, ct).ConfigureAwait(false);
         pruned.Dispose();
         return result;
     }
