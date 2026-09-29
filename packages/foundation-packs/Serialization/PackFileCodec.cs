@@ -43,8 +43,16 @@ public sealed class PackFileCodec
     /// (not JSON, wrong shape, a malformed key/signature/CID) so the caller can map "not a decodable
     /// pack" to a fail-closed verdict rather than leaking a parser exception across the boundary.
     /// </summary>
-    public PackFile? TryDecode(ReadOnlySpan<byte> bytes)
+    public PackFile? TryDecode(ReadOnlySpan<byte> bytes) => TryDecode(bytes, out _);
+
+    /// <summary>
+    /// <see cref="TryDecode(ReadOnlySpan{byte})"/>, also naming why a content kind refused the decode: the
+    /// RFC 6901 pointer (<c>/contents/n/kind</c>) of the first item whose kind is absent or unknown, else
+    /// <c>null</c>. T-981 / DES-0006 §9: the reason must be visible, not folded into "malformed".
+    /// </summary>
+    public PackFile? TryDecode(ReadOnlySpan<byte> bytes, out string? unknownKindPointer)
     {
+        unknownKindPointer = null;
         try
         {
             // Ticket 150 (L1145): every content item must DECLARE a kind this node knows. An absent
@@ -53,7 +61,8 @@ public sealed class PackFileCodec
             // typed as something it is not. platform-package-v1.md §4 refuses an unknown restricting
             // kind outright, because "a weaker floor arrived at silently is worse than a refused
             // install". An unknown kind STRING already threw its way to null; these two did not.
-            if (!ContentKindsAreDeclaredAndKnown(bytes))
+            unknownKindPointer = FirstUndeclaredOrUnknownContentKind(bytes);
+            if (unknownKindPointer is not null)
             {
                 return null;
             }
@@ -77,11 +86,12 @@ public sealed class PackFileCodec
     }
 
     /// <summary>
-    /// True when every <c>contents[]</c> item declares a <c>kind</c> that maps to a DEFINED
-    /// <see cref="PackContentKind"/>. Shape problems other than the kind itself return true and are
-    /// left to the deserializer, which already fails closed on them — this checks one thing.
+    /// The pointer of the first <c>contents[]</c> item whose <c>kind</c> is absent or does not map to a
+    /// DEFINED <see cref="PackContentKind"/>, or <c>null</c> when every kind is known. Shape problems other
+    /// than the kind itself return null and are left to the deserializer, which already fails closed on
+    /// them — this checks one thing.
     /// </summary>
-    private static bool ContentKindsAreDeclaredAndKnown(ReadOnlySpan<byte> bytes)
+    private static string? FirstUndeclaredOrUnknownContentKind(ReadOnlySpan<byte> bytes)
     {
         var reader = new Utf8JsonReader(bytes);
         using var document = JsonDocument.ParseValue(ref reader);
@@ -90,19 +100,21 @@ public sealed class PackFileCodec
             || !TryGetPropertyIgnoreCase(document.RootElement, "contents", out var contents)
             || contents.ValueKind != JsonValueKind.Array)
         {
-            return true;
+            return null;
         }
 
+        var index = -1;
         foreach (var item in contents.EnumerateArray())
         {
+            index++;
             if (item.ValueKind != JsonValueKind.Object)
             {
-                return true;
+                return null;
             }
 
             if (!TryGetPropertyIgnoreCase(item, "kind", out var kind))
             {
-                return false;
+                return $"/contents/{index}/kind";
             }
 
             var known = kind.ValueKind switch
@@ -116,11 +128,11 @@ public sealed class PackFileCodec
 
             if (!known)
             {
-                return false;
+                return $"/contents/{index}/kind";
             }
         }
 
-        return true;
+        return null;
     }
 
     /// <summary>Property lookup matching the case-insensitivity the deserializer itself uses, so this

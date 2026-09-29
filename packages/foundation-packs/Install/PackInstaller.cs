@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Catalog.Templates;
+using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
@@ -774,6 +775,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             var failedVerificationRevocationStale =
                 context.Revocation.IsStale(context.Now, context.RevocationMaxAge);
+            if (verify.FailurePointer is { } kindPointer
+                && verify.Details.Contains(PackVerificationCodes.ContentKindUnknown))
+            {
+                // T-981: name the unclassifiable kind and where it is, not a generic not_verified.
+                return HardRefusal(claimed.PackKey, claimed.Version,
+                    PackInstallCodes.RefusedUnknownContentKind, failedVerificationRevocationStale,
+                    refusals: [new PackInstallRefusal(PackInstallCodes.RefusedUnknownContentKind, kindPointer)]);
+            }
+
             return HardRefusal(claimed.PackKey, claimed.Version,
                 PackInstallCodes.RefusedNotVerified, failedVerificationRevocationStale);
         }
@@ -965,6 +975,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         // client localizes "requires X — not installed" (never an English literal).
         var unmetReferences = DetectUnmetContentReferences(installed, manifest, contents);
 
+        // (K9, T-152 D7) Re-derive the cross-package edges from the verified content, whatever the manifest's
+        // ContentReferences claim: an edge into a package the manifest does not declare is refused.
+        var undeclaredReferences = DetectUndeclaredReferences(manifest, contents);
+
         // (Ticket 152) Pack-level declared-dependency PRESENCE check: every manifest.Dependencies entry
         // must resolve to an installed pack at the pinned-or-newer version. The single-level-only rule
         // (A9, PackValidator) is untouched — this checks the one level v1 declares actually EXISTS.
@@ -981,6 +995,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
                 PackInstallCodes.RefusedAdmission,
                 ContentPointer(contents, refusal.ContentKey) + refusal.Pointer)));
+            collected.AddRange(undeclaredReferences.Select(reference => new PackInstallRefusal(
+                PackInstallCodes.RefusedUndeclaredReference,
+                ContentPointer(contents, reference.FromContentKey))));
             collected.AddRange(unmetReferences.Select(reference => new PackInstallRefusal(
                 PackInstallCodes.RefusedUnmetContentReference,
                 ContentPointer(contents, reference.FromContentKey))));
@@ -1012,6 +1029,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 .Select(refusal => new PackInstallRefusal(
                     PackInstallCodes.RefusedAdmission,
                     ContentPointer(contents, refusal.ContentKey) + refusal.Pointer))
+                .ToList();
+        }
+        else if (undeclaredReferences.Count > 0)
+        {
+            // A package-boundary violation (K9) is a HARD refusal: declare the dependency and re-export.
+            verdict = PackInstallVerdict.Refused;
+            refusalCodes = new[] { PackInstallCodes.RefusedUndeclaredReference };
+            refusals = undeclaredReferences
+                .Select(reference => new PackInstallRefusal(
+                    PackInstallCodes.RefusedUndeclaredReference,
+                    ContentPointer(contents, reference.FromContentKey)))
                 .ToList();
         }
         else if (unmetReferences.Count > 0)
@@ -1317,6 +1345,39 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     /// ACTIVE would create needless draft-ordering friction. Returns the UNMET references (empty ⇒ all
     /// resolve), which the caller renders as a fail-closed refusal naming the missing app(s).
     /// </summary>
+    /// <summary>
+    /// K9 at install (T-152 D7, ADR 0028): re-derives every content reference from the verified bodies through
+    /// the same deriver the exporter runs, against the manifest's declared dependency keys, and returns the ones
+    /// that resolve to neither this pack nor a declared dependency. The manifest's own
+    /// <c>ContentReferences</c> are not consulted, so a hand-signed manifest cannot omit an edge to pass.
+    /// </summary>
+    private static IReadOnlyList<PackUndeclaredContentReference> DetectUndeclaredReferences(
+        PackManifest manifest, IReadOnlyList<PackContentItem> contents)
+    {
+        var sources = new List<PackContentSource>(contents.Count);
+        foreach (var item in contents)
+        {
+            JsonNode? body;
+            try
+            {
+                body = JsonNode.Parse(item.CanonicalBytes.Span);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                continue; // an unreadable body carries no reference; its own parser owns the refusal.
+            }
+
+            if (body is not null)
+            {
+                sources.Add(new PackContentSource(item.Key, item.Kind, item.Version, body));
+            }
+        }
+
+        PackContentReferenceDeriver.Derive(
+            manifest.Key, sources, manifest.Dependencies.Select(dependency => dependency.Key), out var undeclared);
+        return undeclared;
+    }
+
     private static IReadOnlyList<PackUnmetContentReference> DetectUnmetContentReferences(
         IReadOnlyList<InstalledPack> installed, PackManifest manifest, IReadOnlyList<PackContentItem> contents)
     {
