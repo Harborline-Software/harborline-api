@@ -65,11 +65,13 @@ public sealed class NodeEntityWriter(
     // path reaches persistence unvalidated and a validator fault propagates instead of passing.
     private async Task<ValidatedRecordBody> AdmitAsync(
         AuthorizationDecision decision,
-        SchemaId schema, JsonDocument body, AuthorizationWriteContext authority, CancellationToken ct)
+        SchemaId schema, JsonDocument body, TenantId tenant, EntityBinding? binding,
+        AuthorizationWriteContext authority, CancellationToken ct)
     {
         try
         {
-            return await ValidatedRecordBody.AdmitAsync(validator, decision, schema, body, ct).ConfigureAwait(false);
+            return await ValidatedRecordBody.AdmitAsync(
+                validator, decision, schema, body, tenant, binding, ct).ConfigureAwait(false);
         }
         catch (EntityValidationException refusal)
         {
@@ -135,7 +137,7 @@ public sealed class NodeEntityWriter(
         {
             // The token is discarded: this path persists through EF, not the entity store. It is minted
             // anyway so the refusal recording below is the one place every record write validates.
-            _ = await AdmitAsync(decision, Health.EntityRoutes.LegalEntitySchema, candidate, authority, ct)
+            _ = await AdmitAsync(decision, Health.EntityRoutes.LegalEntitySchema, candidate, authority.Tenant, null, authority, ct)
                 .ConfigureAwait(false);
         }
 
@@ -217,7 +219,7 @@ public sealed class NodeEntityWriter(
         var (schema, options) = await prepare(ct).ConfigureAwait(false);
         if (options.Tenant != authority.Tenant || InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart != recordId)
             throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
-        var admitted = await AdmitAsync(decision, schema, body, authority, ct).ConfigureAwait(false);
+        var admitted = await AdmitAsync(decision, schema, body, options.Tenant, options.Binding, authority, ct).ConfigureAwait(false);
         var created = await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
         return new EntityWritten(
@@ -240,7 +242,8 @@ public sealed class NodeEntityWriter(
         // missing entity is refused here with the store's own message; nothing is persisted either way.
         var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-        var admitted = await AdmitAsync(decision, existing.Schema, body, authority, ct).ConfigureAwait(false);
+        var admitted = await AdmitAsync(
+            decision, existing.Schema, body, existing.Tenant, existing.Binding, authority, ct).ConfigureAwait(false);
         var version = await entities.UpdateAsync(id, admitted, options with { ValidFrom = authority.At }, ct)
             .ConfigureAwait(false);
         await RecordAcceptedAsync(decision, existing.Schema, id.LocalPart, ct).ConfigureAwait(false);

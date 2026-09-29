@@ -915,17 +915,16 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
     }
 
     // ── Enrollment Phase C — the SoD COMPENSATING-CONTROL audit, WIRED LIVE (#1295 F1/F2). ───────────────
-    // Registers IEnrollmentCompensatingControlRecorder → KernelAuditEnrollmentCompensatingControlRecorder over a singleton in-memory kernel audit trail
-    // (signed/tamper-evident/undeletable; SEPARATE from the SC4-guarded EF financial-audit path) + the node's
-    // canonical principal signer, with a fail-safe-but-LOUD onFault (WARN/degraded-mode, escalated to Error for
-    // OwnershipTransferred). With this, the admission-redeem route's RecordMemberAdmittedAsync call lands a SoD
-    // audit record at RUNTIME — the "second set of eyes" control is LIVE, not test-only (closes the F1 gap that
-    // the seam + adapter existed but nothing invoked them and nothing was DI-registered).
+    // Registers the durable kernel audit trail in local-node.db (T-986; SEPARATE from the SC4-guarded EF
+    // financial-audit path) and IEnrollmentCompensatingControlRecorder → KernelAuditEnrollmentCompensatingControlRecorder
+    // over the node's canonical principal signer. The admission routes stage the signed SoD audit record in the
+    // SAME save as the roster record it records, so an admission never commits unaudited and the record survives
+    // a restart; the audit outbox delivers it to the trail.
     builder.Services.AddEnrollmentCompensatingControlAudit();
     Console.WriteLine(
         "[local-node-host] Enrollment Phase C: SoD compensating-control audit WIRED LIVE — IEnrollmentCompensatingControlRecorder → "
-        + "KernelAuditEnrollmentCompensatingControlRecorder (signed, tamper-evident trail) + fail-safe-but-LOUD onFault; a runtime member "
-        + "admit now records a SoD audit event (the second-set-of-eyes control).");
+        + "KernelAuditEnrollmentCompensatingControlRecorder (signed, tamper-evident, durable in local-node.db); a runtime member "
+        + "admit commits its SoD audit event with the roster record (the second-set-of-eyes control).");
 }
 
 // inc-4 cross-process CALLER AUTH — the per-boot session token the Tauri Harborline App shell
@@ -1494,6 +1493,10 @@ builder.Services.AddPackComposerExportVerify();
 builder.Services.AddAuthorizationRefusalAudit();
 // Ticket 331 slice 2: an accepted act is recorded against its own decision and answers with the id.
 builder.Services.AddAuthorizedActAudit();
+// DES-0029 ck-6: authorization and erasure writes stage their audit in the same transaction; the outbox delivers
+// it to the kernel trail at once from the route and, for any delivery that fails, on the drain interval.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>();
+builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutboxDrainDaemon>();
 builder.Services.AddSingleton<IPackInstallAudit, KernelAuditPackInstallAudit>();
 builder.Services.AddSingleton<IPackContentAdmission, PackWorkflowAdmissionAdapter>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>();
@@ -2388,9 +2391,10 @@ builder.Services.AddNodeForms(
         services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter(
             sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>(),
             entityMutations(sp),
-            // Ticket 151 (L1418): the REAL compile-at-activation validator, not the container's
-            // null-object store hook.
-            sp.GetRequiredService<Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator>(),
+            // Ticket 151 (L1418) / T-978: the keyed record validator (compiled schema, then the Rules
+            // stage), not the container's null-object store hook.
+            sp.GetRequiredKeyedService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(
+                Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator.RecordWriteKey),
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
             // Ticket 151 row 4d: a stage-two refusal reaches the decision trace.
             sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>(),
@@ -2409,7 +2413,8 @@ builder.Services.AddNodeForms(
                 sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(),
                 sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
                 sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator>()));
+                sp.GetRequiredKeyedService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(
+                    Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator.RecordWriteKey)));
         services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
     });
 

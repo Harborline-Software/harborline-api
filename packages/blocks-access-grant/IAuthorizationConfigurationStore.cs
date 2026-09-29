@@ -44,8 +44,14 @@ public sealed class ValidatedAuthorizationConfigurationWrite
         long expectedDefinitionRevision,
         long expectedBindingRevision,
         DateTimeOffset? definitionEffectiveAt,
-        TenantId? declaringTenantId)
+        TenantId? declaringTenantId,
+        Harborline.Api.Foundation.Authorization.AuthorizationDecision? decision = null,
+        ActorId? actor = null,
+        TenantId? attributedTenant = null)
     {
+        Decision = decision;
+        Actor = actor;
+        AttributedTenant = attributedTenant;
         Kind = kind;
         Definition = definition;
         BindingRevision = bindingRevision;
@@ -75,6 +81,30 @@ public sealed class ValidatedAuthorizationConfigurationWrite
 
     /// <summary>The tenant that declared the definition, or null for package/platform definitions.</summary>
     public TenantId? DeclaringTenantId { get; }
+
+    /// <summary>
+    /// DES-0029 ck-6: the gate decision that authorized this write, when an ordinary request decided it. A store
+    /// that commits an audit entry with the write captures it from here; null for a carried pack, seed or
+    /// bootstrap authority.
+    /// </summary>
+    public Harborline.Api.Foundation.Authorization.AuthorizationDecision? Decision { get; }
+
+    /// <summary>The principal the write is attributed to.</summary>
+    public ActorId? Actor { get; }
+
+    /// <summary>The tenant the write is attributed to.</summary>
+    public TenantId? AttributedTenant { get; }
+
+    /// <summary>The id an auditing store records this write's audit entry under.</summary>
+    public Guid AuditId { get; } = Guid.NewGuid();
+}
+
+/// <summary>
+/// DES-0029 ck-6: a configuration store that commits each write's audit entry in the same transaction as the write,
+/// under <see cref="ValidatedAuthorizationConfigurationWrite.AuditId"/>.
+/// </summary>
+public interface IAuditingAuthorizationConfigurationStore
+{
 }
 
 /// <summary>Package boundary for validated authorization configuration persistence.</summary>

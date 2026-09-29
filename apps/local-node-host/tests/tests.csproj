@@ -135,7 +135,6 @@
     <!-- Direct, not only transitive through the host, so a scoped Stryker run can mutate the package
          (one config mutates one direct reference; see AGENTS.md "Mutation testing"). -->
     <ProjectReference Include="..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
-    <!-- Direct for the same reason: T-909 ck-1 mutates PackCompiledShapeCheck from the host tests. -->
     <ProjectReference Include="..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj" />
     <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24): the durable-store + route tests
          construct CalendarEvent / ResourceAvailability / ParticipantRef directly + reference the block's

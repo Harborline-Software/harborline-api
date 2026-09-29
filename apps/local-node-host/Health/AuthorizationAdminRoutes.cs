@@ -163,7 +163,24 @@ public static class AuthorizationAdminRoutes
                         ?? throw new InvalidOperationException("The writer returned no binding result.");
                     var decision = result.Decision
                         ?? throw new InvalidOperationException("The writer returned no decision.");
-                    var auditId = await RecordBindingAsync(http, definitionId, decision, ct).ConfigureAwait(false);
+                    // DES-0029 ck-6: a store that commits the audit with the write (the node's) returns its id; the
+                    // entry is delivered to the trail now, and by the outbox drain if this delivery fails. A store
+                    // that records none falls back to the post-commit receipt.
+                    var auditId = result.AuditId
+                        ?? await RecordBindingAsync(http, definitionId, decision, ct).ConfigureAwait(false);
+                    if (result.AuditId is not null
+                        && http.RequestServices.GetService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>() is { } outbox)
+                    {
+                        try
+                        {
+                            await outbox.DrainAsync(ct).ConfigureAwait(false);
+                        }
+                        catch (Exception exception) when (exception is not OperationCanceledException)
+                        {
+                            // The entry is committed and owed; the drain daemon delivers it. The write stands.
+                            _ = exception;
+                        }
+                    }
                     return Results.Ok(new NarrowAuthorizationBindingResponse(
                         definitionId,
                         change.Revision.Revision,

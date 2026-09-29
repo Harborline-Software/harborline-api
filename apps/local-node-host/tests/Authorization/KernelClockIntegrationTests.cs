@@ -210,7 +210,9 @@ public sealed class KernelClockIntegrationTests
         await fixture.AssertRevocationInvariantAsync(
             expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
         await fixture.RestartAsync();
-        await fixture.AssertRevocationInvariantAsync(expectedTrustLive, expectedGrantLive, 0, 0);
+        // T-986: the kernel audit trail is durable, so what was audited before the restart is still there.
+        await fixture.AssertRevocationInvariantAsync(
+            expectedTrustLive, expectedGrantLive, expectedMemberAudits, expectedCapabilityAudits);
 
         await fixture.ClearRevocationFaultAsync(faultStep);
         await fixture.IdentityAdministrationAsync();
@@ -252,7 +254,8 @@ public sealed class KernelClockIntegrationTests
         if (restart)
         {
             await fixture.RestartAsync();
-            await fixture.AssertRosterRevocationPairInvariantAsync(distinctTargets, expectedAudits: 0);
+            // T-986: the audits survive the restart.
+            await fixture.AssertRosterRevocationPairInvariantAsync(distinctTargets);
             var resumed = await fixture.RevokeRosterPairOnceAsync(distinctTargets);
             Assert.Equal(evidence.Select(item => item.RecordId), resumed.Select(item => item.RecordId));
             await fixture.AssertRosterRevocationPairInvariantAsync(distinctTargets);

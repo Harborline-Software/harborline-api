@@ -16,7 +16,9 @@ public sealed class EntityValidatorImplementationFenceTests
     internal static readonly AllowRow[] AllowedImplementers =
     [
         new("Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator",
-            "the compiled validator bound to the record-write keyed service"),
+            "the compiled schema validator the record-write Rules stage runs first"),
+        new("Harborline.Api.LocalNodeHost.Data.Entities.RecordWriteRulesValidator",
+            "T-978: the record-write keyed service; compiled schema, then the bound form's record rules"),
         new("Harborline.Api.Foundation.Assets.Entities.NullEntityValidator",
             "the registered fallback null object for non-record envelope writers"),
     ];

@@ -153,9 +153,16 @@ public static class NodeFormsComposition
         //      rather than persisting now and becoming inert only when it is read. The unkeyed store hook
         //      remains the named exception because it exclusively handles form-instance and definition
         //      envelopes, whose own admission paths validate their envelope contracts.
+        // T-978: the keyed record validator is the Rules stage over the compiled-schema validator, so a
+        //      record write is schema-checked and then judged by its bound property form's record rules,
+        //      before commit. This is the ONLY production resolution of CompiledSchemaEntityValidator for a
+        //      record write (RecordWriteRulesStageArchTests).
         services.AddKeyedSingleton<IEntityValidator>(
             CompiledSchemaEntityValidator.RecordWriteKey,
-            (sp, _) => sp.GetRequiredService<CompiledSchemaEntityValidator>());
+            (sp, _) => new Harborline.Api.LocalNodeHost.Data.Entities.RecordWriteRulesValidator(
+                sp.GetRequiredService<CompiledSchemaEntityValidator>(),
+                sp.GetRequiredService<Harborline.Api.Foundation.Forms.IFormDefinitionStore>(),
+                sp.GetService<Harborline.Foundation.RuleEngine.RuleEngineLimits>()));
 
         // (2) Asset entity store + version chain + audit log + hierarchy. The
         //     engine's SaveAsync writes the form instance through IEntityStore

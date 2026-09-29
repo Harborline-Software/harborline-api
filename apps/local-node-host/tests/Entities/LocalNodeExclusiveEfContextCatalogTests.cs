@@ -91,6 +91,12 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260902113605_TenantScopedAuthorizationDefinitions",
         "20260902120000_AuthorizationClosureOwnerVersion",
         "20260902202756_TenantScopedSearchProjectionKeys",
+        // DES-0029 ck-6: the audit outbox the authorization and erasure writes stage their audit into.
+        "20260929050823_AuditOutbox",
+        // T-986: the durable kernel audit trail and the outbox's signed envelope; the roster context maps the
+        // outbox (excluded from its migrations) so an enrollment change stages its audit on its own save.
+        "20260929170220_KernelAuditTrail",
+        "20260929170245_RosterMapsAuditOutbox",
         // ADR 0066 migration step 1 — the append-only administrator-authority log on the roster context
         // (an existing context and owner; no new context, so the 16/15+1 counts are unchanged).
         "20260831184210_RosterAddAdministratorAuthority",
@@ -113,7 +119,7 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_58_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_59_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

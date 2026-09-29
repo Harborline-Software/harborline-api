@@ -14,6 +14,20 @@ public interface IEntityValidator
     /// on failure; returns normally on success.
     /// </summary>
     Task ValidateAsync(SchemaId schema, JsonDocument body, CancellationToken ct = default);
+
+    /// <summary>
+    /// Validates a RECORD body about to be committed (T-978). Besides the body it receives the record's
+    /// tenant, its bound property form and the act's admitted instant, which the Rules stage reads. The
+    /// default is schema validation alone; the node's record-write validator overrides it.
+    /// </summary>
+    Task ValidateRecordAsync(
+        SchemaId schema,
+        JsonDocument body,
+        TenantId tenant,
+        EntityBinding? binding,
+        DateTimeOffset at,
+        CancellationToken ct = default)
+        => ValidateAsync(schema, body, ct);
 }
 
 /// <summary>Raised when <see cref="IEntityValidator.ValidateAsync"/> rejects a body.</summary>

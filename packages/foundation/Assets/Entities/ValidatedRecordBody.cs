@@ -17,6 +17,12 @@ public interface IWriteAdmission
 {
     /// <summary>Whether the gate allowed the act this write carries out.</summary>
     bool IsAllowed { get; }
+
+    /// <summary>
+    /// The act's admitted instant, the one the gate decided at. The Rules stage evaluates a record's bound
+    /// rules at this instant (T-978), so a rule that reads the date sees the act, not the wall clock.
+    /// </summary>
+    DateTimeOffset At { get; }
 }
 
 /// <summary>
@@ -51,7 +57,11 @@ public sealed class ValidatedRecordBody
     /// the gate's allowed decision for this write: an unallowed (or absent) admission raises before the
     /// validator runs, so the ADR 0065 clause 4 ordering cannot be swapped.
     /// </summary>
-    /// <exception cref="EntityValidationException">The body does not satisfy the schema, or the schema is unknown.</exception>
+    /// <remarks>
+    /// T-978: <paramref name="tenant"/> and <paramref name="binding"/> (the record's bound property form, null
+    /// when it has none) reach the validator's Rules stage, which runs that form's record rules.
+    /// </remarks>
+    /// <exception cref="EntityValidationException">The body does not satisfy the schema or a bound record rule, or the schema is unknown.</exception>
     // holds RW-9 · closes RW-H2: the only construction of a record-write token in the tree, and it cannot
     // be reached without an allowed decision and a completed validation. The mint sites are pinned by
     // ValidatedRecordBodyAdmissionArchTests.
@@ -60,6 +70,8 @@ public sealed class ValidatedRecordBody
         IWriteAdmission allowed,
         SchemaId schema,
         JsonDocument body,
+        TenantId tenant,
+        EntityBinding? binding,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(validator);
@@ -72,7 +84,9 @@ public sealed class ValidatedRecordBody
                 + "without an allowed gate decision (ADR 0065 clause 4 orders gate, validation, persistence).");
         }
 
-        await validator.ValidateAsync(schema, body, ct).ConfigureAwait(false);
+        // T-978: the record overload also carries what the Rules stage reads: the record's tenant, its bound
+        // property form, and the admitted act instant.
+        await validator.ValidateRecordAsync(schema, body, tenant, binding, allowed.At, ct).ConfigureAwait(false);
         return new ValidatedRecordBody(schema, body);
     }
 }
