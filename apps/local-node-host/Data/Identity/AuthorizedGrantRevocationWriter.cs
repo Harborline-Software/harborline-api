@@ -121,6 +121,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
         // conferral -- no new constructor seam on the authority and no second derivation anywhere. The role
         // vocabulary is empty on purpose: StageAdmissionGrantAsync always supplies the admission's own.
         return new NodeEfAuthorizationConfigurationStore(grantFactory, new InMemoryRoleVocabulary([]))
-            .NarrowAdmissionGrantAsync(tenant, current, narrowed, revocation, correlationId, cancellationToken);
+            .NarrowAdmissionGrantAsync(
+                tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
     }
 }

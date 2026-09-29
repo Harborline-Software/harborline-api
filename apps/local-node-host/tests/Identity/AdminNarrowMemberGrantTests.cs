@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Blocks.AccessGrant;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -528,7 +529,8 @@ public sealed class AdminNarrowMemberGrantTests
         var grant = await new NodeEfAuthorizationConfigurationStore(
                 h.SearchStore.Factory, new InMemoryRoleVocabulary([]))
             .ConferAdmissionGrantAsync(
-                tenant, principalId, FounderPrincipal, PermissionSet.Of(permissions), Now);
+                tenant, principalId, FounderPrincipal, PermissionSet.Of(permissions), Now,
+                TestAdmissions.SignedBy(FounderPrincipal, principalId));
         Assert.NotNull(grant);
         return grant!;
     }

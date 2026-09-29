@@ -22,7 +22,10 @@ internal sealed class AccessGrantAuthorizationSeed(
 {
     /// <summary>The deterministic, tenant-owned role for one verified historical admission.</summary>
     internal static RoleDefinition AdmissionMigrationRole(Guid id, TenantId tenant) =>
-        RoleDefinition.CreateTenantRole(new(id), "roster-admission-" + id.ToString("N"), "Migrated admission", tenant);
+        RoleDefinition.CreateTenantRole(new(id), AdmissionRolePrefix + id.ToString("N"), "Migrated admission", tenant);
+
+    /// <summary>The per-admission role-name prefix the admission conferral mints (and only it).</summary>
+    internal const string AdmissionRolePrefix = "roster-admission-";
 
     public const string PackageId = "harborline.access-grant";
     public const string SchedulerPrincipal = "sys.scheduler";

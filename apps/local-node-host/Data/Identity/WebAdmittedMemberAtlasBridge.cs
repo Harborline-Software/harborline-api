@@ -96,11 +96,11 @@ internal sealed class WebAdmittedMemberAtlasBridge
     /// </summary>
     private Task<AccessGrant?> ConferAdmissionGrantAsync(
         TenantId tenant, string admittedPartyId, string admitterPartyId, PermissionSet permissions,
-        CancellationToken cancellationToken) =>
+        MemberRoster admitted, CancellationToken cancellationToken) =>
         new NodeEfAuthorizationConfigurationStore(_grantFactory, new InMemoryRoleVocabulary([]))
             .ConferAdmissionGrantAsync(
                 tenant, admittedPartyId, admitterPartyId, permissions,
-                _timeProvider.GetUtcNow(), cancellationToken);
+                _timeProvider.GetUtcNow(), AdmissionConferralAuthority.SignedAdmission(admitted), cancellationToken);
 
     /// <summary>
     /// The #3107 FRONT DOOR — admit a web-admitted member's first device from the single-use device-pairing
@@ -406,7 +406,8 @@ internal sealed class WebAdmittedMemberAtlasBridge
         // enrollment itself does not depend on. WebAdmittedMemberAtlasBridgeTests pins exactly that — revoke
         // the membership grant after admitting and the admitted member is still allowed; delete this call and
         // it is refused.
-        await ConferAdmissionGrantAsync(tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, cancellationToken)
+        await ConferAdmissionGrantAsync(
+                tenant, enrollmentPartyId, admitterPartyId, grantedPermissions, result.Roster, cancellationToken)
             .ConfigureAwait(false);
         return AtlasAdmissionOutcome.Admit(result.Roster, grantedPermissions);
     }
