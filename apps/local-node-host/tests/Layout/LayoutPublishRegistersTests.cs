@@ -3,6 +3,7 @@ using System.Text.Json;
 using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Contracts.Fields;
+using Harborline.Foundation.Definitions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 
@@ -105,6 +106,8 @@ public sealed class LayoutPublishRegistersTests
     private sealed class AllowAccess : ILayoutAccess
     {
         public static AllowAccess Instance { get; } = new();
+        public bool CanAuthor() => true;
+        public bool CanPublish() => true;
         public bool CanRead(LayoutBinding binding) => true;
         public bool CanOpen(string surfaceId) => true;
     }
@@ -114,14 +117,14 @@ public sealed class LayoutPublishRegistersTests
 
     private static LayoutDefinition CaptureSurface(LayoutCaptureProperties capture) => new(
         new("surface.invoice", "1.0.0", "tenant-733", LayoutCascadeLayer.DomainPackage,
-            JsonSerializer.SerializeToElement(new { source = "t-733" }), "standard", false, []),
+            JsonSerializer.SerializeToElement(new { source = "t-733" }), "standard", false, [], new DefinitionContractVersion(1, 0)),
         1, LayoutMedium.Screen, LayoutIntent.Capture,
         [new("reference", "layout.field", new LayoutRecordFieldBinding("invoice.reference"), [], Capture: capture)],
         [], [], [], null, []);
 
     private static LayoutDefinition PageSurface(LayoutPageRun run) => new(
         new("surface.statement", "1.0.0", "tenant-733", LayoutCascadeLayer.DomainPackage,
-            JsonSerializer.SerializeToElement(new { source = "t-733" }), "standard", false, []),
+            JsonSerializer.SerializeToElement(new { source = "t-733" }), "standard", false, [], new DefinitionContractVersion(1, 0)),
         1, LayoutMedium.Page, LayoutIntent.Observe,
         [
             new("heading", "layout.text", new LayoutStaticBinding(JsonSerializer.SerializeToElement("Statement")), [],

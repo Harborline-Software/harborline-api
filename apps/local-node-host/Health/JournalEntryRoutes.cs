@@ -309,7 +309,8 @@ public static class JournalEntryRoutes
                     entryDate:    postingDate,
                     memo:         Truncate(body.Memo!, 200),
                     lines:        lines,
-                    createdAtUtc: new Instant(at))
+                    createdAtUtc: new Instant(at),
+                    sourceReference: ManualIdempotencyReference(http, authority))
                 {
                     ChartId     = string.IsNullOrWhiteSpace(body.ChartId) ? (ChartOfAccountsId?)null : new ChartOfAccountsId(body.ChartId),
                     Status      = JournalEntryStatus.Draft,
@@ -344,6 +345,13 @@ public static class JournalEntryRoutes
                 return PostErrorToResult(result);
             }
 
+            // A durable replay (same key) must be the same request: a different payload under a reused key is
+            // refused with the node-wide reuse code rather than silently answered with the first entry.
+            if (result.Entry!.Id != draft.Id && !SameManualRequest(result.Entry, draft))
+            {
+                return Results.Conflict(new { code = "authorization.idempotency_key_reused" });
+            }
+
             // Audit-envelope: satisfied by the durable SQLCipher store presence (durable-layer
             // pattern; no inline signed event on the node — see class remarks).
             var posted = result.Entry!;
@@ -352,6 +360,23 @@ public static class JournalEntryRoutes
                 new JournalEntryDetailResponse(JournalEntryDetailWire.From(posted)));
         });
     }
+
+    /// <summary>
+    /// The durable replay key of a keyed manual post (DES-0029 ck-6; draft-ietf-httpapi-idempotency-key-header):
+    /// the client's Idempotency-Key scoped to this route and the calling principal, stored as the entry's
+    /// SourceReference so the tenant-scoped unique index and posting-service replay survive a restart.
+    /// NodeMutationIdempotency has already validated the header shape.
+    /// </summary>
+    private static string? ManualIdempotencyReference(HttpContext http, AuthorizationWriteContext authority) =>
+        http.Request.Headers[IdempotencyContract.HeaderName] is { Count: 1 } key && !string.IsNullOrEmpty(key[0])
+            ? $"manual-je:{authority.Principal.Value}:{key[0]}"
+            : null;
+
+    private static bool SameManualRequest(JournalEntry posted, JournalEntry draft) =>
+        posted.EntryDate == draft.EntryDate &&
+        posted.Memo == draft.Memo &&
+        Equals(posted.ChartId, draft.ChartId) &&
+        posted.Lines.SequenceEqual(draft.Lines);
 
     // ── POST /api/local-node/journal-entries/{id}/reverse — create reversing entry (posted) ──
     private static void MapReverse(
@@ -442,6 +467,11 @@ public static class JournalEntryRoutes
             {
                 result = await posting.PostAsync(draftReversal, authority, ct).ConfigureAwait(false);
             }
+            catch (JournalEntryNotReversibleException)
+            {
+                // Passed the Posted check above, then lost the store's write lock to a concurrent reversal.
+                return Results.BadRequest(new { error = "already_reversed" });
+            }
             catch (Exception)
             {
                 return Results.StatusCode(StatusCodes.Status500InternalServerError);
@@ -455,23 +485,9 @@ public static class JournalEntryRoutes
                 return PostErrorToResult(result);
             }
 
+            // The store transitioned the ORIGINAL to Reversed (ReversedBy set) in the same transaction as the
+            // reversing entry and its audit row (DES-0029 ck-6; F-89-A's second-reverse guard depends on it).
             var reversalEntry = result.Entry!;
-
-            // Transition the ORIGINAL to Reversed + set its ReversedBy FK (atomic EF update).
-            // Without this the Posted-only guard never fires on a second reverse (F-89-A).
-            var reversedOriginal = original with
-            {
-                Status     = JournalEntryStatus.Reversed,
-                ReversedBy = reversalEntry.Id,
-            };
-            try
-            {
-                await store.ReplaceEntryAsync(LocalTenantId, reversedOriginal, ct).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                return Results.StatusCode(StatusCodes.Status500InternalServerError);
-            }
 
             return Results.Created(
                 $"{RouteBase}/{reversalEntry.Id.Value}",

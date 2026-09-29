@@ -109,11 +109,13 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260920100000_AddConfigurationProposals",
         // T-291: the retired, unsigned roster permission set leaves the durable record.
         "20260928120000_RosterDropLegacyPermissions",
+        // T-909 slice 6 (T-587): the offline configuration recovery record and its audit row.
+        "20260928120000_AddConfigurationRecoveries",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_58_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_59_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 

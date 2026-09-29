@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Harborline.Blocks.EntityViews;
+using Harborline.Foundation.Definitions;
 
 using Xunit;
 
@@ -35,7 +36,8 @@ public sealed class PlatformViewsPackageConsumptionTests
                 "team-a",
                 ViewCascadeLayer.Pack,
                 JsonSerializer.SerializeToElement(new { source = "api-package-consumer" }),
-                []),
+                [],
+                new DefinitionContractVersion(1, 0)),
             1,
             "Work queue",
             "work-item",
