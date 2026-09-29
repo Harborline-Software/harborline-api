@@ -135,6 +135,21 @@ if (args.Length >= 1 &&
     return;
 }
 
+// T-587 / T-909 slice 6 — the OFFLINE configuration-recovery path, on the same authority as recover-administrator:
+// ownership of the data directory with the node stopped. Not an HTTP route: it must work when the Configuration
+// Management package is broken, which rules out a route gated on pack-installed permissions.
+if (args.Length >= 1 &&
+    string.Equals(
+        args[0],
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand.Verb,
+        StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode = await Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand
+        .RunAsync(args, Console.Out, Console.Error, rootTimeProvider)
+        .ConfigureAwait(false);
+    return;
+}
+
 // Composition root for the Harborline local-node host process.
 //
 // Paper §4 + §5.1: this is the persistent background service that owns the
