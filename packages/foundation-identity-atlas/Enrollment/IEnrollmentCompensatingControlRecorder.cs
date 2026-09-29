@@ -41,15 +41,24 @@ namespace Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 /// membership changes alongside financial activity.
 /// </para>
 /// <para>
-/// <b>Fail-safe, not fail-blocking.</b> Recording is a side-channel: a recording fault MUST NOT brick an
-/// enrollment operation (the roster mutation itself is already attested + persisted). Implementations should
-/// surface faults via their own logging/telemetry; the default <see cref="NullEnrollmentCompensatingControlRecorder"/> is a no-op so a
-/// host with no audit wiring still functions (single-user self-setup, tests). A production host wires the
-/// kernel-audit-backed adapter.
+/// <b>Durable with the change, not after it (T-986, owner ruling 2026-09-29).</b> A record commits in the
+/// SAME transaction as the enrollment change it records, so the change and its record commit together or not
+/// at all. The caller hands the recorder that transaction with <see cref="Within"/> and records before the
+/// change commits; a recording fault fails the change instead of letting it commit unaudited. The default
+/// <see cref="NullEnrollmentCompensatingControlRecorder"/> is a no-op so a host with no audit wiring still
+/// functions (single-user self-setup, tests). A production host wires the kernel-audit-backed adapter.
 /// </para>
 /// </remarks>
 public interface IEnrollmentCompensatingControlRecorder
 {
+    /// <summary>
+    /// This recorder, bound to <paramref name="write"/>: the host's transaction that commits the change being
+    /// recorded. What the bound recorder records commits in that transaction. The default returns this
+    /// recorder unchanged, for a recorder with no durable store of its own (the no-op default, test doubles).
+    /// </summary>
+    /// <param name="write">The host's transaction handle; this package does not know its type.</param>
+    IEnrollmentCompensatingControlRecorder Within(object write) => this;
+
     /// <summary>Record that a member was admitted to the roster (the admit-flow). duty-significant.</summary>
     /// <param name="tenantId">The tenant the roster mutation is scoped to.</param>
     /// <param name="teamId">The team (roster) the member joined (string form of the team Guid).</param>

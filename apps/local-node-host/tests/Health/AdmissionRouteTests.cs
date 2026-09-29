@@ -91,7 +91,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         public required AdmissionCoordinator Coordinator { get; init; }
         public required Member Founder { get; init; }
         // The LIVE SoD audit trail the redeem route records into (#1295 F1) + the tenant it scopes to.
-        public required IAuditEventReader AuditReader { get; init; }
+        public required Harborline.Api.LocalNodeHost.Tests.Audit.DurableAuditHarness Audit { get; init; }
         public required TenantId Tenant { get; init; }
         // #1296 F2 — the node's TEAM-SCOPED transport identity (HKDF(node-root, teamId)) the active team's child
         // container holds, i.e. EXACTLY what GET /identity must return and what this node presents in the sync
@@ -133,20 +133,16 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         var genesis = MemberRoster.Genesis(Team, founder.PartyId, founder.Signer, Verifier, DateTimeOffset.UtcNow, Guid.NewGuid());
         var roster = new NodeTeamRoster(genesis);
 
-        var dir = Path.Combine(Path.GetTempPath(), $"harborline-admission-route-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        _dirs.Add(dir);
-        var connectionString = $"Data Source={Path.Combine(dir, "roster.db")};Pooling=False";
+        // T-986: the roster record and its SoD audit share one encrypted local-node.db, as in production.
+        var audit = await Harborline.Api.LocalNodeHost.Tests.Audit.DurableAuditHarness.CreateAsync();
+        _async.Add(audit);
+        var factory = audit.RosterFactory;
 
         var inner = new ServiceCollection();
         inner.AddLogging();
-        inner.AddDbContextFactory<NodeLocalRosterDbContext>(opt => opt.UseSqlite(connectionString));
         inner.AddSingleton<ICrdtEngine, YDotNetCrdtEngine>();
         var sp = inner.BuildServiceProvider();
         _providers.Add(sp);
-        var factory = sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-        await using (var ctx = await factory.CreateDbContextAsync())
-            await ctx.Database.EnsureCreatedAsync();
 
         var projection = new RosterCrdtProjection(TimeProvider.System,
             sp.GetRequiredService<ICrdtEngine>(), factory, Verifier, founder.Signer,
@@ -155,12 +151,9 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
 
         var coordinator = new AdmissionCoordinator(Verifier, new InMemoryAdmissionTokenStore(), testClock);
 
-        // The LIVE SoD audit control (#1295 F1) — the same KernelAuditEnrollmentCompensatingControlRecorder the host wires, over an in-memory
-        // kernel audit trail, so the F1 PROOF can read what a REAL runtime admit recorded (NOT a direct sink call).
-        var auditSigner = new Ed25519Signer(KeyPair.Generate());
-        var auditTrail = new InMemoryAuditTrail();
-        var auditReader = new InMemoryAuditEventReader(auditTrail, auditTrail, auditSigner);
-        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(auditTrail, auditSigner, time: testClock);
+        // The LIVE SoD audit control (#1295 F1) — the same KernelAuditEnrollmentCompensatingControlRecorder the host wires,
+        // over the durable trail, so the F1 PROOF can read what a REAL runtime admit recorded (NOT a direct sink call).
+        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(new Ed25519Signer(KeyPair.Generate()), testClock);
 
         // A REAL active team so NodeTenant.Resolve(activeTeam) yields the SoD-audit tenant (the production path
         // always has a seeded active team before routes serve). #1296 F2: the active team's CHILD container is the
@@ -217,7 +210,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
             Projection = projection,
             Coordinator = coordinator,
             Founder = founder,
-            AuditReader = auditReader,
+            Audit = audit,
             Tenant = tenant,
             TeamTransportIdentity = teamTransportIdentity,
         };
@@ -328,9 +321,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
 
         // THE PROOF: the real admit op landed a SoD MemberAdmitted record in the trail — the seam fired at
         // runtime, driven by the route, not a direct sink call.
-        var page = await h.AuditReader.ListAsync(
-            h.Tenant, new AuditEventReaderQuery(EventType: AuditEventType.MemberAdmitted));
-        var record = Assert.Single(page.Records);
+        var record = Assert.Single(await h.Audit.DeliveredAsync(h.Tenant, AuditEventType.MemberAdmitted));
 
         // …and it carries the correct who-did-what-to-whom attribution from the real op.
         var body = record.Payload.Payload.Body;
@@ -352,9 +343,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         var resp = await h.Client.SendAsync(Post($"{AdmissionRoutes.RouteBase}/redeem", RedeemBody(tokenId, bob), Token));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
-        var page = await h.AuditReader.ListAsync(
-            h.Tenant, new AuditEventReaderQuery(EventType: AuditEventType.MemberAdmitted));
-        var body = Assert.Single(page.Records).Payload.Payload.Body;
+        var body = Assert.Single(await h.Audit.DeliveredAsync(h.Tenant, AuditEventType.MemberAdmitted)).Payload.Payload.Body;
 
         // The admitter named the set it confers ONCE and signed that set into the admission; the audit row is
         // that same value. It is not read back off the new roster: since ticket 293 slice 3b2 a replicated
@@ -367,8 +356,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
 
     private static async Task<int> CountEnrollmentControlAsync(Harness h, AuditEventType type)
     {
-        var page = await h.AuditReader.ListAsync(h.Tenant, new AuditEventReaderQuery(EventType: type));
-        return page.Records.Count;
+        return (await h.Audit.DeliveredAsync(h.Tenant, type)).Count;
     }
 
     // ── TEST: caller-auth REQUIRED — a tokenless caller is 401 on both routes. ──
@@ -661,7 +649,7 @@ public sealed class AdmissionRouteTests : IAsyncLifetime
         _async.Add(projection);
 
         var coordinator = new AdmissionCoordinator(Verifier, new InMemoryAdmissionTokenStore(), clock: TimeProvider.System);
-        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(new InMemoryAuditTrail(), new Ed25519Signer(KeyPair.Generate()), time: TimeProvider.System);
+        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(new Ed25519Signer(KeyPair.Generate()), TimeProvider.System);
 
         // A real active team (with a team-scoped identity) so the SoD-tenant + identity resolution behave; the join
         // route does not read the identity, but mapping AdmissionRoutes.Map requires a real active team accessor.

@@ -299,6 +299,7 @@ public sealed class SeparationOfDutyEngineTests
             .AddSingleton(TimeProvider.System)
             .AddSingleton(nodeSigner)
             .AddSingleton<IOperationSigner>(nodeSigner.Signer)
+            .AddTestInMemoryKernelAudit()
             .AddEnrollmentCompensatingControlAudit()
             .BuildServiceProvider();
 

@@ -289,29 +289,31 @@ internal sealed class PairingTokenGatedAdmitter
             .FirstOrDefault(a => string.Equals(a.PartyId, request.JoiningPartyId, StringComparison.Ordinal));
         if (newAdmission is not null)
         {
+            // (8) Post-admit step 5 — SoD compensating-control audit. Mode "web-pairing" so the audit trail
+            //     distinguishes a web-admitted-member device pairing from a plain invite. T-986: it is staged on
+            //     the roster record's own save, so the admission and its signed audit commit together or not at
+            //     all; an audit fault throws here and the admission record is not written.
+            // Ticket 293 slice 5 — the set the bridge CONFERRED on this admission (signed into the admission and
+            // staged as the party's own grant), carried back on the outcome. The roster cannot answer this: since
+            // slice 3b2 a replicated member carries no permission set, so reading it back would audit an empty set.
+            var grantedPermissions = bridgeOutcome.ConferredPermissions?.Permissions ?? Array.Empty<string>();
+            var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
+                ?? request.JoiningPrincipalPublicKey;
+            var correlationId = System.Diagnostics.Activity.Current?.Id;
             await _projection.PublishLocalAsync(
-                RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct)
+                RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
+                stageWithRecord: (write, token) => _sodAudit.Within(write).RecordMemberAdmittedAsync(
+                    tenantId: new TenantId(binding.Membership.TenantId),
+                    teamId: newRoster.TeamId.ToString("D"),
+                    admitterPartyId: _admitterPartyId,
+                    admittedPartyId: request.JoiningPartyId,
+                    admittedPublicKeyBase64Url: admittedPublicKey,
+                    grantedPermissions: grantedPermissions.ToArray(),
+                    admissionMode: "web-pairing",
+                    correlationId: correlationId,
+                    ct: token))
                 .ConfigureAwait(false);
         }
-
-        // (8) Post-admit step 5 — SoD compensating-control audit (fail-safe-but-loud). Mode "web-pairing" so the
-        //     audit trail distinguishes a web-admitted-member device pairing from a plain invite.
-        // Ticket 293 slice 5 — the set the bridge CONFERRED on this admission (signed into the admission and
-        // staged as the party's own grant), carried back on the outcome. The roster cannot answer this: since
-        // slice 3b2 a replicated member carries no permission set, so reading it back would audit an empty set.
-        var grantedPermissions = bridgeOutcome.ConferredPermissions?.Permissions ?? Array.Empty<string>();
-        var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
-            ?? request.JoiningPrincipalPublicKey;
-        await _sodAudit.RecordMemberAdmittedAsync(
-            tenantId: new TenantId(binding.Membership.TenantId),
-            teamId: newRoster.TeamId.ToString("D"),
-            admitterPartyId: _admitterPartyId,
-            admittedPartyId: request.JoiningPartyId,
-            admittedPublicKeyBase64Url: admittedPublicKey,
-            grantedPermissions: grantedPermissions.ToArray(),
-            admissionMode: "web-pairing",
-            correlationId: System.Diagnostics.Activity.Current?.Id,
-            ct: ct).ConfigureAwait(false);
 
         // (9) Post-admit step 6 — build the A→B bootstrap response (A's team-scoped transport key resolved in step 4;
         //     the admission already committed). The per-member transport + DM maps mirror WireEnrollmentAdmitter.

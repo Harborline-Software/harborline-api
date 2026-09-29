@@ -277,15 +277,21 @@ internal sealed class LocalNodeFinalGraphServiceProviderFactory(
         var trail = provider.GetRequiredService<IAuditTrail>();
         var authorized = provider.GetRequiredService<IAuthorizedAuditTrail>();
         var reader = provider.GetRequiredService<IAuditEventReader>();
-        if (reader is not InMemoryAuditEventReader concreteReader)
+        var store = provider.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditTrailStore>();
+        if (reader is not SnapshotAuditEventReader concreteReader)
             throw new InvalidOperationException(
-                $"The shipping audit reader must be {nameof(InMemoryAuditEventReader)}, not {reader.GetType().FullName}.");
+                $"The shipping audit reader must be {nameof(SnapshotAuditEventReader)}, not {reader.GetType().FullName}.");
 
-        var backing = typeof(InMemoryAuditEventReader)
-            .GetField("_trail", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            ?.GetValue(concreteReader);
-        if (!ReferenceEquals(trail, authorized) || !ReferenceEquals(trail, backing))
+        const System.Reflection.BindingFlags Private =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var readerBacking = (typeof(SnapshotAuditEventReader).GetField("_snapshot", Private)
+            ?.GetValue(concreteReader) as Delegate)?.Target;
+        var trailBacking = typeof(AuthorityCapturingAuditTrail).GetField("_inner", Private)?.GetValue(trail);
+        if (trail is not AuthorityCapturingAuditTrail
+            || !ReferenceEquals(trail, authorized)
+            || !ReferenceEquals(store, trailBacking)
+            || !ReferenceEquals(store, readerBacking))
             throw new InvalidOperationException(
-                "The shipping IAuditTrail, IAuthorizedAuditTrail, and reader backing must be the same object.");
+                "The shipping IAuditTrail, IAuthorizedAuditTrail, and reader must share one durable store.");
     }
 }

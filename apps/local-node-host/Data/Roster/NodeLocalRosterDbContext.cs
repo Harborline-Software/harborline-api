@@ -58,6 +58,15 @@ public sealed class NodeLocalRosterDbContext : DbContext
         ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
 
+        // T-986: an enrollment change stages its signed compensating-control audit entry in the SAME save as
+        // the roster record it records, so the two commit together or not at all. The search context owns the
+        // outbox table and its migrations; this context only writes rows into it.
+        modelBuilder.Entity<Search.AuditOutboxRow>(e =>
+        {
+            Search.AuditOutboxRow.Map(e);
+            e.ToTable("search_audit_outbox", table => table.ExcludeFromMigrations());
+        });
+
         modelBuilder.Entity<NodeRosterRecord>(e =>
         {
             e.ToTable("roster_records");

@@ -10,6 +10,7 @@ apps/local-node-host/Data/Admission/DurableAdmissionTokenStore.cs	3	n/a	single-u
 apps/local-node-host/Data/Admission/DurableWebPairingInviteBindingStore.cs	1	n/a	token-to-party binding state
 apps/local-node-host/Data/AssetRegistry/NodeEfSpatialFrameDescriptorPort.cs	2	post-commit-audit	IRegistryAuditLog after the fenced commit (:28-31); layer-3 quarantine is a second commit then audit (:174-181): ck-6 gap; tests SpatialFrameDescriptorMintTests.cs:179/:205
 apps/local-node-host/Data/Audit/NodeAuditOutbox.cs	1	n/a	the audit outbox's own delivery mark (ExecuteUpdate on search_audit_outbox)
+apps/local-node-host/Data/Audit/NodeAuditTrailStore.cs	1	n/a	the kernel audit trail's own append (T-986): it is the audit, not a business record
 apps/local-node-host/Data/Authorization/NodeEfAuthorizationClosureReader.cs	3	n/a	derived principal-atom closure rebuild (DELETE + rebuild + stamp), rebuildable from grants
 apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs	3	atomic-audit	every pipeline commit stages its audit in the commit transaction (StageAudit; decision captured, or a system entry for pack/seed/bootstrap); admission conferral stages AuthorizationAdmissionGrantConferred in its fence; NodeAuditOutboxTests.cs; admission narrowing still audits after commit (AdminTeamAccessAuthority.cs:741)
 apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs	1	atomic-audit	one AuthorizationGrantSubjectRekeyed entry per moved grant in the same fence; NodeAuditOutboxTests.cs
@@ -66,7 +67,7 @@ apps/local-node-host/Data/Payroll/NodeEfFilingObligationRepository.cs	1	unaudite
 apps/local-node-host/Data/Payroll/NodeEfPayRunRepository.cs	1	unaudited	separate payroll context; post/reverse commit JE then run: retry now converges on the persisted JE (PayrollRouteTests ck-6 replay facts)
 apps/local-node-host/Data/People/ContactCrdtProjection.cs	1	n/a	CRDT projection into party rows
 apps/local-node-host/Data/People/NodeEfPartyRepository.cs	10	atomic-audit	CreateInTransactionAsync appends the identity chain (:367-375; ContactDeleteRouteTests.cs:292); update/delete/roles/contact points unaudited: ck-6 gap
-apps/local-node-host/Data/Roster/RosterCrdtProjection.cs	5	record-is-audit	signed admit/revoke records; supersession hard-deletes signed rows unaudited (:385-386, :448-449); RosterRebuildFaultTests.cs:202
+apps/local-node-host/Data/Roster/RosterCrdtProjection.cs	4	record-is-audit	signed admit/revoke records; a local publish stages its enrollment compensating-control audit in the same save (T-986; DurableEnrollmentAuditTests.cs); supersession hard-deletes signed rows unaudited (:385-386, :448-449); RosterRebuildFaultTests.cs:202
 apps/local-node-host/Data/Scheduling/NodeSchedulingDraftStore.cs	1	atomic-audit	DraftAudit row on the same save (:59-73); NodeSchedulingDraftStoreTests.cs:58
 apps/local-node-host/Data/Search/NodeSearchIndexer.cs	3	n/a	derived knowledge-graph index, rebuildable
 apps/local-node-host/Data/Search/Vector/NodeEfGrantStore.cs	4	post-commit-audit	fenced grant mutations; audit via IAuthorizedAuditTrail after commit (AdminTeamAccessAuthority.cs:895); KernelClockIntegrationTests.cs:115-120 proves prefix-safe resume

@@ -113,6 +113,19 @@ internal static class TestAuthorization
         return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source, roster);
     }
 
+    /// <summary>
+    /// A gate whose grants derive <paramref name="derivedRole"/> instead of Administrator, so a members act keeps
+    /// the gate's own RequireMember constraint and only a live roster edge can admit it.
+    /// </summary>
+    internal static AuthorizationGate Gate(
+        Func<AuthorizationGateRequest, bool> allow,
+        IAuthorizationRosterConstraintReader roster,
+        RoleReference derivedRole)
+    {
+        var source = new ConfigurableAuthorizationSource(allow, null, derivedRole);
+        return new AuthorizationGate(source, new EmptyRecordStandingResolver(), source, roster);
+    }
+
     internal static AuthorizationGate GateWithRoster(
         bool allowed,
         AuthorizationRosterInputs? roster)
