@@ -124,6 +124,10 @@ public sealed class AllowListVacuityArchTests
             "a per-call-site exception list held empty by construction (RecordWriteValidationJudgeTests row "
             + "6 reports any unlisted call site); the first real row must be registered above against a "
             + "discovery with the exception list bypassed",
+        ["ApiRuleEngineConsumerArchTests.RemainingConsumers"] =
+            "the T-540 inventory of production files still naming the api rule-engine copy, compared "
+            + "with the set discovered from source in both directions; a consumer it does not hold is "
+            + "reported, not excused",
         ["ValidatedRecordBodyAdmissionArchTests.MintSites"] =
             "the inventory of record-write mint sites the ticket-366 scan compares against the set "
             + "discovered from source, both directions; a site it does not hold is reported, not excused",

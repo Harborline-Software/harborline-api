@@ -30,6 +30,9 @@ using Harborline.Api.Kernel.Audit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using EvaluationPhase = Harborline.Foundation.RuleEngine.Environments.EvaluationPhase;
+using FormsExpressionEnvironment = Harborline.Foundation.Forms.Engine.FormsExpressionEnvironment;
+
 namespace Harborline.Api.Foundation.Forms.Engine;
 
 /// <summary>
@@ -809,7 +812,9 @@ public sealed class FormEngine : IFormEngine
         }
 
         // (2) + (3): the rule gate, then prune the hidden values.
-        var gate = SubmitValidationGate.Evaluate(formDef, candidate, clock, ct);
+        // T-304: the platform runtime under Forms' own admitted environment, in the submission phase.
+        var gate = SubmitValidationGate.Evaluate(formDef, candidate, clock,
+            FormsExpressionEnvironment.Admitted.For(EvaluationPhase.Submission), ct);
         var pruned = SubmitValidationGate.Prune(candidate, gate.PrunedKeys);
 
         // (4) Schema validation over the PRUNED body.

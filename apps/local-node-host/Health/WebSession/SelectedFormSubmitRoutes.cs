@@ -9,7 +9,7 @@ using Harborline.Api.Foundation.Forms.Engine.Exceptions;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
-using Harborline.Api.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.Kernel.Audit;
