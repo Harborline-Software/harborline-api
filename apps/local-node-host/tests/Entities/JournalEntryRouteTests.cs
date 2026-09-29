@@ -637,6 +637,52 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
         Assert.Equal(JournalEntryStatus.Reversed, entries.Single(e => e.Id.Value == "JE-ORIG").Status);
     }
 
+    [Fact(DisplayName = "ck-6 idempotency: a keyed reverse retried after a restart returns the first 201 byte-identical, one reversal")]
+    public async Task Reverse_KeyedRetryAfterRestart_ReturnsTheFirstResponse()
+    {
+        await SeedEntryAsync("JE-ORIG", LocalTenantId, new DateOnly(2026, 1, 10), "1000", "4000", 250m,
+            status: JournalEntryStatus.Posted);
+
+        // No process-local replay cache in this fixture: the retry sees what a restarted node sees.
+        var first = await ReverseKeyedAsync("JE-ORIG", "rev-retry-1");
+        var retry = await ReverseKeyedAsync("JE-ORIG", "rev-retry-1");
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(await first.Content.ReadAsStringAsync(), await retry.Content.ReadAsStringAsync());
+        Assert.Equal(first.Headers.Location, retry.Headers.Location);
+        Assert.Single(_store.Snapshot(LocalTenantId), e => e.ReversalOf?.Value == "JE-ORIG");
+    }
+
+    [Fact(DisplayName = "ck-6 idempotency: a reverse key reused against a different original is refused 409, nothing reversed")]
+    public async Task Reverse_KeyReusedForDifferentTarget_IsRefused()
+    {
+        await SeedEntryAsync("JE-ORIG", LocalTenantId, new DateOnly(2026, 1, 10), "1000", "4000", 250m,
+            status: JournalEntryStatus.Posted);
+        await SeedEntryAsync("JE-OTHER", LocalTenantId, new DateOnly(2026, 1, 11), "1000", "4000", 90m,
+            status: JournalEntryStatus.Posted);
+
+        var first = await ReverseKeyedAsync("JE-ORIG", "rev-retry-2");
+        var reused = await ReverseKeyedAsync("JE-OTHER", "rev-retry-2");
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, reused.StatusCode);
+        Assert.Equal(
+            "authorization.idempotency_key_reused",
+            (await reused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(JournalEntryStatus.Posted, _store.Snapshot(LocalTenantId).Single(e => e.Id.Value == "JE-OTHER").Status);
+    }
+
+    private Task<HttpResponseMessage> ReverseKeyedAsync(string id, string key)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{Route}/{id}/reverse")
+        {
+            Content = JsonContent.Create(new { reversalDate = "2026-02-01" }),
+        };
+        request.Headers.Add(IdempotencyContract.HeaderName, key);
+        return _client.SendAsync(request);
+    }
+
     private Task<HttpResponseMessage> PostKeyedAsync(string key, object body)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, Route) { Content = JsonContent.Create(body) };
