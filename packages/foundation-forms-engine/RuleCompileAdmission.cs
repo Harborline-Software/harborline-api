@@ -1,6 +1,9 @@
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Environments;
+
+using FormsExpressionEnvironment = Harborline.Foundation.Forms.Engine.FormsExpressionEnvironment;
 
 namespace Harborline.Api.Foundation.Forms.Engine;
 
@@ -26,7 +29,7 @@ namespace Harborline.Api.Foundation.Forms.Engine;
 /// </para>
 /// <para>
 /// <b>Same compile path as runtime.</b> Rules compile via
-/// <see cref="RuleCompiler.Compile(System.Collections.Generic.IReadOnlyList{RuleDefinition}, Harborline.Api.Foundation.RuleEngine.RuleEngineLimits?)"/>
+/// the platform <see cref="RuleCompiler"/> (<c>Harborline.Foundation.RuleEngine</c>, T-304 slice 2)
 /// over the WHOLE rule set (so cross-rule faults — cycles, depth — reject too);
 /// each guard compiles wrapped in the exact one-node <c>Validate</c> shape
 /// <see cref="SubmitValidationGate"/>, the wizard, and the engine's
@@ -35,6 +38,13 @@ namespace Harborline.Api.Foundation.Forms.Engine;
 /// them); Tier-3 (<see cref="RuleTier.PowerFx"/>) rules are consequently
 /// REJECTED at this authoring surface — v1 never evaluates them, so admitting
 /// one would degrade the whole submit gate silently.
+/// </para>
+/// <para>
+/// <b>Same environment as runtime.</b> T-304 slice 2: render and submit evaluate under Forms' admitted
+/// environment (<c>forms-ck-13</c>), which refuses a program calling an operation or addressing a variable
+/// root the declaration does not admit. Admission checks the compiled rules and guards against that
+/// declaration for the submission phase and refuses with the <c>rule.environment.*</c> code, so a definition
+/// that submit would refuse is refused at the door instead.
 /// </para>
 /// </remarks>
 public static class RuleCompileAdmission
@@ -52,9 +62,10 @@ public static class RuleCompileAdmission
 
         if (overlay.Rules is { Count: > 0 } rules)
         {
+            CompiledGraph compiled;
             try
             {
-                _ = RuleCompiler.Compile(rules);
+                compiled = RuleCompiler.Compile(PlatformRuleContract.ToContract(rules));
             }
             catch (RuleCompilationException ex)
             {
@@ -62,6 +73,13 @@ public static class RuleCompileAdmission
                 throw new FormDefinitionValidationException(
                     definition.Id,
                     $"{which} does not compile ({ex.Code}): {ex.Message}",
+                    FormDefinitionCodes.RulesUncompilable);
+            }
+            if (EnvironmentRefusal(compiled) is { } refusal)
+            {
+                throw new FormDefinitionValidationException(
+                    definition.Id,
+                    $"the rule set is outside the Forms expression environment ({refusal})",
                     FormDefinitionCodes.RulesUncompilable);
             }
         }
@@ -75,16 +93,11 @@ public static class RuleCompileAdmission
 
             // The exact wrap SubmitValidationGate / GuardEvaluator / the wizard use —
             // admission compiles what runtime will actually run.
-            var guardRule = new RuleDefinition(
-                Id: $"page-guard:{page.Id}",
-                Tier: RuleTier.JsonLogic,
-                Scope: RuleScope.Schema,
-                ScopeTarget: string.Empty,
-                Expression: guard,
-                Action: RuleActionKind.Validate);
+            var guardRule = PlatformRuleContract.PageGuard(page.Id, guard);
+            CompiledGraph compiledGuard;
             try
             {
-                _ = RuleCompiler.Compile(new[] { guardRule });
+                compiledGuard = RuleCompiler.Compile(new[] { guardRule });
             }
             catch (RuleCompilationException ex)
             {
@@ -93,6 +106,17 @@ public static class RuleCompileAdmission
                     $"page '{page.Id}' has a VisibleWhen guard that does not compile ({ex.Code}): {ex.Message}",
                     FormDefinitionCodes.RulesGuardUncompilable);
             }
+            if (EnvironmentRefusal(compiledGuard) is { } refusal)
+            {
+                throw new FormDefinitionValidationException(
+                    definition.Id,
+                    $"page '{page.Id}' has a VisibleWhen guard outside the Forms expression environment ({refusal})",
+                    FormDefinitionCodes.RulesGuardUncompilable);
+            }
         }
     }
+
+    // The submission phase is the one whose refusal refuses a write; render admits the same declaration.
+    private static string? EnvironmentRefusal(CompiledGraph compiled) => BorrowerEnvironmentAdmission.CheckCompiledGuard(
+        compiled, FormsExpressionEnvironment.Declaration, EvaluationPhase.Submission);
 }

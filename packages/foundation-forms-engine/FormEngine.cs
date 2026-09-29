@@ -20,17 +20,17 @@ using Harborline.Api.Foundation.Governance.Resolution;
 using Harborline.Api.Foundation.Governance.Policy;
 using Harborline.Api.Foundation.Recovery;
 using Harborline.Api.Foundation.Recovery.Crypto;
-using Harborline.Api.Foundation.RuleEngine;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
-using Harborline.Api.Foundation.RuleEngine.Graph;
-using Harborline.Api.Foundation.RuleEngine.Model;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Environments;
+using Harborline.Foundation.RuleEngine.Graph;
+using Harborline.Foundation.RuleEngine.Model;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.Kernel.Audit;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-using EvaluationPhase = Harborline.Foundation.RuleEngine.Environments.EvaluationPhase;
 using FormsExpressionEnvironment = Harborline.Foundation.Forms.Engine.FormsExpressionEnvironment;
 
 namespace Harborline.Api.Foundation.Forms.Engine;
@@ -280,7 +280,9 @@ public sealed class FormEngine : IFormEngine
         var schema = await _schemaRegistry.GetAsync(formDef.SchemaRef, ct).ConfigureAwait(false)
             ?? throw new SchemaNotFoundException(formDef.SchemaRef);
         using var schemaDocument = JsonDocument.Parse(schema.JsonSchemaText);
-        return ApplyRuleProjection(ProjectSchemaMetadata(view, schemaDocument.RootElement), formDef, entity, ct);
+        // T-304 slice 2: the platform runtime under Forms' own admitted environment, in the render phase.
+        return ApplyRuleProjection(ProjectSchemaMetadata(view, schemaDocument.RootElement), formDef, entity,
+            _timeProvider, FormsExpressionEnvironment.Admitted.For(EvaluationPhase.Render), _logger, ct);
     }
 
     // fieldsMeta is compiled into the immutable schema at admission. Read that same authority for
@@ -1475,9 +1477,17 @@ public sealed class FormEngine : IFormEngine
     /// definition's Tier-2 rules, evaluates them over the bound instance, and stamps each field
     /// with its merged visibility / required / read-only state + rule-computed value + presentation
     /// hint — so a runtime form reflects the SAME rules the builder's live preview shows. A rule-free
-    /// definition, a compile failure, or a fail-closed evaluation all leave the view unchanged.
+    /// definition leaves the view unchanged; a compile failure, a timeout or a refused evaluation degrades to it
+    /// with every Visibility-rule target's value withheld.
     /// </summary>
-    private FormView ApplyRuleProjection(FormView view, FormDefinition formDef, Entity? entity, CancellationToken ct)
+    /// <remarks>
+    /// T-304 slice 2: evaluation runs on the platform rule runtime (<c>Harborline.Foundation.RuleEngine</c>) under
+    /// the <paramref name="admission"/> the caller presents (rules-eng-26). A refused evaluation (no admission, a
+    /// program outside the admitted environment, a static work overrun) carries no visibility verdict, so it
+    /// degrades like a compile fault rather than projecting as if no rule had run.
+    /// </remarks>
+    internal static FormView ApplyRuleProjection(FormView view, FormDefinition formDef, Entity? entity,
+        TimeProvider clock, EvaluationAdmission? admission, ILogger logger, CancellationToken ct)
     {
         var rules = formDef.Overlay.Rules;
         if (rules is null || rules.Count == 0)
@@ -1488,7 +1498,7 @@ public sealed class FormEngine : IFormEngine
         CompiledGraph compiled;
         try
         {
-            compiled = RuleCompiler.Compile(rules);
+            compiled = RuleCompiler.Compile(PlatformRuleContract.ToContract(rules));
         }
         catch (RuleCompilationException ex)
         {
@@ -1497,7 +1507,7 @@ public sealed class FormEngine : IFormEngine
             // so a compile fault at render degrades to the rule-free view rather than failing the
             // read. It must NOT degrade silently: log the responsible definition so the breakage
             // is observable before anyone hits the submit refusal.
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Rule projection degraded to the rule-free view for form definition '{FormDefinitionId}': " +
                 "rule '{RuleId}' does not compile ({Code}). Submit-time validation will REFUSE writes " +
                 "for this definition until it is fixed.",
@@ -1522,9 +1532,9 @@ public sealed class FormEngine : IFormEngine
         RuleEvaluationResult result;
         try
         {
-            // T-676: the host clock (_timeProvider), the one ValidateAsync reads; the graph has no usable
+            // T-676: the host clock (FormEngine passes _timeProvider), the one ValidateAsync reads; the graph has no usable
             // default. Submit reads its act's admitted instant instead (T-540, ValidateForSubmitAsync).
-            result = new FormRuleGraph(compiled, _timeProvider).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
+            result = new FormRuleGraph(compiled, clock, admission).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
         }
         catch (RuleEngineTimeoutException)
         {
@@ -1534,12 +1544,24 @@ public sealed class FormEngine : IFormEngine
             // — consistent with the RuleCompilationException degrade above and this method's contract.
             // (At SUBMIT the same fault propagates and fails the write — SubmitValidationGate, ticket 150.)
             // Observable, never silent (ticket 150):
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Rule projection timed out and degraded to the unchanged view for form definition " +
                 "'{FormDefinitionId}' (rule.timeout — non-authoritative liveness fault, D1).",
                 formDef.Id.Value);
             // Same disclosure posture as the compile-fault degrade above: no Visibility rule ran,
             // so its statically-named targets' bound values are withheld.
+            return StripVisibilityRuleTargets(view, rules);
+        }
+
+        // T-304 slice 2: the platform refuses a whole evaluation it will not run as one synthetic rule.engine
+        // validity and nothing else. Same degrade, and the same disclosure posture, as a compile fault.
+        if (EngineRefusal(result) is { } refusal)
+        {
+            logger.LogWarning(
+                "Rule projection degraded to the rule-free view for form definition '{FormDefinitionId}': " +
+                "the rule engine refused the evaluation ({Code}). Submit-time validation will REFUSE writes " +
+                "for this definition until it is fixed.",
+                formDef.Id.Value, refusal);
             return StripVisibilityRuleTargets(view, rules);
         }
 
@@ -1571,6 +1593,16 @@ public sealed class FormEngine : IFormEngine
         }
         return view with { Sections = projectedSections };
     }
+
+    // The platform graph's whole-evaluation refusal (FormRuleGraph.FailClosed): one outcome, keyed rule.engine,
+    // an Invalid validity at the schema cell. Null for any result that evaluated the authored rules.
+    private static string? EngineRefusal(RuleEvaluationResult result)
+        => result.ByRule.Count == 1
+            && result.ByRule.TryGetValue("rule.engine", out var outcome)
+            && outcome.OutputType == OutputType.Validity
+            && outcome.Validity is { Ok: false, Error: { } error }
+                ? error.Code
+                : null;
 
     /// <summary>
     /// Ticket 150 (review) — the disclosure-safe rule-projection degrade. When the Tier-2 rules
@@ -1726,7 +1758,9 @@ public sealed class FormEngine : IFormEngine
             ReadOnly: vis?.ReadOnly ?? false,
             Computed: computedValue,
             PresentationSeverity: hasPresentation ? presentation!.Severity?.ToString().ToLowerInvariant() : null,
-            PresentationBadge: hasPresentation ? presentation!.Badge : null,
+            PresentationBadge: hasPresentation && presentation!.Badge is { } badge
+                ? new InternationalizedText(badge.DefaultLocale, badge.Values)
+                : null,
             PresentationStyleToken: hasPresentation ? presentation!.StyleToken : null);
     }
 

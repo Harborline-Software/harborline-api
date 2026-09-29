@@ -10,8 +10,6 @@ using Harborline.Foundation.RuleEngine.Environments;
 using Harborline.Foundation.RuleEngine.Graph;
 using Harborline.Foundation.RuleEngine.Model;
 
-using ContractRule = Harborline.Contracts.Forms.RuleDefinition;
-
 namespace Harborline.Api.Foundation.Forms.Engine;
 
 /// <summary>
@@ -114,7 +112,7 @@ internal static class SubmitValidationGate
         {
             try
             {
-                var compiled = RuleCompiler.Compile(overlay.Rules.Select(ToContractRule).ToArray());
+                var compiled = RuleCompiler.Compile(PlatformRuleContract.ToContract(overlay.Rules));
                 if (compiled.RuleCount > 0)
                 {
                     result = new FormRuleGraph(compiled, clock, admission)
@@ -212,15 +210,7 @@ internal static class SubmitValidationGate
                 }
 
                 var guardId = $"page-guard:{page.Id}";
-                var guardRule = new ContractRule
-                {
-                    Id = guardId,
-                    Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
-                    Scope = Harborline.Contracts.Forms.RuleScope.Schema,
-                    ScopeTarget = string.Empty,
-                    Expression = guard,
-                    Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
-                };
+                var guardRule = PlatformRuleContract.PageGuard(page.Id, guard);
                 var verdict = guardEvaluator.EvaluateGuard(guardRule, context, RuleEvalScope.Root, admission, ct);
                 // T-687: the seam returns a compile fault as Invalid(rule.compile.*) rather than throwing.
                 // Same refusal path (and admission constant) as the rule-set compile fault: an
@@ -510,18 +500,6 @@ internal static class SubmitValidationGate
         }
         return false;
     }
-
-    // The api Forms model to the platform contract the runtime compiles. Only the fields the compiler
-    // reads cross; the enums map by member name, so a renamed member fails loudly instead of shifting.
-    private static ContractRule ToContractRule(RuleDefinition rule) => new()
-    {
-        Id = rule.Id,
-        Tier = Enum.Parse<Harborline.Contracts.Forms.RuleTier>(rule.Tier.ToString()),
-        Scope = Enum.Parse<Harborline.Contracts.Forms.RuleScope>(rule.Scope.ToString()),
-        ScopeTarget = rule.ScopeTarget,
-        Expression = rule.Expression,
-        Action = Enum.Parse<Harborline.Contracts.Forms.RuleActionKind>(rule.Action.ToString()),
-    };
 
     /// <summary>Mirror of the client's empty-value predicate (null / absent / "" / []).</summary>
     private static bool IsEmptyCandidateValue(JsonObject body, string name)
