@@ -7,7 +7,7 @@
     <PackageTags>harborline;foundation;lifecycle;archive;soft-delete;substrate;cross-cutting</PackageTags>
   </PropertyGroup>
   <!-- ADR 0108 O-1: home is a NEW dependency-free package, NOT foundation-persistence
-       (which references Microsoft.EntityFrameworkCore + foundation-multitenancy and would force
+       (which references Microsoft.EntityFrameworkCore + Harborline.Foundation.MultiTenancy and would force
        every IArchivable/ISoftDeletable implementor to transitively pull in EF Core). The markers
        are domain-lifecycle SEMANTICS, not persistence MECHANICS. ZERO ProjectReference + ZERO
        PackageReference is the load-bearing invariant of this package. -->

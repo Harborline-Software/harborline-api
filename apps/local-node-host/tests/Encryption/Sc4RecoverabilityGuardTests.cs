@@ -370,7 +370,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // (d) The ambient tenant context is now the active-team-derived ActiveTeamTenantContext
         // (ADR 0032 identity layer) — it projects the data TenantId from the active team's id,
         // retiring the install-constant "local" sentinel.
-        var tenantContext = provider.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>();
+        var tenantContext = provider.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>();
         Assert.IsType<Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>(tenantContext);
         Assert.Equal(Sc4ActiveTeamId.Value.ToString(), tenantContext.Tenant!.Id.Value);
 
@@ -460,7 +460,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // (d) The ambient tenant context is now the active-team-derived ActiveTeamTenantContext
         // (ADR 0032 identity layer) — it projects the data TenantId from the active team's id,
         // retiring the install-constant "local" sentinel.
-        var tenantContext = provider.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>();
+        var tenantContext = provider.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>();
         Assert.IsType<Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>(tenantContext);
         Assert.Equal(Sc4ActiveTeamId.Value.ToString(), tenantContext.Tenant!.Id.Value);
 
@@ -547,7 +547,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // (d) The ambient tenant context is now the active-team-derived ActiveTeamTenantContext
         // (ADR 0032 identity layer) — it projects the data TenantId from the active team's id,
         // retiring the install-constant "local" sentinel.
-        var tenantContext = provider.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>();
+        var tenantContext = provider.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>();
         Assert.IsType<Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>(tenantContext);
         Assert.Equal(Sc4ActiveTeamId.Value.ToString(), tenantContext.Tenant!.Id.Value);
 
@@ -772,7 +772,7 @@ public sealed class Sc4RecoverabilityGuardTests
         // (d) The ambient tenant context is now the active-team-derived ActiveTeamTenantContext
         // (ADR 0032 identity layer) — it projects the data TenantId from the active team's id,
         // retiring the install-constant "local" sentinel.
-        var tenantContext = provider.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>();
+        var tenantContext = provider.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>();
         Assert.IsType<Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>(tenantContext);
         Assert.Equal(Sc4ActiveTeamId.Value.ToString(), tenantContext.Tenant!.Id.Value);
 
@@ -1278,11 +1278,11 @@ public sealed class Sc4RecoverabilityGuardTests
         // The AR/AP aging services (narrowed MultiTenancy.ITenantContext consumer variant).
         services.AddSingleton<Harborline.Api.Blocks.FinancialAr.Services.IArAgingService>(sp =>
             new Harborline.Api.Blocks.FinancialAr.Services.ArAgingService(
-                sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+                sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
                 sp.GetRequiredService<Harborline.Api.Blocks.FinancialAr.Services.IInvoiceRepository>()));
         services.AddSingleton<Harborline.Api.Blocks.FinancialAp.Services.IApAgingService>(sp =>
             new Harborline.Api.Blocks.FinancialAp.Services.ApAgingService(
-                sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+                sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
                 sp.GetRequiredService<Harborline.Api.Blocks.FinancialAp.Services.IBillRepository>()));
 
         // The report cartridge substrate + the six cartridges the pages use (Program.cs registration set).

@@ -42,4 +42,4 @@ public sealed class PropertiesEntityModule : IHarborlineEntityModule
 ## See also
 
 - [apps/docs Overview](../../apps/docs/foundation/persistence/overview.md)
-- [Harborline.Api.Foundation.MultiTenancy](../foundation-multitenancy/README.md) — `IMustHaveTenant` marker + `ITenantContext`
+- `Harborline.Foundation.MultiTenancy` (platform package) — `IMustHaveTenant` marker + `ITenantContext`

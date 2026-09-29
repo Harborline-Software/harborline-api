@@ -71,6 +71,13 @@ public sealed class NodeEfSubjectTombstoneStore : ISubjectTombstoneStore
         catch (DbUpdateException)
         {
             // A concurrent write recorded the tombstone first — write-once preserves it; this call is a no-op.
+            // Any other failure left no tombstone and must surface (DES-0029 ck-6): an erasure reported
+            // complete without its compliance record is the failure this store exists to prevent.
+            await using var check = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            if (!await check.SubjectTombstones.AsNoTracking()
+                    .AnyAsync(t => t.TenantId == tombstone.TenantId.Value && t.Pseudonym == tombstone.Pseudonym, ct)
+                    .ConfigureAwait(false))
+                throw;
         }
     }
 

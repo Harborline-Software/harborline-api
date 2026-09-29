@@ -8,7 +8,6 @@ using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Kernel.Runtime.Teams;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Payroll;
 using PayrollServices = (

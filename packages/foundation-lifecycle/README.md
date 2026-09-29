@@ -25,7 +25,7 @@ Archival is its own cross-cutting concern, parallel to how multitenancy / sessio
 password-hashing each get a thin foundation package. The markers are domain-lifecycle
 **semantics**, not persistence **mechanics**, so they do **not** live in
 `foundation-persistence` — that package references `Microsoft.EntityFrameworkCore` and
-`foundation-multitenancy`, and co-locating the markers there would force every block
+`Harborline.Foundation.MultiTenancy`, and co-locating the markers there would force every block
 that implements only `IArchivable`/`ISoftDeletable` to transitively pull in EF Core.
 
 This package keeps the two interfaces **BCL-only**: zero `ProjectReference`, zero

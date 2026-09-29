@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Packs.Install;
 
 namespace Harborline.Api.LocalNodeHost.Health;

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Foundation.Wayfinder;
 

@@ -9,7 +9,6 @@ using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Admission;
 using Harborline.Api.Foundation.Packs.Install.Audit;
@@ -246,7 +245,9 @@ public sealed class AuthoritySnapshotTests
         using var keys = KeyPair.Generate();
         var signer = new Ed25519Signer(keys);
         var forbidden = new ThrowingAuthorizationSources();
+        await using var store = await Harborline.Api.LocalNodeHost.Tests.Search.SearchTestStore.CreateAsync();
         using var provider = new ServiceCollection()
+            .AddSingleton(store.Factory)
             .AddSingleton<IEventLog, InMemoryEventLog>()
             .AddSingleton<IOperationVerifier, Ed25519Verifier>()
             .AddSingleton<IOperationSigner>(signer)
@@ -303,18 +304,14 @@ public sealed class AuthoritySnapshotTests
         Assert.Same(kernelServices.GetRequiredService<IAuditTrail>(),
             kernelServices.GetRequiredService<IAuthorizedAuditTrail>());
 
+        await using var sodStore = await Harborline.Api.LocalNodeHost.Tests.Search.SearchTestStore.CreateAsync();
         using var sodServices = new ServiceCollection()
+            .AddSingleton(sodStore.Factory)
             .AddSingleton<IOperationSigner>(fixtureSigner)
             .AddEnrollmentCompensatingControlAudit()
             .BuildServiceProvider();
-        Assert.Same(sodServices.GetRequiredService<IAuditTrail>(),
-            sodServices.GetRequiredService<IAuthorizedAuditTrail>());
-        var composedReader = Assert.IsType<InMemoryAuditEventReader>(
-            sodServices.GetRequiredService<IAuditEventReader>());
-        var readerTrail = typeof(InMemoryAuditEventReader)
-            .GetField("_trail", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(composedReader);
-        Assert.Same(sodServices.GetRequiredService<IAuditTrail>(), readerTrail);
+        // T-986: one durable store behind the trail, the authorized trail and the reader.
+        LocalNodeFinalGraphServiceProviderFactory.EnsureShippingAuditIdentity(sodServices);
 
         var recorded = new RecordingPackInstallAudit();
         var gateCalls = 0;
@@ -529,7 +526,10 @@ public sealed class AuthoritySnapshotTests
         // hand-picked file scan can conceal a new ordinary append.
         string[] allowed =
         {
-            "apps/local-node-host/Enrollment/KernelAuditEnrollmentCompensatingControlRecorder.cs|Harborline.Api.LocalNodeHost.Enrollment.KernelAuditEnrollmentCompensatingControlRecorder.EmitAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Kernel.Audit.AuditEventType,System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Object],System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            // DES-0029 ck-6 — a system entry (pack projection, seed, rekey, conferral) delivered from the audit outbox. ORDINARY: no
+            // request decision authorized the act; an authorized entry's authority was captured in its write transaction and is
+            // delivered through ICapturedAuditTrail instead.
+            "apps/local-node-host/Data/Audit/NodeAuditOutbox.cs|Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox.AppendAsync(Harborline.Api.LocalNodeHost.Data.Search.AuditOutboxRow,Harborline.Foundation.Assets.Common.TenantId,System.Guid,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             // T-731 — Layout's related-binding denial, appended from its outbox (DES-0052 layout-run-5). ORDINARY for the same reason as
             // the refusal row below: the act it records was DENIED, and it re-decides nothing.
             "apps/local-node-host/Layout/LayoutDenialOutbox.cs|Harborline.Api.LocalNodeHost.Layout.LayoutDenialAppender.RunAsync(Harborline.Api.LocalNodeHost.Layout.LayoutDenialOutboxEntry): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
@@ -568,8 +568,15 @@ public sealed class AuthoritySnapshotTests
             "packages/foundation-wayfinder/DefaultStandingOrderIssuer.cs|Harborline.Api.Foundation.Wayfinder.DefaultStandingOrderIssuer.EmitAuditAsync(Harborline.Api.Kernel.Audit.IAuditTrail,Harborline.Api.Kernel.Audit.AuditEventType,System.Guid,Harborline.Api.Foundation.Wayfinder.StandingOrder,Harborline.Api.Foundation.Wayfinder.StandingOrderValidationResult,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-wayfinder/DefaultStandingOrderIssuer.cs|Harborline.Api.Foundation.Wayfinder.DefaultStandingOrderIssuer.EmitRescindAuditAsync(Harborline.Api.Kernel.Audit.IAuditTrail,System.Guid,Harborline.Api.Foundation.Wayfinder.StandingOrder,Harborline.Api.Foundation.Assets.Common.ActorId,System.String,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-wayfinder/OodWatchExpiryService.cs|Harborline.Api.Foundation.Wayfinder.OodWatchExpiryService.EmitExpiredAuditAsync(Harborline.Api.Foundation.Wayfinder.OodWatch,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            // T-986 -- the capturing decorator forwarding to the host's durable record store (NodeAuditTrailStore). It is the
+            // seam that captures authority, not a caller of it: each forward carries the record it was handed or the
+            // snapshot AuthorizedAuditRecord copied from the decision.
+            "packages/kernel-audit/AuthorityCapturingAuditTrail.cs|Harborline.Api.Kernel.Audit.AuthorityCapturingAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "packages/kernel-audit/AuthorityCapturingAuditTrail.cs|Harborline.Api.Kernel.Audit.AuthorityCapturingAuditTrail.AppendAuthorizedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "packages/kernel-audit/AuthorityCapturingAuditTrail.cs|Harborline.Api.Kernel.Audit.AuthorityCapturingAuditTrail.AppendCapturedAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "packages/kernel-audit/AuthorityCapturingAuditTrail.cs|Harborline.Api.Kernel.Audit.AuthorityCapturingAuditTrail.AppendRefusedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/kernel-audit/Export/AuditExportService.cs|Harborline.Api.Kernel.Audit.Export.AuditExportService.ExportAsync(Harborline.Foundation.Assets.Common.TenantId,System.String,System.Nullable`1[System.DateTimeOffset],System.Nullable`1[System.DateTimeOffset],System.String,System.Threading.CancellationToken): System.Threading.Tasks.Task`1[System.Int32]|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
-            "packages/kernel-audit/InMemoryAuditEventReader.cs|Harborline.Api.Kernel.Audit.InMemoryAuditEventReader.EmitTenantBoundaryViolationAsync(System.String,Harborline.Foundation.Assets.Common.TenantId,Harborline.Foundation.Assets.Common.TenantId,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            "packages/kernel-audit/SnapshotAuditEventReader.cs|Harborline.Api.Kernel.Audit.SnapshotAuditEventReader.EmitTenantBoundaryViolationAsync(System.String,Harborline.Foundation.Assets.Common.TenantId,Harborline.Foundation.Assets.Common.TenantId,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             "packages/kernel-signatures/Services/SignatureAuditEmitter.cs|Harborline.Api.Kernel.Signatures.Services.SignatureAuditEmitter.EmitAsync(Harborline.Api.Kernel.Audit.AuditEventType,Harborline.Api.Kernel.Audit.AuditPayload,System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
 };
 

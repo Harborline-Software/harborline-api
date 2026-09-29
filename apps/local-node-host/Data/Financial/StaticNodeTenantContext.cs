@@ -1,5 +1,5 @@
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
 
@@ -21,7 +21,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// migrate to the active-team-derived context. No production path pins <c>"local"</c> any longer.
 /// </para>
 /// <para>
-/// Identity-only: <c>Harborline.Api.Foundation.MultiTenancy.ITenantContext</c> (the narrow
+/// Identity-only: <c>Harborline.Foundation.MultiTenancy.ITenantContext</c> (the narrow
 /// tenant-resolution interface, ADR 0008), NOT the authorization sum-facade.
 /// </para>
 /// </remarks>

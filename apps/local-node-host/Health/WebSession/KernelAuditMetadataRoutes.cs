@@ -27,8 +27,9 @@ internal static class KernelAuditMetadataRoutes
         if (selected is null || selected.TenantId.IsSystemSentinel ||
             string.IsNullOrWhiteSpace(http.Request.Cookies[WebSessionCookieNames.Selected])) return Results.Unauthorized();
         var authority = RequestAuthorization.Authority(http, selected.TenantId, time);
-        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.AuditRead, RouteRecord.TheInstall, ct)
-            .ConfigureAwait(false) is { } denial) return denial;
+        var denial = await RequestAuthorization.RefusalAsync(http, authority, Permission.AuditRead, RouteRecord.TheInstall, ct)
+            .ConfigureAwait(false);
+        if (denial is not null) return denial;
         if (from > to || to - from > TimeSpan.FromDays(1) || limit is < 1 or > 1000 || after == Guid.Empty)
             return Results.BadRequest(new { code = "audit.metadata.invalid_range_or_cursor" });
         var found = after is null;

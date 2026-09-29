@@ -190,6 +190,9 @@ public sealed class SharedHostedWebApp : IHostedService, IAsyncDisposable
         builder.Services.AddSingleton(_ => outerServices.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationSigner>());
         if (outerServices.GetService<AuthorizationRefusalAudit>() is { } refusalAudit)
             builder.Services.AddSingleton(refusalAudit);
+        // DES-0029 ck-6: the one audit outbox, so a route can deliver the entry its write just committed.
+        if (outerServices.GetService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>() is { } auditOutbox)
+            builder.Services.AddSingleton(auditOutbox);
         builder.Services.AddScoped<Harborline.Api.Kernel.Audit.AuthorizationTraceReader>();
         var outerClock = outerServices.GetService<TimeProvider>();
         if (outerClock is not null)

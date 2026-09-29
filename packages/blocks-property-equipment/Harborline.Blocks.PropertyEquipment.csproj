@@ -21,7 +21,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
     <ProjectReference Include="..\blocks-properties\Harborline.Blocks.Properties.csproj" />
   </ItemGroup>

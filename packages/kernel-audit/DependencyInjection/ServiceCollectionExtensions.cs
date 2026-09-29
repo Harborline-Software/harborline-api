@@ -46,6 +46,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<AuthorityCapturingAuditTrail>());
         services.TryAddSingleton<IAuthorizedAuditTrail>(sp =>
             sp.GetRequiredService<AuthorityCapturingAuditTrail>());
+        services.TryAddSingleton<ICapturedAuditTrail>(sp =>
+            sp.GetRequiredService<AuthorityCapturingAuditTrail>());
 
         // Ticket 212 slice 3 -- the authorized production read of a recorded decision's four-step trace.
         // Scoped, because the in-memory composition registers the trail scoped and a singleton could not
@@ -101,6 +103,8 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IAuditTrail>(sp =>
             sp.GetRequiredService<InMemoryAuditTrail>());
         services.TryAddScoped<IAuthorizedAuditTrail>(sp =>
+            sp.GetRequiredService<InMemoryAuditTrail>());
+        services.TryAddScoped<ICapturedAuditTrail>(sp =>
             sp.GetRequiredService<InMemoryAuditTrail>());
 
         // Register the reader as Scoped per ADR 0092 §C5.

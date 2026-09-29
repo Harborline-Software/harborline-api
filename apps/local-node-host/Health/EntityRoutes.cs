@@ -128,9 +128,9 @@ public static class EntityRoutes
                 LocalTenantId,
                 timeProvider.GetUtcNow());
             // The created entity has no id yet, so this act addresses the install, not a record.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
 
             if (body?.Id is not null)

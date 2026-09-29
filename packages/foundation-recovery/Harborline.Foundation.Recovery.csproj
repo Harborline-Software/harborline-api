@@ -11,7 +11,7 @@
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
     <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\kernel-security\Harborline.Kernel.Security.csproj" />
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
   </ItemGroup>

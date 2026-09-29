@@ -44,8 +44,9 @@ internal static class SelectedPackReplacementRoutes
         _ = await antiforgery.RotateSelectedAsync(http, handle).ConfigureAwait(false);
         var authority = RequestAuthorization.Authority(http, principal.TenantId, time);
         AuthorizationDecision? allowed = null;
-        if (await RequestAuthorization.RefusalAsync(http, authority, ReplaceRequest.AuthorizationCapability,
-            RouteRecord.Of(packKey), ct, decision => allowed = decision).ConfigureAwait(false) is { } denial)
+        var denial = await RequestAuthorization.RefusalAsync(http, authority, ReplaceRequest.AuthorizationCapability,
+            RouteRecord.Of(packKey), ct, decision => allowed = decision).ConfigureAwait(false);
+        if (denial is not null)
             return denial;
         if (!string.Equals(http.Request.ContentType, ReplaceRequest.ContentType, StringComparison.OrdinalIgnoreCase))
             return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);

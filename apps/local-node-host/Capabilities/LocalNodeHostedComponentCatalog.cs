@@ -431,6 +431,10 @@ internal static class LocalNodeHostedComponentCatalog
             Describe<Harborline.Api.LocalNodeHost.Data.Governance.HostedGovernanceGenesisService>(
                 "local-node.provisioner.governance-genesis", 90, LocalNodeHostedComponentKind.Provisioner,
                 LocalNodeHostedActivation.Always),
+            // DES-0029 ck-6 -- the audit outbox drain, registered after governance genesis (90) with the audit sinks.
+            Describe<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutboxDrainDaemon>(
+                "local-node.job.audit-outbox-drain", 92, LocalNodeHostedComponentKind.JobRunner,
+                LocalNodeHostedActivation.Always),
             Describe<Harborline.Api.LocalNodeHost.Data.HomeEpoch.HostedHomeEpochGenesisService>(
                 "local-node.provisioner.home-epoch-genesis", 95, LocalNodeHostedComponentKind.Provisioner,
                 LocalNodeHostedActivation.Always),
@@ -530,7 +534,7 @@ internal static class LocalNodeHostedComponentCatalog
         where TRegistrar : class, IHostedService =>
         new(typeof(TRegistrar), activation);
 
-    private const int ExpectedOperationalCatalogCount = 32;
+    private const int ExpectedOperationalCatalogCount = 33;
 
     private static void ValidateCatalog(ImmutableArray<LocalNodeHostedComponentDescriptor> catalog)
     {

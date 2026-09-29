@@ -1,7 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.SecurityPolicy.Models;
 
 namespace Harborline.Api.Foundation.SecurityPolicy.Issuance;

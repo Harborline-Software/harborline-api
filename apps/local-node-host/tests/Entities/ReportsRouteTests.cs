@@ -103,7 +103,7 @@ public sealed class ReportsRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialPeriods.Services.IFiscalPeriodRepository,
             Harborline.Api.LocalNodeHost.Data.Banking.NodeEfFiscalPeriodRepository>();
         // The ambient single-device tenant context (the aging services + invoice/bill repos read it).
-        builder.Services.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, StaticNodeTenantContext>();
+        builder.Services.AddSingleton<Harborline.Foundation.MultiTenancy.ITenantContext, StaticNodeTenantContext>();
         // AR/AP repos (the aging services read them) — node EF over local-node.db.
         builder.Services.AddSingleton<NodeEfInvoiceRepository>();
         builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialAr.Services.IInvoiceRepository>(
@@ -118,11 +118,11 @@ public sealed class ReportsRouteTests : IAsyncLifetime
         // AR/AP aging services (narrowed MultiTenancy.ITenantContext consumer variant).
         builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialAr.Services.IArAgingService>(sp =>
             new Harborline.Api.Blocks.FinancialAr.Services.ArAgingService(
-                sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+                sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
                 sp.GetRequiredService<Harborline.Api.Blocks.FinancialAr.Services.IInvoiceRepository>()));
         builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialAp.Services.IApAgingService>(sp =>
             new Harborline.Api.Blocks.FinancialAp.Services.ApAgingService(
-                sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+                sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
                 sp.GetRequiredService<Harborline.Api.Blocks.FinancialAp.Services.IBillRepository>()));
         // The report cartridge substrate + the six cartridges the pages use.
         builder.Services.AddBlocksReportsSubstrate();
@@ -446,6 +446,7 @@ public sealed class ReportsRouteTestsAuthorization
         {
             builder.Services.AddSingleton(new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32)));
             builder.Services.AddSingleton<IOperationSigner>(sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+            builder.Services.AddTestInMemoryKernelAudit();
             builder.Services.AddEnrollmentCompensatingControlAudit();
             builder.Services.AddSingleton<IAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
             builder.Services.AddAuthorizationRefusalAudit();

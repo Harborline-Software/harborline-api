@@ -96,6 +96,7 @@ public sealed class PackInstallCoordinateMismatchTests : IAsyncLifetime
         builder.Services.AddSingleton(new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32)));
         builder.Services.AddSingleton<IOperationSigner>(
             sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+        builder.Services.AddTestInMemoryKernelAudit();
         builder.Services.AddEnrollmentCompensatingControlAudit();
         builder.Services.AddSingleton<IAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
         builder.Services.AddAuthorizationRefusalAudit();
