@@ -79,7 +79,7 @@ internal static class TimingParity
         /// that has the box to itself sets; anything else is a busy box.
         /// </summary>
         public static Bounds Current(TimeSpan floor)
-            => Environment.GetEnvironmentVariable("HARBORLINE_PERF_QUIET") == "1" ? Quiet : Busy(floor);
+            => LoadCeiling.IsQuiet ? Quiet : Busy(floor);
     }
 
     /// <summary>One preplanned pair, in run order.</summary>
