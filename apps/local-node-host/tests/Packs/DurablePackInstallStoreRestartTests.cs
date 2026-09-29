@@ -345,6 +345,7 @@ public sealed class DurablePackInstallStoreRestartTests
             BuildPack("1.0.0", PackLifecycleState.Draft, floors, []) with { PackKey = "acme.base", Dependencies = [] },
             new PackInstallWatermark("acme.base", "1.0.0", floors), Array.Empty<PackTenantOverride>()));
         inner.Activate(Tenant, "acme.base", "1.0.0");
+        PlatformPackTestPreload.Activate(inner, Tenant);
         var store = new ThrowingAdmissionPackInstallStore(inner);
         var installer = new PackInstaller(
             Substitute.For<IPackVerifier>(), store, Substitute.For<IPackContentAdmission>(),

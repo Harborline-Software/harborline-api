@@ -130,6 +130,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     [Fact(DisplayName = "install a form pack (Draft) → activate (Active) → list")]
     public async Task Install_then_activate_then_list()
     {
+        PlatformPackTestPreload.Activate(_store, NodeTenantFor());
         var packBytes = await ExportAsync(FormPackBody());
 
         var install = await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes);
@@ -146,7 +147,8 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
 
         var list = await _client.GetAsync(PackInstallRoutes.ListInstalledRoute);
         using var listDoc = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
-        var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList());
+        var entry = Assert.Single(listDoc.RootElement.EnumerateArray().ToList(),
+            row => row.GetProperty("packKey").GetString() != PlatformPackTestPreload.PackKey);
         Assert.Equal("acme.pack", entry.GetProperty("packKey").GetString());
         Assert.Equal("Active", entry.GetProperty("lifecycle").GetString());
     }

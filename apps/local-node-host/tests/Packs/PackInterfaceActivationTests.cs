@@ -33,6 +33,7 @@ public sealed class PackInterfaceActivationTests : IDisposable
 
     public PackInterfaceActivationTests()
     {
+        PlatformPackTestPreload.Activate(_store, Tenant);
         var codec = new PackFileCodec();
         _installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), _store,
             new WorkflowRefusingPackContentAdmission(), new InMemoryPackInstallAudit(),
@@ -91,7 +92,7 @@ public sealed class PackInterfaceActivationTests : IDisposable
             PackContentKind.FormDefinition, exposes: ["access.definition"], interfaceVersion: 1);
         InstallAndActivate(bytes);
 
-        var active = Assert.Single(_store.ListInstalled(Tenant));
+        var active = Assert.Single(_store.ListInstalled(Tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey);
         Assert.Equal(PackLifecycleState.Active, active.Lifecycle);
         Assert.Equal(new[] { "access.definition" }, active.Exposes);
         Assert.Equal(1, active.InterfaceVersion);

@@ -29,6 +29,7 @@ using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using NSubstitute;
 using Xunit;
@@ -46,6 +47,7 @@ public sealed class CatalogueFieldSourceInstallTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var packs = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(packs, Tenant);
         using var storage = new InMemoryAssetStorage();
         var entities = new InMemoryEntityStore(storage, TimeProvider.System);
         var observed = new ObservedEntities(entities);
@@ -155,6 +157,7 @@ public sealed class CatalogueFieldSourceInstallTests
         using var keys = KeyPair.Generate();
         var codec = new PackFileCodec();
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, Tenant);
         // A test runtime positive control proves transport; the production host does not advertise this profile yet.
         var admission = new CatalogueFieldSourceAdmission(_ => true);
         var installer = Installer(keys, codec, store, admission);

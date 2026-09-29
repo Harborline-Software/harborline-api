@@ -8,7 +8,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 /// <summary>
 /// Seeds an empty Active <c>harborline.platform</c> pack into a bare store, as the host's platform preload does
-/// at boot. DES-0029 ck-2 S9 (D5) roots every closure at it; fixtures that activate packs will need it then.
+/// at boot. DES-0029 ck-2 S9 (D5) roots every closure at it, so a fixture that activates packs over a bare
+/// store calls this first. A no-op when the platform pack is already Active for the tenant.
 /// </summary>
 internal static class PlatformPackTestPreload
 {
@@ -17,6 +18,7 @@ internal static class PlatformPackTestPreload
 
     internal static void Activate(IPackInstallMutationStore store, TenantId tenant)
     {
+        if (store.GetActive(tenant, PackKey) is not null) return;
         store.Commit(new PackInstallTransaction(tenant,
             new InstalledPack(PackKey, Version, PackScopeTier.Horizontal, PackLifecycleState.Draft, [],
                 new Dictionary<string, int>(), DateTimeOffset.UnixEpoch,
