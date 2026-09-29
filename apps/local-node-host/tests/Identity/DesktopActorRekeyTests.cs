@@ -133,6 +133,24 @@ public sealed class DesktopActorRekeyTests
 
     [Fact]
     [Trait("PlanCard", "294-s3b")]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_local_grant_row_with_no_retired_epoch_row_is_still_rekeyed_to_the_desktop_actor()
+    {
+        await using var store = await NodeStore.CreateAsync();
+        await SeedRetiredRowsAsync(store, withEpochRow: false);
+        using var node = KeyPair.Generate();
+        await using var provider = SeedServices(FounderRoster(node), new Ed25519Signer(node), store.Factory);
+
+        await StartSeedAsync(provider);
+
+        await using var context = store.CreateContext();
+        Assert.False(await context.Grants.AnyAsync(row => row.SubjectId == Retired));
+        Assert.Equal(Founder, (await context.Grants.AsNoTracking()
+            .SingleAsync(row => row.SourceReference == NodeOperatorSource)).SubjectId);
+    }
+
+    [Fact]
+    [Trait("PlanCard", "294-s3b")]
     public async Task A_store_holding_local_grant_rows_on_a_node_with_no_roster_edge_refuses_the_boot_with_a_remedy()
     {
         await using var store = await NodeStore.CreateAsync();
@@ -221,7 +239,7 @@ public sealed class DesktopActorRekeyTests
     }
 
     /// <summary>The rows the pre-slice seed wrote: the node-operator holding and its epoch, keyed "local".</summary>
-    private static async Task SeedRetiredRowsAsync(NodeStore store)
+    private static async Task SeedRetiredRowsAsync(NodeStore store, bool withEpochRow = true)
     {
         var installer = new ActorId("installer:authorization-definition-seed");
         var grant = new AccessGrant(
@@ -233,12 +251,13 @@ public sealed class DesktopActorRekeyTests
             At);
         await using var context = store.CreateContext();
         context.Grants.Add(NodeEfGrantStore.ToRow(grant, NodeOperatorSource));
-        context.GrantAuthorizationEpochs.Add(new GrantAuthorizationEpochRow
-        {
-            TenantId = Tenant.Value,
-            PrincipalId = Retired,
-            AuthorizationEpoch = 1,
-        });
+        if (withEpochRow)
+            context.GrantAuthorizationEpochs.Add(new GrantAuthorizationEpochRow
+            {
+                TenantId = Tenant.Value,
+                PrincipalId = Retired,
+                AuthorizationEpoch = 1,
+            });
         await context.SaveChangesAsync();
     }
 

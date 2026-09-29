@@ -230,6 +230,128 @@ public sealed class RosterPreInsertVerificationTests
             JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
     }
 
+    // DES-0029 kernel-core-ck-11: each test below kills a surviving mutant in VerifyInboundRecord whose outcome is
+    // a durable insert of evidence the chain must refuse (docs/evidence/ck11-roster-mutation-2026-09-29.md).
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_member_holding_admit_but_not_revoke_cannot_store_a_revocation()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionSet.Of(Permission.MembersAdmit));
+        await f.MergeAsync([f.Admission(f.Founder, "founder", "third", At.AddMinutes(30))]);
+        var candidate = f.Revocation(f.Member, "member", "third", At.AddHours(2));
+        await f.MergeAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_revocation_signed_by_one_key_in_another_parties_name_never_reaches_the_durable_store()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        // The member's key signs a revocation that names the founder as its revoker.
+        var candidate = f.Revocation(f.Member, "founder", "member", At.AddHours(2));
+        await f.MergeAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_genesis_whose_receipt_no_member_of_its_chain_attested_never_reaches_the_durable_store()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var team = Guid.Parse("29510000-0000-0000-0000-0000000000c1");
+        var root = MemberRoster.Genesis(team, "intruder", f.Member, Verifier, At, Guid.NewGuid());
+        var candidate = RosterRecordCrdtState.FromAdmission(root.EnumerateAdmissions().Single())
+            .AttestReceipt(f.Founder, "founder", At);
+        await f.MergeRawAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_receipt_signed_by_one_key_in_the_founders_name_does_not_admit_the_record()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", "forged-receipt", At.AddHours(2))
+            .AttestReceipt(f.Member, "founder", At.AddHours(2));
+        await f.MergeRawAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.receive_attestation_untrusted");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_revocation_in_the_same_delivery_refuses_the_revoked_members_later_admission()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var revocation = f.Revocation(f.Founder, "founder", "member", At.AddHours(1))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(1));
+        var late = f.Admission(f.Member, "member", "late", At.AddHours(2))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        await f.MergeRawAsync([revocation, late]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == revocation.RecordId);
+        Assert.DoesNotContain(stored, r => r.RecordId == late.RecordId);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_same_instant_revocation_with_the_lower_nonce_refuses_the_revoked_members_admission()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var instant = At.AddHours(1);
+        var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
+                RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant,
+                    Guid.Parse("00000000-0000-0000-0000-000000000001"))))
+            .AttestReceipt(f.Founder, "founder", instant);
+        await f.MergeRawAsync([revocation]);
+        Assert.Contains(await f.StoredAsync(), r => r.RecordId == revocation.RecordId);
+        var key = KeyPair.Generate().PrincipalId;
+        var late = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), "late", key,
+                RosterSigning.SignAdmission(f.Member, Tenant, "late", key, "member", false, instant,
+                    Guid.Parse("ffffffff-0000-0000-0000-000000000000"))))
+            .AttestReceipt(f.Founder, "founder", instant);
+        await f.MergeRawAsync([late]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == late.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_self_attested_second_root_arriving_after_an_ordinary_admission_is_still_a_duplicate()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var ordinary = f.Admission(f.Founder, "founder", "ordinary", At.AddHours(1))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(1));
+        var root = MemberRoster.Genesis(Tenant, "intruder", f.Member, Verifier, At.AddHours(2), Guid.NewGuid());
+        var intruder = RosterRecordCrdtState.FromAdmission(root.EnumerateAdmissions().Single())
+            .AttestReceipt(f.Member, "intruder", At.AddHours(2));
+        await f.MergeRawAsync([ordinary, intruder]);
+        var stored = await f.StoredAsync();
+        Assert.Contains(stored, r => r.RecordId == ordinary.RecordId);
+        Assert.DoesNotContain(stored, r => r.RecordId == intruder.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.genesis.duplicate");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_second_admission_for_a_party_already_in_the_chain_never_reaches_the_durable_store()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", "member", At.AddHours(2));
+        await f.MergeAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
+    private static void AssertSingleRefusal(List<AuditRecord> audits, string code)
+    {
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(Assert.Single(audits).Payload.Payload.Body));
+        Assert.Equal(code, body.RootElement.GetProperty("code").GetString());
+    }
+
     private static Dictionary<string, JsonElement> PermissionField() => new(StringComparer.Ordinal)
     {
         ["Permissions"] = JsonSerializer.Deserialize<JsonElement>("[\"records:read\"]"),
