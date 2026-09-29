@@ -99,9 +99,10 @@ public sealed class NodeMessage
             SignatureB64Url: row.SignatureB64Url);
     }
 
+    // T-909 ck-9: an instant that does not parse is corrupt; refuse it rather than re-date it to wall time.
     private static DateTimeOffset ParseInstant(string iso) =>
         DateTimeOffset.TryParse(iso, null,
             System.Globalization.DateTimeStyles.RoundtripKind, out var dto)
             ? dto
-            : DateTimeOffset.UtcNow;
+            : throw new FormatException($"Stored instant '{iso}' is not a round-trip timestamp.");
 }

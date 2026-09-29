@@ -13,6 +13,7 @@ using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
+using Harborline.Kernel.Core;
 
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -479,6 +480,21 @@ public sealed class BootstrapClaimRedemptionTests
             (await harness.Service.RedeemAsync(claim, harness.Target)).Status);
     }
 
+    [Fact(DisplayName = "T-909 ck-9: a bootstrap claim is expired exactly at its ExpiresAt")]
+    public async Task Bootstrap_claim_is_expired_exactly_at_ExpiresAt()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var claim = await harness.IssueClaimAsync("founder", TimeSpan.FromMinutes(1));
+        // Move the wall clock alone onto the deadline, so the monotonic lifetime check still admits the
+        // claim and only the expiry boundary decides.
+        harness.Clock.RewindWallClock(-(claim.ExpiresAt - Now));
+
+        Assert.Equal(
+            BootstrapClaimRedemptionStatus.ClaimRejected,
+            (await harness.Service.RedeemAsync(claim, harness.Target)).Status);
+        Assert.Equal(4, (await harness.GrantStore.SnapshotAsync(Tenant)).Count);
+    }
+
     [Fact]
     public async Task Claim_That_Expires_While_Waiting_On_A_Real_Write_Lock_Is_Rejected()
     {
@@ -572,7 +588,8 @@ public sealed class BootstrapClaimRedemptionTests
                 factory, grantStore,
                 new InitialGrantIssuanceService(grantStore, TestAuthorization.AllowGate(), clock),
                 AuthorizationSeedProfile.Production,
-                clock);
+                clock,
+                new KernelClock(clock));
             Assert.False(await service.IsSurfaceAvailableAsync(created.InstallationIdentityId!, Tenant));
         }
         finally
@@ -773,6 +790,7 @@ public sealed class BootstrapClaimRedemptionTests
                 new InitialGrantIssuanceService(GrantStore, TestAuthorization.AllowGate(), clock),
                 AuthorizationSeedProfile.Development,
                 clock,
+                new KernelClock(clock),
                 TestDesktopOperator.Identity());
             Target = new BootstrapGrantTarget(
                 Tenant,

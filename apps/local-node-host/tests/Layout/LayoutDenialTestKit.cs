@@ -13,6 +13,7 @@ using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Blocks.BuilderDefinitions;
 using Harborline.Blocks.LayoutRuntime;
+using Harborline.Foundation.Definitions;
 using Harborline.Foundation.RuleEngine;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Layout;
@@ -32,6 +33,8 @@ internal static class LayoutDenialTestKit
     private sealed class AllowLayoutAccess : ILayoutAccess
     {
         internal static readonly AllowLayoutAccess Instance = new();
+        public bool CanAuthor() => true;
+        public bool CanPublish() => true;
         public bool CanRead(LayoutBinding binding) => true;
         public bool CanOpen(string surfaceId) => true;
     }
@@ -39,7 +42,7 @@ internal static class LayoutDenialTestKit
     /// <summary>An owner card over a related record, then a field on the surface's own record.</summary>
     internal static LayoutDefinition Surface() => new(
         new("invoice", "1.0.0", Tenant.Value, LayoutCascadeLayer.TenantConfiguration,
-            JsonSerializer.SerializeToElement(new { source = "t-731" }), "standard", false, []),
+            JsonSerializer.SerializeToElement(new { source = "t-731" }), "standard", false, [], new DefinitionContractVersion(1, 0)),
         1, LayoutMedium.Screen, LayoutIntent.Observe,
         [
             new LayoutBlock("owner-card", "layout.list", new LayoutStaticBinding(JsonDocument.Parse("\"Owner\"").RootElement.Clone()), [

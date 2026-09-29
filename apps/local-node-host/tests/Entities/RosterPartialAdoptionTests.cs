@@ -110,7 +110,9 @@ public sealed class RosterPartialAdoptionTests
         var row = Assert.Single(await f.RowsAsync());
         Assert.Equal("AuthorizationRefused", row.EventType.Value);
         using var body = JsonDocument.Parse(JsonSerializer.Serialize(row.Payload.Payload.Body));
-        Assert.Equal("roster.genesis.duplicate", body.RootElement.GetProperty("code").GetString());
+        // T-909 ck-9: the unparseable instant can no longer be re-dated into a durable duplicate genesis; the
+        // inbound candidate is refused as malformed instead, still audited once while the fold completes.
+        Assert.Equal("roster.record.malformed", body.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -486,12 +488,15 @@ public sealed class RosterPartialAdoptionTests
             {
                 var signer = record.AdmittedByPublicKey == Attacker.IssuerId.ToBase64Url() ? Attacker : Founder;
                 return record.AttestReceipt(signer, ReferenceEquals(signer, Founder) ? "founder" : record.AdmittedByPartyId,
-                    NodeRosterRecord.FromCrdtState(record).IssuedAtUtc);
+                    NodeRosterRecord.IssuedAtOr(record, At));
             }).ToArray();
             await using (var db = await factory.CreateDbContextAsync())
             {
+                // T-909 ck-9: a record whose instant does not parse cannot become a durable row (it would have
+                // to be re-dated), so it reaches the projection through the CRDT log alone.
                 var ids = await db.RosterRecords.Select(row => row.Id).ToListAsync();
-                db.RosterRecords.AddRange(attested.Where(record => !ids.Contains(record.RecordId))
+                db.RosterRecords.AddRange(attested.Where(record => !ids.Contains(record.RecordId)
+                        && NodeRosterRecord.TryParseIssuedAt(record, out _))
                     .Select(NodeRosterRecord.FromCrdtState));
                 await db.SaveChangesAsync();
             }

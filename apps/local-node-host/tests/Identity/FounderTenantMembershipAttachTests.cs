@@ -227,7 +227,8 @@ public sealed class FounderTenantMembershipAttachTests
                 grants,
                 grantIssuance,
                 AuthorizationSeedProfile.Production,
-                time);
+                time,
+                new Harborline.Kernel.Core.KernelClock(time));
             var service = new FounderTenantMembershipAttachService(
                 identityFactory,
                 coordinator,
