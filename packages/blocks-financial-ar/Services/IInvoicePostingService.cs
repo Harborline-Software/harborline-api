@@ -30,7 +30,7 @@ public interface IInvoicePostingService
     /// <summary>
     /// Transition Issued / PartiallyPaid → Voided. Posts a reversing
     /// journal entry (mirror of the issue entry with debit/credit
-    /// swapped), updates the invoice, and emits
+    /// swapped) that reverses the issue entry, updates the invoice, and emits
     /// <c>Financial.InvoiceVoided</c>.
     /// </summary>
     Task<VoidResult> VoidAsync(

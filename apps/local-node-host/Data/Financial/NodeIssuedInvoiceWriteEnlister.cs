@@ -114,9 +114,10 @@ public sealed class NodeIssuedInvoiceWriteEnlister : INodeIssuedInvoiceWriteEnli
                 $"Invoice '{issued.Id.Value}' is tombstoned; cannot co-commit a Draft → Issued update with its issue JE.");
         }
 
-        // Idempotent: if the row is already Issued (a benign double-stage / a re-drive that still reached
-        // SaveAtomic) there is nothing to change.
-        if (existing.Status == InvoiceStatus.Issued && existing.JournalEntryId is not null)
+        // Idempotent: if the row already has the pending status (a benign double-stage / a re-drive that still
+        // reached SaveAtomic) there is nothing to change. The pending status is Issued for an issue JE and
+        // Voided for a void's reversing JE (DES-0029 ck-6).
+        if (existing.Status == issued.Status)
         {
             return;
         }
