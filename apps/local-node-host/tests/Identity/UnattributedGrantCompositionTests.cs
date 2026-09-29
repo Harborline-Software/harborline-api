@@ -78,6 +78,32 @@ public sealed class UnattributedGrantCompositionTests
         }
     }
 
+    // ck-11 (DES-0029): a party the signed roster ejected holds no authority through the shipping composition
+    // even while its People binding does not resolve and its install-root Administrator grant is still live.
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("tombstoned")]
+    [InlineData("detached")]
+    [InlineData("duplicated")]
+    [InlineData("wrong-tenant")]
+    public async Task An_ejected_party_with_an_unresolved_binding_holds_no_authority_at_the_real_gate(string binding)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ticket294-ejected-{Guid.NewGuid():N}");
+        try
+        {
+            await using var host = await OpenAsync(directory, ejectTarget: true);
+            await SeedAsync(host.Services, binding);
+            Assert.Equal(GrantStatus.Active, (await host.Services.GetRequiredService<IGrantStore>()
+                .FindAsync(Tenant, TargetGrant))!.Status);
+            Assert.Equal(AuthorizationVerdict.Denied, await VerdictAsync(host.Services));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static async Task AssertListedAsync(IServiceProvider services, string binding)
     {
         var result = await services.GetRequiredService<IAdminTeamAccessAuthority>().ListMembersAsync(Handle, Tenant.Value);
@@ -175,12 +201,17 @@ public sealed class UnattributedGrantCompositionTests
         await context.SaveChangesAsync();
     }
 
-    internal static async Task<Host> OpenAsync(string directory)
+    internal static async Task<Host> OpenAsync(string directory, bool ejectTarget = false)
     {
         IServiceProvider? provider = null;
         using var key = KeyPair.Generate();
-        var roster = MemberRoster.Genesis(Guid.Parse(Tenant.Value), "party-admin", new Ed25519Signer(key),
+        var founder = new Ed25519Signer(key);
+        var roster = MemberRoster.Genesis(Guid.Parse(Tenant.Value), "party-admin", founder,
             new Ed25519Verifier(), Now, Guid.NewGuid());
+        if (ejectTarget)
+            roster = roster.Admit("party-admin", founder, Target, KeyPair.Generate().PrincipalId,
+                    PermissionCompositions.Admin, new Ed25519Verifier(), Now, Guid.NewGuid())
+                .Revoke("party-admin", Target);
         await Assert.ThrowsAsync<ProbeComplete>(() => global::LocalNodeHostComposition.RunAsync(
             ["--environment=Production", "--LocalNode:RootSeedHex=" + new string('4', 64),
                 "--LocalNode:WebClient:Enabled=true", "--LocalNode:Diagnostics:CommsDiagnosticLogging=false",
