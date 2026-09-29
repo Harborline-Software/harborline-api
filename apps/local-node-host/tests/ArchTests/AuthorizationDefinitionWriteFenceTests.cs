@@ -50,7 +50,7 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
         ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync|stage-write",
             "GAP: admission conferral stages outside the six stages"),
         // The EF store's one staging method, reached from its seal-taking commit.
-        ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore+<>c__DisplayClass_1.<CommitCoreAsync>b__0|stage-write",
+        ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore+<>c__DisplayClass.<CommitCoreAsync>b__0|stage-write",
             "store commit of a pipeline seal"),
     ];
 
@@ -122,7 +122,13 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
             .ToArray();
     }
 
-    private static string Caller(string symbol) => symbol[..symbol.IndexOf('(', StringComparison.Ordinal)];
+    // The closure's scope ordinal differs between Debug and Release (DisplayClass_1 vs _0), and CI gates on
+    // Release, so the key drops it. The caller method name inside <...> still identifies the closure.
+    private static string Caller(string symbol) =>
+        ClosureScopeOrdinal().Replace(symbol[..symbol.IndexOf('(', StringComparison.Ordinal)], "<>c__DisplayClass");
+
+    [GeneratedRegex(@"<>c__DisplayClass_\d+")]
+    private static partial Regex ClosureScopeOrdinal();
 
     private static string? Sink(MethodBase target)
     {
