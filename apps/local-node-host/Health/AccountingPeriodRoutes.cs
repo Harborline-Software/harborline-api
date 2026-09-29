@@ -73,18 +73,16 @@ public static class AccountingPeriodRoutes
         // POST /api/local-node/accounting-periods/open
         app.MapPost($"{RouteBase}/open", async (OpenPeriodRequest? body, CancellationToken ct) =>
         {
-            DateOnly date;
+            DateOnly? date = null;
             if (!string.IsNullOrWhiteSpace(body?.Date))
             {
-                if (!DateOnly.TryParse(body.Date, out date))
+                if (!DateOnly.TryParse(body.Date, out var parsed))
                 {
                     return Results.BadRequest(new { error = "invalid_date" });
                 }
+                date = parsed;
             }
-            else
-            {
-                date = DateOnly.FromDateTime(DateTime.UtcNow);
-            }
+            // An omitted date defaults inside the service from the host clock (T-909 ck-9).
 
             var result = await service.OpenForDateAsync(date, ct).ConfigureAwait(false);
             return result.Outcome switch
