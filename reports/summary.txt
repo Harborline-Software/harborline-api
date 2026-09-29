@@ -106,6 +106,30 @@
 33913	81	Killed	Equality mutation	element.ValueKind != JsonValueKind.Array	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
 33914	82	Killed	Linq method mutation (Any() to All())	element.EnumerateArray().All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
 33915	83	Killed	Boolean mutation	true	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+##### m1m2-active-team
+5758	51	Killed	Block removal mutation	{}	ArchTests.ActiveTeamTenantBindingArchTests.DifferentActiveTeam_YieldsDifferentTenant ; ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved ; ArchTests.ActiveTeamTenantBindingArchTests.SwitchingActiveTeam_SwitchesTenant ; ArchTests.ActiveTeamTenantBindingArchTests.AmbientTenant_IsNeverTheRetiredLocalLiteral
+5760	68	Killed	Equality mutation	active is not null	ArchTests.ActiveTeamTenantBindingArchTests.DifferentActiveTeam_YieldsDifferentTenant ; ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved ; ArchTests.ActiveTeamTenantBindingArchTests.SwitchingActiveTeam_SwitchesTenant ; ArchTests.ActiveTeamTenantBindingArchTests.AmbientTenant_IsNeverTheRetiredLocalLiteral
+5761	69	Killed	Block removal mutation	{}	ArchTests.ActiveTeamTenantBindingArchTests.NoActiveTeam_TenantIsUnresolved
+##### m3-selected-session
+44033	31	Survived	Block removal mutation	{}	
+44035	39	Survived	Statement mutation	;	
+44036	40	Killed	Equality mutation	_principal is null	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+44038	42	NoCoverage	Statement mutation	;	
+44039	43	NoCoverage	String mutation	""	
+44042	59	NoCoverage	Statement mutation	;	
+44044	64	NoCoverage	Boolean mutation	true	
+44046	68	NoCoverage	Statement mutation	;	
+44047	71	NoCoverage	Block removal mutation	{}	
+44048	80	Killed	Null coalescing mutation (remove left)	string.Empty	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+44049	80	Killed	String mutation	"Stryker was here!"	Composition.SingleContainerCompositionTests.Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts
+44051	91	NoCoverage	Statement mutation	;	
+44052	92	NoCoverage	Equality mutation	_principal is not null	
+44054	94	NoCoverage	Negate expression	!(NodeCallerAttributionScope.HasBoundWebPrincipal)	
+44056	98	NoCoverage	Boolean mutation	true	
+44057	102	NoCoverage	Equality mutation	_desktopAuthorization?.HasPermission(permission) != true	
+44058	102	NoCoverage	Boolean mutation	false	
+44059	104	NoCoverage	Equality mutation	_permissions?.Contains(permission) != true	
+44060	104	NoCoverage	Boolean mutation	false	
 ##### platform-tenancy
 0	10	Killed	Equality mutation	Tenant is null	TenancyContractTests.Context_is_unresolved_when_tenant_is_null ; TenancyContractTests.Context_is_resolved_when_tenant_exists
 2	15	Survived	Statement mutation	;	

@@ -1,0 +1,2 @@
+-    public static TenantId ProjectTenantId(TeamId teamId) => new(teamId.Value.ToString());
++    public static TenantId ProjectTenantId(TeamId teamId) => new("hand-mutant-constant-tenant");
