@@ -40,6 +40,12 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 /// paired differences in run order are diagnostics only and never decide. All 60 raw pairs are written to
 /// the test output.
 /// </para>
+/// <para>
+/// Those bounds are the quiet bounds. On a box not marked quiet (<c>HARBORLINE_PERF_QUIET</c> unset) the
+/// rules run at the looser <see cref="Bounds.Busy"/> bounds, scaled to the floor (T-680): the gate loses
+/// its detection floor there, not its verdict. The perf lanes set the variable, so the detection floor
+/// holds where the gate is required.
+/// </para>
 /// </remarks>
 internal static class TimingParity
 {
@@ -49,11 +55,32 @@ internal static class TimingParity
     /// <summary>1-based order statistics bounding the median of 60 paired differences at 99.961% coverage.</summary>
     internal const int LowerRank = 17, UpperRank = 44;
 
-    /// <summary>The median rule's bound: both order statistics strictly inside ±0.1 ms.</summary>
-    internal const double MedianBoundMs = 0.1;
+    /// <summary>The two rules' bounds: the median rule's order statistics strictly inside ±MedianMs, the
+    /// tail rule's p90 gap strictly under TailMs.</summary>
+    internal sealed record Bounds(double MedianMs, double TailMs)
+    {
+        /// <summary>The gate's detection floor (owner rulings Q41 and Q41b): ±0.1 ms and 1 ms.</summary>
+        public static readonly Bounds Quiet = new(0.1, 1.0);
 
-    /// <summary>The tail rule's bound: the between-path p90 gap strictly under 1 ms.</summary>
-    internal const double TailBoundMs = 1.0;
+        /// <summary>
+        /// T-680, ticket 268's contract: a busy box costs the gate its detection floor rather than giving a
+        /// false red. Measured on winbox over 80 gate phases with 43-82 dotnet/testhost processes running
+        /// (the T-680 lane, 2026-09-28): the worst |d[17]| or |d[44]| was 24.5 ms at a 62.5 ms floor
+        /// (0.39 of the floor) and the worst p90 gap 31.5 ms (0.50 of the floor). So the median rule allows
+        /// half the floor: busy noise stays inside it, and a path that escapes the floor still fails,
+        /// because the floor is twice the worst calibration run and so sits at least half a floor above
+        /// any unpadded path. The tail rule allows one floor, since busy tails alone reached half of one.
+        /// </summary>
+        public static Bounds Busy(TimeSpan floor) => new(floor.TotalMilliseconds / 2, floor.TotalMilliseconds);
+
+        /// <summary>
+        /// The same signal the TypeScript perf rows read (<c>ceilingMs</c> in the platform's
+        /// render-baseline.ts): the quiet bounds only when <c>HARBORLINE_PERF_QUIET=1</c>, which a perf lane
+        /// that has the box to itself sets; anything else is a busy box.
+        /// </summary>
+        public static Bounds Current(TimeSpan floor)
+            => Environment.GetEnvironmentVariable("HARBORLINE_PERF_QUIET") == "1" ? Quiet : Busy(floor);
+    }
 
     /// <summary>One preplanned pair, in run order.</summary>
     internal sealed record Pair(int Index, bool DeniedFirst, double MissingMs, double DeniedMs)
@@ -63,32 +90,34 @@ internal static class TimingParity
 
     /// <summary>What the two rules decided, and the diagnostics beside them.</summary>
     internal sealed record Verdict(
-        bool MedianRule, bool TailRule, double LowerMs, double UpperMs, double P90GapMs, double KsD, double Lag1)
+        bool MedianRule, bool TailRule, double LowerMs, double UpperMs, double P90GapMs, double KsD, double Lag1, Bounds Bounds)
     {
         public bool Passed => MedianRule && TailRule;
 
         public override string ToString() => string.Create(CultureInfo.InvariantCulture,
             $"{(Passed ? "PASS" : "FAIL")}: median rule {(MedianRule ? "held" : "failed")} "
-            + $"(d[{LowerRank}] {LowerMs:F3} ms, d[{UpperRank}] {UpperMs:F3} ms, bound ±{MedianBoundMs} ms); "
-            + $"tail rule {(TailRule ? "held" : "failed")} (p90 gap {P90GapMs:F3} ms, bound {TailBoundMs} ms); "
+            + $"(d[{LowerRank}] {LowerMs:F3} ms, d[{UpperRank}] {UpperMs:F3} ms, bound ±{Bounds.MedianMs} ms); "
+            + $"tail rule {(TailRule ? "held" : "failed")} (p90 gap {P90GapMs:F3} ms, bound {Bounds.TailMs} ms); "
             + $"diagnostics KS D {KsD:F3}, lag-1 autocorrelation {Lag1:F3}");
     }
 
-    /// <summary>Applies the two rules to <paramref name="pairs"/>. Pure, so synthetic samples can test it.</summary>
-    internal static Verdict Evaluate(IReadOnlyList<Pair> pairs)
+    /// <summary>Applies the two rules to <paramref name="pairs"/> at <paramref name="bounds"/> (the quiet
+    /// bounds by default). Pure, so synthetic samples can test it.</summary>
+    internal static Verdict Evaluate(IReadOnlyList<Pair> pairs, Bounds? bounds = null)
     {
         ArgumentNullException.ThrowIfNull(pairs);
+        bounds ??= Bounds.Quiet;
         var differences = pairs.Select(pair => pair.DifferenceMs).Order().ToArray();
         var lower = differences[LowerRank - 1];
         var upper = differences[UpperRank - 1];
-        var medianRule = lower > -MedianBoundMs && upper < MedianBoundMs;
+        var medianRule = lower > -bounds.MedianMs && upper < bounds.MedianMs;
 
         var gap = QuantileType7(pairs.Select(pair => pair.DeniedMs), 0.9) - QuantileType7(pairs.Select(pair => pair.MissingMs), 0.9);
-        var tailRule = Math.Abs(gap) < TailBoundMs;
+        var tailRule = Math.Abs(gap) < bounds.TailMs;
 
         return new Verdict(medianRule, tailRule, lower, upper, gap,
             KolmogorovSmirnov(pairs.Select(pair => pair.MissingMs), pairs.Select(pair => pair.DeniedMs)),
-            Lag1(pairs.Select(pair => pair.DifferenceMs).ToArray()));
+            Lag1(pairs.Select(pair => pair.DifferenceMs).ToArray()), bounds);
     }
 
     /// <param name="at">For a floor, a sampler that runs one missing (false) or denied (true) resolution.</param>
@@ -127,7 +156,7 @@ internal static class TimingParity
         }
         await settle();
 
-        var verdict = Evaluate(pairs);
+        var verdict = Evaluate(pairs, Bounds.Current(floor));
         var report = new StringBuilder();
         report.AppendLine(CultureInfo.InvariantCulture, $"{label}: {verdict} at floor {floor.TotalMilliseconds} ms");
         report.AppendLine(CultureInfo.InvariantCulture, $"{label}: pairs (index, first, missing ms, denied ms, denied - missing ms)");

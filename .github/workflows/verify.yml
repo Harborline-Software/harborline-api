@@ -193,6 +193,9 @@ jobs:
           node eng/build-local-feed.mjs
 
       - name: Perf lane (Lane=perf, alone on this host)
+        # T-680: this lane has the box to itself, so the timing gate applies its quiet bounds.
+        env:
+          HARBORLINE_PERF_QUIET: '1'
         run: |
           set -o pipefail
           mkdir -p .claude/gate-evidence
@@ -240,6 +243,9 @@ jobs:
       - uses: ./.github/actions/platform-feed
 
       - name: Perf lane (Lane=perf)
+        # T-680: a fresh VM running only this lane, so the timing gate applies its quiet bounds.
+        env:
+          HARBORLINE_PERF_QUIET: '1'
         run: |
           set -o pipefail
           mkdir -p .claude/gate-evidence
