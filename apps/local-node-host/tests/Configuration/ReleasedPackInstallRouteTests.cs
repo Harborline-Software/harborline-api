@@ -89,7 +89,7 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         // node's own roster root, not against a root this path invented for itself.
         var trustStore = HostedPackInstallApiEndpoint.BuildTrustStore(_node, NullLogger.Instance);
         var releases = new ReleasedPackInstaller(_proposals, exporter, installer, _node, new Ed25519Verifier(),
-            trustStore, PackRevocationList.Empty);
+            trustStore, PackRevocationList.Empty, _store, gate);
 
         var activeTeam = new ActiveTeam(new TeamContext(TeamA, "Team A", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         _tenant = NodeTenant.Resolve(activeTeam);
@@ -126,73 +126,114 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Acceptance 1. One test from the release to the effective digest, with no hand conversion in the
-    /// middle: what the author released is installed by its own digest, and the generation that becomes
-    /// effective is resolved over the pack that release produced.
+    /// ck-2 S8, owner ruling 2026-09-29 on Q1 (ADR 0028, DES-0014 K8). This was T-667's acceptance 1,
+    /// which installed a release under a new pack key that re-stated acme.finance's definitions and won
+    /// them through the caller's ownership choice. That takeover is now refused through the same route,
+    /// with the same ownership choice in the body, and nothing is installed or prepared over.
     /// </summary>
     [Fact]
-    public async Task A_released_package_is_installed_prepared_and_activated_with_no_manual_step_between()
+    public async Task Released_package_cannot_take_over_another_packages_definition()
     {
-        // Pin an explicit effective pointer first, so "effective" is a committed generation rather than
-        // whatever the installed set happens to resolve to. Installing a pack then cannot move it, and the
-        // digest this test ends at is the one the switch committed.
         var baseline = await PinEffectiveAsync();
         var releasedDigest = await ReleaseAsync();
 
-        // Before installation the released package is invisible to preparation: it is a document, not a pack.
-        using (var tooSoon = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.PrepareRoute,
-            new { expectedBaselineDigest = baseline, activePackageKeys = new[] { "acme.finance", PackageKey } }))
+        using var refused = await _client.PostAsJsonAsync(InstallRoute(releasedDigest), OwnedByRelease());
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, body.ToString());
+        Assert.Equal("refused", body.GetProperty("status").GetString());
+        var refusals = body.GetProperty("refusals").EnumerateArray().ToArray();
+        Assert.Equal(new[] { "forms/invoice", "records/invoice" },
+            refusals.Select(item => item.GetProperty("target").GetString()).Order(StringComparer.Ordinal).ToArray());
+        Assert.All(refusals, item =>
         {
-            Assert.Equal(HttpStatusCode.UnprocessableEntity, tooSoon.StatusCode);
-            var refused = await tooSoon.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal("refused", refused.GetProperty("status").GetString());
-            Assert.Equal("configuration-package-not-active",
-                refused.GetProperty("refusals")[0].GetProperty("code").GetString());
-        }
+            Assert.Equal(ReleasedPackInstaller.ForeignDefinitionCode, item.GetProperty("code").GetString());
+            Assert.Contains("'acme.finance'", item.GetProperty("message").GetString(), StringComparison.Ordinal);
+        });
 
-        var installed = await InstallAsync(releasedDigest);
-        Assert.Equal("installed", installed.GetProperty("status").GetString());
-        // Installing does not activate a configuration generation; the pointer is still the baseline.
+        // Nothing installed, so the release is still invisible to preparation and the baseline stands.
+        Assert.DoesNotContain(_store.ListInstalled(_tenant), item => item.PackKey == PackageKey);
+        Assert.Empty(_store.GetOverrides(_tenant, "acme.finance"));
+        using var prepared = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.PrepareRoute,
+            new { expectedBaselineDigest = baseline, activePackageKeys = new[] { "acme.finance", PackageKey } });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, prepared.StatusCode);
+        Assert.Equal("configuration-package-not-active", (await prepared.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("refusals")[0].GetProperty("code").GetString());
         Assert.Equal(baseline, await EffectiveDigestAsync());
-        Assert.Equal(PackageKey, installed.GetProperty("packKey").GetString());
-        Assert.Equal(Revision, installed.GetProperty("version").GetString());
+    }
 
-        // The installed pack carries exactly the edited definitions, under the kinds the author stated.
-        var pack = Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == PackageKey);
-        Assert.Equal(PackLifecycleState.Active, pack.Lifecycle);
-        Assert.Equal(
-            new[] { ("forms/invoice", PackContentKind.FormDefinition), ("records/invoice", PackContentKind.AssetTypeDefinition) },
-            pack.SeedItems.Select(item => (item.Key, item.Kind)).OrderBy(item => item.Key, StringComparer.Ordinal).ToArray());
+    /// <summary>
+    /// ck-2 S8: the edit's packageKey is the author's statement, not the proof of ownership. An edit that
+    /// names the release as its package but re-states a key acme.finance already ships is the same
+    /// takeover, and the caller's ownership choice for the release does not admit it.
+    /// </summary>
+    [Fact]
+    public async Task Released_package_cannot_claim_another_packages_definition_under_its_own_key()
+    {
+        const string proposalId = "proposal-s8-own-key";
+        await StartAsync(proposalId);
+        await AutosaveAsync(proposalId, "forms/invoice", FormsEdit, FormsKind, owner: "tenant.release");
+        var digest = await SaveCheckReleaseAsync(proposalId, "tenant.release");
 
-        // Prepare names the released package as an active root and chooses it as the owner of both
-        // definitions the finance pack also claims, then the switch makes that generation effective.
-        using var prepared = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.PrepareRoute, new
+        using var refused = await _client.PostAsJsonAsync(InstallRoute(digest), new
         {
-            expectedBaselineDigest = baseline,
-            activePackageKeys = new[] { "acme.finance", PackageKey },
-            ownership = new[]
-            {
-                new { definitionKey = "records/invoice", packageKey = PackageKey },
-                new { definitionKey = "forms/invoice", packageKey = PackageKey },
-            },
+            ownership = new[] { new { definitionKey = "forms/invoice", packageKey = "tenant.release" } },
         });
-        Assert.Equal(HttpStatusCode.OK, prepared.StatusCode);
-        var candidate = (await prepared.Content.ReadFromJsonAsync<JsonElement>());
-        Assert.Equal("preparing", candidate.GetProperty("status").GetString());
-        var candidateDigest = candidate.GetProperty("candidateDigest").GetString()!;
-        Assert.NotEqual(baseline, candidateDigest);
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, body.ToString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(ReleasedPackInstaller.ForeignDefinitionCode, refusal.GetProperty("code").GetString());
+        Assert.Equal("forms/invoice", refusal.GetProperty("target").GetString());
+        Assert.Contains("'acme.finance'", refusal.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(_store.ListInstalled(_tenant), item => item.PackKey == "tenant.release");
+    }
 
-        using var activated = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.ActivateRoute, new
-        {
-            expectedBaselineDigest = baseline,
-            candidateDigest,
-            evidenceIntent = new { id = "intent-667", reason = "Activate the released purchase-order change." },
-        });
-        Assert.Equal(HttpStatusCode.OK, activated.StatusCode);
-        var outcome = await activated.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("effective", outcome.GetProperty("status").GetString());
-        Assert.Equal(candidateDigest, outcome.GetProperty("effectiveDigest").GetString());
-        Assert.Equal(candidateDigest, await EffectiveDigestAsync());
+    /// <summary>ck-2 S8: an edit is a narrowing only under the kind the owner's definition has.</summary>
+    [Fact]
+    public async Task A_narrowing_body_under_another_content_kind_is_refused_as_a_foreign_definition()
+    {
+        const string proposalId = "proposal-s8-kind";
+        await StartAsync(proposalId);
+        await AutosaveAsync(proposalId, "forms/invoice", """{"id":"forms/invoice"}""", RecordsKind);
+        var digest = await SaveCheckReleaseAsync(proposalId, "tenant.release");
+
+        using var refused = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, body.ToString());
+        Assert.Equal(ReleasedPackInstaller.ForeignDefinitionCode,
+            Assert.Single(body.GetProperty("refusals").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Empty(_store.GetOverrides(_tenant, "acme.finance"));
+    }
+
+    /// <summary>
+    /// ck-2 S8, the other half of the ruling: an edit of another package's definition that only NARROWS
+    /// it is carried as that package's tenant narrowing overlay, not installed as the release's content.
+    /// The release's own definition installs as usual; acme.finance keeps its definition and gains the
+    /// overlay row the Narrow door writes.
+    /// </summary>
+    [Fact]
+    public async Task A_released_edit_that_only_narrows_another_packages_definition_is_carried_as_its_overlay()
+    {
+        const string proposalId = "proposal-s8-narrow";
+        await StartAsync(proposalId);
+        await AutosaveAsync(proposalId, "forms/tenant-note", FormsEdit, FormsKind, owner: "tenant.release");
+        // The seeded acme.finance form is {"id":"forms/invoice","pack":"acme.finance"}; this drops "pack".
+        await AutosaveAsync(proposalId, "forms/invoice", """{"id":"forms/invoice"}""", FormsKind);
+        var digest = await SaveCheckReleaseAsync(proposalId, "tenant.release");
+
+        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, body.ToString());
+        Assert.Equal("installed", body.GetProperty("status").GetString());
+        Assert.Equal(new[] { "forms/invoice" }, body.GetProperty("narrowed").EnumerateArray().Select(item => item.GetString()).ToArray());
+
+        var release = Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == "tenant.release");
+        Assert.Equal(PackLifecycleState.Active, release.Lifecycle);
+        Assert.Equal(["forms/tenant-note"], release.SeedItems.Select(item => item.Key).ToArray());
+        var finance = _store.GetActive(_tenant, "acme.finance")!;
+        Assert.Contains(finance.SeedItems, item => item.Key == "forms/invoice");
+        var overlay = Assert.Single(_store.GetOverrides(_tenant, "acme.finance"));
+        Assert.Equal("forms/invoice", overlay.ContentKey);
+        Assert.Equal("""{"pack":null}""", overlay.OverlayPatch.ToJsonString());
     }
 
     /// <summary>
@@ -284,9 +325,15 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         var document = Encoding.UTF8.GetString(ReleasedDocument());
         var principal = _node.Signer.IssuerId.ToBase64Url();
 
-        static IReadOnlyDictionary<string, PackContentKind> Kinds(string document, string principal) =>
-            ReleasedPackConversion.ToExportRequest(Encoding.UTF8.GetBytes(document), principal)
-                .Contents.ToDictionary(source => source.Key, source => source.Kind, StringComparer.Ordinal);
+        // ck-2 S8: these edits name acme.finance, so they convert as foreign edits, not as own content;
+        // the kind is read the same way for both.
+        static IReadOnlyDictionary<string, PackContentKind> Kinds(string document, string principal)
+        {
+            var converted = ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(document), principal);
+            return (converted.Request?.Contents.Select(source => (source.Key, source.Kind)) ?? [])
+                .Concat(converted.ForeignEdits.Select(edit => (Key: edit.DefinitionKey, edit.Kind)))
+                .ToDictionary(item => item.Key, item => item.Kind, StringComparer.Ordinal);
+        }
 
         var stated = Kinds(document, principal);
         Assert.Equal(PackContentKind.AssetTypeDefinition, stated["records/invoice"]);
@@ -340,13 +387,15 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
                 (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refusals")[0].GetProperty("code").GetString());
         }
 
-        var releasedDigest = await ReleaseAsync();
+        // ck-2 S8: a release may no longer take acme.finance's definitions, so this repeats acme.finance's
+        // own upgrade, the R1 shape that still installs.
+        var releasedDigest = await ReleaseAsync(packageKey: "acme.finance");
         Assert.Equal("installed", (await InstallAsync(releasedDigest)).GetProperty("status").GetString());
         // The same released bytes export the same pack coordinate, so a repeat is the same identity
         // rather than a second one; it never leaves two packs claiming the same definitions.
-        using var again = await _client.PostAsJsonAsync(InstallRoute(releasedDigest), OwnedByRelease());
+        using var again = await _client.PostAsJsonAsync(InstallRoute(releasedDigest), new { });
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
-        Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == PackageKey);
+        Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == "acme.finance" && item.Version == Revision);
     }
 
     /// <summary>
@@ -392,8 +441,9 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         const string proposalId = "proposal-909";
         using (var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId }))
             Assert.Equal(HttpStatusCode.OK, started.StatusCode);
-        await AutosaveAsync(proposalId, "forms/invoice", FormsEdit, FormsKind);
-        await AutosaveAsync(proposalId, "kernel.field", """{"sealed":true}""", "RecordType");
+        // ck-2 S8: the edits are acme.bootstrap's own, so the compiled-shape claim is what refuses.
+        await AutosaveAsync(proposalId, "forms/bootstrap-note", FormsEdit, FormsKind, owner: "acme.bootstrap");
+        await AutosaveAsync(proposalId, "kernel.field", """{"sealed":true}""", "RecordType", owner: "acme.bootstrap");
         using (var saved = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/versions", new { rationale = Rationale }))
             Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         using (var checked_ = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/checks", new { receiptId = "receipt-909" }))
@@ -425,7 +475,7 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
 
     private async Task<JsonElement> InstallAsync(string digest)
     {
-        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), OwnedByRelease());
+        using var response = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(response.StatusCode == HttpStatusCode.OK, body.ToString());
         return body;
@@ -440,10 +490,20 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
     /// <summary>Runs T-461's path end to end and returns the Released package's own artifact digest.</summary>
     private async Task<string> ReleaseAsync(string packageKey = PackageKey, string proposalId = "proposal-667")
     {
-        using (var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId }))
-            Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await StartAsync(proposalId);
         await AutosaveAsync(proposalId, "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync(proposalId, "forms/invoice", FormsEdit, FormsKind);
+        return await SaveCheckReleaseAsync(proposalId, packageKey);
+    }
+
+    private async Task StartAsync(string proposalId)
+    {
+        using var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId });
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+    }
+
+    private async Task<string> SaveCheckReleaseAsync(string proposalId, string packageKey)
+    {
         using (var saved = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/versions", new { rationale = Rationale }))
             Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         using (var checked_ = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/checks", new { receiptId = "receipt-667" }))
@@ -457,10 +517,11 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
 
     private static string Proposal(string proposalId) => $"/api/local-node/configuration/proposals/{proposalId}";
 
-    private async Task AutosaveAsync(string proposalId, string definitionKey, string bodyJson, string contentKind)
+    private async Task AutosaveAsync(string proposalId, string definitionKey, string bodyJson, string contentKind,
+        string owner = "acme.finance")
     {
         using var response = await _client.PutAsJsonAsync($"{Proposal(proposalId)}/edits",
-            new { definitionKey, packageKey = "acme.finance", bodyJson, contentKind });
+            new { definitionKey, packageKey = owner, bodyJson, contentKind });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
