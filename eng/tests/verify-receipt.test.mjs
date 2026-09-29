@@ -46,13 +46,15 @@ test('records every required verification step as per-run evidence', () => {
   ])
 })
 
-test('a lane requires exactly its own steps, and the two lanes together are the whole gate', async () => {
-  const {requiredStepIds, hostStepIds, stepIdsForLane} = await import('../verify-receipt.mjs')
+test('a lane requires exactly its own steps, and the lanes plus the package lanes are the whole gate', async () => {
+  const {requiredStepIds, hostStepIds, packageLaneStepIds, stepIdsForLane} = await import('../verify-receipt.mjs')
   const quality = {HARBORLINE_GATE_QUALITY: '1'}
   assert.deepEqual(stepIdsForLane('all'), requiredStepIds)
   assert.deepEqual(stepIdsForLane('host', quality), hostStepIds)
   // No step may fall between the lanes: a gap is a step CI stops running without telling anyone.
-  assert.deepEqual([...stepIdsForLane('shared'), ...stepIdsForLane('host', quality)].sort(), [...requiredStepIds].sort())
+  // The package lanes are run in CI by the required packages.yml jobs, not by verify.sh.
+  assert.deepEqual([...stepIdsForLane('shared'), ...stepIdsForLane('host', quality), ...packageLaneStepIds].sort(), [...requiredStepIds].sort())
+  for (const id of packageLaneStepIds) assert.equal(stepIdsForLane('shared').includes(id), false, id)
   // quality reads the SARIF exact-clone writes, so it belongs to the host that produces it.
   assert.equal(stepIdsForLane('shared').includes('exact-clone'), false)
   assert.equal(stepIdsForLane('shared').includes('quality'), false)

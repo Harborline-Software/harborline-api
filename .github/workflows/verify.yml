@@ -41,6 +41,10 @@ jobs:
       # quality and quality-baseline are NOT in this lane: they read the SARIF that exact-clone
       # writes, and exact-clone runs on the hosts. HARBORLINE_GATE_QUALITY therefore lives on
       # verify-windows below, which is the one host that carries the comparison.
+      # 2026-09-29 (owner): the shared lane also skips the package lanes (contracts TypeScript / C# /
+      # Rust, operator-cli-headless, packages). packages.yml's required protocol-lane-conformance,
+      # operator-cli-headless and pack-consume jobs run the same commands and own that proof, so this
+      # lane compiles no Rust and needs no toolchain for it.
       HARBORLINE_VERIFY_LANE: shared
       DEVELOPER_DIR: /Library/Developer/CommandLineTools
     steps:
@@ -79,9 +83,6 @@ jobs:
         with:
           version: 11.1.3
 
-      - name: Ensure Rust toolchain
-        run: rustup show active-toolchain >/dev/null 2>&1 || rustup default stable
-
       - uses: ./.github/actions/platform-feed
 
       - name: Use pinned checkouts
@@ -117,7 +118,12 @@ jobs:
     # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
     # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
     # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
-    needs: [verify-shared, verify-macos, verify-windows, verify-perf-hosted]
+    # 2026-09-29 (owner): the Windows half is the hosted windows-2025 lane; winbox is advisory, so no
+    # self-hosted runner is on the merge path. Dependabot PRs cannot read the secret the hosted lane
+    # needs for its pinned checkouts, so for them (and only them) winbox's result stands in.
+    # 2026-09-29 (owner): Ubuntu is a supported host, so verify-linux (moved from packages.yml's
+    # build-and-test) is a host lane on the same terms as verify-macos.
+    needs: [verify-shared, verify-macos, verify-linux, verify-windows, verify-windows-hosted, verify-perf-hosted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -131,7 +137,11 @@ jobs:
             exit 1
           fi
           echo "$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
+          jq -e '
+            ([."verify-shared", ."verify-macos", ."verify-linux", ."verify-perf-hosted"] | all(.result == "success"))
+            and (."verify-windows-hosted".result == "success"
+                 or (."verify-windows-hosted".result == "skipped" and ."verify-windows".result == "success"))
+          ' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
 
   verify-perf:
     # Advisory comparison with the hosted perf gate during mac16's retirement window. The
@@ -319,6 +329,64 @@ jobs:
             .git/harborline-api-verify-receipt.json
             .claude/gate-evidence/
 
+  verify-linux:
+    # The Ubuntu half of the host lane (2026-09-29, owner: Ubuntu is a supported host). Moved from
+    # packages.yml's build-and-test, which ran the same exact-clone against the same baseline but only
+    # on merge groups and outside any required context. The guards are verify-macos's, character for
+    # character. eng/verify.sh selects host-test-baseline.ubuntu.json from uname -s.
+    if: >-
+      vars.ACTIONS_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'merge_group' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      HARBORLINE_VERIFY_LANE: host
+    steps:
+      - name: Runner identity
+        shell: bash
+        run: echo "Runner ${{ runner.name }} (${{ runner.os }}/${{ runner.arch }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v7
+        with:
+          # MinVer derives the version from git history, and repo-wide TreatWarningsAsErrors
+          # would turn its shallow-clone warning into a build failure.
+          fetch-depth: 0
+          clean: true
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.3
+
+      - uses: ./.github/actions/platform-feed
+
+      - name: Use pinned platform
+        run: |
+          echo '.platform/' >> .git/info/exclude
+          echo "HARBORLINE_PLATFORM_REPO=$GITHUB_WORKSPACE/.platform" >> "$GITHUB_ENV"
+
+      - name: Host lane (exact-clone against the Ubuntu baseline)
+        run: bash eng/verify.sh
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-linux-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            .git/harborline-api-verify-receipt.json
+            .claude/gate-evidence/
+
   verify-windows:
     # The cross-platform half of the gate: the host and capability suites against the WINDOWS
     # baseline, and nothing else.
@@ -343,12 +411,16 @@ jobs:
     # T-662: the fork guard, character for character the one verify-shared carries above. A fork
     # pull request does not start this job, so it does not run its author's code on winbox. The
     # nightly schedule datapoint is unaffected -- `schedule` is the first disjunct.
+    # 2026-09-29 (owner): advisory. Pull requests and merge groups verify Windows on the hosted
+    # verify-windows-hosted lane; winbox runs nightly, on demand, and for Dependabot PRs, which the
+    # hosted lane cannot check out.
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'merge_group' ||
-       (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event_name == 'pull_request' &&
+        github.actor == 'dependabot[bot]' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.draft == false))
     runs-on: [self-hosted, Windows, winbox]
     timeout-minutes: 90
@@ -456,10 +528,10 @@ jobs:
         # Ticket 436: no gate step reads this any more -- the comparison is against the committed
         # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
         # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
-        if: always() && github.event_name == 'merge_group'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
-          name: quality-findings-${{ github.sha }}
+          name: quality-findings-winbox-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: artifacts/quality/findings.json
@@ -477,8 +549,8 @@ jobs:
             .claude/gate-evidence/
 
   verify-windows-hosted:
-    # Trial the full Windows host lane on a fresh VM. The required verify context still depends on
-    # verify-windows (winbox); this job is advisory until its PR and merge-group receipts match.
+    # The required Windows host lane, on a fresh VM (2026-09-29, owner: replaces winbox on the merge
+    # path). The verify context depends on it; verify-windows (winbox) is advisory.
     # Dependabot PRs have no access to the Actions secret needed for private pinned checkouts.
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
@@ -547,6 +619,17 @@ jobs:
 
       - name: Host lane (exact-clone against the Windows baseline)
         run: bash eng/verify.sh
+
+      - name: Publish main quality findings
+        # Moved from verify-windows (winbox) with the required lane: a re-pin needs a measured finding
+        # set from a gate host (ticket 436). Evidence, not a gate input.
+        if: always() && github.event_name == 'merge_group'
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-findings-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()
