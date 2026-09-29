@@ -33,6 +33,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Kernel.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -65,6 +66,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
     private IPackTrustStore _packTrust = null!;
     private PlatformPackPreloadHostedService _platformPreload = null!;
     private CountingCatalogue _catalogue = null!;
+    private PackExporter _exporter = null!;
+    private NodePrincipalSigner _signer = null!;
 
     public async Task InitializeAsync()
     {
@@ -85,7 +88,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         _tenantA = NodeTenant.Resolve(_activeTeam);
         _requestTenant = _tenantA;
 
-        var signer = new NodePrincipalSigner(Enumerable.Repeat((byte)0x42, 32).ToArray());
+        var signer = _signer = new NodePrincipalSigner(Enumerable.Repeat((byte)0x42, 32).ToArray());
         var codec = new PackFileCodec();
         _packTrust = new InMemoryPackTrustStore(
         [
@@ -103,14 +106,15 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             new InMemoryPackInstallAudit(),
             TestAuthorization.AllowGate(), new PackPlatformCompatibility("1.0.0",
                 [new PackProjectorCase(PackContentKind.FormDefinition, [CatalogueFieldSourceContract.CapabilityId])]));
+        _exporter = new PackExporter(
+            new PackContentCanonicalizer(),
+            new PackDcpCanonicalizer(),
+            new PackValidator(new PackContentPiiScanner()),
+            new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
+            codec,
+            timeProvider: TimeProvider.System);
         _platformPreload = new PlatformPackPreloadHostedService(
-            new PackExporter(
-                new PackContentCanonicalizer(),
-                new PackDcpCanonicalizer(),
-                new PackValidator(new PackContentPiiScanner()),
-                new DcpValidator(DcpCounselRegister.FromEmbeddedResource()),
-                codec,
-                timeProvider: TimeProvider.System),
+            _exporter,
             signer,
             _installer,
             _packStore,
@@ -165,12 +169,66 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
             .Single(entry => entry.GetProperty("id").GetString() == FormId).GetProperty("kind").GetInt32());
     }
 
+    [Fact(DisplayName = "T-909 ck-1: the catalogue types route lists the three compiled shapes before any pack is installed")]
+    public async Task Catalogue_types_lists_the_three_compiled_shapes_before_any_pack_is_installed()
+    {
+        Assert.Empty(_packStore.ListInstalled(_tenantA));
+
+        var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
+
+        var compiled = CompiledEntries(types);
+        Assert.Equal(3, types.GetArrayLength());
+        Assert.Equal(
+            CompiledBootstrapCatalogue.Shapes.Select(shape => shape.Identity.Value).Order(StringComparer.Ordinal),
+            compiled.Select(entry => entry.GetProperty("identity").GetString()!).Order(StringComparer.Ordinal));
+        foreach (var shape in CompiledBootstrapCatalogue.Shapes)
+        {
+            var entry = Assert.Single(compiled, entry => entry.GetProperty("identity").GetString() == shape.Identity.Value);
+            Assert.Equal(shape.Key, entry.GetProperty("key").GetString());
+            Assert.Equal(shape.Name, entry.GetProperty("name").GetString());
+            Assert.Equal(shape.Revision, entry.GetProperty("revision").GetInt32());
+            Assert.True(entry.GetProperty("sealed").GetBoolean());
+            Assert.Equal("compiled", entry.GetProperty("provenance").GetProperty("kind").GetString());
+            Assert.Equal(
+                shape.Members.Select(member => (member.Key, member.Kind.ToString(), member.Required, member.Many, member.Target)),
+                entry.GetProperty("members").EnumerateArray().Select(member => (
+                    member.GetProperty("key").GetString()!,
+                    member.GetProperty("kind").GetString()!,
+                    member.GetProperty("required").GetBoolean(),
+                    member.GetProperty("many").GetBoolean(),
+                    member.GetProperty("target").ValueKind == JsonValueKind.Null ? null : member.GetProperty("target").GetString())));
+        }
+        Assert.Equal([8, 12, 15], compiled.Select(entry => entry.GetProperty("members").GetArrayLength()).Order());
+    }
+
+    [Fact(DisplayName = "T-909 ck-1: the platform pack cannot replace a compiled shape through the preload's install path")]
+    public async Task Platform_preload_cannot_replace_a_compiled_shape()
+    {
+        var principal = _signer.Signer.IssuerId.ToBase64Url();
+        var platform = PlatformPackPreloadHostedService.ReadExportRequest(principal);
+        var claiming = platform with
+        {
+            Contents = [.. platform.Contents, new PackContentSource("record-type", PackContentKind.RecordType, "1.0.0",
+                new System.Text.Json.Nodes.JsonObject { ["sealed"] = true })],
+        };
+        var exported = await _exporter.ExportAsync(claiming, _signer.Signer, CancellationToken.None);
+        Assert.True(exported.Succeeded, string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
+
+        var outcome = _installer.Install(exported.FileBytes!, PackContext());
+
+        Assert.False(outcome.Installed);
+        Assert.Equal([KernelBootstrapErrors.CompiledShapeReplacement], outcome.RefusalCodes);
+        var refusal = Assert.Single(outcome.Preview.Refusals);
+        Assert.Equal($"/contents/{claiming.Contents.Count - 1}/contentBase64", refusal.Pointer);
+        Assert.Empty(_packStore.ListInstalled(_tenantA));
+    }
+
     [Fact(DisplayName = "M4: sealed catalogue types are absent before the platform seed is active")]
     public async Task Sealed_Catalogue_Types_Are_Absent_Before_The_Platform_Seed_Is_Active()
     {
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Empty(types.EnumerateArray());
+        Assert.Empty(SealedSeedEntries(types));
     }
 
     [Fact(DisplayName = "M4: activating the platform seed exposes its sealed catalogue types with the active version")]
@@ -179,7 +237,8 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
-        var entries = types.EnumerateArray().ToArray();
+        Assert.Equal(3, CompiledEntries(types).Length);
+        var entries = SealedSeedEntries(types);
         Assert.Equal(19, entries.Length);
         Assert.All(entries, entry =>
         {
@@ -203,7 +262,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
 
-        Assert.Empty(types.EnumerateArray());
+        Assert.Empty(SealedSeedEntries(types));
     }
 
     [Fact(DisplayName = "M4: invalid active platform seed descriptors fail closed")]
@@ -371,6 +430,13 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
 
         return rows;
     }
+
+    // The compiled bootstrap floor answers first; the seed's sealed descriptors follow when the platform pack is active.
+    private static JsonElement[] CompiledEntries(JsonElement types)
+        => types.EnumerateArray().Where(entry => entry.TryGetProperty("identity", out _)).ToArray();
+
+    private static JsonElement[] SealedSeedEntries(JsonElement types)
+        => types.EnumerateArray().Where(entry => !entry.TryGetProperty("identity", out _)).ToArray();
 
     private PackInstallContext PackContext() => new(
         _tenantA,

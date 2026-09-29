@@ -194,11 +194,24 @@ public sealed class NodeRosterRecord
             ReceiveAttestationSignatureB64Url: row.ReceiveAttestationSignatureB64Url ?? string.Empty);
     }
 
+    /// <summary>
+    /// An inbound candidate's issue instant for its receive-window check and refusal audit, or
+    /// <paramref name="unparseable"/> (the host clock's now) when it does not parse. Only refusal-side
+    /// paths take this; a stored row goes through <see cref="FromCrdtState"/>, which refuses it.
+    /// </summary>
+    internal static DateTimeOffset IssuedAtOr(RosterRecordCrdtState s, DateTimeOffset unparseable) =>
+        TryParseIssuedAt(s, out var issued) ? issued : unparseable;
+
+    /// <summary>Whether the candidate's issue instant parses as a round-trip timestamp.</summary>
+    internal static bool TryParseIssuedAt(RosterRecordCrdtState s, out DateTimeOffset issued) =>
+        DateTimeOffset.TryParse(s.IssuedAtIso, null, System.Globalization.DateTimeStyles.RoundtripKind, out issued);
+
+    // T-909 ck-9: an instant that does not parse is corrupt; refuse it rather than re-date it to wall time.
     private static DateTimeOffset ParseInstant(string iso) =>
         DateTimeOffset.TryParse(iso, null,
             System.Globalization.DateTimeStyles.RoundtripKind, out var dto)
             ? dto
-            : DateTimeOffset.UtcNow;
+            : throw new FormatException($"Stored instant '{iso}' is not a round-trip timestamp.");
 
     private static DateTimeOffset? ParseOptionalInstant(string iso) =>
         DateTimeOffset.TryParse(iso, null,

@@ -144,8 +144,40 @@ internal static class ScopeGrammar
         };
     }
 
+    /// <summary>
+    /// ck-7 S3, mirroring harborline-platform #200 (rules-ck-28 / forms-ck-13): scope roots no evaluator
+    /// here supplies. Lowering them as bare field names let a rule read a client-supplied candidate
+    /// property in place of the authenticated principal, the evaluation instant or the record type, so the
+    /// compiler refuses them (fail closed) in a var path and in a missing / missing_some key. A record
+    /// field of the same name stays addressable as <c>field.&lt;name&gt;</c>.
+    /// </summary>
+    private static readonly HashSet<string> UnsuppliedRoots = new(StringComparer.Ordinal) { "caller", "clock", "record_type" };
+
+    private static void RefuseUnsuppliedRoot(string path, string ruleId)
+    {
+        int dot = path.IndexOf('.', StringComparison.Ordinal);
+        if (UnsuppliedRoots.Contains(dot < 0 ? path : path[..dot]))
+            throw Bad(ruleId, $"'{path}' addresses a scope root no evaluator supplies; use field.{path} for a record field");
+    }
+
+    // The platform refuses static missing keys where it collects them as refs; this copy never collected
+    // missing keys, so the refusal walks them here without changing the refs it extracts.
+    private static void RefuseUnsuppliedMissingKeys(JsonNode? value, string ruleId)
+    {
+        switch (value)
+        {
+            case JsonArray list:
+                foreach (var item in list) RefuseUnsuppliedMissingKeys(item, ruleId);
+                return;
+            case JsonValue scalar when scalar.TryGetValue<string>(out var key) && key.Length > 0:
+                RefuseUnsuppliedRoot(key, ruleId);
+                return;
+        }
+    }
+
     private static string LowerVarPath(string path, LowerContext ctx, string ruleId)
     {
+        RefuseUnsuppliedRoot(path, ruleId);
         if (path == "self")
         {
             return ctx.Scope switch
@@ -214,6 +246,13 @@ internal static class ScopeGrammar
 
     private static void Walk(JsonNode? node, List<RuleRef> refs, string ruleId)
     {
+        if (node is JsonObject missing && missing.Count == 1 && (missing.ContainsKey("missing") || missing.ContainsKey("missing_some")))
+        {
+            var raw = missing.First().Value;
+            var args = raw is JsonArray array ? array.ToList() : new List<JsonNode?> { raw };
+            if (missing.ContainsKey("missing_some")) { if (args.Count > 1) RefuseUnsuppliedMissingKeys(args[1], ruleId); }
+            else foreach (var arg in args) RefuseUnsuppliedMissingKeys(arg, ruleId);
+        }
         switch (node)
         {
             case JsonObject obj when obj.Count == 1 && obj.ContainsKey("var"):
