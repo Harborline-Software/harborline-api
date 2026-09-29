@@ -43,7 +43,10 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     {
         _db = await PacksTestStore.CreateAsync(keySalt: 58);
         _store = new DurablePackInstallStore(_db.Factory);
-        _target = new ConfigurationActivationTarget(_db.Factory, _store, TestPackGate.AllowAll(), new InMemoryPackInstallAudit());
+        var trail = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
+        _target = new ConfigurationActivationTarget(_db.Factory, _store, TestPackGate.AllowAll(), new ConfigurationEvidenceOutbox(
+            _db.Factory, trail, trail, new Ed25519Signer(KeyPair.Generate()), new FixedTime(Frozen),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationEvidenceOutbox>.Instance));
         // A non-ASCII content key: the canonical writer and the stored JSON must escape it identically.
         Seed("acme.core", ["form.shared", "form.café"]);
         Seed("acme.ext", ["form.shared", "form.ext"]);

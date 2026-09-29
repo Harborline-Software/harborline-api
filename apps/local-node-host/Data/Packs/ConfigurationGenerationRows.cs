@@ -50,6 +50,10 @@ internal sealed class ConfigurationEvidenceOutboxRow
     public required string Principal { get; set; }
     public DateTimeOffset CommittedAt { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }
+    /// <summary>The authority the admitting decision captured at commit (DES-0029 ck-6); null on rows committed before it.</summary>
+    public string? AuthoritySnapshotJson { get; set; }
+    /// <summary>The last delivery failure, cleared when the row is published.</summary>
+    public string? LastError { get; set; }
 }
 
 /// <summary>

@@ -25,6 +25,7 @@ using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Install.Trust;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Verify;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Financial;
@@ -54,6 +55,8 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
     private DurablePackInstallStore _store = null!;
     private ConfigurationActivationTarget _target = null!;
     private InMemoryPackInstallAudit _audit = null!;
+    private InMemoryAuditTrail _trail = null!;
+    private ConfigurationEvidenceOutbox _evidence = null!;
     private CountingClock _clock = null!;
     private TenantId _tenant;
 
@@ -64,7 +67,9 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         _audit = new InMemoryPackInstallAudit();
         _clock = new CountingClock(Frozen);
         var gate = TestPackGate.AllowAll();
-        _target = new ConfigurationActivationTarget(_db.Factory, _store, gate, _audit);
+        _trail = new InMemoryAuditTrail();
+        _evidence = Evidence(_trail, _trail);
+        _target = new ConfigurationActivationTarget(_db.Factory, _store, gate, _evidence);
         var activeTeam = new MutableActiveTeamAccessor(new TeamContext(TeamA, "Team A", new ServiceCollection().BuildServiceProvider(), TimeProvider.System));
         _tenant = NodeTenant.Resolve(activeTeam);
 
@@ -141,8 +146,83 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         Assert.Equal(candidate, outbox.NewDigest);
         Assert.Equal(Frozen, outbox.PublishedAt);
         Assert.Equal(Frozen, outbox.CommittedAt);
-        var published = Assert.Single(_audit.Query(_tenant), entry => entry.Detail!.StartsWith("configuration.activated:intent-1:", StringComparison.Ordinal));
-        Assert.Equal(candidate, published.Version);
+        // DES-0029 ck-6: delivered to the kernel trail by the post-write drain, with the authority the decision captured.
+        var published = Assert.Single(await EvidenceAsync());
+        Assert.Equal(ConfigurationEvidenceOutbox.AuditIdFor(_tenant.Value, "intent-1"), published.AuditId);
+        Assert.Equal(Frozen, published.OccurredAt);
+        Assert.NotNull(published.AuthoritySnapshot);
+        Assert.Equal(candidate, published.Payload.Payload.Body["version"]?.ToString());
+        Assert.StartsWith("configuration.activated:intent-1:", published.Payload.Payload.Body["detail"]?.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact(DisplayName = "ck-6 activation outbox: evidence whose publication crashed is delivered by the running host's drain daemon, without the offline verb")]
+    public async Task Crashed_publication_is_delivered_by_the_drain_daemon()
+    {
+        var candidate = await ActivateCrashingPublicationAsync("intent-daemon", "acme.ext");
+        Assert.Empty(await EvidenceAsync());
+
+        using var daemon = new ConfigurationEvidenceDrainDaemon(_evidence, TimeProvider.System, NullLogger<ConfigurationEvidenceDrainDaemon>.Instance);
+        await daemon.StartAsync(CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (Outbox().Single().PublishedAt is null && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await daemon.StopAsync(CancellationToken.None);
+
+        Assert.NotNull(Outbox().Single().PublishedAt);
+        var delivered = Assert.Single(await EvidenceAsync());
+        Assert.Equal(ConfigurationEvidenceOutbox.AuditIdFor(_tenant.Value, "intent-daemon"), delivered.AuditId);
+        Assert.Equal(candidate, delivered.Payload.Payload.Body["version"]?.ToString());
+    }
+
+    [Fact(DisplayName = "ck-6 activation outbox: a crash between delivery and the mark does not deliver twice after restart")]
+    public async Task Crash_between_delivery_and_mark_is_not_delivered_twice()
+    {
+        await ActivateCrashingPublicationAsync("intent-mark", "acme.ext");
+        using (var crashing = Evidence(_trail, new AppendThenCrashTrail(_trail)))
+            Assert.Equal(0, await crashing.DrainAsync());
+        Assert.Single(await EvidenceAsync());
+        var owed = Assert.Single(Outbox());
+        Assert.Null(owed.PublishedAt);
+        Assert.NotNull(owed.LastError);
+
+        // A fresh drain over the same store and trail, as after a host restart.
+        using (var restarted = Evidence(_trail, _trail))
+            Assert.Equal(1, await restarted.DrainAsync());
+        Assert.Single(await EvidenceAsync());
+        Assert.NotNull(Assert.Single(Outbox()).PublishedAt);
+        Assert.Null(Outbox().Single().LastError);
+    }
+
+    [Fact(DisplayName = "ck-6 activation outbox: two overlapping drains deliver an owed row once")]
+    public async Task Overlapping_drains_deliver_once()
+    {
+        await ActivateCrashingPublicationAsync("intent-overlap", "acme.ext");
+        // Both passes meet inside the "does the trail hold it?" check, so an unserialized drain appends twice.
+        using var outbox = Evidence(new RendezvousTrail(_trail), _trail);
+
+        await Task.WhenAll(Task.Run(() => outbox.DrainAsync()), Task.Run(() => outbox.DrainAsync()));
+
+        Assert.Single(await EvidenceAsync());
+        Assert.NotNull(Assert.Single(Outbox()).PublishedAt);
+    }
+
+    [Fact(DisplayName = "ck-6 activation outbox: a delivery fault leaves that row owed while later rows still drain")]
+    public async Task Delivery_fault_leaves_the_row_owed_and_later_rows_drain()
+    {
+        await ActivateCrashingPublicationAsync("intent-a", "acme.ext");
+        await ActivateCrashingPublicationAsync("intent-b", "acme.core");
+        var faulted = ConfigurationEvidenceOutbox.AuditIdFor(_tenant.Value, "intent-a");
+        using (var failing = Evidence(_trail, new FailingTrail(_trail, faulted)))
+            Assert.Equal(1, await failing.DrainAsync());
+
+        var rows = Outbox().ToDictionary(row => row.IntentId);
+        Assert.Null(rows["intent-a"].PublishedAt);
+        Assert.NotNull(rows["intent-a"].LastError);
+        Assert.NotNull(rows["intent-b"].PublishedAt);
+        Assert.Equal([ConfigurationEvidenceOutbox.AuditIdFor(_tenant.Value, "intent-b")], (await EvidenceAsync()).Select(entry => entry.AuditId));
+
+        Assert.Equal(1, await _evidence.DrainAsync());
+        Assert.Equal(2, (await EvidenceAsync()).Count);
+        Assert.All(Outbox(), row => Assert.NotNull(row.PublishedAt));
     }
 
     [Fact]
@@ -280,8 +360,8 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
             var body = await reused.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Equal("configuration-evidence-intent-reused", body.GetProperty("refusals")[0].GetProperty("code").GetString());
         }
-        // The row stays pending: the evidence intent identity is the recovery handle (T-587), and the api
-        // never republishes without the decision that admitted the switch.
+        // The row stays pending: the acknowledgement answers from the outbox and delivers nothing; the drain
+        // daemon delivers it later with the authority the admitting decision captured (DES-0029 ck-6).
         Assert.Null(Assert.Single(Outbox()).PublishedAt);
     }
 
@@ -298,7 +378,7 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         _target.CrashPoint = null;
         Assert.Equal(candidate, await DigestAsync());
         Assert.Null(Assert.Single(Outbox()).PublishedAt);
-        Assert.DoesNotContain(_audit.Query(_tenant), entry => entry.Detail!.StartsWith("configuration.activated:", StringComparison.Ordinal));
+        Assert.Empty(await EvidenceAsync());
         // Committed, unpublished, and still acknowledgeable: the same intent answers from the outbox.
         using var again = await ActivateAsync(baseline, candidate, "intent-pub");
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
@@ -409,6 +489,74 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
     }
 
     private async Task<string> DigestAsync() => (await EffectiveAsync()).GetProperty("digest").GetString()!;
+
+    private ConfigurationEvidenceOutbox Evidence(IAuditTrail trail, ICapturedAuditTrail captured) =>
+        new(_db.Factory, trail, captured, new Ed25519Signer(KeyPair.Generate()), new FixedTime(Frozen),
+            NullLogger<ConfigurationEvidenceOutbox>.Instance);
+
+    /// <summary>Activates <paramref name="owner"/> for form.shared and crashes before publication, leaving the row owed.</summary>
+    private async Task<string> ActivateCrashingPublicationAsync(string intentId, string owner)
+    {
+        var baseline = await DigestAsync();
+        var candidate = (await PrepareAsync(baseline, "form.shared", owner)).GetProperty("candidateDigest").GetString()!;
+        _target.CrashPoint = at => { if (at == "before-publish") throw new InvalidOperationException("crash:publish"); };
+        using (var activate = await ActivateAsync(baseline, candidate, intentId))
+            Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        _target.CrashPoint = null;
+        Assert.Null(Outbox().Single(row => row.IntentId == intentId).PublishedAt);
+        return candidate;
+    }
+
+    private async Task<List<AuditRecord>> EvidenceAsync()
+    {
+        var entries = new List<AuditRecord>();
+        await foreach (var record in _trail.QueryAsync(new AuditQuery(_tenant, KernelAuditPackInstallAudit.PackInstallEventType)))
+            entries.Add(record);
+        return entries;
+    }
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>The append lands on the trail, then the process dies before the drain marks the row.</summary>
+    private sealed class AppendThenCrashTrail(InMemoryAuditTrail inner) : ICapturedAuditTrail
+    {
+        public async ValueTask AppendCapturedAsync(AuditRecord captured, CancellationToken ct = default)
+        {
+            await inner.AppendCapturedAsync(captured, ct);
+            throw new InvalidOperationException("crash:after-delivery");
+        }
+    }
+
+    private sealed class FailingTrail(InMemoryAuditTrail inner, Guid failing) : ICapturedAuditTrail
+    {
+        public ValueTask AppendCapturedAsync(AuditRecord captured, CancellationToken ct = default) =>
+            captured.AuditId == failing ? throw new InvalidOperationException("ck-6 injected trail outage") : inner.AppendCapturedAsync(captured, ct);
+    }
+
+    private sealed class RendezvousTrail(InMemoryAuditTrail inner) : IAuditTrail
+    {
+        private readonly TaskCompletionSource _both = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => inner.AppendAsync(record, ct);
+
+        public async IAsyncEnumerable<AuditRecord> QueryAsync(
+            AuditQuery query, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            if (query.AuditId is not null)
+            {
+                if (Interlocked.Increment(ref _arrived) == 2) _both.TrySetResult();
+                // A serialized drain never brings the second pass here while the first waits, so this times out.
+                await Task.WhenAny(_both.Task, Task.Delay(TimeSpan.FromSeconds(1), ct));
+            }
+
+            await foreach (var record in inner.QueryAsync(query, ct))
+                yield return record;
+        }
+    }
 
     private List<ConfigurationEvidenceOutboxRow> Outbox()
     {

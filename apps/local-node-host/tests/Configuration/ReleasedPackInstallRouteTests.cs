@@ -71,7 +71,7 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         _db = await PacksTestStore.CreateAsync(keySalt: 67);
         _store = new DurablePackInstallStore(_db.Factory);
         var gate = TestPackGate.AllowAll();
-        _activation = new ConfigurationActivationTarget(_db.Factory, _store, gate, new InMemoryPackInstallAudit());
+        _activation = new ConfigurationActivationTarget(_db.Factory, _store, gate, evidence: null);
 
         var seed = new byte[32];
         for (var index = 0; index < seed.Length; index++) seed[index] = (byte)(index + 67);

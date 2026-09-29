@@ -64,7 +64,7 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
         _db = await PacksTestStore.CreateAsync(keySalt: 61);
         _store = new DurablePackInstallStore(_db.Factory);
         var gate = TestPackGate.AllowAll();
-        _activation = new ConfigurationActivationTarget(_db.Factory, _store, gate, new InMemoryPackInstallAudit());
+        _activation = new ConfigurationActivationTarget(_db.Factory, _store, gate, evidence: null);
         _keys = KeyPair.Generate();
         _verifier = new Ed25519Verifier();
         _proposals = new ConfigurationProposalStore(_db.Factory, _activation, new Ed25519Signer(_keys));

@@ -231,11 +231,8 @@ public static class ConfigurationRecoveryCommand
             var record = _record ?? throw new InvalidOperationException("configuration-recovery-record-not-staged");
             // Publication takes the audit's instant: one clock read for everything this recovery persists.
             foreach (var repair in record.Repairs.Where(repair => repair.Terminal == ConfigurationTerminalState.Published))
-            {
-                var row = await context.EvidenceOutbox.FindAsync([record.TenantKey, repair.Identity], cancellationToken).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("configuration-outbox-entry-moved");
-                row.PublishedAt = audit.RecordedAt;
-            }
+                await ConfigurationEvidenceOutbox.MarkPublishedAsync(context, record.TenantKey, repair.Identity, audit.RecordedAt,
+                    cancellationToken).ConfigureAwait(false);
             context.RecoveryAudit.Add(new ConfigurationRecoveryAuditRow
             {
                 AuditId = audit.AuditId, Tenant = record.TenantKey, ActorId = audit.ActorId, RecordedAt = audit.RecordedAt,

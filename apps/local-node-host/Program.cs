@@ -1535,11 +1535,15 @@ builder.Services.AddSingleton<IPackInstaller>(sp => new PackInstaller(
     sp.GetRequiredService<IPackPlatformCompatibility>()));
 // T-644: the api half of atomic activation shares the durable pack store's SQLite unit, so ownership
 // selections, the effective pointer, the Access decision reference and the evidence intent commit together.
+// DES-0029 ck-6: the evidence each activation commits is delivered to the kernel audit trail by a drain right after
+// the switch and, for any delivery that fails, on the drain interval; no offline verb is needed for it.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationEvidenceOutbox>();
+builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationEvidenceDrainDaemon>();
 builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget(
     sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
     DurablePackStore(sp),
     sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
-    sp.GetRequiredService<IPackInstallAudit>(),
+    sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationEvidenceOutbox>(),
     sp.GetRequiredService<IPackPlatformCompatibility>()));
 // T-461: propose, save and release sit beside activation and share the same pack database, but they are
 // a different act. The store reads the effective generation as a baseline and never writes the pointer;

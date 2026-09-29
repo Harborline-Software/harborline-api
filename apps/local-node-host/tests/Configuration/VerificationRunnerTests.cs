@@ -78,7 +78,7 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         _db = await PacksTestStore.CreateAsync(keySalt: 46);
         _store = new DurablePackInstallStore(_db.Factory);
         var gate = TestPackGate.AllowAll();
-        _target = new ConfigurationActivationTarget(_db.Factory, _store, gate, new InMemoryPackInstallAudit());
+        _target = new ConfigurationActivationTarget(_db.Factory, _store, gate, evidence: null);
         _runner = new VerificationRunner(_target, _store, new FrozenClock(Frozen), static instant => new FrozenClock(instant));
         _tenant = ActiveTeamTenantContext.ProjectTenantId(TeamA);
         var activeTeam = new StaticActiveTeamAccessor(new TeamContext(TeamA, "Team A",
