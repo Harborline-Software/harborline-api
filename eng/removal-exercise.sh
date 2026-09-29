@@ -205,11 +205,20 @@ dependents=$(node -e '
     .filter(p => p.lifecycle === "Active" && p.packKey !== process.argv[2])
     .map(p => p.packKey + "@" + p.version).join(" "))
 ' "$clean_root/installed.json" "$pack_key" 2>/dev/null)
-for dependent in $dependents; do
-  echo "removal-exercise: deactivating dependent ${dependent%@*} ${dependent#*@} first"
-  status=$(deactivate "${dependent%@*}" "${dependent#*@}")
-  echo "  $status  POST /api/local-node/packs/deactivate -> $(body)"
-  [ "$status" = "200" ] || fail "a dependent of $pack_key could not be deactivated ($status)"
+# The installed list is key-ordered, not dependency-ordered, and a pack is refused while another Active pack
+# depends on it: retry the refused ones each pass, and fail only when a pass deactivates nothing.
+remaining=$dependents
+while [ -n "$remaining" ]; do
+  refused=""
+  for dependent in $remaining; do
+    echo "removal-exercise: deactivating dependent ${dependent%@*} ${dependent#*@} first"
+    status=$(deactivate "${dependent%@*}" "${dependent#*@}")
+    echo "  $status  POST /api/local-node/packs/deactivate -> $(body)"
+    [ "$status" = "200" ] || refused="$refused $dependent"
+  done
+  refused="${refused# }"
+  [ "$refused" != "$remaining" ] || fail "dependents of $pack_key could not be deactivated: $remaining"
+  remaining=$refused
 done
 
 echo "removal-exercise: REMOVING $pack_key $pack_version through the ordinary installer route"
