@@ -1279,9 +1279,10 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
             with { Status = JournalEntryStatus.Posted, PostedAtUtc = new Instant(System.TimeProvider.System.GetUtcNow()) };
 
         // A direct second save with the SAME (tenant, source-reference) must violate the unique
-        // index — DbUpdateException wraps the SQLite UNIQUE-constraint failure.
-        await Assert.ThrowsAsync<DbUpdateException>(
+        // index — the store's typed conflict wraps EF's DbUpdateException over the SQLite UNIQUE failure.
+        var conflict = await Assert.ThrowsAsync<JournalSourceReferenceConflictException>(
             () => _store.SaveAtomicForTestAsync(LocalTenantId, dupEntry));
+        Assert.IsType<DbUpdateException>(conflict.InnerException);
 
         // Only the first row survived.
         var hits = _store.Snapshot(LocalTenantId)
