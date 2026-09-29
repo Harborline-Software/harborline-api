@@ -213,12 +213,14 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     public async Task Recover_run_again_after_a_crash_appends_once(string point)
     {
         await CrashResidueAsync();
+        var before = await TrailCountAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await RecoverAsync("Node crashed",
             at => { if (at == point) throw new InvalidOperationException("crash:" + at); }));
 
         Assert.True((await RecoverAsync("Node crashed")).Committed);
         Assert.Equal(0, await _drainer.DrainAsync());
 
+        Assert.Equal(before + 1, await TrailCountAsync());
         Assert.Equal(1, await OnTrailAsync("intent-2"));
     }
 
@@ -226,11 +228,13 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     public async Task Recover_crashed_then_drained_appends_once()
     {
         await CrashResidueAsync();
+        var before = await TrailCountAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await RecoverAsync("Node crashed",
             at => { if (at == "audit-written") throw new InvalidOperationException("crash:" + at); }));
 
         Assert.Equal(1, await _drainer.DrainAsync());
 
+        Assert.Equal(before + 1, await TrailCountAsync());
         Assert.Equal(1, await OnTrailAsync("intent-2"));
         using var context = _db.CreateContext();
         Assert.All(context.EvidenceOutbox.AsNoTracking(), row => Assert.NotNull(row.PublishedAt));
@@ -246,6 +250,14 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     }
 
     private async Task<int> OnTrailAsync(string intentId) => (await EntriesAsync(intentId)).Count;
+
+    /// <summary>Every entry on the tenant's trail, whatever its id: a duplicate under a fresh id still counts.</summary>
+    private async Task<int> TrailCountAsync()
+    {
+        var count = 0;
+        await foreach (var _ in _trail.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(Tenant))) count++;
+        return count;
+    }
 
     /// <summary>The evidence intents the one recovery audit names as stood in for, not appended.</summary>
     private string[] StandIns()
