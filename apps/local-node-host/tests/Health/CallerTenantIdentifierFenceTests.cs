@@ -64,15 +64,14 @@ public sealed class CallerTenantIdentifierFenceTests
             Assert.True(pairs.Length >= 8);
             foreach (var (method, path) in pairs)
             {
-                foreach (var spelling in new[]
-                    { "tenantId", "tenant_id", "tenant-id", "TENANTID", "tenant", "tenantIdentifier", "X-Tenant", "X-Tenant-Id", "X-Tenant-Identifier" })
+                foreach (var spelling in TenantSpellings)
                 {
                     using var query = new HttpRequestMessage(new HttpMethod(method), $"{path}?{spelling}=other-team");
                     await AssertBadTenantAsync(client, query);
                     using var header = new HttpRequestMessage(new HttpMethod(method), path);
                     header.Headers.TryAddWithoutValidation(spelling, "other-team");
                     await AssertBadTenantAsync(client, header);
-                    if (spelling.Equals("tenantId", StringComparison.OrdinalIgnoreCase)
+                    if (spelling == "tenantId"
                         && path is "/api/session/select" or "/api/session/switch")
                         continue;
                     using var body = new HttpRequestMessage(new HttpMethod(method), path)
@@ -164,6 +163,23 @@ public sealed class CallerTenantIdentifierFenceTests
             await app.StopAsync(CancellationToken.None);
         }
     }
+
+    // Every case and separator style of each tenant-identifier word, plus the X- header style.
+    internal static readonly string[] TenantSpellings = new[] { "Tenant", "Tenant Id", "Tenant Identifier" }
+        .SelectMany(words =>
+        {
+            var parts = words.Split(' ');
+            return new[]
+            {
+                parts[0].ToLowerInvariant() + string.Concat(parts.Skip(1)),
+                string.Join('_', parts).ToLowerInvariant(),
+                string.Join('-', parts).ToLowerInvariant(),
+                string.Concat(parts).ToUpperInvariant(),
+                "X-" + string.Join('-', parts),
+            };
+        })
+        .Distinct()
+        .ToArray();
 
     private static async Task AssertBadTenantAsync(HttpClient client, HttpRequestMessage request)
     {
