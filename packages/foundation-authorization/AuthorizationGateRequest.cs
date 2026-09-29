@@ -23,10 +23,10 @@ public sealed record AuthorizationGateRequest(
     /// <summary>Validated audit association only; never consulted by authorization policy.</summary>
     public Guid? CorrelationId { get; init; }
     /// <summary>
-    /// Legacy caller assertion retained for source compatibility. The gate ignores it; only a refusal
-    /// produced while evaluating live grant attenuation can appear in the decision.
+    /// The kernel's own refusal code, set only by the gate while evaluating live grant attenuation. Routes and
+    /// blocks cannot set it (T-519); the gate also clears any value on entry.
     /// </summary>
-    public string? GrantRefusal { get; init; }
+    public string? GrantRefusal { get; internal init; }
     /// <summary>Server-read role atoms to attenuate against the actor's live grants at each atom's scope.</summary>
     public PermissionAtomSet? RequiredGrantAtoms { get; init; }
 }

@@ -103,6 +103,9 @@ public static class PropertyRoutes
             CreatePropertyRequest body,
             CancellationToken ct) =>
         {
+            // T-974: `name` is this record's key and the server mints it; a caller-constructed key is refused.
+            if (body?.Name is not null || body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.PropertyName))
             {
                 return Results.BadRequest(new { error = "property_name is required." });
@@ -192,4 +195,6 @@ public sealed record CreatePropertyRequest(
     [property: JsonPropertyName("postal_code")] string? PostalCode,
     [property: JsonPropertyName("units")] int? Units,
     [property: JsonPropertyName("status")] string? Status,
-    [property: JsonPropertyName("company")] string? Company);
+    [property: JsonPropertyName("company")] string? Company,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("id")] string? Id = null);

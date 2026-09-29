@@ -413,6 +413,35 @@ public sealed class PaymentWriteRouteTests : IAsyncLifetime
         Assert.Equal(0, await ctx.Set<PaymentApplication>().CountAsync());
     }
 
+    [Fact(DisplayName = "Payment write: a client-supplied payment id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task RecordInvoicePayment_refuses_a_client_supplied_record_id()
+    {
+        var accountId = new SubLedgerAccountId(await ActivateAsync("LEASE-PW974", "CH-1", "CUST-974"));
+        await SeedIssuedInvoiceAsync("INV-PW974", "CH-1", "CUST-974", "INV-2026-01-01-AA-9974",
+            new DateOnly(2026, 1, 1), 1500m, accountId);
+
+        var refused = await _client.PostAsJsonAsync($"{InvoicesRoute}/INV-PW974/payments", new
+        {
+            id = "client-constructed-id", amount = 500m, currency = "USD", method = "ACH", paymentDate = "2026-01-15",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        await using (var ctx = await _factory.CreateDbContextAsync())
+            Assert.Equal(0, await ctx.Set<Payment>().CountAsync());
+
+        var created = await _client.PostAsJsonAsync($"{InvoicesRoute}/INV-PW974/payments",
+            new RecordNodePaymentRequest(Amount: 500m, Currency: "USD", Method: "ACH", PaymentDate: "2026-01-15"));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        await using (var ctx = await _factory.CreateDbContextAsync())
+        {
+            var minted = Assert.Single(await ctx.Set<Payment>().ToListAsync()).Id.Value;
+            Assert.False(string.IsNullOrWhiteSpace(minted));
+            Assert.NotEqual("client-constructed-id", minted);
+        }
+    }
+
     [Fact(DisplayName = "Payment write: recording against an unknown invoice is 404")]
     public async Task RecordInvoicePayment_UnknownInvoice_NotFound()
     {

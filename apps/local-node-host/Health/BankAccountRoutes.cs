@@ -174,6 +174,9 @@ public static class BankAccountRoutes
                     http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct) is { } denied)
                 return denied;
 
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
 
@@ -832,7 +835,7 @@ public static class BankAccountRoutes
     // ── Request bodies ───────────────────────────────────────────────────────────
     public sealed record CreateBankAccountBody(
         string? DisplayName, string? InstitutionName, string? AccountNumberMask,
-        string? CurrencyCode, string? LinkedLedgerAccountId, string? Kind);
+        string? CurrencyCode, string? LinkedLedgerAccountId, string? Kind, string? Id = null);
     public sealed record SetOpeningBalanceBody(decimal OpeningBalance, string? OpeningBalanceDate);
     public sealed record MatchLinkBody(string? MatchLinkId);
     public sealed record PeriodBody(string? PeriodId);

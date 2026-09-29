@@ -705,6 +705,35 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
             command.CommandText.Contains("FROM \"journal_entries\"", StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "JE create: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        var lines = new[]
+        {
+            new { accountCode = "1000", amount = 500m, direction = "Debit" },
+            new { accountCode = "4000", amount = 500m, direction = "Credit" },
+        };
+
+        var refused = await _client.PostAsJsonAsync(Route, new
+        {
+            id = "client-constructed-id", postingDate = "2026-01-15", memo = "Client id", chartId = "CH-1", lines,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(0, Data(await _client.GetFromJsonAsync<JsonElement>(Route)).GetArrayLength());
+
+        var created = await _client.PostAsJsonAsync(Route, new
+        {
+            postingDate = "2026-01-15", memo = "Server id", chartId = "CH-1", lines,
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = Data(await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "ticket 151 cluster: JE create without ledger:post is refused (403), nothing persists")]
     public async Task Create_Without_LedgerPost_Is_Refused()
     {
@@ -1032,6 +1061,29 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
         Assert.Equal("Reversed", orig.GetProperty("data").GetProperty("status").GetString());
         Assert.Equal(rev.GetProperty("id").GetString(),
             orig.GetProperty("data").GetProperty("reversedBy").GetString());
+    }
+
+    [Fact(DisplayName = "JE reverse: a client-supplied id for the new reversing entry is refused 400 with no write (T-974)")]
+    public async Task Reverse_refuses_a_client_supplied_record_id()
+    {
+        await SeedEntryAsync("JE-ORIG", LocalTenantId, new DateOnly(2026, 1, 10), "1000", "4000", 250m,
+            status: JournalEntryStatus.Posted);
+
+        var refused = await _client.PostAsJsonAsync(
+            $"{Route}/JE-ORIG/reverse", new { reversalDate = "2026-02-01", id = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(1, Data(await _client.GetFromJsonAsync<JsonElement>(Route)).GetArrayLength());
+        var original = await _client.GetFromJsonAsync<JsonElement>($"{Route}/JE-ORIG");
+        Assert.Equal("Posted", original.GetProperty("data").GetProperty("status").GetString());
+
+        var reversed = await _client.PostAsJsonAsync($"{Route}/JE-ORIG/reverse", new { reversalDate = "2026-02-01" });
+        Assert.Equal(HttpStatusCode.Created, reversed.StatusCode);
+        var minted = (await reversed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data").GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
     }
 
     [Fact(DisplayName = "JE reverse: a second reverse on an already-reversed entry is rejected 400")]
