@@ -119,8 +119,9 @@ internal sealed class AuthorizedGrantRevocationWriter(
         // The ONE admission-grant derivation lives on the configuration store; it is built over the grant
         // factory this writer already holds, exactly as WebAdmittedMemberAtlasBridge does for the live
         // conferral -- no new constructor seam on the authority and no second derivation anywhere. The role
-        // vocabulary is empty on purpose: StageAdmissionGrantAsync always supplies the admission's own.
+        // vocabulary is empty on purpose: the conferral pipeline always supplies the admission's own vocabulary.
         return new NodeEfAuthorizationConfigurationStore(grantFactory, new InMemoryRoleVocabulary([]))
-            .NarrowAdmissionGrantAsync(tenant, current, narrowed, revocation, correlationId, cancellationToken);
+            .NarrowAdmissionGrantAsync(
+                tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
     }
 }

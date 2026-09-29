@@ -189,8 +189,10 @@ public sealed class RosterAuthorityBindingTests
             await db.Database.MigrateAsync();
         }
         var grants = new NodeEfAuthorizationConfigurationStore(store.Factory, new InMemoryRoleVocabulary());
-        await grants.ConferAdmissionGrantAsync(Tenant, "admin", "founder", adminPermissions, At);
-        await grants.ConferAdmissionGrantAsync(Tenant, "chain", "admin", PlainMember, At);
+        await grants.ConferAdmissionGrantAsync(Tenant, "admin", "founder", adminPermissions, At,
+            AdmissionConferralAuthority.SignedAdmission(roster));
+        await grants.ConferAdmissionGrantAsync(Tenant, "chain", "admin", PlainMember, At,
+            AdmissionConferralAuthority.SignedAdmission(roster));
 
         return new Signers(founder, admin, chainKey, roster);
     }

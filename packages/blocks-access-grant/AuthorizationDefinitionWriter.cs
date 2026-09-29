@@ -41,14 +41,115 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         this.pipelineObserver = pipelineObserver;
     }
 
-    /// <summary>Validate-stage entry for the host's fenced, verified-admission boot migration.</summary>
-    internal static async ValueTask<ValidatedAuthorizationConfigurationWrite> ValidateAdmissionMigrationAsync(
-        AuthorizationCapabilityDefinition definition, TenantId tenant, DateTimeOffset signedAt,
-        IRoleVocabularyReader roles, CancellationToken ct)
+    /// <summary>
+    /// ck-10 (DES-0029): an admission conferral runs the same six ADR 0038 stages, inside the caller's open
+    /// transaction. Authorize checks the carried admission authority before anything is read; bind reads
+    /// through <paramref name="unit"/>, so it sees the caller's uncommitted state; mutate derives the
+    /// per-admission definitions and the grant; validate admits each definition and seals it; commit hands
+    /// the seals and the grant to <paramref name="unit"/>, which stages them with their audit and saves them
+    /// in the caller's transaction; react returns the grant. A refusal at any stage throws inside that
+    /// transaction, so nothing is persisted. Returns null when this admission's grant already exists.
+    /// </summary>
+    internal static async ValueTask<AccessGrant?> ConferAdmissionAsync(
+        AdmissionConferral conferral,
+        AdmissionConferralAuthority authority,
+        IAdmissionConferralUnit unit,
+        IWritePipelineObserver? observer,
+        CancellationToken ct)
     {
-        await new AuthorizationDefinitionAdmission(roles).AdmitAsync(definition, tenant, previous: null, ct: ct)
-            .ConfigureAwait(false);
-        return new(AuthorizationConfigurationWriteKind.InstallDefinition, definition, null, 0, 0, signedAt, tenant);
+        ArgumentNullException.ThrowIfNull(conferral);
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(unit);
+        IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long>? bound = null;
+        (AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions)? mutation = null;
+        ValidatedAdmissionConferral? validated = null;
+        foreach (var stage in WritePipeline.Order)
+        {
+            observer?.OnStage(stage);
+            ct.ThrowIfCancellationRequested();
+            switch (stage)
+            {
+                case WritePipelineStage.Authorize:
+                    authority.Authorize(conferral);
+                    break;
+                case WritePipelineStage.Bind:
+                    if (await unit.GrantExistsAsync(new GrantId(conferral.GrantId), ct).ConfigureAwait(false))
+                        return null;
+                    var revisions = new Dictionary<AuthorizationCapabilityDefinitionId, long>();
+                    foreach (var permission in conferral.Permissions.Permissions)
+                    {
+                        var id = conferral.DefinitionIdFor(permission);
+                        revisions[id] = await unit.DefinitionRevisionAsync(id, ct).ConfigureAwait(false);
+                    }
+                    bound = revisions;
+                    break;
+                case WritePipelineStage.Mutate:
+                    mutation = MutateConferral(conferral);
+                    break;
+                case WritePipelineStage.Validate:
+                    validated = await ValidateConferralAsync(conferral, authority,
+                            bound ?? throw new InvalidOperationException("Bind must precede validate."),
+                            mutation ?? throw new InvalidOperationException("Mutate must precede validate."), ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.Commit:
+                    await unit.CommitAsync(
+                            validated ?? throw new InvalidOperationException("Validate must precede commit."), ct)
+                        .ConfigureAwait(false);
+                    break;
+                case WritePipelineStage.React:
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported kernel write stage '{stage}'.");
+            }
+        }
+
+        return (validated ?? throw new InvalidOperationException("Kernel write pipeline did not react.")).Grant;
+    }
+
+    private static (AccessGrant, AuthorizationCapabilityDefinition[]) MutateConferral(AdmissionConferral conferral)
+    {
+        var role = conferral.Role;
+        var definitions = conferral.Permissions.Permissions.Select(permission =>
+        {
+            var operation = AuthorizationOperation.Parse(permission);
+            return new AuthorizationCapabilityDefinition(conferral.DefinitionIdFor(permission),
+                AccessGrantAuthorizationSeed.PackageId, 1, operation,
+                new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.From([role]));
+        }).ToArray();
+        var granter = new ActorId(conferral.AdmittedByPartyId);
+        var grant = new AccessGrant(new GrantId(conferral.GrantId), conferral.Tenant,
+            new ActorId(conferral.AdmittedPartyId), role, ScopeExpression.Parse("/"), GrantResidency.Cache,
+            new GrantValidity(conferral.IssuedAt), GranterKind.Person, granter, conferral.IssuedAt,
+            new GrantProvenance(GrantSourceKind.Manual,
+                new GrantReason(GrantReasonCodes.Manual, conferral.Nonce.ToString("D")), granter),
+            conferral.IssuedAt, GrantStatus.Active, null);
+        return (grant, definitions);
+    }
+
+    private static async ValueTask<ValidatedAdmissionConferral> ValidateConferralAsync(
+        AdmissionConferral conferral,
+        AdmissionConferralAuthority authority,
+        IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long> bound,
+        (AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions) mutation,
+        CancellationToken ct)
+    {
+        var roles = new InMemoryRoleVocabulary(
+            [AccessGrantAuthorizationSeed.AdmissionMigrationRole(conferral.GrantId, conferral.Tenant)]);
+        var admission = new AuthorizationDefinitionAdmission(roles);
+        var seals = new List<ValidatedAuthorizationConfigurationWrite>(mutation.Definitions.Length);
+        foreach (var definition in mutation.Definitions)
+        {
+            if (!bound.TryGetValue(definition.DefinitionId, out var revision) || revision != 0)
+                throw new InvalidOperationException("The admission's authorization definition is already installed.");
+            await admission.AdmitAsync(definition, conferral.Tenant, previous: null, ct: ct).ConfigureAwait(false);
+            seals.Add(new ValidatedAuthorizationConfigurationWrite(
+                AuthorizationConfigurationWriteKind.InstallDefinition, definition, null, 0, 0,
+                conferral.IssuedAt, conferral.Tenant, authority.Decision,
+                new ActorId(conferral.AdmittedByPartyId), conferral.Tenant));
+        }
+
+        return new ValidatedAdmissionConferral(mutation.Grant, conferral.SourceReference, seals, roles, authority.Decision);
     }
 
     /// <summary>Runs authorize → bind → mutate → validate → commit → react.</summary>

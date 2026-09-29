@@ -40,15 +40,15 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
             "validate stage: the only ordinary mint"),
         ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.CommitAsync|commit",
             "commit stage"),
-        // KNOWN GAP (ck-10): the live admission conferral derives one per-admission definition per signed
-        // permission and stages it inside the admission's own EF unit of work. It runs definition admission
-        // (validate) but not authorize/bind/mutate/react; the caller's admission decision is its authority.
-        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync|seal",
-            "GAP: admission-conferral seal, validate only"),
-        ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync|migration-seal",
-            "GAP: admission conferral asks for the validate-only seal"),
-        ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync|stage-write",
-            "GAP: admission conferral stages outside the six stages"),
+        // The admission conferral runs the same six stages inside the caller's fence: its validate stage mints
+        // one seal per derived definition, its commit stage hands them to the caller's unit, and that unit's
+        // commit is the only other staging of a sealed write.
+        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ValidateConferralAsync|seal",
+            "admission conferral: validate stage"),
+        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ConferAdmissionAsync|conferral-commit",
+            "admission conferral: commit stage"),
+        ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore+ConferralUnit.CommitAsync|stage-write",
+            "admission conferral: the commit stage's staging, in the caller's fence"),
         // The EF store's one staging method, reached from its seal-taking commit.
         ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore+<>c__DisplayClass.<CommitCoreAsync>b__0|stage-write",
             "store commit of a pipeline seal"),
@@ -74,13 +74,28 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
         Assert.All(Reviewed, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
     }
 
+    // ck-10: the admission conferral is a pipeline writer, not an inventoried exception. Its seal is minted
+    // only by its validate stage and the caller's unit commits only from its commit stage, so a conferral that
+    // stages or commits from anywhere else is a discovered site missing from this list.
+    [Fact]
+    public void AdmissionConferralIsAPipelineWriterNotAnInventoriedException()
+    {
+        Assert.All(Reviewed, row => Assert.False(row.Reason.StartsWith("GAP", StringComparison.Ordinal), row.Key));
+        var discovered = DiscoveredPipelineWriteKeys();
+        const string writer = "packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.";
+        Assert.Contains(writer + "ValidateConferralAsync|seal", discovered);
+        Assert.Equal(writer + "ConferAdmissionAsync|conferral-commit",
+            Assert.Single(discovered, key => key.EndsWith("|conferral-commit", StringComparison.Ordinal)));
+        Assert.Single(discovered, key => key.Contains("+ConferralUnit.", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void PlantedBypassOutsideTheWriterIsCaughtForEveryWriteShape()
     {
         var planted = Discover([typeof(PlantedAuthorizationWriteBypass).Assembly],
             type => type == typeof(PlantedAuthorizationWriteBypass) || type.DeclaringType == typeof(PlantedAuthorizationWriteBypass));
 
-        foreach (var sink in new[] { "seal", "migration-seal", "commit", "row-new", "row-set", "row-write" })
+        foreach (var sink in new[] { "seal", "conferral-commit", "commit", "row-new", "row-set", "row-write" })
             Assert.Contains(planted, key => key.EndsWith("|" + sink, StringComparison.Ordinal));
         Assert.All(planted, key => Assert.DoesNotContain(key, Reviewed.Select(row => row.Key)));
         Assert.DoesNotContain(planted, IsInsideStageWrite);
@@ -139,7 +154,8 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
                 or nameof(IAuthorizationConfigurationStore.CommitBootstrapAsync)
             && typeof(IAuthorizationConfigurationStore).IsAssignableFrom(declaring)) return "commit";
         if (declaring == typeof(NodeEfAuthorizationConfigurationStore) && target.Name == "StageWriteAsync") return "stage-write";
-        if (declaring == typeof(AuthorizationDefinitionWriter) && target.Name == "ValidateAdmissionMigrationAsync") return "migration-seal";
+        if (target.Name == nameof(IAdmissionConferralUnit.CommitAsync)
+            && typeof(IAdmissionConferralUnit).IsAssignableFrom(declaring)) return "conferral-commit";
         if (GovernedRows.Contains(declaring))
             return target.IsConstructor ? "row-new" : target.Name.StartsWith("set_", StringComparison.Ordinal) ? "row-set" : null;
         if (ContainerWriteVerbs.Contains(target.Name) && GenericArguments(target).Any(GovernedRows.Contains)) return "row-write";
@@ -173,7 +189,8 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
     /// Test-only planted bypass: a "second writer" outside the pipeline that reaches the governed records by
     /// every shape the fence knows. It is never executed.
     /// </summary>
-    private sealed class PlantedAuthorizationWriteBypass(IAuthorizationConfigurationStore store, NodeLocalSearchDbContext db)
+    private sealed class PlantedAuthorizationWriteBypass(
+        IAuthorizationConfigurationStore store, IAdmissionConferralUnit unit, NodeLocalSearchDbContext db)
     {
         public async Task Bypass(AuthorizationCapabilityDefinition definition)
         {
@@ -181,8 +198,7 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
                 AuthorizationConfigurationWriteKind.InstallDefinition, definition, null, 0, 0,
                 DateTimeOffset.UnixEpoch, new TenantId("planted"));
             await store.CommitAsync(write);
-            await store.CommitAsync(await AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync(
-                definition, new TenantId("planted"), DateTimeOffset.UnixEpoch, null!, default));
+            await unit.CommitAsync(null!, default);
             db.AuthorizationDefinitions.Add(new AuthorizationDefinitionRow
             {
                 DefinitionId = "planted", Revision = 1, PublisherPackageId = "planted", Operation = "planted",
