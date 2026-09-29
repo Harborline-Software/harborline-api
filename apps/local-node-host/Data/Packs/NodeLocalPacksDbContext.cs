@@ -73,6 +73,12 @@ public sealed class NodeLocalPacksDbContext : DbContext
     /// <summary>Signed Released packages, offered for activation by their own artifact digest (T-461).</summary>
     internal DbSet<ConfigurationReleasedPackageRow> ReleasedPackages => Set<ConfigurationReleasedPackageRow>();
 
+    /// <summary>Offline configuration recovery records (T-587); each commits with its audit row.</summary>
+    internal DbSet<ConfigurationRecoveryRow> Recoveries => Set<ConfigurationRecoveryRow>();
+
+    /// <summary>The audit evidence for each configuration recovery (T-587).</summary>
+    internal DbSet<ConfigurationRecoveryAuditRow> RecoveryAudit => Set<ConfigurationRecoveryAuditRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -189,6 +195,29 @@ public sealed class NodeLocalPacksDbContext : DbContext
             e.Property(r => r.CommittedAt).HasColumnName("committed_at");
             e.Property(r => r.PublishedAt).HasColumnName("published_at");
             e.HasIndex(r => new { r.Tenant, r.PublishedAt });
+        });
+
+        modelBuilder.Entity<ConfigurationRecoveryRow>(e =>
+        {
+            e.ToTable("configuration_recoveries");
+            e.HasKey(r => new { r.Tenant, r.RecoveryId });
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.RecoveryId).HasColumnName("recovery_id").HasMaxLength(256);
+            e.Property(r => r.EffectiveDigest).HasColumnName("effective_digest").HasMaxLength(64);
+            e.Property(r => r.Reason).HasColumnName("reason");
+            e.Property(r => r.AuthoritySnapshot).HasColumnName("authority_snapshot");
+            e.Property(r => r.RecordJson).HasColumnName("record_json");
+        });
+
+        modelBuilder.Entity<ConfigurationRecoveryAuditRow>(e =>
+        {
+            e.ToTable("configuration_recovery_audit");
+            e.HasKey(r => r.AuditId);
+            e.Property(r => r.AuditId).HasColumnName("audit_id").HasMaxLength(512);
+            e.Property(r => r.Tenant).HasColumnName("tenant").HasMaxLength(256);
+            e.Property(r => r.ActorId).HasColumnName("actor_id").HasMaxLength(512);
+            e.Property(r => r.RecordedAt).HasColumnName("recorded_at");
+            e.Property(r => r.PayloadJson).HasColumnName("payload_json");
         });
 
         modelBuilder.Entity<ConfigurationProposalRow>(e =>

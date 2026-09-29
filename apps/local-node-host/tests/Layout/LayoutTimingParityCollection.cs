@@ -6,6 +6,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 // The timing theories carry Lane=perf. The host lanes' exact-clone excludes that trait;
 // verify-perf-hosted runs it on Linux, with verify-perf comparing results on mac16.
 // The classes' other tests (shape parity, fault paths, alerts, probe logging) stay in the host lanes.
+// T-680: those perf jobs set HARBORLINE_PERF_QUIET=1 and the gate applies its quiet bounds; anywhere else
+// (an unfiltered local run beside other lanes) it applies TimingParity.Bounds.Busy instead of going red.
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class LayoutTimingParityCollection
 {

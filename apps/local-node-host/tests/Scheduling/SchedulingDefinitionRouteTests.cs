@@ -500,6 +500,43 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(TimeOnly.MinValue, saved.EndTime);
     }
 
+    [Theory]
+    [InlineData("id")]
+    [InlineData("eventId")]
+    public async Task Event_create_refuses_a_client_supplied_record_id(string key)
+    {
+        _principal.Grant(Permission.SchedulingOperate);
+        var refused = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.EventRoute, new Dictionary<string, object?>
+        {
+            ["resource"] = "party:resource-1",
+            ["title"] = "Client id",
+            ["allDay"] = true,
+            ["startDate"] = "2026-03-08",
+            ["endDate"] = "2026-03-09",
+            [key] = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var events = _app.Services.GetRequiredService<ICalendarEventStore>();
+        Assert.Empty(await events.ListAsync(NodeTenant.Resolve(_activeTeam)));
+
+        var created = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.EventRoute, new
+        {
+            resource = "party:resource-1",
+            title = "Server id",
+            allDay = true,
+            startDate = "2026-03-08",
+            endDate = "2026-03-09",
+        });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("eventId").ToString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+        Assert.Equal(minted, Assert.Single(await events.ListAsync(NodeTenant.Resolve(_activeTeam))).Id.Value.ToString());
+    }
+
     [Fact]
     public async Task All_day_event_rejects_time_bearing_fields_without_writing()
     {

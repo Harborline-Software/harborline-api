@@ -167,6 +167,27 @@ public sealed class DocumentRouteTests : IAsyncLifetime
         Assert.Equal(PngBytes, bytes);
     }
 
+    [Theory(DisplayName = "Upload: a client-supplied document id form field is refused 400 with no write, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("documentId")]
+    public async Task Upload_refuses_a_client_supplied_record_id(string key)
+    {
+        var form = BuildUpload(PngBytes, "scan.png", "image/png", "Internal");
+        form.Add(new StringContent("client-constructed-id"), key);
+
+        var refused = await _client.PostAsync(DocsRoute, form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted", (await ReadJson(refused)).GetProperty("code").GetString());
+        Assert.Equal(0, (await ReadJson(await _client.GetAsync(DocsRoute))).GetProperty("documents").GetArrayLength());
+
+        var created = await _client.PostAsync(DocsRoute, BuildUpload(PngBytes, "scan.png", "image/png", "Internal"));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await ReadJson(created)).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Attach links Attachment → parent entity (DocumentRef) and is idempotent")]
     public async Task Attach_CreatesDocumentRef_Idempotent()
     {

@@ -150,6 +150,25 @@ public sealed class ContactDeleteRouteTests : IAsyncLifetime
         Assert.Empty(await db.Set<Party>().ToListAsync());
     }
 
+    [Theory(DisplayName = "Contact route: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("contactId")]
+    public async Task Create_refuses_a_client_supplied_record_id(string key)
+    {
+        using var refused = await _client.PostAsJsonAsync(
+            Route, new Dictionary<string, object?> { ["displayName"] = "Client ID Contact", ["kind"] = "person", [key] = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        await using (var db = await _factory.CreateDbContextAsync())
+            Assert.Empty(await db.Set<Party>().ToListAsync());
+
+        var minted = await CreateContactAsync("Server ID Contact");
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Contact route: narrowing and revocation take effect on the next read request")]
     public async Task Read_PermissionNarrowedOrRevoked_IsDeniedOnNextRequest()
     {

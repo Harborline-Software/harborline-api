@@ -51,3 +51,27 @@ internal sealed class ConfigurationEvidenceOutboxRow
     public DateTimeOffset CommittedAt { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }
 }
+
+/// <summary>
+/// The one record an offline configuration recovery commits (T-587, T-909 slice 6): each residue's terminal
+/// state with the reason and authority snapshot behind it, committed in one transaction with its audit row.
+/// </summary>
+internal sealed class ConfigurationRecoveryRow
+{
+    public required string Tenant { get; set; }
+    public required string RecoveryId { get; set; }
+    public required string EffectiveDigest { get; set; }
+    public required string Reason { get; set; }
+    public required string AuthoritySnapshot { get; set; }
+    public required string RecordJson { get; set; }
+}
+
+/// <summary>The kernel audit evidence for one configuration recovery; never written without its record.</summary>
+internal sealed class ConfigurationRecoveryAuditRow
+{
+    public required string AuditId { get; set; }
+    public required string Tenant { get; set; }
+    public required string ActorId { get; set; }
+    public DateTimeOffset RecordedAt { get; set; }
+    public required string PayloadJson { get; set; }
+}
