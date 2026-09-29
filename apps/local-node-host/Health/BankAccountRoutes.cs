@@ -170,8 +170,9 @@ public static class BankAccountRoutes
             // Ticket 151 stage-one gate: a PERMISSION decision, not just the transport fence — the same
             // request-scoped mechanism the gated sibling routes use (ContactRoutes / InvoiceRoutes).
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
 
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
@@ -210,8 +211,9 @@ public static class BankAccountRoutes
         app.MapPost($"{RouteBase}/{{accountId}}/archive", async (string accountId, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
+            if (denied is not null)
                 return denied;
             var id = new BankAccountId(accountId);
             var at = timeProvider.GetUtcNow();
@@ -228,8 +230,9 @@ public static class BankAccountRoutes
         app.MapPost($"{RouteBase}/{{accountId}}/opening-balance", async (string accountId, SetOpeningBalanceBody body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(accountId), ct);
+            if (denied is not null)
                 return denied;
             if (body is null) return Results.BadRequest(new { error = "body_required" });
             if (!TryParseInstant(body.OpeningBalanceDate, out var cutover))

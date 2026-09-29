@@ -190,9 +190,10 @@ public static class CalendarRoutes
             // principal is decided against the install before the window or the resource is even parsed, so
             // a refused caller learns nothing about either.
             var tenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, tenantId, Permission.SchedulingRead, RouteRecord.TheInstall, ct)
-                    .ConfigureAwait(false) is { } denied)
+                    .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
 
             if (!TryParseResource(resource, out var resourceRef, out var resourceError))

@@ -157,9 +157,10 @@ public static class AssetRegistryRoutes
                 ? EntityTypeId.NewId()
                 : new EntityTypeId(body.Id.Trim());
             var authority = RequestAuthorization.Authority(http, tenant, clock);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
@@ -201,9 +202,10 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             var typeId = new EntityTypeId(id);
             var authority = RequestAuthorization.Authority(http, tenant, clock);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
@@ -282,9 +284,10 @@ public static class AssetRegistryRoutes
                 ?? NodeTenant.Resolve(activeTeam);
             var typeId = new EntityTypeId(id);
             var authority = RequestAuthorization.Authority(http, tenant, clock);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, Permission.PackagesAuthor, RouteRecord.Of(typeId.Value, "asset-type"), ct)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             var seed = types.GetSeed(typeId);
             if (seed is null)
@@ -320,9 +323,10 @@ public static class AssetRegistryRoutes
             // collection rather than any one row, so it carries RouteRecord.TheInstall and rides the
             // install-wide declaration on records:read; the decision is resolved BEFORE the repository is
             // touched, so an unauthorized caller learns nothing about what the tenant holds.
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, TeamRolePermissions.RecordsRead, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             var rows = type is { Length: > 0 }
                 ? await entities.ListByTypeAsync(tenant, new EntityTypeId(type), false, ct).ConfigureAwait(false)
@@ -342,10 +346,11 @@ public static class AssetRegistryRoutes
             AuthorizationDecision? accepted = null;
             // The detail read names the record it addresses, so a grant scoped to another entity refuses
             // here. The decision precedes the repository read: existence is not probeable through a refusal.
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, ReadEntityRequest.AuthorizationCapability, RouteRecord.Of(id), ct,
                     decision => accepted = decision)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             var entity = await entities.GetByIdAsync(tenant, new RegistryEntityId(id), ct).ConfigureAwait(false);
             if (entity is null)
@@ -380,10 +385,11 @@ public static class AssetRegistryRoutes
                 return Results.BadRequest(new { error = "type_and_display_name_required" });
             if (body.Id is not null)
             {
-                if (await RequestAuthorization.RefusalAsync(
+                var denied = await RequestAuthorization.RefusalAsync(
                         http, RequestAuthorization.Authority(http, tenant, clock),
                         TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                    .ConfigureAwait(false) is { } denied)
+                    .ConfigureAwait(false);
+                if (denied is not null)
                     return denied;
                 return Results.BadRequest(new { error = "client_id_forbidden" });
             }
@@ -456,9 +462,10 @@ public static class AssetRegistryRoutes
             }
 
             var unboundAuthority = RequestAuthorization.Authority(http, tenant, clock);
-            if (await RequestAuthorization.RefusalAsync(
+            var unboundDenied = await RequestAuthorization.RefusalAsync(
                     http, unboundAuthority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false) is { } unboundDenied)
+                .ConfigureAwait(false);
+            if (unboundDenied is not null)
                 return unboundDenied;
             var entity = new RegistryEntity
             {
@@ -557,9 +564,10 @@ public static class AssetRegistryRoutes
             var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
                 ?? NodeTenant.Resolve(activeTeam);
             var authority = RequestAuthorization.Authority(http, tenant, clock);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false) is { } denied)
+                .ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             if (body?.Id is not null)
                 return Results.BadRequest(new { error = "client_supplied_id_not_allowed" });

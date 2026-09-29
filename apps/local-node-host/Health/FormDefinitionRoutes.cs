@@ -238,9 +238,10 @@ public static class FormDefinitionRoutes
             // decision, so the revision is stamped with that SAME admitted instant instead of a second
             // read that the act never decided on (ADR 0081, DES-0029 ck-9).
             var now = default(DateTimeOffset);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
-                    decision => now = decision.Request.At) is { } denied)
+                    decision => now = decision.Request.At);
+            if (denied is not null)
                 return denied;
 
             var id = new FormDefinitionId(formId);
@@ -559,9 +560,10 @@ public static class FormDefinitionRoutes
             // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
             // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
             var now = default(DateTimeOffset);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, tenant, Permission.FormsAuthor, RouteRecord.Of(formId), ct,
-                    decision => now = decision.Request.At) is { } denied)
+                    decision => now = decision.Request.At);
+            if (denied is not null)
                 return denied;
 
             var id = new FormDefinitionId(formId);

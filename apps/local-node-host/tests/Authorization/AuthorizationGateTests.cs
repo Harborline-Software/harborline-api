@@ -144,6 +144,57 @@ public sealed class AuthorizationGateTests
         Assert.Empty(calls);
     }
 
+    // T-519 / ck-5: request shapes the gate refuses before it reads any grant. Each case is one
+    // validation branch that a Stryker survivor showed no test reached.
+    [Theory]
+    [InlineData("org:manage-settings@/records/a", "", "", "/")]          // install-wide act off the install root
+    [InlineData("tenant:read@/", "tenant", "another-tenant", "/")]      // tenant target naming another tenant
+    [InlineData("records:write@/records/a/b", "record", "a/b", "/records/a/b")] // record id with a scope separator
+    public async Task DecideAsync_RefusesAnInvalidTargetBeforeSnapshotRead(
+        string atom, string recordKind, string recordId, string scope)
+    {
+        var calls = new List<string>();
+        var gate = Gate([Derivation(atom)], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
+            new AuthorizationTarget(recordKind, recordId, ScopeExpression.Parse(scope)), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
+
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public async Task DecideAsync_DecidesATenantTargetAtTheInstallRoot()
+    {
+        var decision = await Gate([Derivation("tenant:read@/")]).DecideAsync(new AuthorizationGateRequest(
+            PermissionAtom.Parse("tenant:read@/"), Principal, Tenant,
+            new AuthorizationTarget("tenant", Tenant.Value, ScopeExpression.Parse("/")), At));
+
+        Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
+    }
+
+    // T-519: the dedicated entry points refuse any act but their own, so a caller cannot borrow the
+    // membership-admission or prospective-Administrator reading for an ordinary decision.
+    [Theory]
+    [InlineData("membership", "records:write@/records/a", "record", "a")]
+    [InlineData("membership", "members:read@/records/a", "members", "a")]
+    [InlineData("prospective", "members:read@/records/handover", "members", "handover")]
+    [InlineData("prospective", "members:manage@/records/other", "members", "other")]
+    public async Task Dedicated_entry_points_refuse_an_act_that_is_not_their_own(
+        string entry, string atom, string recordKind, string recordId)
+    {
+        var calls = new List<string>();
+        var gate = Gate([Derivation(atom)], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
+            new AuthorizationTarget(recordKind, recordId, PermissionAtom.Parse(atom).Scope), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => (entry == "membership"
+            ? gate.DecideMembershipAdmissionAsync(request)
+            : gate.DecideProspectiveAdministratorAsync(request)).AsTask());
+
+        Assert.Empty(calls);
+    }
+
     [Fact]
     public async Task DecideAsync_RefusesWrongOperationRecordKindBeforeSnapshotRead()
     {

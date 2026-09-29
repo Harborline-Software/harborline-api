@@ -50,16 +50,18 @@ public static class SchedulingDefinitionRoutes
 
         app.MapGet(RouteBase, async (HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingRead, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingRead, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             return Results.Ok(await store.ListAsync(Tenant().Value, ct).ConfigureAwait(false));
         });
 
         app.MapGet($"{RouteBase}/{{definitionId}}", async (string definitionId, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct);
+            if (denied is not null)
                 return denied;
             var draft = await store.GetAsync(Tenant().Value, definitionId, ct).ConfigureAwait(false);
             return draft is null
@@ -73,8 +75,9 @@ public static class SchedulingDefinitionRoutes
         // Draft/Published split here, the restored revision IS the new head immediately.
         app.MapGet($"{RouteBase}/{{definitionId}}/versions", async (string definitionId, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct);
+            if (denied is not null)
                 return denied;
             var revisions = await store.ListRevisionsAsync(Tenant().Value, definitionId, ct).ConfigureAwait(false);
             return revisions.Count == 0
@@ -85,8 +88,9 @@ public static class SchedulingDefinitionRoutes
         app.MapGet($"{RouteBase}/{{definitionId}}/versions/{{revision:int}}", async (
             string definitionId, int revision, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingRead, RouteRecord.Of(definitionId), ct);
+            if (denied is not null)
                 return denied;
             var view = await store.GetRevisionAsync(Tenant().Value, definitionId, revision, ct).ConfigureAwait(false);
             return view is null
@@ -100,9 +104,10 @@ public static class SchedulingDefinitionRoutes
             // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
             // restored revision is stamped with (ADR 0081, DES-0029 ck-9).
             var admittedAt = default(DateTimeOffset);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
-                    decision => admittedAt = decision.Request.At) is { } denied)
+                    decision => admittedAt = decision.Request.At);
+            if (denied is not null)
                 return denied;
             var tenant = Tenant().Value;
             var source = await store.GetRevisionAsync(tenant, definitionId, request.Revision, ct).ConfigureAwait(false);
@@ -133,9 +138,10 @@ public static class SchedulingDefinitionRoutes
             // T-650: one kernel-clock read for the whole act — the guard's admitted instant is what the
             // saved revision is stamped with (ADR 0081, DES-0029 ck-9).
             var admittedAt = default(DateTimeOffset);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, Tenant(), Permission.SchedulingAuthor, RouteRecord.Of(definitionId), ct,
-                    decision => admittedAt = decision.Request.At) is { } denied)
+                    decision => admittedAt = decision.Request.At);
+            if (denied is not null)
                 return denied;
             var issues = validator.Validate(request.Definition);
             if (issues.Count != 0)
@@ -165,8 +171,9 @@ public static class SchedulingDefinitionRoutes
         app.MapPost($"{RouteBase}/validate", async (
             SchedulingDraftValidateRequest request, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingAuthor, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var issues = validator.Validate(request.Definition);
             return Results.Ok(new { valid = issues.Count == 0, issues });
@@ -178,8 +185,9 @@ public static class SchedulingDefinitionRoutes
         // dogfood projection further without changing the wire.
         app.MapGet(SubjectRoute, async (HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var tenant = Tenant();
             var subjects = await parties.ListByTenantAsync(tenant, ct).ConfigureAwait(false);
@@ -203,8 +211,9 @@ public static class SchedulingDefinitionRoutes
             var addressed = string.IsNullOrWhiteSpace(definitionId)
                 ? RouteRecord.TheInstall
                 : RouteRecord.Of(definitionId);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, addressed, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingOperate, addressed, ct);
+            if (denied is not null)
                 return denied;
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { code = "scheduling.appointment.invalid" });
@@ -257,8 +266,9 @@ public static class SchedulingDefinitionRoutes
 
         app.MapPost(EventRoute, async (SchedulingEventRequest request, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { code = "scheduling.event.invalid" });
@@ -367,8 +377,9 @@ public static class SchedulingDefinitionRoutes
         app.MapPost(ResourceAvailabilityRoute, async (
             SchedulingResourceAvailabilityRequest request, HttpContext http, CancellationToken ct) =>
         {
-            if (await RequestAuthorization.RefusalAsync(
-                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var resource = ParseParticipant(request.Resource);
             if (resource is null || resource.Kind != ParticipantKind.Party)

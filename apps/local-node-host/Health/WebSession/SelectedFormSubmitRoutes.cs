@@ -52,8 +52,9 @@ internal static class SelectedFormSubmitRoutes
             // choose them; unregistered forms stay unavailable on this surface.
             if (submissionGate.RequiredPermission(form) is not { } permission) return Results.NotFound();
             var authority = RequestAuthorization.Authority(http, principal.TenantId, time);
-            if (await RequestAuthorization.RefusalAsync(http, authority, permission, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false) is { } refused) return refused;
+            var refused = await RequestAuthorization.RefusalAsync(http, authority, permission, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false);
+            if (refused is not null) return refused;
             try
             {
                 var bearer = await issuer.IssueAsync(principal.TenantId, NodeGatePrincipal.Of(principal),

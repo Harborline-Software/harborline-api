@@ -105,8 +105,9 @@ public static class ContactRoutes
         {
             var admittedAt = timeProvider.GetUtcNow();
             var tenant = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
             var party = await parties.GetByIdAsync(partyId, ct).ConfigureAwait(false);
@@ -134,8 +135,9 @@ public static class ContactRoutes
         {
             var admittedAt = timeProvider.GetUtcNow();
             var tenant = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var partyId = new PartyId(id);
             var party = await parties.GetByIdAsync(partyId, ct).ConfigureAwait(false);
@@ -155,8 +157,9 @@ public static class ContactRoutes
         app.MapGet(RouteBase, async (string? role, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsRead, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, Permission.ContactsRead, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var repo = parties;
             var rows = await repo.ListByTenantAsync(LocalTenantId, ct).ConfigureAwait(false);
@@ -184,8 +187,9 @@ public static class ContactRoutes
         app.MapGet($"{RouteBase}/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsRead, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, Permission.ContactsRead, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var repo = parties;
             var partyId = new PartyId(id);
@@ -215,8 +219,9 @@ public static class ContactRoutes
         {
             var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsCreate, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, Permission.ContactsCreate, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
@@ -363,8 +368,9 @@ public static class ContactRoutes
         {
             var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsWrite, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, Permission.ContactsWrite, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var repo = parties;
             var partyId = new PartyId(id);
@@ -436,8 +442,9 @@ public static class ContactRoutes
         {
             var admittedAt = timeProvider.GetUtcNow();
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, Permission.ContactsArchive, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, Permission.ContactsArchive, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var repo = parties;
             var partyId = new PartyId(id);

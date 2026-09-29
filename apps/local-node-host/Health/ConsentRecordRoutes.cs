@@ -74,8 +74,9 @@ public static class ConsentRecordRoutes
         {
             var tenant = tenantOf();
             if (Authority(http, tenant) is not { } authority) return RequestAuthorization.Denied(Permission.ConsentRead);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, Permission.ConsentRead, RouteRecord.Of(recordId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.ConsentRead, RouteRecord.Of(recordId), ct);
+            if (denied is not null)
                 return denied;
 
             var record = await FindAsync(store, tenant, recordId, ct).ConfigureAwait(false);
@@ -89,8 +90,9 @@ public static class ConsentRecordRoutes
             var tenant = tenantOf();
             if (Authority(http, tenant) is not { } authority) return RequestAuthorization.Denied(Permission.ConsentWrite);
             // The requested record does not exist yet, so the act addresses the install rather than a record.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, Permission.ConsentWrite, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.ConsentWrite, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
 
             if (string.IsNullOrWhiteSpace(body?.Subject) || string.IsNullOrWhiteSpace(body.Purpose)
@@ -135,8 +137,9 @@ public static class ConsentRecordRoutes
         {
             var tenant = tenantOf();
             if (Authority(http, tenant) is not { } authority) return RequestAuthorization.Denied(Permission.ConsentWrite);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, Permission.ConsentWrite, RouteRecord.Of(recordId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, Permission.ConsentWrite, RouteRecord.Of(recordId), ct);
+            if (denied is not null)
                 return denied;
 
             var record = await FindAsync(store, tenant, recordId, ct).ConfigureAwait(false);
