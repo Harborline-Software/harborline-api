@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
@@ -160,6 +161,19 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
         AssertNothingRecovered();
         // The crash left nothing half-done, so the same recovery runs to completion afterwards.
         Assert.True((await RecoverAsync("Node crashed")).Committed);
+    }
+
+    [Fact]
+    public async Task Verb_composition_resolves_the_evidence_delivery()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(_db.Factory);
+        ConfigurationRecoveryCommand.AddEvidenceDelivery(services, RandomNumberGenerator.GetBytes(32), new FixedTime(Recovered));
+        await using var provider = services.BuildServiceProvider();
+
+        var evidence = provider.GetRequiredService<ConfigurationEvidenceOutbox>();
+
+        Assert.NotNull(evidence);
     }
 
     [Fact]

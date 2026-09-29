@@ -106,14 +106,7 @@ public static class ConfigurationRecoveryCommand
             services.AddSqlCipherLocalNodeDbContextWithStoreDek(storeDek: keys.AtRestRootKey.Span, databasePath: storePath);
         else
             services.AddSqlCipherLocalNodeDbContext(rootSeed: rootSeed, databasePath: storePath, keyDerivation: new SqlCipherKeyDerivation());
-        // The host's own kernel audit trail and principal signer, so a stranded entry reaches the trail the running
-        // host reads, signed by the same node key, through the drain's delivery path.
-        services.AddLogging();
-        services.AddSingleton(timeProvider);
-        services.AddSingleton(new NodePrincipalSigner(rootSeed));
-        services.AddSingleton<IOperationSigner>(sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
-        services.AddEnrollmentCompensatingControlAudit();
-        services.AddSingleton<ConfigurationEvidenceOutbox>();
+        AddEvidenceDelivery(services, rootSeed, timeProvider);
         await using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalPacksDbContext>>();
 
@@ -156,6 +149,20 @@ public static class ConfigurationRecoveryCommand
             string.Join(", ", result.Record.Repairs.Select(repair => $"{repair.Residue} {repair.Identity} -> {repair.Terminal}")) +
             $". Recorded as recovery {request.RecoveryId} with its audit.", cancellationToken).ConfigureAwait(false);
         return 0;
+    }
+
+    /// <summary>
+    /// The host's own kernel audit trail and principal signer, so a stranded entry reaches the trail the running host
+    /// reads, signed by the same node key, through the drain's delivery path.
+    /// </summary>
+    internal static void AddEvidenceDelivery(IServiceCollection services, byte[] rootSeed, TimeProvider timeProvider)
+    {
+        services.AddLogging();
+        services.AddSingleton(timeProvider);
+        services.AddSingleton(new NodePrincipalSigner(rootSeed));
+        services.AddSingleton<IOperationSigner>(sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+        services.AddEnrollmentCompensatingControlAudit();
+        services.AddSingleton<ConfigurationEvidenceOutbox>();
     }
 
     /// <summary>The kernel recovery over this host's kernel profile rows, committed through one store transaction.</summary>
