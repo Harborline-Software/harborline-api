@@ -1,0 +1,1 @@
+Raw Stryker.NET reports for the T-909 host mutation evidence note (api branch codex/t909-host-stryker, docs/evidence/T-909-host-mutation-2026-09-29.md). Each note records the SHA-256 of its report here; *-after.json runs include the branch's new tests.
