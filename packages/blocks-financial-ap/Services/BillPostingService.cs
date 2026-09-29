@@ -119,6 +119,10 @@ public sealed class BillPostingService : IBillPostingService
         if (!postResult.IsSuccess)
             return new RecordResult(bill, null, RecordError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         var recorded = bill with
         {
             Lines = updatedLines,
@@ -127,7 +131,7 @@ public sealed class BillPostingService : IBillPostingService
             Total = total,
             Balance = total,
             Status = BillStatus.Received,
-            JournalEntryId = entry.Id,
+            JournalEntryId = postedId,
             UpdatedAtUtc = now,
             UpdatedBy = actor,
             Version = bill.Version + 1,
@@ -136,13 +140,13 @@ public sealed class BillPostingService : IBillPostingService
 
         await PublishAsync(
             AccountsPayableEventNames.BillRecorded,
-            new BillRecordedPayload(recorded.Id, recorded.BillNumber, recorded.VendorId, total, recorded.DueDate, recorded.PropertyId, entry.Id),
+            new BillRecordedPayload(recorded.Id, recorded.BillNumber, recorded.VendorId, total, recorded.DueDate, recorded.PropertyId, postedId),
             $"bill-recorded:{recorded.Id.Value}",
             recorded.TenantId,
             authority.At,
             cancellationToken).ConfigureAwait(false);
 
-        return new RecordResult(recorded, entry.Id, RecordError.None, null);
+        return new RecordResult(recorded, postedId, RecordError.None, null);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -199,10 +203,14 @@ public sealed class BillPostingService : IBillPostingService
         if (!postResult.IsSuccess)
             return new VoidResult(bill, null, VoidError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         var voided = bill with
         {
             Status = BillStatus.Voided,
-            VoidedByEntryId = reversal.Id,
+            VoidedByEntryId = postedId,
             Balance = 0m,
             UpdatedAtUtc = now,
             UpdatedBy = actor,
@@ -212,13 +220,13 @@ public sealed class BillPostingService : IBillPostingService
 
         await PublishAsync(
             AccountsPayableEventNames.BillVoided,
-            new BillVoidedPayload(voided.Id, voided.BillNumber, reversal.Id, reason),
+            new BillVoidedPayload(voided.Id, voided.BillNumber, postedId, reason),
             $"bill-voided:{voided.Id.Value}",
             voided.TenantId,
             authority.At,
             cancellationToken).ConfigureAwait(false);
 
-        return new VoidResult(voided, reversal.Id, VoidError.None, null);
+        return new VoidResult(voided, postedId, VoidError.None, null);
     }
 
     // ──────────────────────────────────────────────────────────────────

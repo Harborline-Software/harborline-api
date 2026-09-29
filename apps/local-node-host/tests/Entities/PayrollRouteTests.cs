@@ -40,6 +40,7 @@ public sealed class PayrollRouteTests : IAsyncLifetime
     private string _dir = null!;
     private IDbContextFactory<LocalNodeDbContext> _financialFactory = null!;
     private IDbContextFactory<NodeLocalPayrollDbContext> _payrollFactory = null!;
+    private readonly PayRunUpdateFault _payRunFault = new();
     private NodeEfJournalStore _journalStore = null!;
 
     private static readonly TenantId LocalTenantId =
@@ -71,7 +72,8 @@ public sealed class PayrollRouteTests : IAsyncLifetime
         var payrollConnectionString = $"Data Source={Path.Combine(_dir, "payroll-store.db")};Pooling=False";
         builder.Services.AddDbContextFactory<NodeLocalPayrollDbContext>(opt =>
             opt.UseSqlite(payrollConnectionString,
-                sqlite => sqlite.MigrationsHistoryTable(NodeLocalPayrollDbContext.MigrationsHistoryTableName)));
+                sqlite => sqlite.MigrationsHistoryTable(NodeLocalPayrollDbContext.MigrationsHistoryTableName))
+                .AddInterceptors(_payRunFault));
 
         _app = builder.Build();
 
@@ -281,6 +283,84 @@ public sealed class PayrollRouteTests : IAsyncLifetime
         await using var ctx = await _financialFactory.CreateDbContextAsync();
         var count = await ctx.Set<JournalEntry>().CountAsync(e => e.TenantId == LocalTenantId);
         Assert.Equal(2, count);
+    }
+
+    [Fact(DisplayName = "ck-6 replay: a pay-run post retried after a crash between its JE and its record points at the one persisted JE")]
+    public async Task PostPayRun_RetryAfterCrash_PointsAtThePersistedEntry()
+    {
+        var payRunId = (await CreatePayRunAsync(await CreateEmployeeAsync())).GetProperty("payRunId").GetString()!;
+
+        _payRunFault.Armed = true;
+        var crashed = await _client.PostAsync($"{PayRunsRoute}/{payRunId}/post", content: null);
+        var retry = await _client.PostAsync($"{PayRunsRoute}/{payRunId}/post", content: null);
+
+        Assert.False(_payRunFault.Armed);
+        Assert.NotEqual(HttpStatusCode.OK, crashed.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var persisted = await SingleEntryAsync($"payroll:{payRunId}");
+        Assert.Equal(persisted.Id.Value,
+            (await retry.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("journalEntryId").GetString());
+    }
+
+    [Fact(DisplayName = "ck-6 replay: a pay-run reverse retried after a crash between its JE and its record points at the one persisted reversal")]
+    public async Task ReversePayRun_RetryAfterCrash_PointsAtThePersistedEntry()
+    {
+        var payRunId = (await CreatePayRunAsync(await CreateEmployeeAsync())).GetProperty("payRunId").GetString()!;
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"{PayRunsRoute}/{payRunId}/post", content: null)).StatusCode);
+
+        _payRunFault.Armed = true;
+        var crashed = await _client.PostAsJsonAsync($"{PayRunsRoute}/{payRunId}/reverse", new { reason = "correction" });
+        var retry = await _client.PostAsJsonAsync($"{PayRunsRoute}/{payRunId}/reverse", new { reason = "correction" });
+
+        Assert.False(_payRunFault.Armed);
+        Assert.NotEqual(HttpStatusCode.OK, crashed.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var persisted = await SingleEntryAsync($"payroll-reversal:{payRunId}");
+        Assert.Equal(persisted.Id.Value,
+            (await retry.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("reversalEntryId").GetString());
+    }
+
+    private async Task<JournalEntry> SingleEntryAsync(string sourceReference)
+    {
+        await using var ctx = await _financialFactory.CreateDbContextAsync();
+        return await ctx.Set<JournalEntry>().AsNoTracking()
+            .SingleAsync(e => e.TenantId == LocalTenantId && e.SourceReference == sourceReference);
+    }
+
+    /// <summary>When armed, throws once before the pay-run UPDATE: a crash after the JE committed.</summary>
+    private sealed class PayRunUpdateFault : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
+    {
+        public bool Armed { get; set; }
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Armed && command.CommandText.Contains("UPDATE \"payroll_pay_runs\"", StringComparison.Ordinal))
+            {
+                Armed = false;
+                throw new InvalidOperationException("ck-6 injected crash before the pay-run update");
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> NonQueryExecutingAsync(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Armed && command.CommandText.Contains("UPDATE \"payroll_pay_runs\"", StringComparison.Ordinal))
+            {
+                Armed = false;
+                throw new InvalidOperationException("ck-6 injected crash before the pay-run update");
+            }
+
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     [Fact(DisplayName = "GET pay-run/{unknown} → 404 (opaque)")]
