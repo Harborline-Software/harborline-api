@@ -26,8 +26,16 @@ public sealed class NodeAuditOutbox(
     ICapturedAuditTrail captured,
     IOperationSigner signer,
     TimeProvider time,
-    ILogger<NodeAuditOutbox> logger)
+    ILogger<NodeAuditOutbox> logger) : IDisposable
 {
+    // Single-flight: the route's post-write drain and the daemon's tick share this singleton, and the
+    // hold-check-then-append below is not atomic, so two overlapping passes could append one entry twice.
+    // ponytail: in-process gate; a second host process on the same store would need a row claim instead.
+    private readonly SemaphoreSlim _drain = new(1, 1);
+
+    /// <inheritdoc />
+    public void Dispose() => _drain.Dispose();
+
     /// <summary>
     /// Stages the audit of an act <paramref name="decision"/> allowed. The decision's authority is captured now,
     /// against the act it decided, so a mismatch refuses the whole write rather than publishing a wrong entry.
@@ -101,6 +109,19 @@ public sealed class NodeAuditOutbox(
     /// <returns>The number of entries delivered or found delivered by this pass.</returns>
     public async Task<int> DrainAsync(CancellationToken ct = default)
     {
+        await _drain.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await DrainOnceAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _drain.Release();
+        }
+    }
+
+    private async Task<int> DrainOnceAsync(CancellationToken ct)
+    {
         List<AuditOutboxRow> owed;
         await using (var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false))
         {
@@ -126,7 +147,16 @@ public sealed class NodeAuditOutbox(
             {
                 logger.LogError(exception, "Audit outbox entry {AuditId} ({EventType}) is still owed to the audit trail.",
                     row.AuditId, row.EventType);
-                await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                try
+                {
+                    await MarkAsync(row.AuditId, publishedAt: null, exception.Message, ct).ConfigureAwait(false);
+                }
+                catch (Exception markFailure) when (markFailure is not OperationCanceledException)
+                {
+                    // Recording the failure is best effort: the entry stays owed either way, and throwing here
+                    // would end the pass before the entries behind it are attempted.
+                    logger.LogError(markFailure, "Audit outbox entry {AuditId} could not record its delivery failure.", row.AuditId);
+                }
             }
         }
 

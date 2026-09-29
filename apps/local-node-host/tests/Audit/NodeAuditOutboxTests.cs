@@ -105,12 +105,28 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
         var result = await NarrowAsync();
         await ExecuteAsync("CREATE TRIGGER ck6_fault BEFORE UPDATE ON search_audit_outbox BEGIN SELECT RAISE(ABORT, 'ck6'); END;");
 
-        await Assert.ThrowsAnyAsync<Exception>(() => _outbox.DrainAsync());
+        // Recording the failure also fails (the same trigger); the pass still finishes instead of throwing.
+        Assert.Equal(0, await _outbox.DrainAsync());
         await ExecuteAsync("DROP TRIGGER ck6_fault;");
         Assert.Single(await EntriesAsync(NodeEfAuthorizationConfigurationStore.BindingNarrowedEventType));
         Assert.NotEmpty(await OwedAsync());
 
         await _outbox.DrainAsync();
+
+        Assert.Equal(result.AuditId, Assert.Single(await EntriesAsync(NodeEfAuthorizationConfigurationStore.BindingNarrowedEventType)).AuditId);
+        Assert.Empty(await OwedAsync());
+    }
+
+    [Fact(DisplayName = "ck-6 outbox: two overlapping drains deliver an owed entry once")]
+    public async Task OverlappingDrains_DeliverTheEntryOnce()
+    {
+        await InstallAsync();
+        var result = await NarrowAsync();
+        // Both passes meet inside the "does the trail hold it?" check, so an unserialized drain appends twice.
+        var outbox = new NodeAuditOutbox(_store.Factory, new RendezvousTrail(_trail), _trail,
+            new Ed25519Signer(KeyPair.Generate()), TimeProvider.System, NullLogger<NodeAuditOutbox>.Instance);
+
+        await Task.WhenAll(Task.Run(() => outbox.DrainAsync()), Task.Run(() => outbox.DrainAsync()));
 
         Assert.Equal(result.AuditId, Assert.Single(await EntriesAsync(NodeEfAuthorizationConfigurationStore.BindingNarrowedEventType)).AuditId);
         Assert.Empty(await OwedAsync());
@@ -233,6 +249,28 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
     {
         await using var db = _store.CreateContext();
         await db.Database.ExecuteSqlRawAsync(sql);
+    }
+
+    private sealed class RendezvousTrail(InMemoryAuditTrail inner) : IAuditTrail
+    {
+        private readonly TaskCompletionSource _both = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => inner.AppendAsync(record, ct);
+
+        public async IAsyncEnumerable<AuditRecord> QueryAsync(
+            AuditQuery query, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            if (query.AuditId is not null)
+            {
+                if (Interlocked.Increment(ref _arrived) == 2) _both.TrySetResult();
+                // A serialized drain never brings the second pass here while the first waits, so this times out.
+                await Task.WhenAny(_both.Task, Task.Delay(TimeSpan.FromSeconds(1), ct));
+            }
+
+            await foreach (var record in inner.QueryAsync(query, ct))
+                yield return record;
+        }
     }
 
     private sealed class FailingCapturedTrail : ICapturedAuditTrail
