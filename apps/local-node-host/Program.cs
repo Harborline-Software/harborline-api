@@ -135,6 +135,21 @@ if (args.Length >= 1 &&
     return;
 }
 
+// T-587 / T-909 slice 6 — the OFFLINE configuration-recovery path, on the same authority as recover-administrator:
+// ownership of the data directory with the node stopped. Not an HTTP route: it must work when the Configuration
+// Management package is broken, which rules out a route gated on pack-installed permissions.
+if (args.Length >= 1 &&
+    string.Equals(
+        args[0],
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand.Verb,
+        StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode = await Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand
+        .RunAsync(args, Console.Out, Console.Error, rootTimeProvider)
+        .ConfigureAwait(false);
+    return;
+}
+
 // Composition root for the Harborline local-node host process.
 //
 // Paper §4 + §5.1: this is the persistent background service that owns the
@@ -1665,7 +1680,7 @@ builder.Services.AddSingleton<NodeAccountingPeriodService>();
 // over the SAME SQLCipher LocalNodeDbContext the payments read-plane projects over (JournalEntry
 // is mapped by FinancialLedgerEntityModule, Lines as JSONB — single SELECT, no Include). The
 // host-agnostic IJournalEntryQueryReadModel (earlier repository ticket #1161) composes over that store for the read
-// surface; routes receive the concrete store (including ReplaceEntryAsync for reversal) from the
+// surface; routes receive the concrete store (a reversal transitions its original inside SaveAtomicAsync) from the
 // composition root. ADDITIVE — the Bridge JE path is untouched; the frontend flip + Rust sc5 fail-close
 // are a sequenced follow-up after the security SPOT-CHECK. Registered before SharedHostedWebApp so
 // paths are mapped before Kestrel starts.

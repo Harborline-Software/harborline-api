@@ -413,6 +413,13 @@ public static class PaymentWriteRoutes
         paymentDate = default;
         bad = null;
 
+        // T-974: both payment routes validate here, so one refusal covers both. The server mints the
+        // payment id; `sourceReference` stays the caller's idempotency key.
+        if (body?.Id is not null)
+        {
+            bad = Results.BadRequest(new { code = "request.record-id-not-accepted" });
+            return false;
+        }
         if (body is null || body.Amount <= 0m || string.IsNullOrWhiteSpace(body.Currency))
         {
             bad = Results.BadRequest(new { error = "amount_positive_and_currency_required" });
@@ -471,7 +478,8 @@ public sealed record RecordNodePaymentRequest(
     [property: JsonPropertyName("paymentDate")] string PaymentDate,
     [property: JsonPropertyName("reference")] string? Reference = null,
     [property: JsonPropertyName("notes")] string? Notes = null,
-    [property: JsonPropertyName("sourceReference")] string? SourceReference = null);
+    [property: JsonPropertyName("sourceReference")] string? SourceReference = null,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>Flat read row projected from a recorded <see cref="Payment"/>.</summary>
 public sealed record PaymentWireRow(

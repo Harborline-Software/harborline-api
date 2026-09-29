@@ -308,6 +308,9 @@ public static class CommsRoutes
         if (callerAuth.Validate(httpRequest) is NodeCallerSessionToken.Decision.Reject)
             return NodeCallerSessionToken.RejectResult();
 
+        // T-974: the message id is server-minted; a caller-constructed one is refused, never coerced.
+        if (body?.Id is not null || body?.MessageId is not null)
+            return Results.BadRequest(new { code = "request.record-id-not-accepted" });
         if (body is null || string.IsNullOrWhiteSpace(body.Body))
             return Results.BadRequest(new { error = "body_required" });
 
@@ -383,6 +386,9 @@ public static class CommsRoutes
         if (callerAuth.Validate(httpRequest) is NodeCallerSessionToken.Decision.Reject)
             return NodeCallerSessionToken.RejectResult();
 
+        // T-974: the message id is server-minted; a caller-constructed one is refused, never coerced.
+        if (body?.Id is not null || body?.MessageId is not null)
+            return Results.BadRequest(new { code = "request.record-id-not-accepted" });
         if (body is null || string.IsNullOrWhiteSpace(body.Body))
             return Results.BadRequest(new { error = "body_required" });
 
@@ -500,7 +506,7 @@ public static class CommsRoutes
 
     // ── Request body ─────────────────────────────────────────────────────────────
     /// <summary>POST body: the message text to append.</summary>
-    public sealed record AppendMessageBody(string? Body);
+    public sealed record AppendMessageBody(string? Body, string? Id = null, string? MessageId = null);
 
     // ── DM roster wire shape — the Harborline App DM picker contract ─────────────────
     /// <summary>

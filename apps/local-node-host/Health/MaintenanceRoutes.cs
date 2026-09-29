@@ -113,6 +113,9 @@ public static class MaintenanceRoutes
             CreateMaintenanceRequest body,
             CancellationToken ct) =>
         {
+            // T-974: `name` is this record's key and the server mints it; a caller-constructed key is refused.
+            if (body?.Name is not null || body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.Subject))
             {
                 return Results.BadRequest(new { error = "subject is required." });
@@ -233,7 +236,9 @@ public sealed record CreateMaintenanceRequest(
     [property: JsonPropertyName("Property")] string? Property,
     [property: JsonPropertyName("Priority")] string? Priority,
     [property: JsonPropertyName("AssignedTo")] string? AssignedTo,
-    [property: JsonPropertyName("Description")] string? Description);
+    [property: JsonPropertyName("Description")] string? Description,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>Update request — mirrors the frontend <c>UpdateMaintenanceInput</c>.</summary>
 public sealed record UpdateMaintenanceRequest(

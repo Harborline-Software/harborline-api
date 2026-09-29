@@ -105,6 +105,9 @@ public static class PayrollRoutes
             var at = new Instant(timeProvider.GetUtcNow());
             if (body is null)
                 return Results.BadRequest(new { detail = "request_body_required" });
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body.Id is not null || body.EmployeeId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body.PartyId))
                 return Results.BadRequest(new { detail = "party_id_required" });
             if (string.IsNullOrWhiteSpace(body.DisplayName))
@@ -169,6 +172,9 @@ public static class PayrollRoutes
             var at = new Instant(timeProvider.GetUtcNow());
             if (body is null)
                 return Results.BadRequest(new { detail = "request_body_required" });
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body.Id is not null || body.PayRunId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body.Label))
                 return Results.BadRequest(new { detail = "label_required" });
             if (!DateOnly.TryParse(body.PeriodStart, out var periodStart))
@@ -389,7 +395,9 @@ public sealed record CreateEmployeeBody(
     string? DisplayName,
     string? WageExpenseAccountId,
     string? WagesPayableAccountId,
-    int? CostCentreId = null);
+    int? CostCentreId = null,
+    string? Id = null,
+    string? EmployeeId = null);
 
 /// <summary>Envelope for <c>GET /api/local-node/payroll/pay-runs</c>.</summary>
 public sealed record PayRunListWire(IReadOnlyList<PayRunSummaryWire> PayRuns);
@@ -448,7 +456,9 @@ public sealed record CreatePayRunBody(
     string? DefaultDeductionPayableAccountId,
     string? DefaultEmployerLiabilityExpenseAccountId,
     string? DefaultEmployerLiabilityPayableAccountId,
-    IReadOnlyList<CreatePayRunLineBody>? Lines = null);
+    IReadOnlyList<CreatePayRunLineBody>? Lines = null,
+    string? Id = null,
+    string? PayRunId = null);
 
 /// <summary>One line within <see cref="CreatePayRunBody"/>.</summary>
 public sealed record CreatePayRunLineBody(

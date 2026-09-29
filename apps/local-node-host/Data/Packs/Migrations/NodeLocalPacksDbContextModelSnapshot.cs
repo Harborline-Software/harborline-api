@@ -14,7 +14,7 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260920100000_AddConfigurationProposals";
+    public override string LastMigrationId => "20260928120000_AddConfigurationRecoveries";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -80,6 +80,29 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
                 b.Property<string>("StartedBy").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("started_by");
                 b.HasKey("Tenant", "ProposalId");
                 b.ToTable("configuration_proposals", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationRecoveryAuditRow", b =>
+            {
+                b.Property<string>("AuditId").HasMaxLength(512).HasColumnType("TEXT").HasColumnName("audit_id");
+                b.Property<string>("ActorId").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("actor_id");
+                b.Property<string>("PayloadJson").IsRequired().HasColumnType("TEXT").HasColumnName("payload_json");
+                b.Property<DateTimeOffset>("RecordedAt").HasColumnType("TEXT").HasColumnName("recorded_at");
+                b.Property<string>("Tenant").IsRequired().HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.HasKey("AuditId");
+                b.ToTable("configuration_recovery_audit", (string)null);
+            });
+
+        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationRecoveryRow", b =>
+            {
+                b.Property<string>("Tenant").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("tenant");
+                b.Property<string>("RecoveryId").HasMaxLength(256).HasColumnType("TEXT").HasColumnName("recovery_id");
+                b.Property<string>("AuthoritySnapshot").IsRequired().HasColumnType("TEXT").HasColumnName("authority_snapshot");
+                b.Property<string>("EffectiveDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("effective_digest");
+                b.Property<string>("Reason").IsRequired().HasColumnType("TEXT").HasColumnName("reason");
+                b.Property<string>("RecordJson").IsRequired().HasColumnType("TEXT").HasColumnName("record_json");
+                b.HasKey("Tenant", "RecoveryId");
+                b.ToTable("configuration_recoveries", (string)null);
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Packs.ConfigurationReleasedPackageRow", b =>

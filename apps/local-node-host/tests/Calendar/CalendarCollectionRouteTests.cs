@@ -100,6 +100,24 @@ public sealed class CalendarCollectionRouteTests : IAsyncLifetime
         Assert.Equal(1, list.GetProperty("data").GetArrayLength());
     }
 
+    [Fact(DisplayName = "create: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        var refused = await _client.PostAsJsonAsync(
+            Base, new { name = "Client ID", kind = "personal", id = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(0, (await _client.GetFromJsonAsync<JsonElement>(Base)).GetProperty("data").GetArrayLength());
+
+        var created = await _client.PostAsJsonAsync(Base, new { name = "Server ID", kind = "personal" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "create: a resource calendar carries its resource ref on the wire")]
     public async Task Create_Resource_CarriesRef()
     {

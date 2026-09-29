@@ -170,6 +170,9 @@ public static class DocumentRoutes
             try
             {
                 var form = await request.ReadFormAsync(ct).ConfigureAwait(false);
+                // T-974: the document id is server-minted; a caller-constructed one is refused, never coerced.
+                if (form.ContainsKey("id") || form.ContainsKey("documentId"))
+                    return Results.BadRequest(new { code = "request.record-id-not-accepted" });
                 file = form.Files.GetFile("file");
                 sensitivityRaw = form["sensitivity"].ToString();
             }

@@ -172,6 +172,9 @@ public static class DocumentTemplateRoutes
             {
                 return Results.BadRequest(new { error = "invoice_id_required" });
             }
+            // T-974: the issued document's id is server-minted; `invoiceId` stays the existing-record reference.
+            if (body.Id is not null || body.DocumentId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
 
             if (!TryResolveTemplate(registry, body.TemplateKey, body.TemplateVersion, body.Template, out var template, out var templateError))
             {
@@ -328,7 +331,9 @@ public sealed record IssueTemplateRequest(
     [property: JsonPropertyName("templateKey")] string? TemplateKey,
     [property: JsonPropertyName("templateVersion")] string? TemplateVersion,
     [property: JsonPropertyName("template")] string? Template,
-    [property: JsonPropertyName("invoiceId")] string InvoiceId);
+    [property: JsonPropertyName("invoiceId")] string InvoiceId,
+    [property: JsonPropertyName("id")] string? Id = null,
+    [property: JsonPropertyName("documentId")] string? DocumentId = null);
 
 /// <summary>The minted issued-document wire projection (never carries the raw snapshot plaintext — §5.5).</summary>
 public sealed record IssuedDocumentWire(
