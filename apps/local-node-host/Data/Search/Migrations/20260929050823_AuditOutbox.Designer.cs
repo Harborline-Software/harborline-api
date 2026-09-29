@@ -3,6 +3,7 @@ using System;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,14 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Search.Migrations;
 
 [DbContext(typeof(NodeLocalSearchDbContext))]
-partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
+[Migration("20260929050823_AuditOutbox")]
+partial class _20260929050823_AuditOutbox
 {
-    // If you encounter a merge conflict in the line below, it means you need to
-    // discard one of the migration branches and recreate its migrations on top of
-    // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260929170220_KernelAuditTrail";
-
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-rc.1.26425.128");
@@ -395,10 +393,6 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER")
                     .HasColumnName("published_at_unix_ms");
 
-                b.Property<string>("SignedPayloadJson")
-                    .HasColumnType("TEXT")
-                    .HasColumnName("signed_payload_json");
-
                 b.Property<string>("TargetId")
                     .HasMaxLength(512)
                     .HasColumnType("TEXT")
@@ -426,42 +420,6 @@ partial class NodeLocalSearchDbContextModelSnapshot : ModelSnapshot
                     .HasDatabaseName("ix_search_audit_outbox_published");
 
                 b.ToTable("search_audit_outbox");
-            });
-
-        modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Search.AuditTrailRow", b =>
-            {
-                b.Property<string>("AuditId")
-                    .HasMaxLength(64)
-                    .HasColumnType("TEXT")
-                    .HasColumnName("audit_id");
-
-                b.Property<string>("EventType")
-                    .IsRequired()
-                    .HasMaxLength(256)
-                    .HasColumnType("TEXT")
-                    .HasColumnName("event_type");
-
-                b.Property<DateTimeOffset>("OccurredAt")
-                    .HasColumnType("TEXT")
-                    .HasColumnName("occurred_at");
-
-                b.Property<string>("RecordJson")
-                    .IsRequired()
-                    .HasColumnType("TEXT")
-                    .HasColumnName("record_json");
-
-                b.Property<string>("TenantId")
-                    .IsRequired()
-                    .HasMaxLength(256)
-                    .HasColumnType("TEXT")
-                    .HasColumnName("tenant_id");
-
-                b.HasKey("AuditId");
-
-                b.HasIndex("TenantId")
-                    .HasDatabaseName("ix_search_audit_trail_tenant");
-
-                b.ToTable("search_audit_trail");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Search.SearchEdgeRow", b =>

@@ -103,9 +103,10 @@ public sealed class AcceptMatchService
         if (link is null)
             throw new InvalidOperationException($"MatchLink '{matchLinkId.Value}' not found.");
 
-        if (link.State != MatchLinkState.Proposed)
-            throw new MatchAcceptException(matchLinkId, MatchAcceptRejectReason.LinkNotProposed,
-                $"MatchLink '{matchLinkId.Value}' is in state {link.State}; only Proposed links can be accepted.");
+        // DES-0029 ck-6: an Accepted link whose line was never updated is an accept a crash interrupted between
+        // its two commits. It passes the gates below and finishes the line; a true duplicate is refused there.
+        if (link.State is not (MatchLinkState.Proposed or MatchLinkState.Accepted))
+            throw NotProposed(link);
 
         // Load the statement line
         StatementLine? line = await _lineRepo.GetByIdAsync(tenantId, link.StatementLine, ct).ConfigureAwait(false);
@@ -141,12 +142,15 @@ public sealed class AcceptMatchService
         }
 
         // ── Accept the link ──
-        var accepted = link with
+        if (link.State == MatchLinkState.Proposed)
         {
-            State      = MatchLinkState.Accepted,
-            AcceptedAt = new Instant(_time.GetUtcNow()),
-        };
-        await _linkRepo.UpdateAsync(accepted, ct).ConfigureAwait(false);
+            var accepted = link with
+            {
+                State      = MatchLinkState.Accepted,
+                AcceptedAt = new Instant(_time.GetUtcNow()),
+            };
+            await _linkRepo.UpdateAsync(accepted, ct).ConfigureAwait(false);
+        }
 
         // ── Sum-integrity: compute new reconciliation state ──
         var allLinks = await _linkRepo.ListByStatementLineAsync(tenantId, line.Id, ct).ConfigureAwait(false);
@@ -155,10 +159,16 @@ public sealed class AcceptMatchService
             .Sum(l => l.Amount);
 
         ReconciliationState newState = ComputeNewState(line.Amount, acceptedSum);
+        if (link.State == MatchLinkState.Accepted && line.State == newState)
+            throw NotProposed(link);
 
         var updatedLine = line with { State = newState };
         await _lineRepo.UpdateAsync(updatedLine, ct).ConfigureAwait(false);
     }
+
+    private static MatchAcceptException NotProposed(MatchLink link) =>
+        new(link.Id, MatchAcceptRejectReason.LinkNotProposed,
+            $"MatchLink '{link.Id.Value}' is in state {link.State}; only Proposed links can be accepted.");
 
     private static ReconciliationState ComputeNewState(decimal lineAmount, decimal acceptedSum)
     {

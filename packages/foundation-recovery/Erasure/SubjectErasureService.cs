@@ -125,9 +125,10 @@ public sealed class SubjectErasureService : ISubjectErasureService
 
         var pseudonym = SubjectPseudonym.Derive(request.Tenant, request.Subject);
 
-        // --- Idempotency: an already-erased subject is a no-op. ---
-        // MarkErasedAsync returns false when the subject was already shredded; in
-        // that case we return the existing tombstone and DO NOT re-emit the audit.
+        // --- Idempotency and crash-resume (DES-0029 ck-6). ---
+        // MarkErasedAsync returns false when the subject was already shredded. A completed erasure is recognised
+        // by its SubjectErased audit, which is written LAST under a deterministic id; anything short of that is
+        // an erasure a crash interrupted, and this call finishes it. Every remaining step is idempotent.
         var firstErasure = await _registry
             .MarkErasedAsync(request.Tenant, request.Subject, ct)
             .ConfigureAwait(false);
@@ -138,40 +139,54 @@ public sealed class SubjectErasureService : ISubjectErasureService
             .DestroySubjectKeysAsync(request.Tenant, request.Subject, ct)
             .ConfigureAwait(false);
 
-        if (!firstErasure)
-        {
-            var existing = await _tombstones
-                .FindAsync(request.Tenant, pseudonym, ct)
-                .ConfigureAwait(false);
+        var existing = await _tombstones
+            .FindAsync(request.Tenant, pseudonym, ct)
+            .ConfigureAwait(false);
+        if (!firstErasure && existing is not null && await IsAuditedAsync(existing, ct).ConfigureAwait(false))
             return new SubjectErasureResult(SubjectErasureOutcome.AlreadyErased, existing);
-        }
 
         // --- The shred is now in effect (DeriveSubjectKeyAsync fails closed). ---
-        // Write the pseudonymized tombstone in place of the subject's identifying
-        // fields.
-        var tombstone = new SubjectTombstone(
+        // Write the pseudonymized tombstone in place of the subject's identifying fields (write-once: a resumed
+        // erasure keeps the tombstone its first attempt wrote).
+        var tombstone = existing ?? new SubjectTombstone(
             TenantId: request.Tenant,
             Pseudonym: pseudonym,
             ErasedAt: now,
             ApprovingActors: approvers.ToImmutableArray(),
             LegalBasis: request.LegalBasis);
-        await _tombstones.WriteAsync(tombstone, ct).ConfigureAwait(false);
-
-        // --- Audit the erasure itself (mandatory; no plaintext in the payload). ---
-        await EmitErasedAsync(tombstone, ct).ConfigureAwait(false);
+        if (existing is null)
+            await _tombstones.WriteAsync(tombstone, ct).ConfigureAwait(false);
 
         // --- F1 (Slice-1d): drop derived CLEARTEXT caches of the now-shredded subject. ---
         // The durable ciphertext is already undecryptable (the sub-key is gone). But a derived,
         // partially-invertible cleartext cache (the KG-search vec0 acceleration table) would survive the
-        // crypto-shred until explicitly purged. Run AFTER the audit so the shred is durably recorded first;
-        // run ONLY on this first-time erasure (the idempotent already-erased path above returned early).
-        // A fault propagates — a failed cleartext-cache purge is a compliance signal, not a silent swallow.
+        // crypto-shred until explicitly purged. The registry and tombstone already record the shred durably; the
+        // purge runs before the audit so the audit marks the erasure COMPLETE, and a purge a crash interrupted is
+        // re-run by the retry. A fault propagates — a failed cleartext-cache purge is a compliance signal.
         foreach (var propagator in _propagators)
         {
             await propagator.PropagateErasureAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
         }
 
+        // --- Audit the erasure itself (mandatory; no plaintext in the payload), exactly once. ---
+        if (!await IsAuditedAsync(tombstone, ct).ConfigureAwait(false))
+            await EmitErasedAsync(tombstone, ct).ConfigureAwait(false);
+
         return new SubjectErasureResult(SubjectErasureOutcome.Erased, tombstone);
+    }
+
+    /// <summary>The SubjectErased entry's id: one per erased subject, so a resumed erasure never records two.</summary>
+    private static Guid ErasedAuditId(SubjectTombstone tombstone) => new(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes("subject-erased|" + tombstone.TenantId.Value + "|" + tombstone.Pseudonym))
+        .AsSpan(0, 16));
+
+    private async Task<bool> IsAuditedAsync(SubjectTombstone tombstone, CancellationToken ct)
+    {
+        await foreach (var _ in _auditTrail.QueryAsync(
+                new AuditQuery(tombstone.TenantId, AuditEventType.SubjectErased, AuditId: ErasedAuditId(tombstone)), ct)
+            .ConfigureAwait(false))
+            return true;
+        return false;
     }
 
     private async Task EmitShredBlockedAsync(TenantId tenant, SubjectId subject, CancellationToken ct)
@@ -194,7 +209,7 @@ public sealed class SubjectErasureService : ISubjectErasureService
         var payload = SubjectErasureAuditPayloadFactory.Erased(tombstone);
         var signed = await _signer.SignAsync(payload, tombstone.ErasedAt, Guid.NewGuid(), ct).ConfigureAwait(false);
         var record = new AuditRecord(
-            AuditId: Guid.NewGuid(),
+            AuditId: ErasedAuditId(tombstone),
             TenantId: tombstone.TenantId,
             EventType: AuditEventType.SubjectErased,
             OccurredAt: tombstone.ErasedAt,

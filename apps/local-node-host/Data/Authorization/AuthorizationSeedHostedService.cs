@@ -29,7 +29,7 @@ internal sealed class AuthorizationSeedHostedService(
     {
         var holder = nodeOperator?.Principal;
         if (grantRows is not null)
-            await RetiredDesktopActorRekey.RunAsync(grantRows, holder, cancellationToken).ConfigureAwait(false);
+            await RetiredDesktopActorRekey.RunAsync(grantRows, holder, timeProvider.GetUtcNow(), cancellationToken).ConfigureAwait(false);
 
         // Seeded grants are tenant-partitioned and the routes resolve their tenant from the CURRENTLY
         // active team, so seeding only the boot-active tenant loses the node operator's holdings the

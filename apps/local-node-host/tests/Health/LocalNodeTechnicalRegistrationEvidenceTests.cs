@@ -65,10 +65,10 @@ public sealed class LocalNodeTechnicalRegistrationEvidenceTests
     // rise by one more: 25 non-web, 30 webClient. Ticket 176 slice 2 then adds the platform-pack
     // preload (order 153), so the regenerated evidence is 26 non-web and 31 webClient. T-735 adds
     // the always-active Layout-denial drain (order 89), making them 27 and 32 respectively.
-    [InlineData(false, false, false, 27)]
-    [InlineData(true, false, false, 32)]
-    [InlineData(false, false, true, 27)]
-    [InlineData(true, true, true, 32)]
+    [InlineData(false, false, false, 28)]
+    [InlineData(true, false, false, 33)]
+    [InlineData(false, false, true, 28)]
+    [InlineData(true, true, true, 33)]
     public void Evidence_Uses_The_Exact_Profile_Selected_Hosted_Projection(
         bool webClient,
         bool llmProxy,

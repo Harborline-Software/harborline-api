@@ -104,6 +104,17 @@ public sealed class NodeLocalSearchDbContext : DbContext
     /// </summary>
     public DbSet<SubjectTombstoneRow> SubjectTombstones => Set<SubjectTombstoneRow>();
 
+    /// <summary>
+    /// DES-0029 ck-6: audit entries staged with the write they record and owed to the kernel audit trail.
+    /// Written only by <c>NodeAuditOutbox</c>.
+    /// </summary>
+    public DbSet<AuditOutboxRow> AuditOutbox => Set<AuditOutboxRow>();
+
+    /// <summary>
+    /// T-986: the host's kernel audit trail. Written only by <c>NodeAuditTrailStore</c>; append-only.
+    /// </summary>
+    public DbSet<AuditTrailRow> AuditTrail => Set<AuditTrailRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -321,6 +332,21 @@ public sealed class NodeLocalSearchDbContext : DbContext
             e.Property(t => t.ErasedAtUnixMs).HasColumnName("erased_at_unix_ms");
             e.Property(t => t.ApprovingActorsJson).HasColumnName("approving_actors_json");
             e.Property(t => t.LegalBasis).HasColumnName("legal_basis");
+        });
+
+        modelBuilder.Entity<AuditOutboxRow>(AuditOutboxRow.Map);
+
+        // T-986: the host's kernel audit trail, the durable record store the outbox delivers to.
+        modelBuilder.Entity<AuditTrailRow>(e =>
+        {
+            e.ToTable("search_audit_trail");
+            e.HasKey(r => r.AuditId);
+            e.Property(r => r.AuditId).HasColumnName("audit_id").HasMaxLength(64);
+            e.Property(r => r.TenantId).HasColumnName("tenant_id").HasMaxLength(256);
+            e.Property(r => r.EventType).HasColumnName("event_type").HasMaxLength(256);
+            e.Property(r => r.OccurredAt).HasColumnName("occurred_at");
+            e.Property(r => r.RecordJson).HasColumnName("record_json");
+            e.HasIndex(r => r.TenantId).HasDatabaseName("ix_search_audit_trail_tenant");
         });
     }
 }

@@ -213,7 +213,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                     validated = await ValidateAsync(command,
                             bound ?? throw new InvalidOperationException("Bind must precede validate."),
                             mutation ?? throw new InvalidOperationException("Mutate must precede validate."),
-                            authority.At, packAuthority is not null, stages, ct)
+                            authority, decision, packAuthority is not null, stages, ct)
                         .ConfigureAwait(false);
                     break;
                 case WritePipelineStage.Commit:
@@ -234,6 +234,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         return (result ?? throw new InvalidOperationException("Kernel write pipeline did not react.")) with
         {
             Decision = decision,
+            AuditId = store is IAuditingAuthorizationConfigurationStore ? validated?.AuditId : null,
         };
     }
 
@@ -339,12 +340,14 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         AuthorizationConfigurationCommand command,
         AuthorizationConfigurationState bound,
         AuthorizationMutation mutation,
-        DateTimeOffset at,
+        AuthorizationWriteContext authority,
+        AuthorizationDecision? decision,
         bool packPublished,
         List<string> stages,
         CancellationToken ct)
     {
         RecordStage(WritePipelineStage.Validate, stages);
+        var at = authority.At;
         switch (command)
         {
             case InstallAuthorizationDefinition install:
@@ -370,7 +373,8 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                     expectedDefinitionRevision: 0,
                     expectedBindingRevision: 0,
                     definitionEffectiveAt: at,
-                    declaringTenantId: install.DeclaringTenantId);
+                    declaringTenantId: install.DeclaringTenantId,
+                    decision, authority.Principal, authority.Tenant);
 
             case ReplaceAuthorizationDefinition replace:
                 var previous = bound.Definition
@@ -390,7 +394,8 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                     expectedDefinitionRevision: previous.Revision,
                     expectedBindingRevision: 0,
                     definitionEffectiveAt: at,
-                    declaringTenantId: replace.DeclaringTenantId);
+                    declaringTenantId: replace.DeclaringTenantId,
+                    decision, authority.Principal, authority.Tenant);
 
             case NarrowCapabilityRoleBinding narrow:
                 var definition = bound.Definition
@@ -408,7 +413,8 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                     expectedDefinitionRevision: definition.Revision,
                     expectedBindingRevision: bound.BindingRevision,
                     definitionEffectiveAt: null,
-                    declaringTenantId: null);
+                    declaringTenantId: null,
+                    decision, authority.Principal, authority.Tenant);
 
             default:
                 throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'.");

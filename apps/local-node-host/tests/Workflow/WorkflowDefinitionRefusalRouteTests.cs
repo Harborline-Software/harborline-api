@@ -72,6 +72,7 @@ public sealed class WorkflowDefinitionRefusalRouteTests : IAsyncLifetime
         builder.Services.AddSingleton(new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32)));
         builder.Services.AddSingleton<IOperationSigner>(
             sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+        builder.Services.AddTestInMemoryKernelAudit();
         builder.Services.AddEnrollmentCompensatingControlAudit();
         builder.Services.AddSingleton<IAuditTrail>(sp =>
             _trail = new FaultingAuditTrail(sp.GetRequiredService<InMemoryAuditTrail>()));

@@ -36,7 +36,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// implementation.
 /// </para>
 /// </remarks>
-public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail
+public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail, ICapturedAuditTrail
 {
     private readonly ConcurrentQueue<AuditRecord> _records = new();
 
@@ -71,6 +71,16 @@ public sealed class InMemoryAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTra
     public ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default)
     {
         Enqueue(AuthorizedAuditRecord.CopyRefusal(record, decision), ct);
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public ValueTask AppendCapturedAsync(AuditRecord captured, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(captured);
+        if (captured.AuthoritySnapshot is null)
+            throw new ArgumentException("A captured audit record must carry its authority snapshot.", nameof(captured));
+        Enqueue(captured, ct);
         return ValueTask.CompletedTask;
     }
 
