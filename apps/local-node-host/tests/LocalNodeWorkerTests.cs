@@ -276,19 +276,34 @@ public sealed class LocalNodeWorkerTests
 
     /// <summary>
     /// Spin (with a short delay) until the node host transitions to <paramref name="expected"/>
-    /// or a 5s watchdog trips. The worker's ExecuteAsync is asynchronous relative to
+    /// or the watchdog trips. The worker's ExecuteAsync is asynchronous relative to
     /// <c>IHost.StartAsync</c> — the latter returns once hosted services are scheduled,
     /// not once they finish their boot work — so we need a bounded poll.
     /// </summary>
-    private static async Task WaitForStateAsync(INodeHost host, NodeState expected, int timeoutMs = 5000)
+    private static async Task WaitForStateAsync(INodeHost host, NodeState expected)
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        var deadline = DateTime.UtcNow + StateWatchdog;
         while (host.State != expected && DateTime.UtcNow < deadline)
         {
             await Task.Delay(20);
         }
         Assert.Equal(expected, host.State);
     }
+
+    /// <summary>
+    /// T-987: the watchdog on <see cref="WaitForStateAsync"/>, under the two-ceiling convention
+    /// (<see cref="LoadCeiling"/>). ExecuteAsync runs on the thread pool once <c>IHost.StartAsync</c>
+    /// returns, so a starved pool can hold the node in Stopped past 5 s: verify-linux saw exactly that
+    /// in a full host-suite run. The quiet ceiling keeps the original 5 s. With the thread pool starved
+    /// (a pool backlog 16 times its thread count for 15 s, the test host capped at 1.5 cores), the
+    /// base test failed 6 of 10 runs with the verify-linux signature (Expected Running, Actual Stopped)
+    /// and its passing runs took up to 18 s. Under that load the fixed test passed 20 of 20, the slowest
+    /// in 27.2 s, so the busy ceiling of 60 s is over twice the worst measured run. The verdict does not change:
+    /// the node must still reach the state, and a worker that never starts the node still fails.
+    /// </summary>
+    private static readonly TimeSpan StateWatchdog = LoadCeiling.Pick(
+        quiet: TimeSpan.FromSeconds(5),
+        busy: TimeSpan.FromSeconds(60));
 
     /// <summary>Recording plugin — appends to a shared log so tests can assert ordering.</summary>
     private sealed class RecordingPlugin : ILocalNodePlugin
