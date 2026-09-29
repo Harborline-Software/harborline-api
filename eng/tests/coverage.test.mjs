@@ -104,7 +104,8 @@ test('the merge-queue gate enables the host and contracts coverage route', () =>
   assert.match(settings, /<ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute<\/ExcludeByAttribute>/)
   assert.match(settings, /<ExcludeByFile>\*\*\/Generated\/\*\*\/\*\.cs,\*\*\/Migrations\/\*\*\/\*\.cs,\*\*\/obj\/\*\*\/\*\.cs<\/ExcludeByFile>/)
   const contracts = JSON.parse(readFileSync(path.join(root, 'packages', 'contracts', 'package.json'), 'utf8'))
-  assert.equal(contracts.devDependencies['@vitest/coverage-v8'], '5.0.0')
+  // coverage-v8 must move in lockstep with vitest (#221 pinned both to 4.1.11 for StrykerJS).
+  assert.equal(contracts.devDependencies['@vitest/coverage-v8'], contracts.devDependencies.vitest)
   assert.match(contracts.scripts['test:coverage'], /--coverage\.reporter=cobertura/)
   assert.match(contracts.scripts['test:coverage'], /--coverage\.reportsDirectory=\.\/coverage/)
 })
