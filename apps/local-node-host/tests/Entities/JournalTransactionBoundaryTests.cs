@@ -128,7 +128,7 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         await _store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-ORIG", sourceReference: null));
         await _store.SaveAtomicForTestAsync(Tenant, Reversal("JE-CK6-REV-1", "JE-CK6-ORIG"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<JournalEntryNotReversibleException>(
             () => _store.SaveAtomicForTestAsync(Tenant, Reversal("JE-CK6-REV-2", "JE-CK6-ORIG")));
 
         Assert.Null(await FindAsync("JE-CK6-REV-2"));

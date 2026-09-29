@@ -56,6 +56,7 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
     private NodeEfJournalStore _store = null!;
     private JournalPostingService _postingService = null!;
     private MutableAuthorizationContext _authorization = null!;
+    private readonly ReversalRaceHooks _hooks = new();
 
     /// <summary>The install-constant tenant the routes filter on (mirrors JournalEntryRoutes).</summary>
     private static readonly TenantId LocalTenantId =
@@ -79,7 +80,7 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
         builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.LocalNodeHost.Data.Audit.AuditEventEntityModule>();
         builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt =>
-            opt.UseSqlite(connectionString));
+            opt.UseSqlite(connectionString).AddInterceptors(_hooks));
 
         // Ticket 151 cluster: the JE write routes gate on ledger:post through the request-scoped
         // IAuthorizationContext seam. Allow-all by default; the gate tests narrow it.
@@ -580,6 +581,128 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
         await AssertNoEntryPostedAsync("CH-1");
+    }
+
+    [Fact(DisplayName = "ck-6 idempotency: a keyed manual JE retried after a restart returns the first posting and response, one entry")]
+    public async Task Create_KeyedRetryAfterRestart_ReturnsTheFirstResponse()
+    {
+        // This fixture installs no process-local replay cache, which is exactly what a restarted node sees.
+        var first = await PostKeyedAsync("je-retry-1", ManualBody("Keyed entry", 70m));
+        var retry = await PostKeyedAsync("je-retry-1", ManualBody("Keyed entry", 70m));
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(await first.Content.ReadAsStringAsync(), await retry.Content.ReadAsStringAsync());
+        Assert.Equal(first.Headers.Location, retry.Headers.Location);
+        Assert.Single(_store.Snapshot(LocalTenantId));
+    }
+
+    [Fact(DisplayName = "ck-6 idempotency: a key reused with a different payload after a restart is refused 409, one entry")]
+    public async Task Create_KeyReusedWithDifferentPayload_IsRefused()
+    {
+        var first = await PostKeyedAsync("je-retry-2", ManualBody("Keyed entry", 70m));
+        var reused = await PostKeyedAsync("je-retry-2", ManualBody("Keyed entry", 71m));
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, reused.StatusCode);
+        Assert.Equal(
+            "authorization.idempotency_key_reused",
+            (await reused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Single(_store.Snapshot(LocalTenantId));
+    }
+
+    [Fact(DisplayName = "ck-6 reversal race: a reversal that passed the route check but lost the store lock is 400 already_reversed")]
+    public async Task Reverse_LostRace_IsAlreadyReversed()
+    {
+        await SeedEntryAsync("JE-ORIG", LocalTenantId, new DateOnly(2026, 1, 10), "1000", "4000", 250m,
+            status: JournalEntryStatus.Posted);
+        Task<HttpResponseMessage>? loser = null;
+        // Inside the winner's write-locked read of the original: start the loser and let it pass the route's
+        // Posted check (a lock-free read) before the winner commits. The loser then waits on the lock.
+        _hooks.InsideWinnerLock = async () =>
+        {
+            var loserPassedCheck = _hooks.ArmNextSnapshotRead();
+            loser = _client.PostAsJsonAsync($"{Route}/JE-ORIG/reverse", new { });
+            await loserPassedCheck;
+        };
+
+        var winner = await _client.PostAsJsonAsync($"{Route}/JE-ORIG/reverse", new { });
+        var lost = await loser!;
+
+        Assert.Equal(HttpStatusCode.Created, winner.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, lost.StatusCode);
+        Assert.Equal("already_reversed", (await lost.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        var entries = _store.Snapshot(LocalTenantId);
+        Assert.Single(entries, e => e.ReversalOf?.Value == "JE-ORIG");
+        Assert.Equal(JournalEntryStatus.Reversed, entries.Single(e => e.Id.Value == "JE-ORIG").Status);
+    }
+
+    private Task<HttpResponseMessage> PostKeyedAsync(string key, object body)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, Route) { Content = JsonContent.Create(body) };
+        request.Headers.Add(IdempotencyContract.HeaderName, key);
+        return _client.SendAsync(request);
+    }
+
+    private static object ManualBody(string memo, decimal amount) => new
+    {
+        postingDate = "2026-01-15",
+        memo,
+        chartId = "CH-1",
+        lines = new[]
+        {
+            new { accountCode = "1000", amount, direction = "Debit" },
+            new { accountCode = "4000", amount, direction = "Credit" },
+        },
+    };
+
+    /// <summary>
+    /// Sequencing hooks for the reversal race: <see cref="InsideWinnerLock"/> runs once after the store's
+    /// original lookup (the only <c>LIMIT 2</c> journal read); an armed task completes when the next plain
+    /// journal snapshot read (the route's Posted check) has been consumed.
+    /// </summary>
+    private sealed class ReversalRaceHooks : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
+    {
+        private TaskCompletionSource? _nextSnapshotRead;
+
+        public Func<Task>? InsideWinnerLock { get; set; }
+
+        public Task ArmNextSnapshotRead()
+        {
+            _nextSnapshotRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _nextSnapshotRead.Task;
+        }
+
+        public override async ValueTask<System.Data.Common.DbDataReader> ReaderExecutedAsync(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.CommandExecutedEventData eventData,
+            System.Data.Common.DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (InsideWinnerLock is { } hook && IsJournalRead(command) && command.CommandText.Contains("LIMIT 2", StringComparison.Ordinal))
+            {
+                InsideWinnerLock = null;
+                await hook();
+            }
+
+            return result;
+        }
+
+        public override Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult DataReaderDisposing(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.DataReaderDisposingEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult result)
+        {
+            if (IsJournalRead(command) && !command.CommandText.Contains("LIMIT", StringComparison.Ordinal))
+            {
+                Interlocked.Exchange(ref _nextSnapshotRead, null)?.TrySetResult();
+            }
+
+            return result;
+        }
+
+        private static bool IsJournalRead(System.Data.Common.DbCommand command) =>
+            command.CommandText.Contains("FROM \"journal_entries\"", StringComparison.Ordinal);
     }
 
     [Fact(DisplayName = "ticket 151 cluster: JE create without ledger:post is refused (403), nothing persists")]

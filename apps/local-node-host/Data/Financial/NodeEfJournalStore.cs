@@ -153,7 +153,7 @@ public sealed class NodeEfJournalStore : IJournalStore
                 .ConfigureAwait(false);
             if (original?.Status != JournalEntryStatus.Posted)
             {
-                throw new InvalidOperationException(
+                throw new JournalEntryNotReversibleException(
                     $"JournalEntry '{originalId.Value}' is {original?.Status.ToString() ?? "absent"}; only a Posted entry can be reversed.");
             }
 
@@ -203,3 +203,6 @@ public sealed class NodeEfJournalStore : IJournalStore
             .ConfigureAwait(false);
     }
 }
+
+/// <summary>A reversal's transaction found its original no longer Posted: another reversal won the race.</summary>
+public sealed class JournalEntryNotReversibleException(string message) : InvalidOperationException(message);
