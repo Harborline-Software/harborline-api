@@ -33,6 +33,9 @@ public interface IJournalStore : ITenantScopedRepository<JournalEntry, JournalEn
     /// partial writes before propagating.
     /// <see cref="ArgumentException"/> when <c>entry.TenantId</c> does not
     /// match <paramref name="tenantId"/>.
+    /// <see cref="JournalSourceReferenceConflictException"/> when a durable
+    /// store refuses a keyed entry because its tenant already holds a row with
+    /// that <see cref="JournalEntry.SourceReference"/>.
     /// </summary>
     Task SaveAtomicAsync(
         TenantId tenantId,
@@ -79,6 +82,13 @@ public interface IJournalStore : ITenantScopedRepository<JournalEntry, JournalEn
         string sourceReference,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// The durable (TenantId, SourceReference) unique index refused a save: a concurrent posting of the same
+/// source already committed. <see cref="JournalPostingService"/> recovers from this and nothing else.
+/// </summary>
+public sealed class JournalSourceReferenceConflictException(string message, Exception innerException)
+    : InvalidOperationException(message, innerException);
 
 /// <summary>
 /// In-memory <see cref="IJournalStore"/>. Saves to a backing list;

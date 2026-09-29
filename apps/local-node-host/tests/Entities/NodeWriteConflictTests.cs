@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.FinancialLedger.Models;
+using Harborline.Api.Blocks.FinancialLedger.Services;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Persistence;
@@ -66,9 +67,10 @@ public sealed class NodeWriteConflictTests : IAsyncLifetime
         await _store.SaveAtomicForTestAsync(LocalTenantId, BalancedPosted("JE-OBS2-1", 100m, sourceRef));
 
         // Second JE with the SAME (tenant, SourceReference) — the unique index rejects it; EF surfaces
-        // a DbUpdateException wrapping the SqliteException (exactly what a route's catch sees).
-        var ex = await Assert.ThrowsAsync<DbUpdateException>(
+        // a DbUpdateException wrapping the SqliteException, which the journal store wraps in its typed conflict.
+        var conflict = await Assert.ThrowsAsync<JournalSourceReferenceConflictException>(
             () => _store.SaveAtomicForTestAsync(LocalTenantId, BalancedPosted("JE-OBS2-2", 100m, sourceRef)));
+        var ex = Assert.IsType<DbUpdateException>(conflict.InnerException);
 
         Assert.True(NodePersistenceConflict.IsDuplicate(ex),
             "an EF-wrapped SQLite UNIQUE-constraint failure must be classified as a unique violation (→ 409)");

@@ -206,6 +206,9 @@ public static class SchedulingDefinitionRoutes
             if (await RequestAuthorization.RefusalAsync(
                     http, Tenant(), Permission.SchedulingOperate, addressed, ct) is { } denied)
                 return denied;
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (request.Id is not null || request.EventId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { code = "scheduling.appointment.invalid" });
             var resource = ParseParticipant(request.Resource);
@@ -427,7 +430,7 @@ public sealed record SchedulingDraftValidateRequest(JsonElement Definition);
 public sealed record SchedulingRestoreRequest(int Revision);
 public sealed record SchedulingAppointmentRequest(
     string SubjectId, string Resource, string Title, DateTimeOffset StartUtc, DateTimeOffset EndUtc,
-    string? DefinitionId = null);
+    string? DefinitionId = null, string? Id = null, string? EventId = null);
 public sealed record SchedulingEventRequest(
     string Title,
     string? CalendarId = null,

@@ -136,7 +136,8 @@ public sealed partial class FormsRouteTests
 
     private sealed class SelectedTestSubmissionGate : IFormSubmissionGate
     {
-        public string? RequiredPermission(FormDefinitionId form) => form.Value == FormId ? "members:manage" : null;
+        public string? RequiredPermission(FormDefinitionId form) =>
+            form.Value == FormId || form.Value == OpenFormId ? "members:manage" : null;
         public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) => OperatorRoles;
     }
 

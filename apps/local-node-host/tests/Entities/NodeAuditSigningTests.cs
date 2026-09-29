@@ -253,7 +253,7 @@ public sealed class NodeAuditSigningTests : IAsyncLifetime
 
         // Second posting with the SAME (tenant, SourceReference): the signing enlister SIGNS + stages its
         // row, then SaveChangesAsync throws on the unique index — the business write fails mid-save.
-        await Assert.ThrowsAsync<DbUpdateException>(() => store.SaveAtomicForTestAsync(
+        await Assert.ThrowsAsync<JournalSourceReferenceConflictException>(() => store.SaveAtomicForTestAsync(
             LocalTenantId, BalancedPostedWithSourceRef("JE-ATOMIC-SIGN-B", 50m, sourceRef)));
 
         await using var ctx = await _factory.CreateDbContextAsync();

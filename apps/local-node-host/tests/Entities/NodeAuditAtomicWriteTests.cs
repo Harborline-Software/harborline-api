@@ -197,7 +197,7 @@ public sealed class NodeAuditAtomicWriteTests : IAsyncLifetime
 
         // Second posting with the SAME (tenant, SourceReference): the audit enlister stages its row,
         // then SaveChangesAsync throws on the unique index — the business write fails mid-save.
-        await Assert.ThrowsAsync<DbUpdateException>(
+        await Assert.ThrowsAsync<JournalSourceReferenceConflictException>(
             () => store.SaveAtomicForTestAsync(LocalTenantId, BalancedPostedWithSourceRef("JE-ATOMIC-C1-2", 50m, sourceRef)));
 
         await using var ctx = await _factory.CreateDbContextAsync();
