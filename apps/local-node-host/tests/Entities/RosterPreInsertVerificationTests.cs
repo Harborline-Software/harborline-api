@@ -346,6 +346,44 @@ public sealed class RosterPreInsertVerificationTests
         AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_member_holding_revoke_but_not_admit_cannot_store_an_admission()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionSet.Of(Permission.MembersRevoke));
+        var candidate = f.Admission(f.Member, "member", "late", At.AddHours(2));
+        await f.MergeAsync([candidate]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == candidate.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_same_instant_same_nonce_revocation_whose_signature_sorts_first_refuses_the_revoked_members_admission()
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var instant = At.AddHours(1);
+        var nonce = Guid.Parse("7f000000-0000-0000-0000-000000000000");
+        var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
+                RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant, nonce)))
+            .AttestReceipt(f.Founder, "founder", instant);
+        // Ed25519 is deterministic, so pick the admitted party until the tie-break (ordinal signature order) puts
+        // the revocation first: that revocation precedes the admission and ejects its signer.
+        var late = Enumerable.Range(0, 64).Select(i =>
+            {
+                var key = KeyPair.Generate().PrincipalId;
+                return RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), $"late-{i}", key,
+                    RosterSigning.SignAdmission(f.Member, Tenant, $"late-{i}", key, "member", false, instant, nonce)));
+            })
+            .First(candidate => string.CompareOrdinal(revocation.SignatureB64Url, candidate.SignatureB64Url) < 0)
+            .AttestReceipt(f.Founder, "founder", instant);
+        await f.MergeRawAsync([revocation]);
+        Assert.Contains(await f.StoredAsync(), r => r.RecordId == revocation.RecordId);
+        await f.MergeRawAsync([late]);
+        Assert.DoesNotContain(await f.StoredAsync(), r => r.RecordId == late.RecordId);
+        AssertSingleRefusal(await f.AuditsAsync(), "roster.record.chain_ineligible");
+    }
+
     private static void AssertSingleRefusal(List<AuditRecord> audits, string code)
     {
         using var body = JsonDocument.Parse(JsonSerializer.Serialize(Assert.Single(audits).Payload.Payload.Body));
