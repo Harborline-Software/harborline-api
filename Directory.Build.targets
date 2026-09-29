@@ -31,6 +31,11 @@
                      And '$(MSBuildProjectName)' != 'Harborline.Tooling.LocalizationXliff'
                      And '$(MSBuildProjectName)' != 'Harborline.Tooling.LocalizationXliff.Tests'" />
 
+  <!-- CS1591: packable projects must document their public surface; non-packable ones (tests, tools, apps) are exempt. Here, not .props, because IsPackable is only set by the project body. -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'true'">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <!--
     ADR 0164 D6 — MinVer lives HERE, not in Directory.Build.props.
     The .props file is imported BEFORE a project sets its own properties, so IsPackable and

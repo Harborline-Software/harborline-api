@@ -12,7 +12,7 @@
          flags it as "will not be pruned" because it's transitively available from a cluster
          ProjectReference. Removing the ref breaks the build (CS0246); keeping it trips NU1510
          which WarningsAsErrors escalates. Keep the ref, suppress the warning. -->
-    <NoWarn>CS1591;NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

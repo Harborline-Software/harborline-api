@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Federation.Common</RootNamespace>
     <Description>Harborline federation transport abstraction, signed sync-envelope, peer registry, and DI integration (spec §2.5, §10.4).</Description>
     <PackageTags>harborline;federation;sync;peer</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

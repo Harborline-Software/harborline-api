@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Kernel.SchemaRegistry</RootNamespace>
     <Description>Harborline kernel §3.4 Schema Registry — content-addressed schema ids, pack-projection staging and the lens, upcaster and epoch surface. Registration and validation run in the platform Harborline.Kernel.SchemaValidation library (T-303).</Description>
     <PackageTags>harborline;kernel;schema;json-schema;registry</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

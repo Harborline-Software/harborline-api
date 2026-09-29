@@ -16,7 +16,7 @@
          Microsoft.Extensions.DependencyInjection.Abstractions required by DI extension;
          NuGet preview.4 pruning may flag it as transitively available.
          Per fleet-conventions "NU1510 — keep the PackageRef, suppress the warning". -->
-    <NoWarn>CS1591;NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

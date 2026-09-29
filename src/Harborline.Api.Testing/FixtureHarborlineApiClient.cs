@@ -4,13 +4,20 @@ using Harborline.Api.Contracts;
 
 namespace Harborline.Api.Testing;
 
+/// <summary>
+/// Development-only in-memory adapter: a <c>PUT</c> stores its body per tenant and route, a <c>GET</c> returns it,
+/// and anything else answers 404. Never use it in production.
+/// </summary>
 public sealed class FixtureHarborlineApiClient : IHarborlineApiClient, IHarborlineRuntimeAdapter
 {
     private readonly ConcurrentDictionary<(string Tenant, string Route), JsonElement> _documents = new();
 
+    /// <inheritdoc />
     public string AdapterName => "Harborline.Api.Testing.Fixture";
+    /// <inheritdoc />
     public HarborlineAdapterSafety Safety => HarborlineAdapterSafety.DevelopmentOnly;
 
+    /// <inheritdoc />
     public ValueTask<HarborlineApiResponse> SendAsync(
         HarborlineApiRequest request,
         CancellationToken cancellationToken = default)

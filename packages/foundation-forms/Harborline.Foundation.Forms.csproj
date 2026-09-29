@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Forms</RootNamespace>
     <Description>Foundation-tier dynamic forms substrate keystone (ADR 0055). Hosts the canonical FormDefinition record + HarborlineOverlay (FieldOverlay / FormSection / SectionAccess / RuleDefinition) + IFormDefinitionStore CRUD/lifecycle facade with an in-memory reference implementation. Scope is type-surface only: JSONB entity persistence (foundation-assets-postgres extension), the IFormEngine rendering surface, the three-tier rule evaluator, and the 20-primitive compound catalog (Harborline.Api.Foundation.Compounds) ship as separate companion packages composing this keystone.</Description>
     <PackageTags>harborline;foundation;forms;dynamic-forms;schema;adr-0055</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

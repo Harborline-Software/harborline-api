@@ -14,7 +14,6 @@
     <PackageTags>assets;asset-type-system;registry;typed-entities;traits;relationships;condition;scoring;blocks;substrate;harborline</PackageTags>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
