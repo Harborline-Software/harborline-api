@@ -29,13 +29,15 @@ public sealed class NodeAuditTrailStore(IDbContextFactory<NodeLocalSearchDbConte
         if (record.TenantId == default)
             throw new ArgumentException("AuditRecord.TenantId must be non-default per IMustHaveTenant.", nameof(record));
         await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var recordJson = NodeAuditRecordJson.Write(record);
+        var auditId = record.AuditId.ToString("D");
         db.AuditTrail.Add(new AuditTrailRow
         {
-            AuditId = record.AuditId.ToString("D"),
+            AuditId = auditId,
             TenantId = record.TenantId.Value,
             EventType = record.EventType.Value,
             OccurredAt = record.OccurredAt,
-            RecordJson = NodeAuditRecordJson.Write(record),
+            RecordJson = recordJson,
         });
         try
         {
@@ -43,9 +45,17 @@ public sealed class NodeAuditTrailStore(IDbContextFactory<NodeLocalSearchDbConte
         }
         catch (DbUpdateException ex) when (NodePersistenceConflict.IsDuplicate(ex))
         {
-            // The audit id is the record's identity, so a second insert is the same record delivered twice
-            // (two deliverers can both pass the outbox's existence check); only the key violation is absorbed.
+            // The same record delivered twice (two deliverers can both pass the outbox's existence check) is
+            // absorbed; a different record under a stored audit id is a conflict and still throws.
+            if (await StoredJsonAsync(auditId, ct).ConfigureAwait(false) != recordJson) throw;
         }
+    }
+
+    private async Task<string?> StoredJsonAsync(string auditId, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return await db.AuditTrail.AsNoTracking().Where(row => row.AuditId == auditId)
+            .Select(row => row.RecordJson).SingleOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

@@ -72,6 +72,26 @@ public sealed class DurableKernelAuditTrailTests : IAsyncLifetime
         Assert.Single(stored);
     }
 
+    [Fact(DisplayName = "T-986: a different record under an audit id already stored is refused, not absorbed")]
+    public async Task ConflictingAppend_UnderAStoredAuditId_Throws()
+    {
+        var tenant = new TenantId("tenant-t986-conflict");
+        var at = DateTimeOffset.Parse("2026-09-29T11:30:00Z");
+        var signer = new NodePrincipalSigner(Seed).Signer;
+        var auditId = Guid.NewGuid();
+        var first = new AuditRecord(auditId, tenant, AuditEventType.OwnershipTransferred, at,
+            await signer.SignAsync(new AuditPayload(new Dictionary<string, object?> { ["team_id"] = "team-1" }), at, Guid.NewGuid()), []);
+        var other = new AuditRecord(auditId, tenant, AuditEventType.OwnershipTransferred, at,
+            await signer.SignAsync(new AuditPayload(new Dictionary<string, object?> { ["team_id"] = "team-2" }), at, Guid.NewGuid()), []);
+        var trail = new NodeAuditTrailStore(_store.Factory);
+
+        await trail.AppendAsync(first);
+        await Assert.ThrowsAsync<DbUpdateException>(() => trail.AppendAsync(other).AsTask());
+
+        var stored = Assert.Single(await trail.QueryAsync(new AuditQuery(tenant)).ToListAsync());
+        Assert.Equal(NodeAuditRecordJson.Write(first), NodeAuditRecordJson.Write(stored));
+    }
+
     internal static ServiceProvider Host(SearchTestStore store)
     {
         var nodeSigner = new NodePrincipalSigner(Seed);
