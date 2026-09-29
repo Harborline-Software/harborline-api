@@ -118,6 +118,10 @@ Every remaining survivor in the listed decision paths falls in one of the groups
 - Affected classes: `NodeAuthorizationRosterConstraintReaderTests` (6), `NodeOperatorIdentityTests` (3), `SelectedSessionPepTests` plus `SelectedSessionEffectivePermissionsTests` (28), `RosterPreInsertVerificationTests` (25) and `DesktopActorRekeyTests` (7): all passed.
 - Host suite filtered to `FullyQualifiedName~.Authorization.|FullyQualifiedName~.Identity.|FullyQualifiedName~Roster`: 1,614 passed, 18 skipped, 17 failed. The same 17 fail on unmodified `27dbc9c` in the same container, so this change did not cause them: `AuthorizationAdminRouteTests` (14 cases, `SocketException: Address family not supported by protocol`), `NPrincipalAcceptanceE2E` (n = 3 and 5, `no_response`) and `AdministratorRecoveryCommandTests.ConfiguredDataDirectory_OwnsRecoveryIdentityAndKeystore` (exit code 4, expected 8). This run preceded `f69aa5d`, which adds two pre-insert tests; that class passed 25 of 25 afterwards.
 
+## After merging main
+
+The runs above measured `27dbc9c`. The branch then merged `origin/main` at `f4beab5`, which brings ck-11 #267, T-294 bullet 3 #276 and the platform pin `0f30804948db81590c1032b88da9e18ad1dea0d6` (feed `0.0.0-alpha.0.hd54e30aa7af1`). Of the six mutated files, only `SelectedSessionPermissionResolver.cs` changed, by a two-line comment above the ejection guard. Resolver line numbers after 139 are therefore two higher on the merged tree: the guard moves from 142 to 144, 159 to 161, 168 to 170, 170 to 172, and 211 to 213. The logic Stryker mutated is byte-identical. The merged `RosterPreInsertVerificationTests` keeps these tests and #267's `TamperedPermissionEvidenceConfersNoAuthorityThroughTheGate`, which can only add kills. On the merged tree, the affected and related classes pass 105 of 105.
+
 ## Reports
 
 The twelve raw reports are about 11 MB each. They embed every host test source, so they are kept off the tracked tree (AGENTS.md). They are archived byte for byte on the orphan branch `archive/ck11-roster-mutation-reports-2026-09-29` at commit `df494c5`, under `docs/evidence/mutation/`, with a `SHA256SUMS` file.

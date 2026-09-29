@@ -209,6 +209,27 @@ public sealed class SelectedSessionPepTests
             roster.EnumerateAdmissions().Select(admission => admission.PartyId));
     }
 
+    // T-294 bullet 3 — the pair: the SAME live grant, and the roster state is the only difference. The row above
+    // is the pre-edge web invitee (no edge: the grant decides); this one ejects that same subject.
+    [Fact(DisplayName = "T-294 b3: the same live grant is refused once the subject's roster edge is ejected")]
+    public async Task Ejected_Subject_With_The_Same_Live_Grant_Is_Refused()
+    {
+        using var founder = KeyPair.Generate();
+        using var subject = KeyPair.Generate();
+        var signer = new Ed25519Signer(founder);
+        var verifier = new Ed25519Verifier();
+        var admitted = MemberRoster.Genesis(TeamId, FounderParty, signer, verifier, Now, Guid.NewGuid())
+            .Admit(FounderParty, signer, "principal-deferred", subject.PrincipalId,
+                PermissionSet.Empty, verifier, Now, Guid.NewGuid());
+        var roster = new MutableRosterReader(admitted);
+        var resolver = await BuildResolverAsync(roster, PermissionSet.Of("deferred:read"));
+        Assert.True((await resolver.Resolver.ResolveAsync(resolver.Principal))!.Contains("deferred:read"));
+
+        roster.Current = admitted.Revoke(FounderParty, "principal-deferred");
+
+        Assert.Null(await resolver.Resolver.ResolveAsync(resolver.Principal));
+    }
+
     [Fact(DisplayName = "a refused roster denies and never falls back to the live grant")]
     public async Task Refused_Roster_Does_Not_Use_Deferred_Grant_Fallback()
     {

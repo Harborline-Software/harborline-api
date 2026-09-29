@@ -3,9 +3,11 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Entities;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
@@ -59,6 +61,62 @@ public sealed class ValidatedRecordBodyAdmissionArchTests
         Assert.Equal(MintSiteRows(), DiscoveredMintSites());
         Assert.All(MintSites, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
         Assert.Empty(ExceptionRows);
+    }
+
+    [Fact(DisplayName = "T-978: the keyed record validator every mint site takes is the Rules stage, not the bare schema validator")]
+    public void RecordWriteKeyResolvesTheRulesStage()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
+            Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
+        services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,
+            Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
+        services.AddTestAuthorizationGate();
+        services.AddTestNodeForms();
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<Harborline.Api.LocalNodeHost.Data.Entities.RecordWriteRulesValidator>(
+            provider.GetRequiredKeyedService<IEntityValidator>(Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator.RecordWriteKey));
+    }
+
+    [Fact(DisplayName = "T-978: no production composition hands a record coordinator the schema validator without the Rules stage")]
+    public void NoRecordWritePathBypassesTheRulesStage()
+    {
+        // The bare schema validator is resolved in exactly one production place: inside the Rules stage.
+        var resolutions = EnumerateProductionSource()
+            .SelectMany(file => Enumerable.Repeat(file.Relative,
+                CountOf(File.ReadAllText(file.Absolute), "CompiledSchemaEntityValidator>()")))
+            .ToArray();
+        Assert.Equal(["apps/local-node-host/Data/Forms/NodeFormsComposition.cs"], resolutions);
+        var forms = File.ReadAllText(Path.Combine(RepositoryRoot(), "apps/local-node-host/Data/Forms/NodeFormsComposition.cs"));
+        var keyed = forms[forms.IndexOf("CompiledSchemaEntityValidator.RecordWriteKey,", StringComparison.Ordinal)..];
+        Assert.StartsWith(
+            "CompiledSchemaEntityValidator.RecordWriteKey,\n            (sp, _) => new Harborline.Api.LocalNodeHost.Data.Entities.RecordWriteRulesValidator(\n                sp.GetRequiredService<CompiledSchemaEntityValidator>(),",
+            keyed.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+
+        // Every production construction of a record coordinator takes the keyed record validator.
+        foreach (var coordinator in new[] { "NodeEntityWriter(", "NodeHierarchyCompositeCoordinator(" })
+        {
+            foreach (var file in EnumerateProductionSource())
+            {
+                var text = File.ReadAllText(file.Absolute);
+                for (var at = text.IndexOf("new " + coordinator, StringComparison.Ordinal); at >= 0;
+                     at = text.IndexOf("new " + coordinator, at + 1, StringComparison.Ordinal))
+                {
+                    var call = text[at..text.IndexOf("));", at, StringComparison.Ordinal)];
+                    Assert.True(call.Contains("CompiledSchemaEntityValidator.RecordWriteKey", StringComparison.Ordinal),
+                        $"{file.Relative}: new {coordinator} must take the keyed record validator");
+                }
+            }
+        }
+    }
+
+    private static int CountOf(string text, string value)
+    {
+        var count = 0;
+        for (var at = text.IndexOf(value, StringComparison.Ordinal); at >= 0; at = text.IndexOf(value, at + 1, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     [Fact(DisplayName = "Ticket 366: nothing outside the token's own type can construct one (holds RW-9 RW-H2)")]

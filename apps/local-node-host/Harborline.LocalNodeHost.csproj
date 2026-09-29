@@ -55,6 +55,8 @@
     <PackageReference Include="Harborline.Kernel.WorkItems" />
     <PackageReference Include="Harborline.Blocks.BuilderDefinitions" />
     <PackageReference Include="Harborline.Blocks.LayoutRuntime" />
+    <!-- T-978: the record Rules stage (RecordWriteRules) is the platform producer, not the retiring api copy. -->
+    <PackageReference Include="Harborline.Foundation.RuleEngine" />
   </ItemGroup>
 
   <ItemGroup>
