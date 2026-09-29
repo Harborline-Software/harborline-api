@@ -235,6 +235,9 @@ public static class JournalEntryRoutes
             {
                 return Results.BadRequest(new { error = "request_null" });
             }
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
 
             // E8: minimum two lines (mirrors the Bridge write contract).
             if (body.Lines is null || body.Lines.Count < 2)
@@ -376,6 +379,9 @@ public static class JournalEntryRoutes
             if (await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.LedgerPost, RouteRecord.Of(id), ct) is { } denied)
                 return denied;
+            // T-974: the path id names the existing entry; the new reversing entry's id is server-minted.
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             var original = store.Snapshot(LocalTenantId).FirstOrDefault(e => e.Id.Value == id);
             if (original is null)
             {
@@ -609,7 +615,8 @@ public sealed record CreateJournalEntryRequest(
     [property: JsonPropertyName("postingDate")] string PostingDate,
     [property: JsonPropertyName("memo")] string Memo,
     [property: JsonPropertyName("chartId")] string? ChartId,
-    [property: JsonPropertyName("lines")] IReadOnlyList<CreateJournalEntryLine> Lines);
+    [property: JsonPropertyName("lines")] IReadOnlyList<CreateJournalEntryLine> Lines,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>One debit/credit line in a manual JE create request.</summary>
 public sealed record CreateJournalEntryLine(
@@ -620,4 +627,5 @@ public sealed record CreateJournalEntryLine(
 /// <summary>POST body for <c>POST /api/local-node/journal-entries/{id}/reverse</c> (all optional).</summary>
 public sealed record ReverseJournalEntryRequest(
     [property: JsonPropertyName("reversalDate")] string? ReversalDate,
-    [property: JsonPropertyName("memo")] string? Memo);
+    [property: JsonPropertyName("memo")] string? Memo,
+    [property: JsonPropertyName("id")] string? Id = null);

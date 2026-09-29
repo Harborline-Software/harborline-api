@@ -151,11 +151,9 @@ public sealed class NodeInvoiceRouteBoundPrincipalActorStampTests : IAsyncLifeti
     [Fact(DisplayName = "Route: a bound session principal's canonical Party is the actor stored on the durable invoice record")]
     public async Task Create_WithBoundPrincipal_StampsBoundPartyAsCreatedBy()
     {
-        const string invoiceId = "inv-actor-stamp-3037";
-
+        // T-974: the route mints the invoice id; the test reads it from the create response.
         var body = new
         {
-            id = invoiceId,
             chartId = "chart-actor-stamp",
             customerId = "party:customer",
             arAccountId = "1100",
@@ -176,6 +174,8 @@ public sealed class NodeInvoiceRouteBoundPrincipalActorStampTests : IAsyncLifeti
 
         var response = await _client.PostAsJsonAsync(InvoicesRoute, body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var invoiceId = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>())
+            .GetProperty("data").GetProperty("id").GetString()!;
 
         // Read the DURABLE record back (the create response wire shape does not expose the actor).
         var persisted = await _invoices.GetAsync(LocalTenantId, new InvoiceId(invoiceId), new Instant(System.TimeProvider.System.GetUtcNow()).Value);
