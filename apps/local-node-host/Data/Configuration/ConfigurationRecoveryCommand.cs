@@ -1,15 +1,19 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Security.Keys;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.LocalNodeHost.Enrollment;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Configuration;
@@ -102,6 +106,14 @@ public static class ConfigurationRecoveryCommand
             services.AddSqlCipherLocalNodeDbContextWithStoreDek(storeDek: keys.AtRestRootKey.Span, databasePath: storePath);
         else
             services.AddSqlCipherLocalNodeDbContext(rootSeed: rootSeed, databasePath: storePath, keyDerivation: new SqlCipherKeyDerivation());
+        // The host's own kernel audit trail and principal signer, so a stranded entry reaches the trail the running
+        // host reads, signed by the same node key, through the drain's delivery path.
+        services.AddLogging();
+        services.AddSingleton(timeProvider);
+        services.AddSingleton(new NodePrincipalSigner(rootSeed));
+        services.AddSingleton<IOperationSigner>(sp => sp.GetRequiredService<NodePrincipalSigner>().Signer);
+        services.AddEnrollmentCompensatingControlAudit();
+        services.AddSingleton<ConfigurationEvidenceOutbox>();
         await using var provider = services.BuildServiceProvider();
         var factory = provider.GetRequiredService<IDbContextFactory<NodeLocalPacksDbContext>>();
 
@@ -124,7 +136,7 @@ public static class ConfigurationRecoveryCommand
             await using (var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
                 await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
             result = await RecoverAsync(factory, new KernelClock(timeProvider), request, new DataDirectoryOwnership(runLock),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+                provider.GetRequiredService<ConfigurationEvidenceOutbox>(), cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -149,10 +161,10 @@ public static class ConfigurationRecoveryCommand
     /// <summary>The kernel recovery over this host's kernel profile rows, committed through one store transaction.</summary>
     internal static ValueTask<ConfigurationRecoveryResult<ConfigurationRecoveryRecord>> RecoverAsync(
         IDbContextFactory<NodeLocalPacksDbContext> factory, KernelClock clock, ConfigurationRecoveryRequest request,
-        IKernelConfigurationRecoveryCapability? capability, Action<string>? crashPoint = null,
+        IKernelConfigurationRecoveryCapability? capability, ConfigurationEvidenceOutbox evidence, Action<string>? crashPoint = null,
         CancellationToken cancellationToken = default) =>
         new ConfigurationRecovery(new ProfileReader(factory), capability, clock)
-            .RecoverAsync(request, new TransactionPort(factory, crashPoint), cancellationToken);
+            .RecoverAsync(request, new TransactionPort(factory, evidence, request.TenantKey, crashPoint), cancellationToken);
 
     /// <summary>The capability is the held <c>node.lock</c>: granted exactly while the lock is held.</summary>
     internal sealed class DataDirectoryOwnership(FileStream runLock) : IKernelConfigurationRecoveryCapability
@@ -189,12 +201,17 @@ public static class ConfigurationRecoveryCommand
     }
 
     /// <summary>One store transaction: the record and its repairs, then the audit, committed together or not at all.</summary>
-    internal sealed class TransactionPort(IDbContextFactory<NodeLocalPacksDbContext> factory, Action<string>? crashPoint)
+    internal sealed class TransactionPort(IDbContextFactory<NodeLocalPacksDbContext> factory, ConfigurationEvidenceOutbox evidence,
+        string tenant, Action<string>? crashPoint)
         : IKernelTransactionPort<ConfigurationRecoveryRecord, ConfigurationRecoveryRecord>
     {
         public async ValueTask<IKernelTransaction<ConfigurationRecoveryRecord, ConfigurationRecoveryRecord>> BeginAsync(
             KernelOperationIdentity operation, CancellationToken cancellationToken = default)
         {
+            // Delivered before the write transaction opens: the trail may share local-node.db, whose write lock the
+            // transaction holds. A crash after this append leaves the entry held by its audit id, so the next run or
+            // the host's drain finds it and only marks it.
+            await evidence.AppendOwedAsync(tenant, cancellationToken).ConfigureAwait(false);
             var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
             var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             return new Transaction(context, transaction, crashPoint);
@@ -230,13 +247,20 @@ public static class ConfigurationRecoveryCommand
         {
             var record = _record ?? throw new InvalidOperationException("configuration-recovery-record-not-staged");
             // Publication takes the audit's instant: one clock read for everything this recovery persists.
+            // A row from before the authority column has nothing to append; this audit is its stand-in and names it.
+            var standInFor = new JsonArray();
             foreach (var repair in record.Repairs.Where(repair => repair.Terminal == ConfigurationTerminalState.Published))
-                await ConfigurationEvidenceOutbox.MarkPublishedAsync(context, record.TenantKey, repair.Identity, audit.RecordedAt,
-                    cancellationToken).ConfigureAwait(false);
+            {
+                var row = await ConfigurationEvidenceOutbox.MarkPublishedAsync(context, record.TenantKey, repair.Identity,
+                    audit.RecordedAt, cancellationToken).ConfigureAwait(false);
+                if (row.AuthoritySnapshotJson is null) standInFor.Add(repair.Identity);
+            }
+            var payload = JsonNode.Parse(audit.Payload.Span)!.AsObject();
+            payload["standInFor"] = standInFor;
             context.RecoveryAudit.Add(new ConfigurationRecoveryAuditRow
             {
                 AuditId = audit.AuditId, Tenant = record.TenantKey, ActorId = audit.ActorId, RecordedAt = audit.RecordedAt,
-                PayloadJson = Encoding.UTF8.GetString(audit.Payload.Span),
+                PayloadJson = payload.ToJsonString(),
             });
             await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             crashPoint?.Invoke("audit-written");

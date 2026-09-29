@@ -24,8 +24,10 @@ namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 /// append and the mark is found on the trail and only marked. A failed delivery records its error and stays owed.
 /// </summary>
 /// <remarks>
-/// Rows committed before the authority column existed carry no snapshot and are left to the offline
-/// <c>recover-configuration</c> verb, which marks them with <see cref="MarkPublishedAsync"/> as this drain does.
+/// The offline <c>recover-configuration</c> verb delivers a tenant's stranded rows through
+/// <see cref="AppendOwedAsync"/> and marks them in its recovery transaction with <see cref="MarkPublishedAsync"/>, as
+/// this drain does. Rows committed before the authority column existed carry no snapshot: nothing is appended for
+/// them, and the verb's recovery audit names them as the evidence it stands in for.
 /// </remarks>
 public sealed class ConfigurationEvidenceOutbox(
     IDbContextFactory<NodeLocalPacksDbContext> factory,
@@ -52,18 +54,37 @@ public sealed class ConfigurationEvidenceOutbox(
     }
 
     /// <summary>The publish step this drain and the offline recovery share: the owed row is marked at <paramref name="at"/>.</summary>
-    internal static async ValueTask MarkPublishedAsync(NodeLocalPacksDbContext context, string tenant, string intentId,
-        DateTimeOffset at, CancellationToken cancellationToken)
+    internal static async ValueTask<ConfigurationEvidenceOutboxRow> MarkPublishedAsync(NodeLocalPacksDbContext context, string tenant,
+        string intentId, DateTimeOffset at, CancellationToken cancellationToken)
     {
         var row = await context.EvidenceOutbox.FindAsync([tenant, intentId], cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("configuration-outbox-entry-moved");
         row.PublishedAt = at;
         row.LastError = null;
+        return row;
     }
 
     /// <summary>The trail audit id of one activation's evidence, stable across drains and restarts.</summary>
     internal static Guid AuditIdFor(string tenant, string intentId) =>
         new(SHA256.HashData(Encoding.UTF8.GetBytes("configuration.activated\n" + tenant + "\n" + intentId)).AsSpan(0, 16));
+
+    /// <summary>
+    /// Appends each owed row of <paramref name="tenant"/> that carries a captured authority, under the drain's gate
+    /// and audit id, and marks none: the offline recovery marks them in its own transaction.
+    /// </summary>
+    internal async Task AppendOwedAsync(string tenant, CancellationToken cancellationToken)
+    {
+        await _drain.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            foreach (var row in await OwedAsync(tenant, cancellationToken).ConfigureAwait(false))
+                await EnsureOnTrailAsync(row, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _drain.Release();
+        }
+    }
 
     /// <summary>Delivers every owed row in commit order.</summary>
     /// <returns>The number of rows delivered or found delivered by this pass.</returns>
@@ -82,23 +103,12 @@ public sealed class ConfigurationEvidenceOutbox(
 
     private async Task<int> DrainOnceAsync(CancellationToken cancellationToken)
     {
-        List<ConfigurationEvidenceOutboxRow> owed;
-        await using (var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
-        {
-            owed = await context.EvidenceOutbox.AsNoTracking()
-                .Where(row => row.PublishedAt == null && row.AuthoritySnapshotJson != null)
-                .ToListAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         var delivered = 0;
-        foreach (var row in owed.OrderBy(row => row.CommittedAt))
+        foreach (var row in await OwedAsync(tenant: null, cancellationToken).ConfigureAwait(false))
         {
             try
             {
-                var tenant = new TenantId(row.Tenant);
-                var auditId = AuditIdFor(row.Tenant, row.IntentId);
-                if (!await HoldsAsync(tenant, auditId, cancellationToken).ConfigureAwait(false))
-                    await AppendAsync(row, tenant, auditId, cancellationToken).ConfigureAwait(false);
+                await EnsureOnTrailAsync(row, cancellationToken).ConfigureAwait(false);
                 await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
                 await MarkPublishedAsync(context, row.Tenant, row.IntentId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
                 await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -124,6 +134,25 @@ public sealed class ConfigurationEvidenceOutbox(
         }
 
         return delivered;
+    }
+
+    /// <summary>The unpublished rows that carry a captured authority, in commit order, for one tenant or all.</summary>
+    private async Task<List<ConfigurationEvidenceOutboxRow>> OwedAsync(string? tenant, CancellationToken cancellationToken)
+    {
+        await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var owed = await context.EvidenceOutbox.AsNoTracking()
+            .Where(row => row.PublishedAt == null && row.AuthoritySnapshotJson != null && (tenant == null || row.Tenant == tenant))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return owed.OrderBy(row => row.CommittedAt).ToList();
+    }
+
+    /// <summary>Appends the row's entry unless the trail already holds its audit id, so a retried delivery appends once.</summary>
+    private async Task EnsureOnTrailAsync(ConfigurationEvidenceOutboxRow row, CancellationToken cancellationToken)
+    {
+        var tenant = new TenantId(row.Tenant);
+        var auditId = AuditIdFor(row.Tenant, row.IntentId);
+        if (!await HoldsAsync(tenant, auditId, cancellationToken).ConfigureAwait(false))
+            await AppendAsync(row, tenant, auditId, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<bool> HoldsAsync(TenantId tenant, Guid auditId, CancellationToken cancellationToken)

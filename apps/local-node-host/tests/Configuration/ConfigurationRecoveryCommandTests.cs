@@ -36,6 +36,9 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     private PacksTestStore _db = null!;
     private DurablePackInstallStore _store = null!;
     private ConfigurationActivationTarget _target = null!;
+    private Harborline.Api.Kernel.Audit.InMemoryAuditTrail _trail = null!;
+    private ConfigurationEvidenceOutbox _drainer = null!;
+    private ConfigurationEvidenceOutbox _verbEvidence = null!;
     private string _dataDirectory = null!;
     private FileStream _runLock = null!;
 
@@ -43,10 +46,14 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
     {
         _db = await PacksTestStore.CreateAsync(keySalt: 58);
         _store = new DurablePackInstallStore(_db.Factory);
-        var trail = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
-        _target = new ConfigurationActivationTarget(_db.Factory, _store, TestPackGate.AllowAll(), new ConfigurationEvidenceOutbox(
-            _db.Factory, trail, trail, new Ed25519Signer(KeyPair.Generate()), new FixedTime(Frozen),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationEvidenceOutbox>.Instance));
+        // One trail; the running host's drain and the offline verb each hold their own outbox over it, as two processes would.
+        _trail = new Harborline.Api.Kernel.Audit.InMemoryAuditTrail();
+        var signer = new Ed25519Signer(KeyPair.Generate());
+        _drainer = new ConfigurationEvidenceOutbox(_db.Factory, _trail, _trail, signer, new FixedTime(Frozen),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationEvidenceOutbox>.Instance);
+        _verbEvidence = new ConfigurationEvidenceOutbox(_db.Factory, _trail, _trail, signer, new FixedTime(Recovered),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ConfigurationEvidenceOutbox>.Instance);
+        _target = new ConfigurationActivationTarget(_db.Factory, _store, TestPackGate.AllowAll(), _drainer);
         // A non-ASCII content key: the canonical writer and the stored JSON must escape it identically.
         Seed("acme.core", ["form.shared", "form.café"]);
         Seed("acme.ext", ["form.shared", "form.ext"]);
@@ -58,6 +65,8 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        _drainer.Dispose();
+        _verbEvidence.Dispose();
         await _runLock.DisposeAsync();
         try { Directory.Delete(_dataDirectory, recursive: true); } catch (IOException) { /* best-effort */ }
         await _db.DisposeAsync();
@@ -153,10 +162,92 @@ public sealed class ConfigurationRecoveryCommandTests : IAsyncLifetime
         Assert.True((await RecoverAsync("Node crashed")).Committed);
     }
 
+    [Fact]
+    public async Task Recover_appends_a_stranded_entry_that_carries_its_authority_to_the_trail()
+    {
+        await CrashResidueAsync();
+        Assert.Equal(0, await OnTrailAsync("intent-2"));
+
+        var result = await RecoverAsync("Node crashed before publishing intent-2");
+
+        Assert.True(result.Committed, result.Refusal?.Code);
+        var entry = Assert.Single(await EntriesAsync("intent-2"));
+        Assert.Equal("test:operator", entry.AuthoritySnapshot!.Principal);
+        Assert.Empty(StandIns());
+    }
+
+    [Fact]
+    public async Task Recover_does_not_append_a_pre_migration_entry_and_its_audit_names_it()
+    {
+        await CrashResidueAsync();
+        using (var context = _db.CreateContext())
+            await context.EvidenceOutbox.Where(row => row.IntentId == "intent-2")
+                .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.AuthoritySnapshotJson, (string?)null));
+
+        var result = await RecoverAsync("Node crashed before the authority column existed");
+
+        Assert.True(result.Committed, result.Refusal?.Code);
+        Assert.Equal(0, await OnTrailAsync("intent-2"));
+        Assert.Equal(["intent-2"], StandIns());
+        using var read = _db.CreateContext();
+        Assert.Equal(Recovered, read.EvidenceOutbox.AsNoTracking().Single(row => row.IntentId == "intent-2").PublishedAt);
+    }
+
+    [Theory]
+    [InlineData("record-written")]
+    [InlineData("audit-written")]
+    public async Task Recover_run_again_after_a_crash_appends_once(string point)
+    {
+        await CrashResidueAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await RecoverAsync("Node crashed",
+            at => { if (at == point) throw new InvalidOperationException("crash:" + at); }));
+
+        Assert.True((await RecoverAsync("Node crashed")).Committed);
+        Assert.Equal(0, await _drainer.DrainAsync());
+
+        Assert.Equal(1, await OnTrailAsync("intent-2"));
+    }
+
+    [Fact]
+    public async Task Recover_crashed_then_drained_appends_once()
+    {
+        await CrashResidueAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await RecoverAsync("Node crashed",
+            at => { if (at == "audit-written") throw new InvalidOperationException("crash:" + at); }));
+
+        Assert.Equal(1, await _drainer.DrainAsync());
+
+        Assert.Equal(1, await OnTrailAsync("intent-2"));
+        using var context = _db.CreateContext();
+        Assert.All(context.EvidenceOutbox.AsNoTracking(), row => Assert.NotNull(row.PublishedAt));
+    }
+
+    private async Task<List<Harborline.Api.Kernel.Audit.AuditRecord>> EntriesAsync(string intentId)
+    {
+        var entries = new List<Harborline.Api.Kernel.Audit.AuditRecord>();
+        await foreach (var record in _trail.QueryAsync(new Harborline.Api.Kernel.Audit.AuditQuery(Tenant,
+            AuditId: ConfigurationEvidenceOutbox.AuditIdFor(Tenant.Value, intentId))))
+            entries.Add(record);
+        return entries;
+    }
+
+    private async Task<int> OnTrailAsync(string intentId) => (await EntriesAsync(intentId)).Count;
+
+    /// <summary>The evidence intents the one recovery audit names as stood in for, not appended.</summary>
+    private string[] StandIns()
+    {
+        using var context = _db.CreateContext();
+        var audit = Assert.Single(context.RecoveryAudit.AsNoTracking());
+        using var payload = System.Text.Json.JsonDocument.Parse(audit.PayloadJson);
+        return payload.RootElement.TryGetProperty("standInFor", out var standIns)
+            ? standIns.EnumerateArray().Select(item => item.GetString()!).ToArray()
+            : ["<absent>"];
+    }
+
     private ValueTask<ConfigurationRecoveryResult<ConfigurationRecoveryRecord>> RecoverAsync(string reason, Action<string>? crashPoint = null) =>
         ConfigurationRecoveryCommand.RecoverAsync(_db.Factory, new KernelClock(new FixedTime(Recovered)),
             new ConfigurationRecoveryRequest(Guid.NewGuid().ToString("N"), Tenant.Value, "data-directory-owner:test", reason, "{\"authority\":\"data-directory-ownership\"}"),
-            new ConfigurationRecoveryCommand.DataDirectoryOwnership(_runLock), crashPoint);
+            new ConfigurationRecoveryCommand.DataDirectoryOwnership(_runLock), _verbEvidence, crashPoint);
 
     /// <summary>Two activations; the second crashes before publication, leaving the first candidate prepared but not effective.</summary>
     private async Task<(string Abandoned, string Effective)> CrashResidueAsync()
