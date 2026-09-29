@@ -161,6 +161,66 @@ public sealed class PayrollRouteTests : IAsyncLifetime
         Assert.True(employees[0].GetProperty("isActive").GetBoolean());
     }
 
+    [Theory(DisplayName = "POST employee: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("employeeId")]
+    public async Task CreateEmployee_refuses_a_client_supplied_record_id(string key)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["partyId"] = "party-1",
+            ["displayName"] = "Ada Lovelace",
+            ["wageExpenseAccountId"] = "6200",
+            ["wagesPayableAccountId"] = "2100",
+            [key] = "client-constructed-id",
+        };
+
+        var refused = await _client.PostAsJsonAsync(EmployeesRoute, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var list = await _client.GetFromJsonAsync<JsonElement>(EmployeesRoute, JsonOpts);
+        Assert.Equal(0, list.GetProperty("employees").GetArrayLength());
+
+        var minted = await CreateEmployeeAsync();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
+    [Theory(DisplayName = "POST pay-run: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("payRunId")]
+    public async Task CreatePayRun_refuses_a_client_supplied_record_id(string key)
+    {
+        var empId = await CreateEmployeeAsync();
+        var body = new Dictionary<string, object?>
+        {
+            ["label"] = "June 2026 bi-weekly",
+            ["periodStart"] = "2026-06-01",
+            ["periodEnd"] = "2026-06-15",
+            ["postingDate"] = "2026-06-15",
+            ["defaultTaxWithheldAccountId"] = "2200",
+            ["defaultDeductionPayableAccountId"] = "2300",
+            ["defaultEmployerLiabilityExpenseAccountId"] = "6300",
+            ["defaultEmployerLiabilityPayableAccountId"] = "2400",
+            ["lines"] = new[] { new { employeeId = empId, grossWage = 1000m, taxWithheld = 150m, employeeDeductions = 50m, employerLiabilityAmount = 100m } },
+            [key] = "client-constructed-id",
+        };
+
+        var refused = await _client.PostAsJsonAsync(PayRunsRoute, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var list = await _client.GetFromJsonAsync<JsonElement>(PayRunsRoute, JsonOpts);
+        Assert.Equal(0, list.GetProperty("payRuns").GetArrayLength());
+
+        var minted = (await CreatePayRunAsync(empId)).GetProperty("payRunId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     // ── Pay runs ──────────────────────────────────────────────────────────────
 
     [Fact(DisplayName = "POST pay-run with lines → GET detail round-trips lines node-side (offline)")]

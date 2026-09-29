@@ -110,6 +110,26 @@ public sealed class BankAccountCreateGateTests : IAsyncLifetime
         Assert.Empty(_accounts.Added);
     }
 
+    [Fact(DisplayName = "T-974: a client-supplied bank-account id is refused 400 with no write, and omission mints a server id")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        _authorization.Allow(TeamRolePermissions.RecordsWrite);
+
+        var refused = await _client.PostAsJsonAsync(
+            BankAccountRoutes.RouteBase, new { displayName = "Ops Checking", id = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Empty(_accounts.Added);
+
+        var created = await _client.PostAsJsonAsync(BankAccountRoutes.RouteBase, new { displayName = "Ops Checking" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = Assert.Single(_accounts.Added).Id.Value;
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "ticket 151: create with records:write persists (201)")]
     public async Task Create_With_RecordsWrite_Succeeds()
     {
