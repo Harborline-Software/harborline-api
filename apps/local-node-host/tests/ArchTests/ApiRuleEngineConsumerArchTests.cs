@@ -4,7 +4,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
 /// <summary>
 /// T-304 / T-540 (DES-0029 ck-7 plan S7): the api's own rule-engine copy (<c>Harborline.Api.Foundation.RuleEngine</c>)
-/// is retiring. The Forms submit gate and the Forms submit routes run on the platform runtime; every production
+/// is retiring. The Forms submit gate and the Forms submit routes run on the platform runtime, and since slice 2
+/// so do the Forms render projection, definition-save rule admission and the verification runner; every production
 /// file still naming the api copy is listed here, so a new consumer fails this test and a migrated one must
 /// leave the list. T-540 deletes the copy once the list is empty.
 /// </summary>
@@ -16,8 +17,6 @@ public sealed class ApiRuleEngineConsumerArchTests
     internal static readonly string[] RemainingConsumers =
     [
         "apps/local-node-host/Data/Authorization/StandingCatalogue.cs",
-        "apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs",
-        "apps/local-node-host/Data/Configuration/VerificationRunner.cs",
         "apps/local-node-host/Data/PackProjection/PackSeedProjector.cs",
         "apps/local-node-host/Health/AuthorizationAdminRoutes.cs",
         "apps/local-node-host/Health/Catalogue.cs",
@@ -25,8 +24,6 @@ public sealed class ApiRuleEngineConsumerArchTests
         "apps/local-node-host/Program.cs",
         "packages/foundation-documents/Merge/DocumentMergeContextAdapter.cs",
         "packages/foundation-documents/Rendering/DocumentRenderWalker.cs",
-        "packages/foundation-forms-engine/FormEngine.cs",
-        "packages/foundation-forms-engine/RuleCompileAdmission.cs",
     ];
 
     [Fact(DisplayName = "T-304: the production files naming the api rule-engine copy are exactly the listed T-540 consumers")]
@@ -37,6 +34,12 @@ public sealed class ApiRuleEngineConsumerArchTests
         Assert.DoesNotContain("packages/foundation-forms-engine/SubmitValidationGate.cs", discovered);
         Assert.DoesNotContain("apps/local-node-host/Health/FormsRoutes.cs", discovered);
         Assert.DoesNotContain("apps/local-node-host/Health/WebSession/SelectedFormSubmitRoutes.cs", discovered);
+        // T-304 slice 2.
+        Assert.DoesNotContain("packages/foundation-forms-engine/FormEngine.cs", discovered);
+        Assert.DoesNotContain("packages/foundation-forms-engine/RuleCompileAdmission.cs", discovered);
+        Assert.DoesNotContain("packages/foundation-forms-engine/PlatformRuleContract.cs", discovered);
+        Assert.DoesNotContain("apps/local-node-host/Data/Configuration/VerificationCandidateWorld.cs", discovered);
+        Assert.DoesNotContain("apps/local-node-host/Data/Configuration/VerificationRunner.cs", discovered);
     }
 
     private static string[] ProductionConsumers()

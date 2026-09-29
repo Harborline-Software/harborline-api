@@ -36,7 +36,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// not-required; a budget abort names the responsible definition; and a render-time
 /// compile-fault degrade stays observable (a warning naming the definition).
 /// </summary>
-public sealed class RuleFailClosedTests
+public sealed partial class RuleFailClosedTests
 {
     private static readonly DateTimeOffset SubmittedAt = new(2026, 8, 30, 10, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("tenant-ticket-150");

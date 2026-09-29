@@ -11,9 +11,10 @@ using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
-using Harborline.Api.Foundation.RuleEngine.Graph;
-using Harborline.Api.Foundation.RuleEngine.Model;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Environments;
+using Harborline.Foundation.RuleEngine.Graph;
+using Harborline.Foundation.RuleEngine.Model;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Health;
@@ -241,13 +242,18 @@ internal sealed class VerificationCandidateWorld
     /// resolves here. The runner never makes one: ticket 216 puts every clock in the host
     /// composition root, and this one arrives from there through the runner's own factory.
     /// </param>
+    /// <param name="admission">
+    /// The admission the evaluation presents. The runner presents Forms' own for the submission phase, the
+    /// released act it replays (T-304 slice 2). Without one, or for a rule outside it, the platform runtime
+    /// refuses the evaluation and the gate closes on that <c>rule.environment.*</c> code.
+    /// </param>
     internal JsonObject Evaluate(string recordType, JsonObject values, TimeProvider clock,
-        out VerificationRuleBlock? blocked)
+        EvaluationAdmission? admission, out VerificationRuleBlock? blocked)
     {
         var record = values.DeepClone().AsObject();
         blocked = null;
         if (Form(recordType) is not { Overlay.Rules.Count: > 0 } form) return record;
-        var graph = new FormRuleGraph(RuleCompiler.Compile([.. form.Overlay.Rules]), clock: clock);
+        var graph = new FormRuleGraph(RuleCompiler.Compile(form.Overlay.Rules.Select(ToContract).ToArray()), clock, admission);
         var result = graph.EvaluateInstance(RuleInstance.FromJson(record.DeepClone().AsObject()));
         foreach (var (key, computed) in result.Values)
         {
@@ -274,6 +280,18 @@ internal sealed class VerificationCandidateWorld
             : new(faulted[0].Value.Error?.Code ?? "rule.pending", Cell(faulted[0].Key));
         return record;
     }
+
+    // The api Forms model to the platform contract, as the Forms submit gate maps it: the enums by member name, so a
+    // renamed member fails loudly instead of shifting.
+    private static Harborline.Contracts.Forms.RuleDefinition ToContract(RuleDefinition rule) => new()
+    {
+        Id = rule.Id,
+        Tier = Enum.Parse<Harborline.Contracts.Forms.RuleTier>(rule.Tier.ToString()),
+        Scope = Enum.Parse<Harborline.Contracts.Forms.RuleScope>(rule.Scope.ToString()),
+        ScopeTarget = rule.ScopeTarget,
+        Expression = rule.Expression,
+        Action = Enum.Parse<Harborline.Contracts.Forms.RuleActionKind>(rule.Action.ToString()),
+    };
 
     /// <summary>A cell key as an RFC 6901 pointer into the record; a non-field cell addresses the whole.</summary>
     private static string Cell(string key) => key.StartsWith("field:", StringComparison.Ordinal)
