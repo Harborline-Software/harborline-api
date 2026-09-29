@@ -147,6 +147,22 @@ public sealed class KernelClockIntegrationTests
         Assert.Throws<FormatException>(() => NodeRosterRecord.FromCrdtState(roster));
     }
 
+    [Fact(DisplayName = "T-909 ck-9: the refusal of an unparseable stored instant names the instant it refused")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public void Unparseable_stored_instant_refusal_names_the_instant()
+    {
+        var message = new Harborline.Api.LocalNodeHost.Data.Comms.MessageCrdtState(
+            "message-909", Tenant.Value, "team", "party", "issuer", "not-an-instant", "body", "nonce", "signature");
+        var roster = new RosterRecordCrdtState(
+            "record-909", RosterRecordKind.Admission, "team", "party", "key", "admin-key", "admin-party",
+            "not-an-instant", "nonce", "signature", IsGenesis: false);
+
+        Assert.Contains("'not-an-instant'", Assert.Throws<FormatException>(
+            () => Harborline.Api.LocalNodeHost.Data.Comms.NodeMessage.FromCrdtState(message)).Message, StringComparison.Ordinal);
+        Assert.Contains("'not-an-instant'", Assert.Throws<FormatException>(
+            () => NodeRosterRecord.FromCrdtState(roster)).Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ProductionComposition_SuppliesTheFormSubmitActClock_PinnedToTheAdmittedInstant()
     {
