@@ -155,6 +155,51 @@ public sealed class AccountingPeriodRouteTests : IAsyncLifetime
         Assert.Single(list.GetProperty("periods").EnumerateArray());
     }
 
+    [Fact(DisplayName = "T-909 ck-9: an explicit date opens the period covering that date, not the host clock's")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Open_for_an_explicit_date_opens_the_period_covering_that_date()
+    {
+        await SeedChartAsync();
+
+        var resp = await _client.PostAsJsonAsync($"{PeriodsRoute}/open", new { date = "2020-02-10" });
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var doc = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(new DateOnly(2020, 2, 1),
+            DateOnly.Parse(doc.GetProperty("startDate").GetString()!, System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(new DateOnly(2020, 2, 29),
+            DateOnly.Parse(doc.GetProperty("endDate").GetString()!, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact(DisplayName = "T-909 ck-9: an empty date string is treated as omitted and opens the host clock's period")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Open_with_an_empty_date_string_defaults_like_an_omitted_date()
+    {
+        await SeedChartAsync();
+
+        var omitted = await _client.PostAsJsonAsync($"{PeriodsRoute}/open", new { });
+        var empty = await _client.PostAsJsonAsync($"{PeriodsRoute}/open", new { date = "" });
+
+        Assert.Equal(HttpStatusCode.OK, omitted.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, empty.StatusCode);
+        Assert.Equal(
+            (await omitted.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString(),
+            (await empty.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString());
+    }
+
+    [Fact(DisplayName = "Periods open: an unparseable date is refused as invalid_date and opens nothing")]
+    public async Task Open_with_an_unparseable_date_is_refused_as_invalid_date()
+    {
+        await SeedChartAsync();
+
+        var resp = await _client.PostAsJsonAsync($"{PeriodsRoute}/open", new { date = "not-a-date" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal("invalid_date", (await resp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        var list = await (await _client.GetAsync(PeriodsRoute)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Empty(list.GetProperty("periods").EnumerateArray());
+    }
+
     [Fact(DisplayName = "Periods open: pre-seed (no chart) returns 400 no_chart")]
     public async Task Open_NoChart_Returns400()
     {

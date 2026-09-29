@@ -495,6 +495,60 @@ public sealed class BootstrapClaimRedemptionTests
         Assert.Equal(4, (await harness.GrantStore.SnapshotAsync(Tenant)).Count);
     }
 
+    [Fact(DisplayName = "T-909 ck-9: a claim redeemed after its issue instant, inside its window, is accepted")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Claim_redeemed_after_its_issue_instant_inside_its_window_is_accepted()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var claim = await harness.IssueClaimAsync("founder", TimeSpan.FromMinutes(5));
+        harness.Clock.Advance(TimeSpan.FromMinutes(1));
+
+        Assert.Equal(
+            BootstrapClaimRedemptionStatus.Redeemed,
+            (await harness.Service.RedeemAsync(claim, harness.Target)).Status);
+    }
+
+    [Fact(DisplayName = "T-909 ck-9: a claim is rejected before its not-before instant even once it has been issued")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Claim_is_rejected_before_its_not_before_instant()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var valid = await harness.IssueClaimAsync("founder");
+        var notYetValid = new BootstrapClaim(
+            valid.IssuerKind,
+            valid.IssuerIdentity,
+            valid.InstallationId,
+            valid.TargetDigest,
+            valid.IssuedAt,
+            valid.IssuedAt.AddMinutes(1),
+            valid.ExpiresAt,
+            valid.IssuedTimestamp,
+            valid.Nonce,
+            valid.Acceptance);
+
+        Assert.Equal(
+            BootstrapClaimRedemptionStatus.ClaimRejected,
+            (await harness.Service.RedeemAsync(notYetValid, harness.Target)).Status);
+        Assert.Equal(4, (await harness.GrantStore.SnapshotAsync(Tenant)).Count);
+    }
+
+    [Fact(DisplayName = "T-909 ck-9: a claim whose monotonic lifetime is exactly spent is rejected though the wall clock was set back")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Claim_whose_monotonic_lifetime_is_spent_is_rejected_though_the_wall_clock_was_set_back()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var claim = await harness.IssueClaimAsync("founder", TimeSpan.FromMinutes(1));
+        // The monotonic clock reaches the claim's lifetime exactly; the wall clock is put back to issue time,
+        // so only the elapsed-lifetime bound can refuse it.
+        harness.Clock.Advance(claim.ExpiresAt - claim.IssuedAt);
+        harness.Clock.RewindWallClock(claim.ExpiresAt - claim.IssuedAt);
+
+        Assert.Equal(
+            BootstrapClaimRedemptionStatus.ClaimRejected,
+            (await harness.Service.RedeemAsync(claim, harness.Target)).Status);
+        Assert.Equal(4, (await harness.GrantStore.SnapshotAsync(Tenant)).Count);
+    }
+
     [Fact]
     public async Task Claim_That_Expires_While_Waiting_On_A_Real_Write_Lock_Is_Rejected()
     {
