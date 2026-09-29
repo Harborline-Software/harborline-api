@@ -108,9 +108,8 @@ public sealed class UnMatchService
             .Where(l => l.Id != reversed.Id && l.State == MatchLinkState.Accepted)
             .Sum(l => l.Amount);
 
-        ReconciliationState newState = remainingAccepted == 0
-            ? ReconciliationState.Unmatched
-            : ReconciliationState.PartiallyMatched;
+        ReconciliationState newState = AcceptMatchService.DeriveLineState(
+            line.Amount, remainingAccepted, ReconciliationState.Unmatched);
 
         // The link's own persisted state decides a duplicate: link and line commit together.
         if (!await _linkRepo.TransitionWithLineAsync(reversed, MatchLinkState.Accepted, line with { State = newState }, ct)

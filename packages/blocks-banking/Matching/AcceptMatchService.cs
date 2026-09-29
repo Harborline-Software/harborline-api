@@ -153,7 +153,7 @@ public sealed class AcceptMatchService
             .Where(l => l.State == MatchLinkState.Accepted)
             .Sum(l => l.Amount);
 
-        ReconciliationState newState = ComputeNewState(line.Amount, acceptedSum);
+        ReconciliationState newState = DeriveLineState(line.Amount, acceptedSum, ReconciliationState.Proposed);
 
         // The link's own persisted state decides a duplicate: link and line commit together, so there is no
         // half-applied accept for a retry to finish.
@@ -167,7 +167,13 @@ public sealed class AcceptMatchService
         new(link.Id, MatchAcceptRejectReason.LinkNotProposed,
             $"MatchLink '{link.Id.Value}' is in state {link.State}; only Proposed links can be accepted.");
 
-    private static ReconciliationState ComputeNewState(decimal lineAmount, decimal acceptedSum)
+    /// <summary>
+    /// A statement line's state from the sum of its accepted links: Matched at the full line amount, PartiallyMatched
+    /// for any other nonzero sum, and <paramref name="whenNoneAccepted"/> at zero. Accept and un-match both use it
+    /// (T-988), so an un-match that leaves the full amount accepted keeps the line Matched.
+    /// </summary>
+    internal static ReconciliationState DeriveLineState(
+        decimal lineAmount, decimal acceptedSum, ReconciliationState whenNoneAccepted)
     {
         // Use a small tolerance for floating-point equality
         if (Math.Abs(acceptedSum - lineAmount) < 0.005m)
@@ -176,7 +182,7 @@ public sealed class AcceptMatchService
         if (Math.Abs(acceptedSum) > 0.005m)
             return ReconciliationState.PartiallyMatched;
 
-        return ReconciliationState.Proposed;
+        return whenNoneAccepted;
     }
 }
 

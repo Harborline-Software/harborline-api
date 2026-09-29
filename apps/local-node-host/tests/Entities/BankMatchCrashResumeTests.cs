@@ -133,6 +133,35 @@ public sealed class BankMatchCrashResumeTests : IAsyncLifetime
         Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
     }
 
+    [Fact(DisplayName = "T-988 bank: a duplicate un-match of a reversed link is refused and leaves a line a later full accept matched")]
+    public async Task UnMatch_DuplicateAfterAnotherLinkFullyMatched_IsRefused_LineStaysMatched()
+    {
+        // Reverse A (50), then accept the 125 link for the full line amount: the line is Matched.
+        var a = await AddLink(50m);
+        await Accept().AcceptAsync(Tenant, a);
+        await UnMatch().UnMatchAsync(Tenant, a);
+        await Accept().AcceptAsync(Tenant, _linkId);
+
+        var duplicate = await Assert.ThrowsAsync<UnMatchException>(() => UnMatch().UnMatchAsync(Tenant, a));
+
+        Assert.Equal(UnMatchRejectReason.AlreadyReversed, duplicate.Reason);
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
+    [Fact(DisplayName = "T-988 bank: an un-match that leaves the full line amount accepted leaves the line Matched")]
+    public async Task UnMatch_LeavingTheFullAmountAccepted_LeavesTheLineMatched()
+    {
+        // The 125 link matches the line in full; an extra 50 link makes it PartiallyMatched until it is reversed.
+        var a = await AddLink(50m);
+        await Accept().AcceptAsync(Tenant, _linkId);
+        await Accept().AcceptAsync(Tenant, a);
+        Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
+
+        await UnMatch().UnMatchAsync(Tenant, a);
+
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
     [Fact(DisplayName = "T-988 bank: a transition whose link already left the expected state writes neither the link nor the line")]
     public async Task Transition_FromAStateTheLinkLeft_WritesNothing()
     {
