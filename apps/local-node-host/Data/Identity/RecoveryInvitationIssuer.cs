@@ -128,13 +128,7 @@ internal sealed class RecoveryInvitationIssuer(
 
         var decision = await _gate.DecideMembershipAdmissionAsync(
             authority.Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage),
-                "members", request.IdempotencyKey) with
-            {
-                Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
-                {
-                    RequireMember = true, RequireGrantCoverage = true,
-                }
-            }, cancellationToken).ConfigureAwait(false);
+                "members", request.IdempotencyKey), cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
         decision.RequireAllowed();
 

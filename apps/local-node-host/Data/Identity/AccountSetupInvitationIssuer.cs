@@ -169,11 +169,6 @@ internal sealed class AccountSetupInvitationIssuer(
                 "members", request.IdempotencyKey) with
             {
                 RequiredGrantAtoms = rolePermissions?.Union(requestedGrantAtoms) ?? requestedGrantAtoms,
-                Roster = EffectiveMemberPermissions.Read(roster, party.PartyId.Value, authority.Principal) with
-                {
-                    RequireMember = true, RequireGrantCoverage = true,
-                    RequiredPermissions = requested,
-                }
             }, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
         decision.RequireAllowed();

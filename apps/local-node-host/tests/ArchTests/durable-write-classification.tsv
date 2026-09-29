@@ -1,0 +1,85 @@
+# DES-0029 kernel-core-ck-6 durable write classification (DurableWriteClassificationArchTests).
+# Every production host file with a SaveChanges/ExecuteUpdate/ExecuteDelete/ExecuteSql/ExecuteNonQuery call, with its exact count.
+# Classes: atomic-audit (record and audit commit together), record-is-audit (the record itself is the evidence),
+# outbox-audit (evidence row in the record transaction, delivered later), post-commit-audit (audit appended after commit),
+# unaudited (a business or authorization write with no audit: ck-6 debt), n/a (not a business record).
+# path	count	class	evidence
+apps/local-node-host/BackupRestore/SignedRosterRehostGrantProvider.cs	1	record-is-audit	burn receipt INSERT OR IGNORE is the record (:87); refusal audits post-rollback; test SignedRosterRehostGrantProviderTests.cs:143
+apps/local-node-host/CompromisedDeviceResponse/NodeRosterCompromisedDeviceResponseStore.cs	1	record-is-audit	signed response record (:29); appended after the revocation commit (CompromisedDeviceResponseService.cs:78 -> :107): ck-6 gap, no fault test
+apps/local-node-host/Data/Admission/DurableAdmissionTokenStore.cs	3	n/a	single-use admission token state (issue, CAS redeem, purge)
+apps/local-node-host/Data/Admission/DurableWebPairingInviteBindingStore.cs	1	n/a	token-to-party binding state
+apps/local-node-host/Data/AssetRegistry/NodeEfSpatialFrameDescriptorPort.cs	2	post-commit-audit	IRegistryAuditLog after the fenced commit (:28-31); layer-3 quarantine is a second commit then audit (:174-181): ck-6 gap; tests SpatialFrameDescriptorMintTests.cs:179/:205
+apps/local-node-host/Data/Authorization/NodeEfAuthorizationClosureReader.cs	3	n/a	derived principal-atom closure rebuild (DELETE + rebuild + stamp), rebuildable from grants
+apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs	3	post-commit-audit	fenced commit (:249-261), audit by callers after commit; binding narrow audit is swallowed on fault (AuthorizedActAudit.cs:89-96); pack definition writes and admission conferral unaudited: ck-6 gap #1
+apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs	1	unaudited	startup rekey of grant subjects in one fence (:29-49), no audit: ck-6 gap
+apps/local-node-host/Data/Banking/NodeEfBankAccountRepository.cs	2	record-is-audit	financial durable-layer pattern (:30-31); one save per op
+apps/local-node-host/Data/Banking/NodeEfFiscalPeriodRepository.cs	2	unaudited	writes have no production caller (banking flow is read-only, :35-38)
+apps/local-node-host/Data/Banking/NodeEfMatchLinkRepository.cs	2	unaudited	accept/un-match commit link then statement line separately (AcceptMatchService.cs:149/:160, UnMatchService.cs:105/:118); retry refused so drift is permanent: ck-6 gap #2
+apps/local-node-host/Data/Banking/NodeEfReconciliationRepository.cs	2	unaudited	versioned lock/unlock rows carry LockedByPrincipalId only
+apps/local-node-host/Data/Banking/NodeEfStatementLineRepository.cs	3	unaudited	import commits once per line (ImportPipelineService.cs:164, BankAccountRoutes.cs:661): partial import on crash
+apps/local-node-host/Data/Calendar/NodeEfCalendarEventStore.cs	5	unaudited	explicit transaction per op; no audit in callers
+apps/local-node-host/Data/Calendar/NodeEfCalendarStore.cs	2	unaudited	single save per op; no audit in callers
+apps/local-node-host/Data/Calendar/NodeEfResourceAvailabilityStore.cs	2	unaudited	single save per op; no audit in callers
+apps/local-node-host/Data/Comms/CommsCrdtProjection.cs	2	record-is-audit	signed immutable append-only messages (:14-15); reconcile is a CRDT projection
+apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs	3	outbox-audit	CAS + evidence outbox row in one transaction (:198-280); tests ConfigurationActivationRouteTests.cs:218/:231/:249/:289; no production drainer for unpublished rows: ck-6 gap
+apps/local-node-host/Data/Configuration/ConfigurationProposalStore.cs	5	record-is-audit	insert-only saved/released revisions carry author and instant (:113-114, :189-197); RecordCheck unaudited; start/autosave are working drafts
+apps/local-node-host/Data/Configuration/ConfigurationRecoveryCommand.cs	2	atomic-audit	offline recovery stages the record and repairs, then the audit row and outbox publication, in one explicit transaction (:204-255); ConfigurationRecoveryCommandTests.cs:139/:140 crash at record-written and audit-written leaves nothing
+apps/local-node-host/Data/Docs/NodeEfAttachmentRepository.cs	2	unaudited	claims record-is-audit (:39-41) but updates rows in place (:91, :173); SupersedeAsync commits twice (AttachmentService.cs:165/:194): ck-6 gap
+apps/local-node-host/Data/Docs/NodeEfDocumentRefRepository.cs	2	unaudited	claims record-is-audit but updates rows in place (:66, :152)
+apps/local-node-host/Data/Drafts/NodeEfSubmissionDraftStore.cs	4	n/a	draft scratch state (shred and purge)
+apps/local-node-host/Data/Entities/NodeEntityWriter.cs	1	post-commit-audit	AuthorizedActAudit after commit, fail-safe to null (:167, :223, :244); DeleteAsync (:257) unaudited
+apps/local-node-host/Data/Financial/NodeAccountingPeriodService.cs	4	record-is-audit	durable-layer pattern (:43); period open commits year then period (harmless, reused on retry)
+apps/local-node-host/Data/Financial/NodeEfBillRepository.cs	2	record-is-audit	durable-layer pattern (:34-36); record/void commit JE then bill: retry now converges on the persisted JE (JournalThenRecordRetryTests.cs)
+apps/local-node-host/Data/Financial/NodeEfInvoiceRepository.cs	4	record-is-audit	durable-layer pattern (:35-38); issue atomic via NodeIssuedInvoiceWriteEnlister (NodeIssuedInvoiceCrashResumeTests.cs:105); void/write-off retry converges (JournalThenRecordRetryTests.cs)
+apps/local-node-host/Data/Financial/NodeEfJournalStore.cs	1	atomic-audit	NodeAuditWriteEnlister stages node_audit_events on the JE save, and a reversal transitions the original in the same save; NodeAuditAtomicWriteTests.cs:169/:184, HomeEpochFenceTests.cs:275, JournalTransactionBoundaryTests.cs:98/:111
+apps/local-node-host/Data/Financial/NodeEfPaymentApplicationRepository.cs	2	unaudited	apply/unapply span three commits in DefaultPaymentApplicationService (:236-255, :403-427); unreachable on the node today (PaymentWriteRoutes.cs:218): ck-6 gap, latent
+apps/local-node-host/Data/Financial/NodeEfPaymentRepository.cs	2	unaudited	record then apply are separate commits (PaymentWriteRoutes.cs:198/:220); SourceReference dedupe
+apps/local-node-host/Data/Financial/NodeEfRecurringInvoiceService.cs	2	atomic-audit	occurrence co-commits JE + audit + GeneratedInvoices (NodeRecurringInvoiceCrashResumeTests.cs:108/:147); schedule CRUD unaudited
+apps/local-node-host/Data/Forms/NodeEfFormSubmitOutbox.cs	3	n/a	projection-delivery outbox, not audit
+apps/local-node-host/Data/HomeEpoch/HomeEfHomeEpochStore.cs	1	record-is-audit	signed append-only epoch row (:114-119)
+apps/local-node-host/Data/Identity/AccountCredentialRecoveryService.cs	1	atomic-audit	account row + CredentialRecovered on the identity chain (:176-220); the recovery saga resumes by code
+apps/local-node-host/Data/Identity/AccountSetupInvitationStore.cs	4	atomic-audit	issue/conflict/consume append the identity chain in the same transaction; RevokeAsync unaudited but uncalled
+apps/local-node-host/Data/Identity/BootstrapClaimRedemption.cs	5	atomic-audit	grant + marker + BootstrapClaimRedeemed in one fence (:548-611); BootstrapClaimRedemptionTests.cs:585
+apps/local-node-host/Data/Identity/InstallationFounderBindingService.cs	1	atomic-audit	RootDesignation + FounderBindingDesignated (:178-253)
+apps/local-node-host/Data/Identity/InstallationFounderBootstrapService.cs	1	atomic-audit	authority rows + audit envelope (:158-303); InstallationFounderBootstrapServiceTests.cs:152
+apps/local-node-host/Data/Identity/InstallationIdentityCoordinatorService.cs	7	post-commit-audit	membership saga: tenant finalize then home completion audit (:804-891); recovery rolls forward; InstallationIdentityCoordinatorServiceTests.cs:246/:287/:561
+apps/local-node-host/Data/Identity/InstallationIdentityCutoverOrchestrator.cs	4	unaudited	stage flips carry evidence digests only (:383, :455); write methods have no production caller
+apps/local-node-host/Data/Identity/LegacyIdentityMigrationService.cs	4	post-commit-audit	checkpoint, source rename, then audit (:862-1148), resumable; LegacyIdentityMigrationServiceTests.cs:203
+apps/local-node-host/Data/Identity/NodeAdministratorAuthority.cs	5	record-is-audit	hash-chained append-only AdministratorAuthorityRecord in one serializable transaction
+apps/local-node-host/Data/Identity/RecoveryInvitationStore.cs	4	atomic-audit	IssueAsync appends RecoveryInvitationIssued (:101-125); begin/complete are token state; RevokeAsync unaudited but uncalled
+apps/local-node-host/Data/Identity/RecoverySessionRevoker.cs	1	n/a	web-session revocation tombstones; audit is the earlier CredentialRecovered envelope
+apps/local-node-host/Data/Identity/WebAccountAccessChallengeIssuer.cs	1	n/a	challenge and antiforgery state
+apps/local-node-host/Data/Identity/WebAntiforgeryStateStore.cs	2	n/a	antiforgery state
+apps/local-node-host/Data/Identity/WebInstallationSessionStore.cs	3	n/a	installation session state and tombstones
+apps/local-node-host/Data/Identity/WebJoinerAccountMinter.cs	1	atomic-audit	account row + AccountAdmitted (:143-200)
+apps/local-node-host/Data/Identity/WebSelectedSessionLogoutAuthority.cs	5	post-commit-audit	session revoke then home advance then Completed envelope (:167-585), resumable; WebSelectedSessionLogoutAuthorityTests.cs:19
+apps/local-node-host/Data/Identity/WebSelectedSessionStore.cs	2	n/a	session idle touch and revocation tombstone
+apps/local-node-host/Data/Identity/WebTenantSelectionAuthority.cs	6	post-commit-audit	tenant finalize then Completed envelope (:667-736), resumable; WebTenantSelectionAuthorityTests.cs:168
+apps/local-node-host/Data/Identity/WebTenantSwitchAuthority.cs	6	post-commit-audit	tenant heads then Completed envelope (:790-859), resumable; WebTenantSwitchAuthorityTests.cs:25
+apps/local-node-host/Data/OrgBranding/NodeEfOrgBrandingStore.cs	1	unaudited	in-place upsert; blob put then row upsert are two stores (OrgBrandingRoutes.cs:196/:213)
+apps/local-node-host/Data/Packs/DurableChannelSequenceStore.cs	1	n/a	monotonic channel sequence high-water
+apps/local-node-host/Data/Packs/DurablePackInstallStore.cs	9	post-commit-audit	install/activate/deactivate audit after commit (PackInstaller.cs:174->188, :406->431); DurablePackInstallStoreRestartTests.cs:230
+apps/local-node-host/Data/Payroll/NodeEfEmployeeRepository.cs	1	record-is-audit	durable-layer pattern (:27-28)
+apps/local-node-host/Data/Payroll/NodeEfFilingObligationRepository.cs	1	unaudited	no production writer (registered only)
+apps/local-node-host/Data/Payroll/NodeEfPayRunRepository.cs	1	unaudited	separate payroll context; post/reverse commit JE then run: retry now converges on the persisted JE (PayrollRouteTests ck-6 replay facts)
+apps/local-node-host/Data/People/ContactCrdtProjection.cs	1	n/a	CRDT projection into party rows
+apps/local-node-host/Data/People/NodeEfPartyRepository.cs	10	atomic-audit	CreateInTransactionAsync appends the identity chain (:367-375; ContactDeleteRouteTests.cs:292); update/delete/roles/contact points unaudited: ck-6 gap
+apps/local-node-host/Data/Roster/RosterCrdtProjection.cs	5	record-is-audit	signed admit/revoke records; supersession hard-deletes signed rows unaudited (:385-386, :448-449); RosterRebuildFaultTests.cs:202
+apps/local-node-host/Data/Scheduling/NodeSchedulingDraftStore.cs	1	atomic-audit	DraftAudit row on the same save (:59-73); NodeSchedulingDraftStoreTests.cs:58
+apps/local-node-host/Data/Search/NodeSearchIndexer.cs	3	n/a	derived knowledge-graph index, rebuildable
+apps/local-node-host/Data/Search/Vector/NodeEfGrantStore.cs	4	post-commit-audit	fenced grant mutations; audit via IAuthorizedAuditTrail after commit (AdminTeamAccessAuthority.cs:895); KernelClockIntegrationTests.cs:115-120 proves prefix-safe resume
+apps/local-node-host/Data/Search/Vector/NodeEfSubjectErasureRegistry.cs	1	post-commit-audit	erasure flow commits registry, tombstone, audit separately (SubjectErasureService.cs:131-171); a crash after the registry commit returns AlreadyErased on retry and never audits: ck-6 gap
+apps/local-node-host/Data/Search/Vector/NodeEfSubjectTombstoneStore.cs	1	record-is-audit	write-once compliance tombstone (:22-27)
+apps/local-node-host/Data/Search/Vector/NodeVecIndexer.cs	3	n/a	derived encrypted embedding index
+apps/local-node-host/Data/Search/Vector/Sqlite/Vec0AccelerationSink.cs	3	n/a	derived vec0 acceleration cache
+apps/local-node-host/Data/Search/Vector/Sqlite/Vec0KnnEngine.cs	1	n/a	vec0 virtual-table DDL
+apps/local-node-host/Data/SqlCipherConnectionInterceptor.cs	2	n/a	PRAGMA key on connection open
+apps/local-node-host/Data/Workflow/NodeEfWorkflowStore.cs	3	record-is-audit	append-only WorkflowEventRecord in the effect transaction (:131-162; NodeWorkflowEngineTests.cs:138); CommitsIndependently effects commit first (:104-108)
+apps/local-node-host/Health/BankAccountRoutes.cs	2	n/a	mock bank-feed connection flag
+apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs	2	record-is-audit	durable-layer pattern (:62)
+apps/local-node-host/Health/ChartOfAccountsRoutes.cs	1	record-is-audit	durable-layer pattern (:51-54); chart + accounts in one save
+apps/local-node-host/Health/ContactRoutes.cs	1	atomic-audit	ContactCreated on the identity chain inside the party transaction (:234-316); ContactDeleteRouteTests.cs:293
+apps/local-node-host/Health/LeaseRoutes.cs	1	unaudited	lease create in its own context, no gate or audit
+apps/local-node-host/Health/MaintenanceRoutes.cs	2	unaudited	maintenance create/update, no gate or audit
+apps/local-node-host/Health/PropertyRoutes.cs	1	unaudited	property create, no gate or audit
+apps/local-node-host/Layout/LayoutDenialOutbox.cs	2	outbox-audit	denial evidence rows drained to IAuditTrail idempotently (:224-254); LayoutDenialGateLogTests.cs:68/:94
