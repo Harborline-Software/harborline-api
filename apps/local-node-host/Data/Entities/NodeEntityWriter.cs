@@ -190,7 +190,9 @@ public sealed class NodeEntityWriter(
     {
         if (options.Tenant != authority.Tenant)
             throw new ArgumentException("The entity tenant does not match the write authority.", nameof(options));
-        var recordId = options.ExplicitLocalPart ?? options.Nonce;
+        // DES-0029 ck-3: authorize the id the store will write. Without an explicit local part that is the
+        // schema-derived id, not the nonce (the same derivation NodeHierarchyCompositeCoordinator uses).
+        var recordId = InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart;
         return await CreateWithReceiptAsync(body, recordId, authority,
             _ => ValueTask.FromResult((schema, options)), ct).ConfigureAwait(false);
     }
@@ -213,7 +215,7 @@ public sealed class NodeEntityWriter(
             .ConfigureAwait(false);
         decision.RequireAllowed();
         var (schema, options) = await prepare(ct).ConfigureAwait(false);
-        if (options.Tenant != authority.Tenant || (options.ExplicitLocalPart ?? options.Nonce) != recordId)
+        if (options.Tenant != authority.Tenant || InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart != recordId)
             throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
         var admitted = await AdmitAsync(decision, schema, body, authority, ct).ConfigureAwait(false);
         var created = await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
@@ -266,8 +268,6 @@ public sealed class NodeEntityWriter(
         DateTimeOffset at,
         CancellationToken ct)
     {
-        var recordId = options.ExplicitLocalPart ?? options.Nonce;
-        var scope = ScopeExpression.Parse($"/records/{recordId}");
         return CreateAsync(
             schema,
             body,

@@ -135,6 +135,21 @@ if (args.Length >= 1 &&
     return;
 }
 
+// T-587 / T-909 slice 6 — the OFFLINE configuration-recovery path, on the same authority as recover-administrator:
+// ownership of the data directory with the node stopped. Not an HTTP route: it must work when the Configuration
+// Management package is broken, which rules out a route gated on pack-installed permissions.
+if (args.Length >= 1 &&
+    string.Equals(
+        args[0],
+        Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand.Verb,
+        StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode = await Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationRecoveryCommand
+        .RunAsync(args, Console.Out, Console.Error, rootTimeProvider)
+        .ConfigureAwait(false);
+    return;
+}
+
 // Composition root for the Harborline local-node host process.
 //
 // Paper §4 + §5.1: this is the persistent background service that owns the
@@ -176,6 +191,9 @@ builder.Services.Configure<HostOptions>(options => options.ServicesStartConcurre
 // Ticket 216: the composition root owns the process's sole wall clock. Packages may consume this
 // abstraction but may neither register nor fall back to a system clock of their own.
 builder.Services.TryAddSingleton(rootTimeProvider);
+// T-909 ck-9: the platform KernelClock wraps that same provider (one authority, never a second clock); call
+// sites route through it only where it adds kernel behaviour, such as expiry.
+builder.Services.TryAddSingleton(provider => new Harborline.Kernel.Core.KernelClock(provider.GetRequiredService<TimeProvider>()));
 
 // Bind host-wide configuration (node id, team id, data directory, multi-team
 // bootstrap). We need the DataDirectory + MultiTeam section available NOW —

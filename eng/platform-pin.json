@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "cbc84d5934314098b8f6eff3de94cfa5de3ea8f3",
-  "recordedAt": "2026-09-26 (T-735: platform main commit cbc84d59, the merge of platform PR 156, T-584 slice: released navigation lookup, which this ticket's api slice needs. cbc84d59 descends from 8addec78 (the prior T-731 pin) through platform PR 130 (T-583 slice 1), which added a required ILayoutAccess parameter to LayoutBindingResolver.Resolve; this PR fixes the resulting host-code break (see LayoutSurfaceHost.cs). Adds one new producer, Harborline.Foundation.Documents (T-593), packable since 8addec78; every other producer identity/assembly pair is unchanged.)",
+  "commit": "a23afe320807e7c7775585a6246ca9981b337bb7",
+  "recordedAt": "2026-09-28 (T-909: platform main commit a23afe32, the merge of platform PR 183, T-572 slice 2, which descends from platform PR 180, T-909 slices 1-2: KernelClock splits recorded-at from effective-from (ResolveEffectiveFromAsync) and CompiledBootstrapCatalogue carries its DES-0004 member payload with IsCompiledKey, which this ticket's api slices 4-5 consume. T-572 slice 2 makes Contract a required member of every definition envelope, and platform PR 165 (T-758) adds ILayoutAccess.CanAuthor/CanPublish; this PR fixes the resulting host breaks (LayoutSurfaceHost.cs and the Layout and Views test envelopes). Adds three new producers, Harborline.Foundation.Assistance (T-610), Harborline.Foundation.Definitions (T-757) and Harborline.Foundation.Taxonomy (T-493); every other producer identity/assembly pair is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -23,8 +23,10 @@
     "Harborline.Blocks.Workflow.Interpreter": "Harborline.Blocks.Workflow.Interpreter.dll",
     "Harborline.Contracts": "Harborline.Contracts.dll",
     "Harborline.Foundation": "Harborline.Foundation.dll",
+    "Harborline.Foundation.Assistance": "Harborline.Foundation.Assistance.dll",
     "Harborline.Foundation.Authorization": "Harborline.Foundation.Authorization.dll",
     "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
+    "Harborline.Foundation.Definitions": "Harborline.Foundation.Definitions.dll",
     "Harborline.Foundation.Documents": "Harborline.Foundation.Documents.dll",
     "Harborline.Foundation.FieldRuntime": "Harborline.Foundation.FieldRuntime.dll",
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
@@ -34,6 +36,7 @@
     "Harborline.Foundation.RuleEngine": "Harborline.Foundation.RuleEngine.dll",
     "Harborline.Foundation.Scheduling": "Harborline.Foundation.Scheduling.dll",
     "Harborline.Foundation.Session": "Harborline.Foundation.Session.dll",
+    "Harborline.Foundation.Taxonomy": "Harborline.Foundation.Taxonomy.dll",
     "Harborline.Kernel.Core": "Harborline.Kernel.Core.dll",
     "Harborline.Kernel.SchemaValidation": "Harborline.Kernel.SchemaValidation.dll",
     "Harborline.Kernel.WorkItems": "Harborline.Kernel.WorkItems.dll",

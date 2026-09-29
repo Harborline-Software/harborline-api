@@ -19,11 +19,17 @@ gate_lock_acquire "eng/verify.sh"
 # it selects a baseline from uname -s below. Running the whole script on two runners therefore asked
 # the same question twice, so CI splits it:
 #
-#   HARBORLINE_VERIFY_LANE=shared   everything EXCEPT exact-clone -- runs once, on any free runner
+#   HARBORLINE_VERIFY_LANE=shared   everything EXCEPT exact-clone and the package lanes -- runs once
 #   HARBORLINE_VERIFY_LANE=host     exact-clone only -- runs per host, against that host's baseline
 #   unset, or `all`                 every step, which is what a developer running this by hand wants
 #
 # The receipt records the lane and requires that lane's steps; only `all` records a whole-gate one.
+#
+# The PACKAGE LANES (2026-09-29, owner): contracts-typescript, contracts-csharp, contracts-rust,
+# operator-cli-headless and packages run the same command as the required packages.yml jobs
+# protocol-lane-conformance, operator-cli-headless and pack-consume. Those jobs own that proof in CI,
+# so the shared lane skips them rather than run it a second time. `all` still runs them: a local
+# full run proves everything CI proves.
 lane=${HARBORLINE_VERIFY_LANE:-all}
 case "$lane" in all|shared|host) ;; *) echo "HARBORLINE_VERIFY_LANE must be all, shared or host (got: $lane)" >&2; exit 1 ;; esac
 # quality and quality-baseline belong to the HOST lane, not the shared one, because they read what
@@ -39,6 +45,8 @@ in_lane() {
     quality:host|quality-baseline:host) [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ] ;;
     *:host) return 1 ;;
     exact-clone:shared|quality:shared|quality-baseline:shared) return 1 ;;
+    contracts-typescript:shared|contracts-csharp:shared|contracts-rust:shared) return 1 ;;
+    operator-cli-headless:shared|packages:shared) return 1 ;;
     *:shared) return 0 ;;
   esac
 }
@@ -60,9 +68,10 @@ step() {
 
 # Prerequisites the CI runner installed with setup-* actions. Checked up front rather than failing
 # three steps in, because "cargo: not found" halfway through a long run reads like a real failure.
-# The host lane builds and runs suites from a clone; it compiles no Rust, so cargo is a shared-lane
-# prerequisite only. Asking for it everywhere would put a Rust toolchain on a runner that needs none.
-case "$lane" in host) required_tools="dotnet node" ;; *) required_tools="dotnet node cargo" ;; esac
+# Only contracts-rust compiles Rust, and it runs in `all` alone (the shared lane leaves it to
+# packages.yml), so cargo is an `all` prerequisite only. Asking for it everywhere would put a Rust
+# toolchain on a runner that needs none.
+case "$lane" in all) required_tools="dotnet node cargo" ;; *) required_tools="dotnet node" ;; esac
 for tool in $required_tools; do
   command -v "$tool" >/dev/null || { echo "required tool not on PATH: $tool" >&2; exit 1; }
 done
@@ -79,7 +88,7 @@ step dependency-ledger       node eng/dependency-ledger.mjs
 # a non-zero count fails the gate and lists the offending lines.
 step identity-r3             bash eng/identity-r3-scan.sh
 
-# protocol-lane-conformance
+# protocol-lane-conformance (the contracts-* steps are package lanes; see LANES above)
 step codegen-check           node tooling/harborline-contract-codegen/generate.mjs --check
 step codegen-guard-suite     node tooling/harborline-contract-codegen/run-tests.mjs
 step contracts-typescript    bash -c 'cd packages/contracts && pnpm install --frozen-lockfile && pnpm test'
@@ -93,7 +102,7 @@ step localfirst-csharp       dotnet test packages/foundation-localfirst/tests/Ha
 step rule-engine-conformance dotnet test packages/foundation-rule-engine/tests/Harborline.Foundation.RuleEngine.Tests.csproj -c Release
 step contracts-rust          cargo test --manifest-path packages/contracts/rust/Cargo.toml
 
-# operator-cli-headless
+# operator-cli-headless (package lane)
 step operator-cli-headless   dotnet test apps/local-node-host/tests/tests.csproj -c Release \
                                --filter FullyQualifiedName~OperatorCliHeadlessEndToEndTests
 
@@ -132,7 +141,7 @@ step quality                 node eng/quality-step.mjs
 # does not retain one.
 step quality-baseline        bash -c 'source eng/quality-baseline-landing.sh; quality_baseline_gate "$PWD"'
 
-# pack-consume
+# pack-consume (package lane)
 step packages                bash eng/verify-packages.sh
 
 printf '\n\033[32mAll %d steps passed in %dm%02ds\033[0m\n' "${#passed[@]}" "$(((SECONDS-started)/60))" "$(((SECONDS-started)%60))"

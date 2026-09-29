@@ -8,6 +8,8 @@
 //                                          each project with changed .cs files. Survived and NoCoverage
 //                                          mutants on changed lines are review feedback, never a failure;
 //                                          it fails only when mutable code changed and no mutant was tested
+//   node eng/mutation-report.mjs --only <test csproj> --scoped <glob> [--project <X.csproj>] [--filter <expr>]
+//                                          lane evidence: one file, one test filter, whole tree (see scoped())
 //   node eng/mutation-report.mjs --full    scheduled mode: every configured project on the whole tree;
 //                                          fails when a project's score is below its break
 //
@@ -15,7 +17,7 @@
 // (T-720), and in a linked worktree since-mode marks every mutant Ignored and exits 0. So a run only
 // passes when its json report exists, names every changed file, and has tested at least one mutant.
 import {execFileSync, spawnSync} from 'node:child_process'
-import {appendFileSync, existsSync, readFileSync, rmSync} from 'node:fs'
+import {appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -213,14 +215,46 @@ function msbuildArguments() {
   return ['--msbuild-path', path.join(line.slice(line.indexOf('[') + 1, -1), version, 'MSBuild.exe')]
 }
 
-function stryker(run, extra) {
-  const output = path.join(root, '.stryker', path.basename(run.test, '.csproj'))
+function stryker(run, extra, name = path.basename(run.test, '.csproj')) {
+  const output = path.join(root, '.stryker', name)
   rmSync(output, {recursive: true, force: true})
   const result = spawnSync('dotnet', ['tool', 'run', 'dotnet-stryker', '--', ...msbuildArguments(), '--output', output, ...extra],
     {cwd: path.join(root, run.dir), stdio: 'inherit'})
   const reportFile = path.join(output, 'reports', 'mutation-report.json')
   return {status: result.status, report: existsSync(reportFile) ? JSON.parse(readFileSync(reportFile, 'utf8')) : null,
     reportFile: path.relative(root, reportFile).replaceAll('\\', '/')}
+}
+
+// Lane evidence for one file and one test filter (AGENTS.md "Mutation testing"). It writes an ignored
+// config beside the test project's own, with `mutate` narrowed to the glob and `test-case-filter` set,
+// runs it on the whole tree (no since, so it works in a linked worktree) and prints each mutated file's
+// counts with CompileError, Timeout and NoCoverage apart, then every survivor by line and mutator.
+// Stryker still compiles every mutant of the project and rolls back the ones that fail (about 9% here);
+// those rollbacks are CompileError whatever the glob, so a zero-tested run means the glob matched nothing.
+function scoped(runs, only, argument) {
+  const run = runs.find(candidate => candidate.test === only)
+  if (!run) { console.error(`FAIL --scoped needs --only <configured test project path>`); process.exit(1) }
+  const config = JSON.parse(readFileSync(path.join(root, run.dir, 'stryker-config.json'), 'utf8'))['stryker-config']
+  const lane = {...config, since: {enabled: false}, thresholds: thresholdsFor(0), mutate: [argument('--scoped')],
+    ...(argument('--project') && {project: argument('--project')}), ...(argument('--filter') && {'test-case-filter': argument('--filter')})}
+  const configFile = path.join(root, run.dir, '.stryker', 'scoped-config.json')
+  mkdirSync(path.dirname(configFile), {recursive: true})
+  writeFileSync(configFile, JSON.stringify({'stryker-config': lane}, null, 2))
+  const started = Date.now()
+  const {status, report, reportFile} = stryker(run, ['--config-file', '.stryker/scoped-config.json'], `${path.basename(run.test, '.csproj')}-scoped`)
+  console.log(`scoped run: ${Math.round((Date.now() - started) / 1000)} s, ${reportFile}`)
+  if (!report) { console.error(`FAIL no json report (Stryker exited ${status})`); process.exit(1) }
+  let tested = 0
+  for (const [file, {mutants = []}] of Object.entries(report.files ?? {})) {
+    const inScope = mutants.filter(mutant => mutant.status !== 'Ignored' && mutant.status !== 'CompileError')
+    if (!inScope.length) continue
+    const {counts, tested: fileTested, score} = statusCounts(mutants)
+    tested += fileTested
+    console.log(`${file}: score ${score ?? 'n/a'} ${JSON.stringify(counts)}`)
+    for (const mutant of mutants.filter(m => m.status === 'Survived' || m.status === 'NoCoverage'))
+      console.log(`  ${mutant.location.start.line} ${mutant.status} ${mutant.mutatorName}: ${cell(mutant.replacement)}`)
+  }
+  if (!tested) { console.error(`FAIL no mutant tested: check that --scoped matches the file (globs are relative to the mutated project) and --filter selects tests`); process.exit(1) }
 }
 
 const cell = value => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ').slice(0, 80)
@@ -249,8 +283,9 @@ function main() {
   const full = process.argv.includes('--full')
   const argument = name => { const index = process.argv.indexOf(name); return index > 0 ? process.argv[index + 1] : undefined }
   const only = argument('--only')
+  if (argument('--scoped')) return scoped(runs, only, argument)
   const baselines = baselineFile.projects
-  const rows = ['| Test project | Changed files | Tested | Killed | Survived | No coverage | Score | Break |',
+  const rows =['| Test project | Changed files | Tested | Killed | Survived | No coverage | Score | Break |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
   const feedback = []
   let failed = false

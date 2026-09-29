@@ -14,6 +14,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
@@ -452,6 +453,7 @@ internal sealed class BootstrapClaimRedemptionService
     // Ticket 294 slice 3b: the seed's node-operator holding names the desktop actor, so exactness needs it.
     private readonly NodeOperatorIdentity? _nodeOperator;
     private readonly TimeProvider _timeProvider;
+    private readonly KernelClock _kernelClock;
 
     internal Func<IDisposable>? FenceAttemptScopeForTests { get; set; }
 
@@ -461,6 +463,7 @@ internal sealed class BootstrapClaimRedemptionService
         InitialGrantIssuanceService grantIssuance,
         AuthorizationSeedProfile seedProfile,
         TimeProvider timeProvider,
+        KernelClock kernelClock,
         NodeOperatorIdentity? nodeOperator = null)
     {
         _nodeOperator = nodeOperator;
@@ -469,6 +472,7 @@ internal sealed class BootstrapClaimRedemptionService
         _grantIssuance = grantIssuance ?? throw new ArgumentNullException(nameof(grantIssuance));
         _seedProfile = seedProfile ?? throw new ArgumentNullException(nameof(seedProfile));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _kernelClock = kernelClock ?? throw new ArgumentNullException(nameof(kernelClock));
     }
 
     public async Task<bool> IsSurfaceAvailableAsync(
@@ -627,7 +631,8 @@ internal sealed class BootstrapClaimRedemptionService
 
     private bool IsWithinClaimWindow(BootstrapClaim claim, DateTimeOffset now)
     {
-        if (now < claim.IssuedAt || now < claim.NotBefore || now >= claim.ExpiresAt)
+        // ck-9: the kernel clock owns the expiry boundary (expired at, not after, ExpiresAt).
+        if (now < claim.IssuedAt || now < claim.NotBefore || _kernelClock.IsExpired(claim.ExpiresAt))
             return false;
         var elapsed = _timeProvider.GetElapsedTime(claim.IssuedTimestamp, _timeProvider.GetTimestamp());
         return elapsed >= TimeSpan.Zero && elapsed < claim.ExpiresAt - claim.IssuedAt;

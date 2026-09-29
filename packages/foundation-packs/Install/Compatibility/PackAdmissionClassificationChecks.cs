@@ -32,6 +32,30 @@ public static class PackTransportRuleCheck
 }
 
 /// <summary>
+/// The ck-1 bootstrap floor check: no pack may carry a <see cref="PackContentKind.RecordType"/> item that
+/// claims a compiled bootstrap shape. The platform's <c>CompiledBootstrapCatalogue</c> owns the predicate.
+/// </summary>
+public static class PackCompiledShapeCheck
+{
+    /// <summary>Finds one refusal per claiming item, at its pack-file RFC 6901 content pointer.</summary>
+    /// <param name="contents">The verified candidate content items entering admission.</param>
+    /// <returns>The compiled-shape replacement refusals, in candidate content order.</returns>
+    public static IReadOnlyList<PackInstallRefusal> FindRefusals(IReadOnlyList<PackContentItem> contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+
+        return contents
+            .Select((content, index) => new { content, index })
+            .Where(entry => entry.content.Kind == PackContentKind.RecordType
+                && Harborline.Kernel.Core.CompiledBootstrapCatalogue.IsCompiledKey(entry.content.Key))
+            .Select(entry => new PackInstallRefusal(
+                PackInstallCodes.RefusedCompiledShapeReplacement,
+                $"/contents/{entry.index}/contentBase64"))
+            .ToList();
+    }
+}
+
+/// <summary>
 /// The explicit admission-time record of a verified content item's customer destination pillar.
 /// This preserves the <see cref="PackPillarMap"/> decision in the admission outcome so it is not
 /// solely a later read-model concern (T-565).

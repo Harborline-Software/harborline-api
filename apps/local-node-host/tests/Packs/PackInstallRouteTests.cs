@@ -287,6 +287,28 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.Empty(_store.ListInstalled(NodeTenantFor()));
     }
 
+    [Fact(DisplayName = "T-909 ck-1: preview, check and install refuse a record type that claims a compiled shape, committing nothing")]
+    public async Task Pack_install_refuses_a_record_type_that_claims_a_compiled_shape()
+    {
+        // Preview and check are exposed once something is installed, so install an ordinary pack first.
+        Assert.Equal(HttpStatusCode.OK, (await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(FormPackBody()))).StatusCode);
+        var packBytes = await ExportAsync(CompiledShapeClaimPackBody());
+        var before = CatalogueHash();
+
+        foreach (var route in new[] { PackInstallRoutes.PreviewRoute, PackInstallRoutes.CheckRoute, PackInstallRoutes.InstallRoute })
+        {
+            using var response = await PostBytesAsync(route, packBytes);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(route == PackInstallRoutes.InstallRoute ? HttpStatusCode.UnprocessableEntity : HttpStatusCode.OK, response.StatusCode);
+            var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+            Assert.Equal(Harborline.Kernel.Core.KernelBootstrapErrors.CompiledShapeReplacement, refusal.GetProperty("code").GetString());
+            Assert.Equal("/contents/1/contentBase64", refusal.GetProperty("pointer").GetString());
+        }
+
+        Assert.Equal(before, CatalogueHash());
+        Assert.DoesNotContain(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.bootstrap");
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)
@@ -350,6 +372,29 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         },
         dependencies = Array.Empty<object>(),
         capabilityRequirements = new[] { "workflow.durable" },
+    };
+
+    // A tenant pack whose second item re-declares the compiled Record Type shape by its canonical key.
+    private static object CompiledShapeClaimPackBody() => new
+    {
+        key = "acme.bootstrap",
+        version = "1.0.0",
+        name = "Bootstrap claim pack",
+        description = "a record type keyed as a compiled bootstrap shape",
+        scopeTier = "Vertical",
+        contents = new object[]
+        {
+            new
+            {
+                key = "intake",
+                kind = "FormDefinition",
+                version = "1.0.0",
+                content = PackProjectionTestFixture.FormContent("Intake"),
+            },
+            new { key = "Record-Type", kind = "RecordType", version = "1.0.0", content = new { @sealed = true } },
+        },
+        dependencies = Array.Empty<object>(),
+        capabilityRequirements = new[] { "forms.dynamic" },
     };
 
     private static object UnsupportedKindsPackBody() => new

@@ -61,6 +61,7 @@ public sealed class ActiveTeamTenantBindingArchTests
     // ── The headline data-isolation invariant ───────────────────────────────────
 
     [Fact(DisplayName = "ADR0032 fence: a DIFFERENT active team yields a DIFFERENT data TenantId (no cross-org bleed)")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public void DifferentActiveTeam_YieldsDifferentTenant()
     {
         // This is the fence that BITES: reverting ActiveTeamTenantContext to a constant "local" tenant
@@ -80,6 +81,7 @@ public sealed class ActiveTeamTenantBindingArchTests
     }
 
     [Fact(DisplayName = "ADR0032 fence: switching the active team SWITCHES the ambient TenantId")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public void SwitchingActiveTeam_SwitchesTenant()
     {
         var accessor = new FakeActiveTeamAccessor(Materialize(TeamA, "Org A"));
@@ -93,6 +95,7 @@ public sealed class ActiveTeamTenantBindingArchTests
     }
 
     [Fact(DisplayName = "ADR0032 fence: the ambient tenant is NEVER the retired hardcoded \"local\" literal")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public void AmbientTenant_IsNeverTheRetiredLocalLiteral()
     {
         var accessor = new FakeActiveTeamAccessor(Materialize(TeamA, "Org A"));
@@ -102,6 +105,7 @@ public sealed class ActiveTeamTenantBindingArchTests
     }
 
     [Fact(DisplayName = "ADR0032 fence: no active team => unresolved tenant (fail-loud, never a shared default)")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public void NoActiveTeam_TenantIsUnresolved()
     {
         ITenantContext sut = new ActiveTeamTenantContext(new FakeActiveTeamAccessor(active: null));
@@ -112,6 +116,7 @@ public sealed class ActiveTeamTenantBindingArchTests
     // ── The projection determinism (same team => same tenant, round-trip) ───────
 
     [Fact(DisplayName = "ADR0032 fence: the same active team ALWAYS projects to the same TenantId")]
+    [Trait("Holds", "kernel-core-ck-4")]
     public void SameTeam_ProjectsToSameTenant_Deterministically()
     {
         var t1 = ActiveTeamTenantContext.ProjectTenantId(TeamA);
