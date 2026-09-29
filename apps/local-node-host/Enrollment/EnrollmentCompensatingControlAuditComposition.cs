@@ -75,6 +75,7 @@ public static class EnrollmentCompensatingControlAuditComposition
         services.TryAddSingleton<InMemoryAuditTrail>();
         services.TryAddSingleton<IAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
         services.TryAddSingleton<IAuthorizedAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
+        services.TryAddSingleton<ICapturedAuditTrail>(sp => sp.GetRequiredService<InMemoryAuditTrail>());
         services.TryAddSingleton<IAuditEventReader>(sp => new InMemoryAuditEventReader(
             sp.GetRequiredService<InMemoryAuditTrail>(),
             sp.GetRequiredService<IAuditTrail>(),

@@ -1,4 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Kernel.Audit;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -18,12 +20,15 @@ namespace Harborline.Api.LocalNodeHost.Data.Authorization;
 /// </summary>
 internal static class RetiredDesktopActorRekey
 {
+    /// <summary>The event type a rekeyed grant subject is recorded under.</summary>
+    internal static readonly AuditEventType RekeyedEventType = new("AuthorizationGrantSubjectRekeyed");
+
     /// <summary>Rekeys every retired row to <paramref name="nodeOperator"/>; returns how many grants moved.</summary>
     /// <exception cref="InvalidOperationException">
     /// Retired rows exist and there is no node operator (<see cref="GenesisStartupMessages.DesktopActorUnresolved"/>).
     /// </exception>
     internal static async Task<int> RunAsync(
-        IDbContextFactory<NodeLocalSearchDbContext> factory, ActorId? nodeOperator, CancellationToken ct)
+        IDbContextFactory<NodeLocalSearchDbContext> factory, ActorId? nodeOperator, DateTimeOffset at, CancellationToken ct)
     {
         await using var ctx = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
         return await HomeEpochFenceTransaction.RunAsync(ctx, async () =>
@@ -43,6 +48,15 @@ internal static class RetiredDesktopActorRekey
             {
                 row.SubjectId = holder.Value;
                 row.OwnerVersion = checked(row.OwnerVersion + 1);
+                // DES-0029 ck-6: moving a grant to another subject is an authorization change; its audit commits
+                // in this fence with it.
+                NodeAuditOutbox.StageSystem(ctx, RekeyedEventType, new TenantId(row.TenantId), at, holder,
+                    new Dictionary<string, string?>(StringComparer.Ordinal)
+                    {
+                        ["grantId"] = row.GrantId,
+                        ["fromSubject"] = NodeOperatorIdentity.RetiredDesktopActor,
+                        ["toSubject"] = holder.Value,
+                    });
                 await NodeEfGrantStore.AdvanceEpochAsync(ctx, new TenantId(row.TenantId), holder, ct)
                     .ConfigureAwait(false);
             }

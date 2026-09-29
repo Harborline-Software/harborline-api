@@ -1476,6 +1476,10 @@ builder.Services.AddPackComposerExportVerify();
 builder.Services.AddAuthorizationRefusalAudit();
 // Ticket 331 slice 2: an accepted act is recorded against its own decision and answers with the id.
 builder.Services.AddAuthorizedActAudit();
+// DES-0029 ck-6: authorization and erasure writes stage their audit in the same transaction; the outbox delivers
+// it to the kernel trail at once from the route and, for any delivery that fails, on the drain interval.
+builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>();
+builder.Services.AddHostedService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutboxDrainDaemon>();
 builder.Services.AddSingleton<IPackInstallAudit, KernelAuditPackInstallAudit>();
 builder.Services.AddSingleton<IPackContentAdmission, PackWorkflowAdmissionAdapter>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.PackProjection.ActiveCascadeDefaultsProjection>();

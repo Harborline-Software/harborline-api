@@ -41,8 +41,9 @@ public interface ISubjectErasurePropagator
 {
     /// <summary>
     /// Drop the derived residue of a just-crypto-shredded subject. Called by
-    /// <see cref="ISubjectErasureService.EraseAsync"/> ONCE per subject — only on the first-time erasure,
-    /// never on the idempotent already-erased no-op. Must be idempotent itself (a re-run is a no-op) and
+    /// <see cref="ISubjectErasureService.EraseAsync"/> once per completed erasure, and again by a retry that
+    /// resumes an erasure a crash interrupted before its audit; never on the completed already-erased no-op.
+    /// Must be idempotent itself (a re-run is a no-op) and
     /// must scope strictly to <paramref name="subject"/> within <paramref name="tenant"/>.
     /// </summary>
     /// <param name="tenant">The tenant the erased subject belongs to.</param>

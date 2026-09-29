@@ -68,12 +68,10 @@ public sealed class UnMatchService
         if (link is null)
             throw new InvalidOperationException($"MatchLink '{matchLinkId.Value}' not found.");
 
-        // Only Accepted links can be reversed (Proposed links are simply abandoned, not reversed)
-        if (link.State == MatchLinkState.Reversed)
-            throw new UnMatchException(matchLinkId, UnMatchRejectReason.AlreadyReversed,
-                $"MatchLink '{matchLinkId.Value}' is already Reversed.");
-
-        if (link.State != MatchLinkState.Accepted)
+        // Only Accepted links can be reversed (Proposed links are simply abandoned, not reversed). DES-0029 ck-6: a
+        // Reversed link whose line was never updated is an un-match a crash interrupted between its two commits; it
+        // passes the gate below and finishes the line, and a true duplicate is refused there.
+        if (link.State is not (MatchLinkState.Accepted or MatchLinkState.Reversed))
             throw new UnMatchException(matchLinkId, UnMatchRejectReason.LinkNotAccepted,
                 $"MatchLink '{matchLinkId.Value}' is in state {link.State}; only Accepted links can be un-matched.");
 
@@ -101,8 +99,11 @@ public sealed class UnMatchService
         }
 
         // ── Reverse the link ──
-        var reversed = link with { State = MatchLinkState.Reversed };
-        await _linkRepo.UpdateAsync(reversed, ct).ConfigureAwait(false);
+        if (link.State == MatchLinkState.Accepted)
+        {
+            var reversed = link with { State = MatchLinkState.Reversed };
+            await _linkRepo.UpdateAsync(reversed, ct).ConfigureAwait(false);
+        }
 
         // ── State rollback: recompute reconciliation state from remaining accepted links ──
         var allLinks = await _linkRepo.ListByStatementLineAsync(tenantId, line.Id, ct).ConfigureAwait(false);
@@ -113,6 +114,9 @@ public sealed class UnMatchService
         ReconciliationState newState = remainingAccepted == 0
             ? ReconciliationState.Unmatched
             : ReconciliationState.PartiallyMatched;
+        if (link.State == MatchLinkState.Reversed && line.State == newState)
+            throw new UnMatchException(matchLinkId, UnMatchRejectReason.AlreadyReversed,
+                $"MatchLink '{matchLinkId.Value}' is already Reversed.");
 
         var updatedLine = line with { State = newState };
         await _lineRepo.UpdateAsync(updatedLine, ct).ConfigureAwait(false);

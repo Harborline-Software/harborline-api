@@ -530,6 +530,10 @@ public sealed class AuthoritySnapshotTests
         string[] allowed =
         {
             "apps/local-node-host/Enrollment/KernelAuditEnrollmentCompensatingControlRecorder.cs|Harborline.Api.LocalNodeHost.Enrollment.KernelAuditEnrollmentCompensatingControlRecorder.EmitAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Kernel.Audit.AuditEventType,System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Object],System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
+            // DES-0029 ck-6 — a system entry (pack projection, seed, rekey, conferral) delivered from the audit outbox. ORDINARY: no
+            // request decision authorized the act; an authorized entry's authority was captured in its write transaction and is
+            // delivered through ICapturedAuditTrail instead.
+            "apps/local-node-host/Data/Audit/NodeAuditOutbox.cs|Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox.AppendAsync(Harborline.Api.LocalNodeHost.Data.Search.AuditOutboxRow,Harborline.Foundation.Assets.Common.TenantId,System.Guid,System.Threading.CancellationToken): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             // T-731 — Layout's related-binding denial, appended from its outbox (DES-0052 layout-run-5). ORDINARY for the same reason as
             // the refusal row below: the act it records was DENIED, and it re-decides nothing.
             "apps/local-node-host/Layout/LayoutDenialOutbox.cs|Harborline.Api.LocalNodeHost.Layout.LayoutDenialAppender.RunAsync(Harborline.Api.LocalNodeHost.Layout.LayoutDenialOutboxEntry): System.Threading.Tasks.Task|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
