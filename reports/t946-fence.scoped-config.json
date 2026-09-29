@@ -1,0 +1,21 @@
+{
+  "stryker-config": {
+    "project": "Harborline.LocalNodeHost.csproj",
+    "since": {
+      "enabled": false
+    },
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "reporters": [
+      "json",
+      "progress"
+    ],
+    "mutate": [
+      "**/Health/CallerTenantIdentifierFence.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~CallerTenantIdentifierFenceTests"
+  }
+}

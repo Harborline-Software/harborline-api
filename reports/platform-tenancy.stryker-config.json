@@ -1,0 +1,16 @@
+{
+  "stryker-config": {
+    "project": "Harborline.Foundation.MultiTenancy.csproj",
+    "since": {
+      "enabled": false
+    },
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "reporters": [
+      "json"
+    ]
+  }
+}

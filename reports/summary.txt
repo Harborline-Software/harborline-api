@@ -1,0 +1,120 @@
+##### t946-fence
+33851	14	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33853	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) || request.Headers.Keys.	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985
+33854	17	Killed	Negate expression	!(request.Query.Keys.Any(IsTenantKey) || request.Headers.Key	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33855	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) || request.Headers.Keys.	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33856	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) && request.Headers.Keys.	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33857	17	Killed	Linq method mutation (Any() to All())	request.Query.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33858	18	Killed	Linq method mutation (Any() to All())	request.Headers.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33859	19	Killed	Linq method mutation (Any() to All())	request.RouteValues.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33860	20	Survived	Boolean mutation	true	
+33862	22	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33863	22	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33864	23	Survived	Boolean mutation	true	
+33865	24	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33866	27	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33867	27	Survived	Boolean mutation	true	
+33870	34	Killed	Equality mutation	normalized is not "tenant" or "tenantid" or "tenantidentifie	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33872	34	Killed	Logical mutation	"tenant" or "tenantid" or "tenantidentifier" or "xtenant" an	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33873	34	Killed	Logical mutation	"tenant" or "tenantid" or "tenantidentifier" and "xtenant"	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33874	34	Killed	Logical mutation	"tenant" or "tenantid" and "tenantidentifier"	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33875	34	Killed	Logical mutation	"tenant" and "tenantid"	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33876	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33877	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33878	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33879	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33880	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33881	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33883	39	Killed	Negate expression	!(request.HasFormContentType)	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33885	41	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33887	44	Survived	Boolean mutation	true	
+33888	45	Killed	Logical mutation	form.Keys.Any(IsTenantKey) && form.Files.Any(file => IsTenan	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33889	45	Killed	Linq method mutation (Any() to All())	form.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33890	45	Killed	Linq method mutation (Any() to All())	form.Files.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33892	49	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985
+33893	49	Survived	String mutation	""	
+33894	53	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	request.HasJsonContentType()	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33895	53	Killed	Boolean mutation	true	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33896	54	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33898	58	Survived	Boolean mutation	true	
+33899	59	Killed	Logical mutation	HttpMethods.IsPost(request.Method) || (request.Path.Equals(T	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33900	60	Killed	Logical mutation	request.Path.Equals(TenantSelectionRoutes.SelectPath, String	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33902	66	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985
+33903	66	Survived	String mutation	""	
+33904	69	Killed	Block removal mutation	{}	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33906	76	Killed	Equality mutation	element.ValueKind != JsonValueKind.Object	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33907	77	Killed	Linq method mutation (Any() to All())	element.EnumerateObject().All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33908	78	Killed	Logical mutation	(IsTenantKey(property.Name) && !(selectionRoot && property.N	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33909	78	Killed	Logical mutation	IsTenantKey(property.Name) || !(selectionRoot && property.Na	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33910	79	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	(selectionRoot && property.Name.Equals("tenantId", StringCom	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33911	79	Killed	Logical mutation	selectionRoot || property.Name.Equals("tenantId", StringComp	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33912	79	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33913	81	Killed	Equality mutation	element.ValueKind != JsonValueKind.Array	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33914	82	Killed	Linq method mutation (Any() to All())	element.EnumerateArray().All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33915	83	Killed	Boolean mutation	true	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+##### pr248-fence-walk
+33851	14	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33853	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) || request.Headers.Keys.	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33854	17	Killed	Negate expression	!(request.Query.Keys.Any(IsTenantKey) || request.Headers.Key	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33855	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) || request.Headers.Keys.	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33856	17	Killed	Logical mutation	request.Query.Keys.Any(IsTenantKey) && request.Headers.Keys.	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33857	17	Killed	Linq method mutation (Any() to All())	request.Query.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33858	18	Killed	Linq method mutation (Any() to All())	request.Headers.Keys.All	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33859	19	Killed	Linq method mutation (Any() to All())	request.RouteValues.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33860	20	Survived	Boolean mutation	true	
+33862	22	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33863	22	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33864	23	Survived	Boolean mutation	true	
+33865	24	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33866	27	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33867	27	Survived	Boolean mutation	true	
+33870	34	Killed	Equality mutation	normalized is not "tenant" or "tenantid" or "tenantidentifie	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33872	34	Killed	Logical mutation	"tenant" or "tenantid" or "tenantidentifier" or "xtenant" an	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33873	34	Killed	Logical mutation	"tenant" or "tenantid" or "tenantidentifier" and "xtenant"	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33874	34	Killed	Logical mutation	"tenant" or "tenantid" and "tenantidentifier"	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33875	34	Killed	Logical mutation	"tenant" and "tenantid"	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33876	34	Killed	String mutation	""	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33877	34	Killed	String mutation	""	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33878	34	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33879	34	Killed	String mutation	""	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33880	34	Killed	String mutation	""	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33881	34	Killed	String mutation	""	Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33883	39	Killed	Negate expression	!(request.HasFormContentType)	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33885	41	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33887	44	Survived	Boolean mutation	true	
+33888	45	Killed	Logical mutation	form.Keys.Any(IsTenantKey) && form.Files.Any(file => IsTenan	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33889	45	Killed	Linq method mutation (Any() to All())	form.Keys.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33890	45	Killed	Linq method mutation (Any() to All())	form.Files.All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33892	49	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985
+33893	49	Survived	String mutation	""	
+33894	53	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	request.HasJsonContentType()	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33895	53	Killed	Boolean mutation	true	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33896	54	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985 ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33898	58	Survived	Boolean mutation	true	
+33899	59	Killed	Logical mutation	HttpMethods.IsPost(request.Method) || (request.Path.Equals(T	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33900	60	Killed	Logical mutation	request.Path.Equals(TenantSelectionRoutes.SelectPath, String	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33902	66	Killed	Statement mutation	;	Health.CallerTenantIdentifierFenceTests.Malformed_body_is_400_before_route_L985
+33903	66	Survived	String mutation	""	
+33904	69	Killed	Block removal mutation	{}	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33906	76	Killed	Equality mutation	element.ValueKind != JsonValueKind.Object	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33907	77	Killed	Linq method mutation (Any() to All())	element.EnumerateObject().All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33908	78	Killed	Logical mutation	(IsTenantKey(property.Name) && !(selectionRoot && property.N	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33909	78	Killed	Logical mutation	IsTenantKey(property.Name) || !(selectionRoot && property.Na	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33910	79	Killed	LogicalNotExpression to un-LogicalNotExpression mutation	(selectionRoot && property.Name.Equals("tenantId", StringCom	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33911	79	Killed	Logical mutation	selectionRoot || property.Name.Equals("tenantId", StringComp	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids ; Health.RouteAudienceGraphTests.Every_production_route_refuses_caller_supplied_tenant_identifiers
+33912	79	Killed	String mutation	""	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33913	81	Killed	Equality mutation	element.ValueKind != JsonValueKind.Array	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33914	82	Killed	Linq method mutation (Any() to All())	element.EnumerateArray().All	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+33915	83	Killed	Boolean mutation	true	Health.CallerTenantIdentifierFenceTests.Every_registered_route_refuses_caller_supplied_tenant_ids
+##### platform-tenancy
+0	10	Killed	Equality mutation	Tenant is null	TenancyContractTests.Context_is_unresolved_when_tenant_is_null ; TenancyContractTests.Context_is_resolved_when_tenant_exists
+2	15	Survived	Statement mutation	;	
+3	16	Survived	Statement mutation	;	
+4	17	Killed	Equality mutation	tenantContext.Tenant is not null	TenancyContractTests.Unresolved_context_fails_closed ; TenancyContractTests.Context_filter_returns_only_the_active_tenant
+6	19	Killed	Statement mutation	;	TenancyContractTests.Unresolved_context_fails_closed
+7	20	Survived	String mutation	""	
+9	33	Survived	Statement mutation	;	
+10	34	Killed	Negate expression	!(tenantId.IsSystemSentinel)	TenancyContractTests.Explicit_filter_returns_only_the_requested_tenant ; TenancyContractTests.Filter_composes_without_materializing_the_source ; TenancyContractTests.System_tenant_fails_closed ; TenancyContractTests.Default_tenant_fails_closed ; TenancyContractTests.Context_filter_returns_only_the_active_tenant ; TenancyContractTests.Unknown_tenant_returns_no_rows ; TenancyContractTests.Matching_tenant_returns_all_rows
+12	36	Killed	Statement mutation	;	TenancyContractTests.System_tenant_fails_closed ; TenancyContractTests.Default_tenant_fails_closed
+13	37	Survived	String mutation	""	
+14	41	Killed	Equality mutation	entity.TenantId != tenantId	TenancyContractTests.Explicit_filter_returns_only_the_requested_tenant ; TenancyContractTests.Filter_composes_without_materializing_the_source ; TenancyContractTests.Context_filter_returns_only_the_active_tenant ; TenancyContractTests.Unknown_tenant_returns_no_rows ; TenancyContractTests.Matching_tenant_returns_all_rows
