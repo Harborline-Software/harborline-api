@@ -15,7 +15,6 @@ using Harborline.Api.Blocks.FinancialLedger.Services;
 using Harborline.Api.Blocks.FinancialPeriods.Models;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;

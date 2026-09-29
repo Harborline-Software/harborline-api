@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 using Harborline.Api.Foundation.LocalFirst;
 using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 
 using Microsoft.AspNetCore.Builder;

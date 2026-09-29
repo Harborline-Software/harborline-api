@@ -1,6 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using System.Text.Json.Serialization;
 
 namespace Harborline.Api.Blocks.AccessGrant;

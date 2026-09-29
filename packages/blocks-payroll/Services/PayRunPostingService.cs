@@ -4,7 +4,7 @@ using Harborline.Api.Blocks.Payroll.Models;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using AuthorizationWriteContext = Harborline.Api.Foundation.Authorization.AuthorizationWriteContext;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.Payroll.Services;
 

@@ -23,7 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
     <ProjectReference Include="..\kernel-signatures\Harborline.Kernel.Signatures.csproj" />

@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.FinancialAp.Services;
 using Harborline.Api.Foundation.Events;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
 

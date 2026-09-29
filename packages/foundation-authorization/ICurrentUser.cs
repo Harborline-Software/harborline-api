@@ -5,7 +5,7 @@ namespace Harborline.Api.Foundation.Authorization;
 /// <summary>
 /// Caller identity. Single-responsibility surface for the OIDC seam — carries
 /// the authenticated user's stable id + role list. Distinct from tenant
-/// resolution (<see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>)
+/// resolution (<see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>)
 /// and policy evaluation (<see cref="IAuthorizationContext"/>) per ADR 0091
 /// Option B decomposition.
 /// </summary>

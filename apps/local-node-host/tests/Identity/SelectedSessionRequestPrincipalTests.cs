@@ -275,7 +275,7 @@ public sealed class SelectedSessionRequestPrincipalTests
                         Harborline.Api.Foundation.Authorization.ITenantContext facade,
                         ICurrentUser currentUser,
                         IAuthorizationContext authorization,
-                        Harborline.Api.Foundation.MultiTenancy.ITenantContext tenantContext) =>
+                        Harborline.Foundation.MultiTenancy.ITenantContext tenantContext) =>
                     {
                         var feature = http.Features.Get<SelectedSessionRequestPrincipal>();
                         return feature is null

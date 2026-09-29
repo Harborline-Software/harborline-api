@@ -48,7 +48,7 @@ public interface IAuditTrail
     /// ordinary append explicitly replaces <see cref="AuditRecord.AuthoritySnapshot"/> with null.
     /// Grant-backed domain acts use <see cref="IAuthorizedAuditTrail.AppendAuthorizedAsync"/> instead.
     /// </summary>
-    /// <param name="record">The record to append. Must have a non-default <see cref="AuditRecord.TenantId"/> per <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/>.</param>
+    /// <param name="record">The record to append. Must have a non-default <see cref="AuditRecord.TenantId"/> per <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/>.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <exception cref="AuditSignatureException">Thrown if the payload's <c>SignedOperation</c> envelope fails verification.</exception>
     /// <exception cref="ArgumentException">Thrown if <paramref name="record"/> has a default <see cref="AuditRecord.TenantId"/>.</exception>

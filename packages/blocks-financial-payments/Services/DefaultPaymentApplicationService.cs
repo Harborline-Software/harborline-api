@@ -9,7 +9,7 @@ using Harborline.Api.Blocks.FinancialPayments.Models.Events;
 using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Events;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using FinancialAuthorizationOperations = Harborline.Api.Foundation.Authorization.AuthorizationOperationNames;
 using AuthorizationGate = Harborline.Api.Foundation.Authorization.AuthorizationGate;
 using AuthorizationVerdict = Harborline.Api.Foundation.Authorization.AuthorizationVerdict;

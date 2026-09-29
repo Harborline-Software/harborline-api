@@ -13,7 +13,7 @@ using Harborline.Api.Blocks.FinancialPayments.Models;
 using Harborline.Api.Blocks.FinancialPayments.Services;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Financial;

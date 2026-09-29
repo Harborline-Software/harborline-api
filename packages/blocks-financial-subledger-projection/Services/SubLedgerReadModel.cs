@@ -8,7 +8,6 @@ using Harborline.Api.Blocks.FinancialPayments.Services;
 using Harborline.Api.Blocks.FinancialSubLedger.Models;
 using Harborline.Api.Blocks.FinancialSubLedger.Services;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 
 // ADR 0120 PR-E2: AgingBucket consolidated — all three packages (AR, AP, subledger) now re-export
 // Harborline.Api.Blocks.FinancialLedger.Models.AgingBucket via global using alias. CS0104 ambiguity resolved.

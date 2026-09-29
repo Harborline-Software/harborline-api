@@ -16,7 +16,7 @@ namespace Harborline.Api.Foundation.Authorization;
 /// <b>Ambient by design — no id is threaded through call sites.</b> The accessor takes no
 /// principal/user/party parameters; it reads the UserId and TenantId off the single
 /// injected <see cref="ITenantContext"/> sum-interface (which is both
-/// <see cref="ICurrentUser"/> and <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>),
+/// <see cref="ICurrentUser"/> and <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>),
 /// so the resolved party is always derived from the SAME validated token that carries the
 /// caller's identity. This is the confused-deputy guard the <see cref="ICurrentUser"/>
 /// doc warns about, realized in code: a consumer cannot combine a UserId from one

@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Kernel.Audit;
 
