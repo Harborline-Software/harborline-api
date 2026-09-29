@@ -93,6 +93,9 @@ public static class ConsentRecordRoutes
                     http, authority, Permission.ConsentWrite, RouteRecord.TheInstall, ct) is { } denied)
                 return denied;
 
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body?.Subject) || string.IsNullOrWhiteSpace(body.Purpose)
                 || string.IsNullOrWhiteSpace(body.Scope))
                 return Results.BadRequest(new { title = "subject_purpose_and_scope_are_required" });
@@ -187,7 +190,8 @@ public sealed record ConsentRequestBody(
     [property: JsonPropertyName("purpose")] string? Purpose,
     [property: JsonPropertyName("scope")] string? Scope,
     [property: JsonPropertyName("effective_until")] DateTimeOffset? EffectiveUntil,
-    [property: JsonPropertyName("signature_consent_record_id")] string? SignatureConsentRecordId);
+    [property: JsonPropertyName("signature_consent_record_id")] string? SignatureConsentRecordId,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>
 /// One consent record on the wire. <c>effective_state</c> is the state the record is ACTUALLY in at the

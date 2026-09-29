@@ -152,6 +152,28 @@ public sealed class CommsDmRouteScopeTests
         Assert.DoesNotContain("hi bob (dm)", sealedBody, StringComparison.Ordinal);
     }
 
+    [Theory(DisplayName = "T-974 (gate ON): the DM append route refuses a client-supplied message id 400 with no append")]
+    [InlineData("id")]
+    [InlineData("messageId")]
+    public async Task Dm_append_refuses_a_client_supplied_record_id(string key)
+    {
+        await using var host = await Host.StartAsync(dmGateEnabled: true);
+
+        var refused = await host.Client.PostAsJsonAsync(
+            $"{Bare}/dm/bob", new Dictionary<string, object?> { ["body"] = "client id", [key] = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Empty(Bodies(await host.Client.GetFromJsonAsync<JsonElement>($"{Bare}/dm/bob")));
+
+        var created = await host.Client.PostAsJsonAsync($"{Bare}/dm/bob", new { body = "server id" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("messageId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     // ── (b) two distinct DM partners are isolated threads (A↔B never sees A↔C). ──────────────────────────────
 
     [Fact(DisplayName = "C2 (gate ON): two different DM partners are ISOLATED threads (alice↔bob never sees alice↔carol)")]

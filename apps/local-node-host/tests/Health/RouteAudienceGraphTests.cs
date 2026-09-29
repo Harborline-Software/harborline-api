@@ -35,7 +35,7 @@ public sealed class RouteAudienceGraphTests
                             ? "00000000-0000-0000-0000-000000000001"
                             : match.Value.Contains(":int", StringComparison.OrdinalIgnoreCase)
                                 ? "1" : "sample");
-                    foreach (var spelling in new[] { "tenantId", "tenant_id", "tenant-id", "X-Tenant-Id" })
+                    foreach (var spelling in CallerTenantIdentifierFenceTests.TenantSpellings)
                     {
                         using var query = new HttpRequestMessage(new HttpMethod(method), $"{path}?{spelling}=other-team");
                         await AssertTenantRefusalAsync(client, query, method, route, "query");

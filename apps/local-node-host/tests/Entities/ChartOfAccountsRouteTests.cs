@@ -179,6 +179,34 @@ public sealed class ChartOfAccountsRouteTests : IAsyncLifetime
         Assert.Equal(0, doc.GetProperty("accountsSeeded").GetInt32());
     }
 
+    [Theory(DisplayName = "CoA seed: a client-supplied chart id is refused 400 with no write, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("chartId")]
+    public async Task Seed_refuses_a_client_supplied_record_id(string key)
+    {
+        var entityId = await CreateEntityAsync("Client Chart LLC");
+
+        var refused = await _client.PostAsJsonAsync(SeedRoute, new Dictionary<string, object?>
+        {
+            ["entityId"] = entityId,
+            ["templateId"] = "rental-real-estate",
+            [key] = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var factory = _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
+        await using (var ctx = await factory.CreateDbContextAsync())
+            Assert.Empty(await ctx.Set<ChartOfAccounts>().ToListAsync());
+
+        var created = await _client.PostAsJsonAsync(SeedRoute, new { entityId, templateId = "rental-real-estate" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("chartId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "CoA seed: chart is linked to the correct entity")]
     public async Task Seed_ChartLinkedToEntity()
     {
