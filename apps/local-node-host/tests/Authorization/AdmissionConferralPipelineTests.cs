@@ -56,6 +56,12 @@ public sealed class AdmissionConferralPipelineTests : IAsyncLifetime
         Assert.Equal(NodeEfAuthorizationConfigurationStore.AdmissionGrantConferredEventType.Value, audit.EventType);
         Assert.Contains(grant.GrantId.ToString(), audit.BodyJson, StringComparison.Ordinal);
         Assert.Equal(Admitter, audit.Actor);
+        // The derived definition ids are the ones installs already hold: SHA-256(grant id ":" permission)[..16].
+        await using var db = _store.CreateContext();
+        Assert.Equal(
+            Permissions.Permissions.Select(permission => new Guid(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(grant.GrantId.Value.ToString("D") + ":" + permission)).AsSpan(0, 16)).ToString()).Order(),
+            (await db.AuthorizationDefinitions.Select(row => row.DefinitionId).ToArrayAsync()).Order());
     }
 
     // One fixture per stage that refuses there and nowhere else. Authorize, validate and commit refuse through
@@ -111,6 +117,22 @@ public sealed class AdmissionConferralPipelineTests : IAsyncLifetime
         await Assert.ThrowsAnyAsync<ArgumentException>(() => Store(recorder).NarrowAdmissionGrantAsync(
             Tenant, original.GrantId, PermissionSet.From([Permission.ContactsRead]), Revocation(),
             Guid.NewGuid(), otherGrantsDecision));
+
+        Assert.Equal(Adr0038.Take(1), recorder.Stages);
+        await AssertOnlyTheOriginalAsync(original);
+    }
+
+    [Fact(DisplayName = "ck-10 narrowing: a reissue attributed to a principal the decision did not admit is refused at authorize")]
+    public async Task Narrowing_RefusedAtAuthorizeWhenAttributedToAnotherPrincipal()
+    {
+        var original = await ConferAsync();
+        var recorder = new StageRecorder();
+        var decision = await DecisionAsync(original.GrantId);
+        var byAnother = new GrantRevocation(new ActorId("another-admin"), At,
+            new GrantReason(GrantReasonCodes.RevocationReview, "ck10"));
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => Store(recorder).NarrowAdmissionGrantAsync(
+            Tenant, original.GrantId, PermissionSet.From([Permission.ContactsRead]), byAnother, Guid.NewGuid(), decision));
 
         Assert.Equal(Adr0038.Take(1), recorder.Stages);
         await AssertOnlyTheOriginalAsync(original);
