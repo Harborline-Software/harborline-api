@@ -85,6 +85,9 @@ public static class ChartOfAccountsRoutes
             {
                 return Results.BadRequest(new { error = "entityId is required." });
             }
+            // T-974: the new chart's id is server-minted; `entityId` stays the existing-record reference.
+            if (body.Id is not null || body.ChartId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
 
             // Resolve the bundled template. The "skip" template is valid — it
             // seeds an empty chart (0 accounts), which is a legitimate offline
@@ -235,7 +238,9 @@ public sealed record SeedChartRequest(
     [property: JsonPropertyName("entityId")] string EntityId,
     [property: JsonPropertyName("templateId")] string? TemplateId = "rental-real-estate",
     [property: JsonPropertyName("chartName")] string? ChartName = null,
-    [property: JsonPropertyName("baseCurrency")] string? BaseCurrency = "USD");
+    [property: JsonPropertyName("baseCurrency")] string? BaseCurrency = "USD",
+    [property: JsonPropertyName("id")] string? Id = null,
+    [property: JsonPropertyName("chartId")] string? ChartId = null);
 
 /// <summary>201 Created response after seeding a chart.</summary>
 public sealed record SeedChartResponse(

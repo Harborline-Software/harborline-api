@@ -114,6 +114,30 @@ public sealed class LeaseRouteTests : IAsyncLifetime
         Assert.True(lease.GetProperty("autoRenew").GetBoolean());
     }
 
+    [Theory(DisplayName = "Lease route: create: a client-supplied record key is refused 400 with no write, and omission mints a server name (T-974)")]
+    [InlineData("name")]
+    [InlineData("id")]
+    public async Task Create_refuses_a_client_supplied_record_id(string key)
+    {
+        var body = new Dictionary<string, object?> { ["tenant"] = "Jane Tenant" };
+        body[key] = "client-constructed-id";
+
+        var refused = await _client.PostAsJsonAsync(Route, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(0, (await _client.GetFromJsonAsync<JsonElement>(Route)).GetProperty("data").GetArrayLength());
+
+        body.Remove(key);
+        var created = await _client.PostAsJsonAsync(Route, body);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("data").GetProperty("name").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Lease route: create defaults status=Active and termCadence=fixed")]
     public async Task Create_Defaults_StatusAndCadence()
     {
