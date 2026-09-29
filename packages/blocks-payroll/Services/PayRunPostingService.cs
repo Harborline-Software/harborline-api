@@ -120,16 +120,20 @@ public sealed class PayRunPostingService : IPayRunPostingService
         if (!postResult.IsSuccess)
             return new PostPayRunResult(run, null, PostPayRunError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         var posted = run with
         {
             Status = PayRunStatus.Posted,
-            JournalEntryId = entry.Id,
+            JournalEntryId = postedId,
             UpdatedAtUtc = now,
             Version = run.Version + 1,
         };
         await _payRuns.UpsertAsync(tenantId, posted, cancellationToken).ConfigureAwait(false);
 
-        return new PostPayRunResult(posted, entry.Id, PostPayRunError.None, null);
+        return new PostPayRunResult(posted, postedId, PostPayRunError.None, null);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -199,16 +203,20 @@ public sealed class PayRunPostingService : IPayRunPostingService
         if (!postResult.IsSuccess)
             return new ReversePayRunResult(run, null, ReversePayRunError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         var reversed = run with
         {
             Status = PayRunStatus.Reversed,
-            ReversalEntryId = reversal.Id,
+            ReversalEntryId = postedId,
             UpdatedAtUtc = now,
             Version = run.Version + 1,
         };
         await _payRuns.UpsertAsync(tenantId, reversed, cancellationToken).ConfigureAwait(false);
 
-        return new ReversePayRunResult(reversed, reversal.Id, ReversePayRunError.None, null);
+        return new ReversePayRunResult(reversed, postedId, ReversePayRunError.None, null);
     }
 
     private static void RequireTenant(AuthorizationWriteContext authority, TenantId tenant)
