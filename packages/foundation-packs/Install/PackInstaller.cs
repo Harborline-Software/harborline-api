@@ -775,7 +775,9 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             var failedVerificationRevocationStale =
                 context.Revocation.IsStale(context.Now, context.RevocationMaxAge);
-            if (verify.FailurePointer is { } kindPointer
+            // A plain local, not a pattern variable, so Stryker can instrument the condition (no CompileError rollback).
+            var kindPointer = verify.FailurePointer;
+            if (kindPointer is not null
                 && verify.Details.Contains(PackVerificationCodes.ContentKindUnknown))
             {
                 // T-981: name the unclassifiable kind and where it is, not a generic not_verified.
@@ -1357,14 +1359,15 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         var sources = new List<PackContentSource>(contents.Count);
         foreach (var item in contents)
         {
-            JsonNode? body;
+            // Definitely assigned before the try so Stryker can instrument this method (no Safe Mode rollback).
+            JsonNode? body = null;
             try
             {
                 body = JsonNode.Parse(item.CanonicalBytes.Span);
             }
             catch (System.Text.Json.JsonException)
             {
-                continue; // an unreadable body carries no reference; its own parser owns the refusal.
+                // An unreadable body carries no reference; its own parser owns the refusal.
             }
 
             if (body is not null)
