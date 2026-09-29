@@ -145,50 +145,6 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     }
 
     /// <summary>
-    /// ck-10: the caller's open fence as the conferral pipeline sees it. Commit stages each sealed definition,
-    /// the grant and the conferral's audit into that one context and saves them together, so the fence commits
-    /// all of them or none.
-    /// </summary>
-    private sealed class ConferralUnit(NodeEfAuthorizationConfigurationStore store, NodeLocalSearchDbContext db)
-        : IAdmissionConferralUnit
-    {
-        public async ValueTask<bool> GrantExistsAsync(GrantId grant, CancellationToken ct)
-        {
-            var key = grant.ToString();
-            return await db.Grants.AsNoTracking().AnyAsync(row => row.GrantId == key, ct).ConfigureAwait(false);
-        }
-
-        public async ValueTask<long> DefinitionRevisionAsync(AuthorizationCapabilityDefinitionId definition, CancellationToken ct)
-        {
-            var key = definition.Value.ToString();
-            return await db.AuthorizationDefinitions.Where(row => row.DefinitionId == key)
-                .MaxAsync(row => (long?)row.Revision, ct).ConfigureAwait(false) ?? 0;
-        }
-
-        public async ValueTask CommitAsync(ValidatedAdmissionConferral conferral, CancellationToken ct)
-        {
-            var grant = conferral.Grant;
-            await store.EnsureRoleAsync(db, grant.Role, ct, conferral.Roles).ConfigureAwait(false);
-            foreach (var write in conferral.Definitions)
-                await store.StageWriteAsync(db, write, ct, conferral.Roles).ConfigureAwait(false);
-            db.Grants.Add(NodeEfGrantStore.ToRow(grant, conferral.SourceReference));
-            var body = new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                ["grantId"] = grant.GrantId.ToString(),
-                ["admittedParty"] = grant.Subject.Value,
-                ["permissions"] = string.Join(",", conferral.Definitions
-                    .Select(write => write.Definition!.Operation.Value).Order(StringComparer.Ordinal)),
-            };
-            if (conferral.Decision is { } decision)
-                NodeAuditOutbox.StageAuthorized(db, AdmissionGrantConferredEventType, decision, body);
-            else
-                NodeAuditOutbox.StageSystem(db, AdmissionGrantConferredEventType, grant.TenantId, grant.GrantedAt,
-                    grant.GrantedBy, body);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     /// Ticket 362 — an administrator narrows a member's admission-conferred grant as ONE unit of work:
     /// the wider grant is revoked and a narrower one is appended on the SAME subject key, scope and role
     /// derivation (the conferral pipeline <see cref="ConferAdmissionGrantAsync"/> also runs, so nothing derives
@@ -650,6 +606,50 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             operation,
             new PermissionAtom(operation, ScopeExpression.Parse(row.ScopeValue)),
             RoleBindingSet.From(roles));
+    }
+
+    /// <summary>
+    /// ck-10: the caller's open fence as the conferral pipeline sees it. Commit stages each sealed definition,
+    /// the grant and the conferral's audit into that one context and saves them together, so the fence commits
+    /// all of them or none.
+    /// </summary>
+    private sealed class ConferralUnit(NodeEfAuthorizationConfigurationStore store, NodeLocalSearchDbContext db)
+        : IAdmissionConferralUnit
+    {
+        public async ValueTask<bool> GrantExistsAsync(GrantId grant, CancellationToken ct)
+        {
+            var key = grant.ToString();
+            return await db.Grants.AsNoTracking().AnyAsync(row => row.GrantId == key, ct).ConfigureAwait(false);
+        }
+
+        public async ValueTask<long> DefinitionRevisionAsync(AuthorizationCapabilityDefinitionId definition, CancellationToken ct)
+        {
+            var key = definition.Value.ToString();
+            return await db.AuthorizationDefinitions.Where(row => row.DefinitionId == key)
+                .MaxAsync(row => (long?)row.Revision, ct).ConfigureAwait(false) ?? 0;
+        }
+
+        public async ValueTask CommitAsync(ValidatedAdmissionConferral conferral, CancellationToken ct)
+        {
+            var grant = conferral.Grant;
+            await store.EnsureRoleAsync(db, grant.Role, ct, conferral.Roles).ConfigureAwait(false);
+            foreach (var write in conferral.Definitions)
+                await store.StageWriteAsync(db, write, ct, conferral.Roles).ConfigureAwait(false);
+            db.Grants.Add(NodeEfGrantStore.ToRow(grant, conferral.SourceReference));
+            var body = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["grantId"] = grant.GrantId.ToString(),
+                ["admittedParty"] = grant.Subject.Value,
+                ["permissions"] = string.Join(",", conferral.Definitions
+                    .Select(write => write.Definition!.Operation.Value).Order(StringComparer.Ordinal)),
+            };
+            if (conferral.Decision is { } decision)
+                NodeAuditOutbox.StageAuthorized(db, AdmissionGrantConferredEventType, decision, body);
+            else
+                NodeAuditOutbox.StageSystem(db, AdmissionGrantConferredEventType, grant.TenantId, grant.GrantedAt,
+                    grant.GrantedBy, body);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
     }
 }
 
