@@ -37,10 +37,9 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// from Step 2a that writes ONLY the recoverable <see cref="NodeEfJournalStore"/>. So an issued
 /// invoice produces a node-resident journal entry that appears via the node JE read surface (incl.
 /// <c>accountIds</c>). The <see cref="NodeEfJournalStore"/> is also passed as the optional
-/// <c>journalStore</c> dep so the void/write-off paths have the recoverable store available; the
-/// AR cluster's original-JE-Reversed marking branch is in-memory-store-specific, so on the node the
-/// void posts a reversing entry that nets the GL to zero (identical net behavior to the AP bill void)
-/// while the invoice's own Voided status gates against a double-void.
+/// <c>journalStore</c> dep so the issue path can find a legacy stranded issue entry. A void posts its
+/// reversing entry with <c>ReversalOf</c> set, so the store marks the issue entry Reversed in the same
+/// save, and the issued-invoice adapter stages the Voided invoice onto that save (DES-0029 ck-6).
 /// </para>
 /// <para>
 /// <b>SC4-C2 conditions enforced by the shape of these registrations</b> (security-engineering
@@ -122,7 +121,7 @@ public static class NodeInvoiceWriteComposition
 
         // The AR invoice posting service. The recoverable
         // NodeEfJournalStore (registered by Program.cs / the Step-2a slice) is passed as the optional
-        // journalStore dep so the void path has the recoverable store available.
+        // journalStore dep so the issue path can find a legacy stranded issue entry.
         services.AddSingleton<IInvoicePostingService>(sp =>
             new InvoicePostingService(
                 tenantContext: sp.GetRequiredService<ITenantContext>(),
@@ -138,7 +137,7 @@ public static class NodeInvoiceWriteComposition
         // declared Platform registry; an issue JE's
         // Draft → Issued invoice update joins the JE's local-node.db transaction whenever an ambient
         // IssuedInvoiceWriteScope matches (any invoice issue — direct OR recurring). A no-op for every
-        // non-issue JE post, so manual JE / bills / payments / payroll / void paths are unaffected. This
+        // non-invoice JE post (manual JE / bills / payments / payroll); a void stages its Voided update the same way. This
         // closes the residual JE↔AR non-atomic window: no posted-issue-JE can coexist with a stranded Draft.
         services.AddSingleton<INodeIssuedInvoiceWriteEnlister, NodeIssuedInvoiceWriteEnlister>();
         services.AddSingleton<IWriteEnlistment>(sp =>

@@ -26,9 +26,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
 /// DES-0029 kernel-core-ck-6 replay safety for the financial operations that commit their journal entry and
-/// then, separately, their record (bill record/void, invoice void/write-off). A crash is injected at the real
+/// then, separately, their record (bill record/void, invoice write-off). A crash is injected at the real
 /// record UPDATE after the journal entry committed; the retry must converge: one journal entry per source
-/// reference, and the record pointing at the journal entry that actually exists.
+/// reference, and the record pointing at the journal entry that actually exists. An invoice void is one
+/// transaction instead: the void, the issue entry's Posted -> Reversed transition, the reversing entry and its
+/// audit row commit together or not at all, and a retried void returns the first result.
 /// </summary>
 public sealed class JournalThenRecordRetryTests : IAsyncLifetime
 {
@@ -118,20 +120,104 @@ public sealed class JournalThenRecordRetryTests : IAsyncLifetime
         Assert.Equal(persisted.Id, (await new NodeEfBillRepository(_factory).GetAsync(Tenant, BillId, Authority.At))!.VoidedByEntryId);
     }
 
-    [Fact(DisplayName = "ck-6 replay: an invoice void retried after a crash between its JE and its record points at the one persisted reversal")]
-    public async Task InvoiceVoid_RetryAfterCrash_PointsAtThePersistedEntry()
+    [Fact(DisplayName = "ck-6 boundary: an invoice void marks its issue entry Reversed and posts one balancing reversal")]
+    public async Task InvoiceVoid_MarksTheIssueEntryReversedWithABalancingReversal()
+    {
+        var service = Invoices();
+        await SeedIssuedInvoiceAsync(service);
+
+        var voided = await service.VoidAsync(InvoiceId, "duplicate", Authority);
+
+        Assert.True(voided.IsSuccess, voided.Detail);
+        var issue = await SingleEntryAsync($"invoice:{InvoiceId.Value}");
+        var reversal = await SingleEntryAsync($"invoice-void:{InvoiceId.Value}");
+        Assert.Equal(JournalEntryStatus.Reversed, issue.Status);
+        Assert.Equal(reversal.Id, issue.ReversedBy);
+        Assert.Equal(issue.Id, reversal.ReversalOf);
+        Assert.Equal(JournalEntryStatus.Posted, reversal.Status);
+        Assert.Equal(reversal.Id, voided.ReversalEntryId);
+        Assert.Equal(InvoiceStatus.Voided, (await new NodeEfInvoiceRepository(_factory).GetAsync(Tenant, InvoiceId, Authority.At))!.Status);
+        Assert.All(
+            issue.Lines.Concat(reversal.Lines).GroupBy(l => l.AccountId),
+            account => Assert.Equal(0m, account.Sum(l => l.Debit - l.Credit)));
+    }
+
+    [Theory(DisplayName = "ck-6 boundary: a crash between the invoice void and its reversal commits neither, nor their audit")]
+    [InlineData("UPDATE \"invoices\"")]
+    [InlineData("UPDATE \"journal_entries\"")]
+    public async Task InvoiceVoid_CrashBetweenVoidAndReversal_CommitsNothing(string crashPoint)
+    {
+        var service = Invoices();
+        await SeedIssuedInvoiceAsync(service);
+        var auditRowsBefore = await AuditRowCountAsync();
+
+        _fault.FailOn = crashPoint;
+        await Assert.ThrowsAnyAsync<Exception>(() => service.VoidAsync(InvoiceId, "duplicate", Authority));
+
+        Assert.Null(_fault.FailOn);
+        await using var ctx = await _factory.CreateDbContextAsync();
+        Assert.False(await ctx.Set<JournalEntry>().AnyAsync(e => e.SourceReference == $"invoice-void:{InvoiceId.Value}"));
+        var issue = await SingleEntryAsync($"invoice:{InvoiceId.Value}");
+        Assert.Equal(JournalEntryStatus.Posted, issue.Status);
+        Assert.Null(issue.ReversedBy);
+        var invoice = (await new NodeEfInvoiceRepository(_factory).GetAsync(Tenant, InvoiceId, Authority.At))!;
+        Assert.Equal(InvoiceStatus.Issued, invoice.Status);
+        Assert.Null(invoice.VoidedByEntryId);
+        Assert.Equal(auditRowsBefore, await AuditRowCountAsync());
+    }
+
+    [Fact(DisplayName = "ck-6 replay: an invoice void retried after a crash, then again, returns the first result with one reversal")]
+    public async Task InvoiceVoid_RetryAfterCrash_ReturnsTheFirstResultWithOneReversal()
     {
         var service = Invoices();
         await SeedIssuedInvoiceAsync(service);
 
         _fault.FailOn = "UPDATE \"invoices\"";
         await Assert.ThrowsAnyAsync<Exception>(() => service.VoidAsync(InvoiceId, "duplicate", Authority));
+        var first = await service.VoidAsync(InvoiceId, "duplicate", Authority);
         var retry = await service.VoidAsync(InvoiceId, "duplicate", Authority);
 
+        Assert.True(first.IsSuccess, first.Detail);
         Assert.True(retry.IsSuccess, retry.Detail);
         var persisted = await SingleEntryAsync($"invoice-void:{InvoiceId.Value}");
+        Assert.Equal(persisted.Id, first.ReversalEntryId);
         Assert.Equal(persisted.Id, retry.ReversalEntryId);
+        Assert.Equal(first.Invoice!.Version, retry.Invoice!.Version);
+        var issue = await SingleEntryAsync($"invoice:{InvoiceId.Value}");
+        Assert.Equal(persisted.Id, issue.ReversedBy);
+        await using var ctx = await _factory.CreateDbContextAsync();
+        Assert.Equal(1, await ctx.Set<JournalEntry>().CountAsync(e => e.ReversalOf == issue.Id));
         Assert.Equal(persisted.Id, (await new NodeEfInvoiceRepository(_factory).GetAsync(Tenant, InvoiceId, Authority.At))!.VoidedByEntryId);
+    }
+
+    [Fact(DisplayName = "ck-6 replay: a void over a reversal committed by the old two-save build repairs the invoice to that first posting")]
+    public async Task InvoiceVoid_OverALegacyCommittedReversal_PointsTheInvoiceAtIt()
+    {
+        var service = Invoices();
+        await SeedIssuedInvoiceAsync(service);
+        var legacy = await _journals.PostAsync(
+            new JournalEntry(
+                id: JournalEntryId.NewId(),
+                tenantId: Tenant,
+                entryDate: new DateOnly(2026, 3, 2),
+                memo: "legacy void",
+                lines: new[]
+                {
+                    new JournalEntryLine(new GLAccountId("1100"), debit: 0m, credit: 250m),
+                    new JournalEntryLine(new GLAccountId("4000"), debit: 250m, credit: 0m),
+                },
+                createdAtUtc: new Instant(Authority.At),
+                sourceReference: $"invoice-void:{InvoiceId.Value}") { ChartId = Chart },
+            Authority);
+        Assert.True(legacy.IsSuccess, legacy.Detail);
+
+        var voided = await service.VoidAsync(InvoiceId, "duplicate", Authority);
+
+        Assert.True(voided.IsSuccess, voided.Detail);
+        Assert.Equal(legacy.Entry!.Id, voided.ReversalEntryId);
+        var invoice = (await new NodeEfInvoiceRepository(_factory).GetAsync(Tenant, InvoiceId, Authority.At))!;
+        Assert.Equal(InvoiceStatus.Voided, invoice.Status);
+        Assert.Equal(legacy.Entry.Id, invoice.VoidedByEntryId);
     }
 
     [Fact(DisplayName = "ck-6 replay: an invoice write-off retried after a crash between its JE and its record points at the one persisted entry")]
@@ -177,6 +263,12 @@ public sealed class JournalThenRecordRetryTests : IAsyncLifetime
         await using var ctx = await _factory.CreateDbContextAsync();
         return await ctx.Set<JournalEntry>().AsNoTracking()
             .SingleAsync(e => e.TenantId == Tenant && e.SourceReference == sourceReference);
+    }
+
+    private async Task<int> AuditRowCountAsync()
+    {
+        await using var ctx = await _factory.CreateDbContextAsync();
+        return await ctx.Set<NodeAuditEventRow>().CountAsync();
     }
 
     private async Task SeedDraftBillAsync()

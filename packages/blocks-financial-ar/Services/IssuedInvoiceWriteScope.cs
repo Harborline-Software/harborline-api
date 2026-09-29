@@ -73,6 +73,8 @@ public sealed class IssuedInvoiceWriteScope : IDisposable
 /// <summary>
 /// The pending invoice <c>Draft → Issued</c> update an in-flight <c>IssueAsync</c> wants co-committed with
 /// its issue JE (ADR 0135 F3). Matched to the JE by <see cref="SourceReference"/> (<c>invoice:{Id}</c>).
+/// <c>VoidAsync</c> uses the same scope for its <c>Issued → Voided</c> update, matched to the reversing JE
+/// (<c>invoice-void:{Id}</c>), so the void commits with the reversal (DES-0029 ck-6).
 /// </summary>
 /// <param name="TenantId">The invoice's tenant (defence-in-depth load/assert predicate at the store).</param>
 /// <param name="Issued">The fully-built issued invoice (Status = Issued, JE id, number, totals) to persist.</param>
