@@ -110,6 +110,11 @@ public sealed class NodeLocalSearchDbContext : DbContext
     /// </summary>
     public DbSet<AuditOutboxRow> AuditOutbox => Set<AuditOutboxRow>();
 
+    /// <summary>
+    /// T-986: the host's kernel audit trail. Written only by <c>NodeAuditTrailStore</c>; append-only.
+    /// </summary>
+    public DbSet<AuditTrailRow> AuditTrail => Set<AuditTrailRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -329,27 +334,19 @@ public sealed class NodeLocalSearchDbContext : DbContext
             e.Property(t => t.LegalBasis).HasColumnName("legal_basis");
         });
 
-        modelBuilder.Entity<AuditOutboxRow>(e =>
+        modelBuilder.Entity<AuditOutboxRow>(AuditOutboxRow.Map);
+
+        // T-986: the host's kernel audit trail, the durable record store the outbox delivers to.
+        modelBuilder.Entity<AuditTrailRow>(e =>
         {
-            e.ToTable("search_audit_outbox");
+            e.ToTable("search_audit_trail");
             e.HasKey(r => r.AuditId);
             e.Property(r => r.AuditId).HasColumnName("audit_id").HasMaxLength(64);
             e.Property(r => r.TenantId).HasColumnName("tenant_id").HasMaxLength(256);
             e.Property(r => r.EventType).HasColumnName("event_type").HasMaxLength(256);
             e.Property(r => r.OccurredAt).HasColumnName("occurred_at");
-            e.Property(r => r.Nonce).HasColumnName("nonce").HasMaxLength(64);
-            e.Property(r => r.BodyJson).HasColumnName("body_json");
-            e.Property(r => r.Actor).HasColumnName("actor").HasMaxLength(512);
-            e.Property(r => r.TargetKind).HasColumnName("target_kind").HasMaxLength(256);
-            e.Property(r => r.TargetId).HasColumnName("target_id").HasMaxLength(512);
-            e.Property(r => r.TargetScope).HasColumnName("target_scope").HasMaxLength(1024);
-            e.Property(r => r.Act).HasColumnName("act").HasMaxLength(1024);
-            e.Property(r => r.AuthoritySnapshotJson).HasColumnName("authority_snapshot_json");
-            e.Property(r => r.PublishedAtUnixMs).HasColumnName("published_at_unix_ms");
-            e.Property(r => r.Attempts).HasColumnName("attempts");
-            e.Property(r => r.LastError).HasColumnName("last_error");
-            // The drainer reads the owed rows only.
-            e.HasIndex(r => r.PublishedAtUnixMs).HasDatabaseName("ix_search_audit_outbox_published");
+            e.Property(r => r.RecordJson).HasColumnName("record_json");
+            e.HasIndex(r => r.TenantId).HasDatabaseName("ix_search_audit_trail_tenant");
         });
     }
 }

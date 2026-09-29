@@ -259,7 +259,18 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// re-derives the live <see cref="NodeTeamRoster"/> from the converged records so the local node's own gates
     /// reflect the change immediately.
     /// </summary>
-    public async Task PublishLocalAsync(RosterRecordCrdtState record, CancellationToken ct)
+    /// <param name="record">The signed roster record.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="stageWithRecord">
+    /// T-986: stages rows (the change's compensating-control audit) on the roster context before the one save
+    /// that writes the record, so they commit together or not at all; a fault it throws leaves the record
+    /// unwritten. A publish of a record already in the roster list, identically, stages nothing:
+    /// that change already committed.
+    /// </param>
+    public async Task PublishLocalAsync(
+        RosterRecordCrdtState record,
+        CancellationToken ct,
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask>? stageWithRecord = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         var issuedAt = NodeRosterRecord.FromCrdtState(record).IssuedAtUtc;
@@ -291,7 +302,6 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 // local receipt. Reuse it instead of taking a second authoritative clock read after admission.
                 row.ReceivedAtUtc = row.IssuedAtUtc;
                 ctx.Set<NodeRosterRecord>().Add(row);
-                await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
             }
             else
             {
@@ -312,9 +322,13 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     existingRow.TransportPublicKeyB64Url = record.TransportPublicKeyB64Url ?? string.Empty;
                     existingRow.DmPublicKeyB64Url = record.DmPublicKeyB64Url ?? string.Empty;
                     existingRow.XWingPublicKeyB64Url = record.XWingPublicKeyB64Url ?? string.Empty;
-                    await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
                 }
             }
+
+            if (stageWithRecord is not null)
+                await stageWithRecord(ctx, ct).ConfigureAwait(false);
+            if (ctx.ChangeTracker.HasChanges())
+                await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
         _projection.Mutate(schema => schema.ReplaceOrPush(replaceIndex, record));
