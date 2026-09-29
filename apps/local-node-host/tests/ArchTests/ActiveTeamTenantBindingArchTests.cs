@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Xunit;
@@ -202,7 +202,7 @@ public sealed class ActiveTeamTenantBindingArchTests
                 "    public static void RegisterF1Form(Microsoft.Extensions.DependencyInjection.IServiceCollection services)\n" +
                 "    {\n" +
                 "        services.TryAddSingleton<ITenantContext, StaticNodeTenantContext>();\n" +
-                "        services.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, StaticNodeTenantContext>();\n" +
+                "        services.AddSingleton<Harborline.Foundation.MultiTenancy.ITenantContext, StaticNodeTenantContext>();\n" +
                 "    }\n" +
                 "}\n");
     }

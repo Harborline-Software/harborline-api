@@ -16,7 +16,7 @@ namespace Harborline.Api.Foundation.Events;
 /// <b>Single-tenant drain in v1.</b> The host takes a single
 /// <see cref="TenantId"/> at construction. Multi-tenant Anchor
 /// instances (rare; canonical model is one tenant per local replica)
-/// will need a v2 enhancement that walks <c>ITenantCatalog</c>. The
+/// will need a v2 enhancement that walks a tenant catalogue. The
 /// drain loop tolerates a default-constructed tenant context (treats
 /// as system sentinel) so the dispatcher can run during early
 /// bootstrap before tenant context is available.

@@ -98,8 +98,9 @@ public static class AuditEventRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             // Ticket 217 / L628: the audit trail is read through `audit:read` at the point of use, and the
             // Auditor holds nothing else. The LIST addresses the install's trail rather than one entry.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.AuditRead, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.AuditRead, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var LocalTenantId = tenant.Value;
             // Decision-7 parity — tenant is server-derived; reject a caller-supplied tenant_id.
@@ -193,8 +194,9 @@ public static class AuditEventRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             // The DETAIL addresses one audit entry, so it passes that entry as its record target: a grant
             // scoped to another entry refuses here rather than reading through.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.AuditRead, RouteRecord.Of(auditId), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.AuditRead, RouteRecord.Of(auditId), ct);
+            if (denied is not null)
                 return denied;
             var LocalTenantId = tenant.Value;
             if (request.Query.ContainsKey("tenant_id"))

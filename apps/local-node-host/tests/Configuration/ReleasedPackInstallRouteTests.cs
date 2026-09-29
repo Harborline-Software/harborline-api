@@ -238,6 +238,94 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// T-982 (ck-2 S7, api half). The released document pins every package its edits reference
+    /// (platform #198). A release that narrows acme.finance pins acme.finance at the baseline revision:
+    /// the conversion carries that pin into the export request, install refuses
+    /// <c>pack.install.refused.unmet_dependency</c> while acme.finance is not Active and installs
+    /// nothing, and once it is Active the release installs with the dependency recorded on the pack.
+    /// </summary>
+    [Fact]
+    public async Task A_released_package_carries_its_dependency_closure()
+    {
+        var digest = await ReleaseNarrowingAsync("proposal-982-closure");
+        var converted = ReleasedPackConversion.Convert(ReleasedDocument(), _node.Signer.IssuerId.ToBase64Url());
+        var pin = Assert.Single(converted.Request!.Dependencies);
+        Assert.Equal(("acme.finance", "1.0.0"), (pin.Key, pin.Version));
+
+        _store.Deactivate(_tenant, "acme.finance", "1.0.0");
+        using (var refused = await _client.PostAsJsonAsync(InstallRoute(digest), new { }))
+        {
+            var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, body.ToString());
+            var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+            Assert.Equal(PackInstallCodes.RefusedUnmetDependency, refusal.GetProperty("code").GetString());
+            Assert.Equal("acme.finance", refusal.GetProperty("target").GetString());
+        }
+        Assert.DoesNotContain(_store.ListInstalled(_tenant), item => item.PackKey == "tenant.release");
+        Assert.Empty(_store.GetOverrides(_tenant, "acme.finance"));
+
+        _store.Activate(_tenant, "acme.finance", "1.0.0");
+        Assert.Equal("installed", (await InstallAsync(digest)).GetProperty("status").GetString());
+        var installed = Assert.Single(_store.ListInstalled(_tenant), item => item.PackKey == "tenant.release");
+        var recorded = Assert.Single(installed.Dependencies);
+        Assert.Equal(("acme.finance", "1.0.0"), (recorded.Key, recorded.Version));
+    }
+
+    /// <summary>T-982: the pin is a minimum-inclusive floor, so an Active dependency below it is unmet.</summary>
+    [Fact]
+    public async Task A_released_package_is_refused_while_its_dependency_is_below_the_pin()
+    {
+        var digest = await ReleaseNarrowingAsync("proposal-982-below");
+        Seed("acme.finance", "0.9.0", ["records/invoice", "forms/invoice"]);
+        Assert.Equal("0.9.0", _store.GetActive(_tenant, "acme.finance")!.Version);
+
+        using var refused = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+        var body = await refused.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, body.ToString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(PackInstallCodes.RefusedUnmetDependency, refusal.GetProperty("code").GetString());
+        Assert.Equal("acme.finance", refusal.GetProperty("target").GetString());
+        Assert.DoesNotContain(_store.ListInstalled(_tenant), item => item.PackKey == "tenant.release");
+    }
+
+    /// <summary>
+    /// T-982: the conversion refuses a released document whose closure is absent, malformed, or does
+    /// not pin a package one of its edits names, each by its own code, before anything is exported.
+    /// </summary>
+    [Fact]
+    public async Task A_released_document_without_a_matching_closure_is_refused_by_name()
+    {
+        await ReleaseNarrowingAsync("proposal-982-shape");
+        var principal = _node.Signer.IssuerId.ToBase64Url();
+        ReleasedPackConversionException Refused(Action<System.Text.Json.Nodes.JsonObject> mutate)
+        {
+            var document = System.Text.Json.Nodes.JsonNode.Parse(ReleasedDocument())!.AsObject();
+            mutate(document);
+            return Assert.Throws<ReleasedPackConversionException>(() =>
+                ReleasedPackConversion.Convert(Encoding.UTF8.GetBytes(document.ToJsonString()), principal));
+        }
+        System.Text.Json.Nodes.JsonArray Pins(System.Text.Json.Nodes.JsonObject document) =>
+            document["closure"]!["dependencies"]!.AsArray();
+
+        var absent = Refused(document => document.Remove("closure"));
+        Assert.Equal(("configuration-release-closure-missing", "closure"), (absent.Code, absent.Target));
+        var noList = Refused(document => document["closure"]!.AsObject().Remove("dependencies"));
+        Assert.Equal("configuration-release-closure-missing", noList.Code);
+
+        var mismatched = Refused(document => Pins(document).Clear());
+        Assert.Equal(("configuration-release-closure-mismatch", "acme.finance"), (mismatched.Code, mismatched.Target));
+        var renamed = Refused(document => Pins(document)[0]!["key"] = "acme.other");
+        Assert.Equal(("configuration-release-closure-mismatch", "acme.finance"), (renamed.Code, renamed.Target));
+
+        var blankVersion = Refused(document => Pins(document)[0]!["version"] = " ");
+        Assert.Equal(("configuration-release-closure-malformed", "acme.finance"), (blankVersion.Code, blankVersion.Target));
+        var duplicate = Refused(document => Pins(document).Add(Pins(document)[0]!.DeepClone()));
+        Assert.Equal(("configuration-release-closure-malformed", "acme.finance"), (duplicate.Code, duplicate.Target));
+        var self = Refused(document => Pins(document).Add(new System.Text.Json.Nodes.JsonObject { ["key"] = "tenant.release", ["version"] = "1.0.0" }));
+        Assert.Equal(("configuration-release-closure-malformed", "tenant.release"), (self.Code, self.Target));
+    }
+
+    /// <summary>
     /// Acceptance 3. A tampered Released package is refused on THIS path, before anything is converted,
     /// exported or installed — not only on the release path that wrote it.
     /// </summary>
@@ -495,6 +583,15 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         await AutosaveAsync(proposalId, "records/invoice", RecordsEdit, RecordsKind);
         await AutosaveAsync(proposalId, "forms/invoice", FormsEdit, FormsKind);
         return await SaveCheckReleaseAsync(proposalId, packageKey);
+    }
+
+    /// <summary>Releases tenant.release with one own definition and one narrowing edit of acme.finance's.</summary>
+    private async Task<string> ReleaseNarrowingAsync(string proposalId)
+    {
+        await StartAsync(proposalId);
+        await AutosaveAsync(proposalId, "forms/tenant-note", FormsEdit, FormsKind, owner: "tenant.release");
+        await AutosaveAsync(proposalId, "forms/invoice", """{"id":"forms/invoice"}""", FormsKind);
+        return await SaveCheckReleaseAsync(proposalId, "tenant.release");
     }
 
     private async Task StartAsync(string proposalId)

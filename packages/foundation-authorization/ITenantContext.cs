@@ -13,7 +13,7 @@ namespace Harborline.Api.Foundation.Authorization;
 /// authorization. Now a sum-interface extending three single-responsibility
 /// interfaces:
 /// <list type="bullet">
-///   <item><see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/> — tenant resolution (canonical surface; ADR 0031 control-plane intent).</item>
+///   <item><see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/> — tenant resolution (canonical surface; ADR 0031 control-plane intent).</item>
 ///   <item><see cref="ICurrentUser"/> — caller identity (OIDC seam).</item>
 ///   <item><see cref="IAuthorizationContext"/> — policy evaluation.</item>
 /// </list>
@@ -42,16 +42,16 @@ namespace Harborline.Api.Foundation.Authorization;
 /// </para>
 /// </remarks>
 public interface ITenantContext
-    : Harborline.Api.Foundation.MultiTenancy.ITenantContext,
+    : Harborline.Foundation.MultiTenancy.ITenantContext,
       ICurrentUser,
       IAuthorizationContext
 {
     /// <summary>
     /// Legacy string tenant id. Default-implemented for source compatibility
     /// — delegates to <c>Tenant?.Id.ToString() ?? string.Empty</c>. Returns
-    /// the empty string when <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext.Tenant"/>
+    /// the empty string when <see cref="Harborline.Foundation.MultiTenancy.ITenantContext.Tenant"/>
     /// is null (i.e., unresolved). New code MUST inject
-    /// <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/> directly
+    /// <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/> directly
     /// rather than this facade and read <c>Tenant?.Id</c> as the typed
     /// <see cref="Harborline.Foundation.Assets.Common.TenantId"/>.
     /// </summary>

@@ -70,7 +70,6 @@
     <Project Path="packages/foundation-migration/Harborline.Foundation.Migration.csproj" />
     <Project Path="packages/foundation-mission-space-regulatory/Harborline.Foundation.MissionSpace.Regulatory.csproj" />
     <Project Path="packages/foundation-mission-space/Harborline.Foundation.MissionSpace.csproj" />
-    <Project Path="packages/foundation-multitenancy/Harborline.Foundation.MultiTenancy.csproj" />
     <Project Path="packages/foundation-packs/Harborline.Foundation.Packs.csproj" />
     <Project Path="packages/foundation-password-hashing/Harborline.Foundation.PasswordHashing.csproj" />
     <Project Path="packages/foundation-persistence/Harborline.Foundation.Persistence.csproj" />

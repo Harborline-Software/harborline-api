@@ -159,8 +159,9 @@ public static class InvoiceRoutes
             CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             if (string.IsNullOrWhiteSpace(chartId))
             {
@@ -202,8 +203,9 @@ public static class InvoiceRoutes
         app.MapGet($"{RouteBase}/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsRead, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var invoice = await invoices.GetAsync(LocalTenantId, new InvoiceId(id), timeProvider.GetUtcNow(), ct).ConfigureAwait(false);
             return invoice is null
@@ -221,8 +223,9 @@ public static class InvoiceRoutes
         app.MapPost(RouteBase, async (CreateInvoiceRequest body, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             var admittedAt = timeProvider.GetUtcNow();
             if (body is null)
@@ -388,9 +391,10 @@ public static class InvoiceRoutes
         app.MapPost($"{RouteBase}/{{id}}/issue", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var authority = FinancialRouteWriteAuthority.Create(http, activeTeam, timeProvider);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.RecordsWrite,
-                    RouteRecord.Of(id), ct) is { } denied)
+                    RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             // Approval cutover: route an over-threshold Draft through the engine BEFORE any inline post.
             if (approvalCutover is not null)
@@ -465,9 +469,10 @@ public static class InvoiceRoutes
             CancellationToken ct) =>
         {
             var authority = FinancialRouteWriteAuthority.Create(http, activeTeam, timeProvider);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.RecordsWrite,
-                    RouteRecord.Of(id), ct) is { } denied)
+                    RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             var reason = body?.Reason ?? string.Empty;
             VoidResult result;
@@ -499,9 +504,10 @@ public static class InvoiceRoutes
             CancellationToken ct) =>
         {
             var authority = FinancialRouteWriteAuthority.Create(http, activeTeam, timeProvider);
-            if (await RequestAuthorization.RefusalAsync(
+            var denied = await RequestAuthorization.RefusalAsync(
                     http, authority, TeamRolePermissions.RecordsWrite,
-                    RouteRecord.Of(id), ct) is { } denied)
+                    RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             if (body is null || string.IsNullOrWhiteSpace(body.BadDebtAccountId))
             {
@@ -539,8 +545,9 @@ public static class InvoiceRoutes
         app.MapDelete($"{RouteBase}/{{id}}", async (string id, HttpContext http, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, LocalTenantId, TeamRolePermissions.RecordsWrite, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             bool? result;
             try

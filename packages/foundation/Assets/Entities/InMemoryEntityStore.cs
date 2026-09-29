@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Threading;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Versions;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Definitions;
 
 namespace Harborline.Api.Foundation.Assets.Entities;

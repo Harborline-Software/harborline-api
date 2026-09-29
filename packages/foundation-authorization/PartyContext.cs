@@ -11,7 +11,7 @@ namespace Harborline.Api.Foundation.Authorization;
 /// </summary>
 /// <remarks>
 /// <b>Same-token derivation is structural.</b> Both the UserId (<see cref="ICurrentUser.UserId"/>)
-/// and the TenantId (<see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext.Tenant"/>) come
+/// and the TenantId (<see cref="Harborline.Foundation.MultiTenancy.ITenantContext.Tenant"/>) come
 /// from the one <see cref="ITenantContext"/> instance — wired by <c>AddHarborlineTenantContext</c>
 /// to be the same scoped object that backs all four authorization interfaces. There is no seam
 /// through which a foreign UserId, a foreign tenant, or a body-supplied party id could enter.

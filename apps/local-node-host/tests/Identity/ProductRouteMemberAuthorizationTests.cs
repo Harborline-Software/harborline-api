@@ -99,7 +99,7 @@ public sealed class ProductRouteMemberAuthorizationTests
             outer.AddLogging(b => b.ClearProviders());
             outer.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={databasePath}"));
             outer.AddSingleton<IActiveTeamAccessor>(activeTeam);
-            outer.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
+            outer.AddSingleton<Harborline.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
             outer.AddSingleton(new NodeCallerSessionToken(CallerToken));
             outer.AddSingleton<IWebSelectedSessionPrincipalAuthority>(new FixedSelectedSessionAuthority());
             outer.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,

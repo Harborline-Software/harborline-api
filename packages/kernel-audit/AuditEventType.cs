@@ -22,7 +22,7 @@ public readonly record struct AuditEventType(string Value)
     /// <summary>
     /// A read against a tenant-scoped entity was rejected at the service-layer
     /// tenant guard because the entity's <c>TenantId</c> did not match the
-    /// resolved <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>.
+    /// resolved <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>.
     /// Emitted by <c>Get*</c> rejection paths (the uniform-404 return shape per
     /// ADR 0092 §A3 means callers cannot distinguish "id does not exist" from
     /// "id belongs to another tenant" — this audit event makes the rejection

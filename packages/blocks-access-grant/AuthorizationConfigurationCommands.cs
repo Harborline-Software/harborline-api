@@ -32,4 +32,7 @@ public sealed record AuthorizationConfigurationWriteResult(
     IReadOnlyList<string> Stages)
 {
     public Harborline.Api.Foundation.Authorization.AuthorizationDecision? Decision { get; init; }
+
+    /// <summary>DES-0029 ck-6: the audit entry the store committed with the write, when it records one.</summary>
+    public Guid? AuditId { get; init; }
 }

@@ -228,8 +228,9 @@ public static class JournalEntryRoutes
                 at);
             // ONE authority for the whole act: the gate decides on the same actor and instant the posting
             // is stamped with, so the decision and the record cannot disagree about when it happened.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.LedgerPost, RouteRecord.TheInstall, ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.LedgerPost, RouteRecord.TheInstall, ct);
+            if (denied is not null)
                 return denied;
             if (body is null)
             {
@@ -402,8 +403,9 @@ public static class JournalEntryRoutes
                 at);
             // ONE authority for the whole act: the gate decides on the same actor and instant the posting
             // is stamped with, so the decision and the record cannot disagree about when it happened.
-            if (await RequestAuthorization.RefusalAsync(
-                    http, authority, TeamRolePermissions.LedgerPost, RouteRecord.Of(id), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, authority, TeamRolePermissions.LedgerPost, RouteRecord.Of(id), ct);
+            if (denied is not null)
                 return denied;
             // T-974: the path id names the existing entry; the new reversing entry's id is server-minted.
             if (body?.Id is not null)

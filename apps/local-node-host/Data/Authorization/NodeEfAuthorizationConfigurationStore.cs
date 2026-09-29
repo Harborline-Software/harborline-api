@@ -15,6 +15,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.LocalNodeHost.Data.Authorization;
 
@@ -25,7 +27,8 @@ public sealed class NodeEfAuthorizationConfigurationStore(
     IDbContextFactory<NodeLocalSearchDbContext> factory,
     IRoleVocabularyReader vocabulary)
     : AuthorizationConfigurationStateReader, IAuthorizationConfigurationStore, IAuthorizationDefinitionReader,
-        IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader, IPackProjectionParticipant
+        IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader, IPackProjectionParticipant,
+        IAuditingAuthorizationConfigurationStore
 {
     private PackProjectionSqliteUnit? projectionUnit;
 
@@ -141,6 +144,14 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             var grant = await StageAdmissionGrantAsync(
                 db, tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id, null,
                 "roster-admission:" + key, ct, advanceEpoch: false).ConfigureAwait(false);
+            // DES-0029 ck-6: the conferral's audit commits in this fence with the grant and its definitions.
+            NodeAuditOutbox.StageSystem(db, AdmissionGrantConferredEventType, tenant, at, new ActorId(admittedByPartyId),
+                new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["grantId"] = key,
+                    ["admittedParty"] = admittedPartyId,
+                    ["permissions"] = string.Join(",", permissions.Permissions.Order(StringComparer.Ordinal)),
+                });
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return grant;
         }, ct).ConfigureAwait(false);
@@ -258,9 +269,45 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             throw new InvalidOperationException("The authorization-definition bootstrap path is permanently sealed.");
         }
         await StageWriteAsync(context, write, ct).ConfigureAwait(false);
+        StageAudit(context, write);
         await context.SaveChangesAsync(ct).ConfigureAwait(false);
         }, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// DES-0029 ck-6: every committed configuration write stages its audit entry in the same transaction. An
+    /// ordinary write records the gate decision that authorized it; a carried pack, seed or bootstrap authority
+    /// records a system entry attributed to its principal.
+    /// </summary>
+    private static void StageAudit(NodeLocalSearchDbContext context, ValidatedAuthorizationConfigurationWrite write)
+    {
+        var actor = write.Actor ?? throw new InvalidOperationException("A configuration write carries no attributed principal.");
+        var tenant = write.AttributedTenant ?? throw new InvalidOperationException("A configuration write carries no attributed tenant.");
+        var at = write.DefinitionEffectiveAt ?? write.BindingRevision?.ChangedAt
+            ?? throw new InvalidOperationException("A configuration write carries no instant.");
+        var (eventType, definitionId, revision) = write.BindingRevision is { } binding
+            ? (BindingNarrowedEventType, binding.DefinitionId.Value.ToString("D"), binding.Revision)
+            : (DefinitionWrittenEventType, write.Definition!.DefinitionId.Value.ToString("D"), write.Definition.Revision);
+        var body = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["definitionId"] = definitionId,
+            ["revision"] = revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["kind"] = write.Kind.ToString(),
+        };
+        if (write.Decision is { } decision)
+            NodeAuditOutbox.StageAuthorized(context, eventType, decision, body, write.AuditId);
+        else
+            NodeAuditOutbox.StageSystem(context, eventType, tenant, at, actor, body, write.AuditId);
+    }
+
+    /// <summary>The event type a narrowed capability binding is recorded under.</summary>
+    public static readonly AuditEventType BindingNarrowedEventType = new("AuthorizationBindingNarrowed");
+
+    /// <summary>The event type a live admission's conferred grant is recorded under.</summary>
+    public static readonly AuditEventType AdmissionGrantConferredEventType = new("AuthorizationAdmissionGrantConferred");
+
+    /// <summary>The event type an installed or replaced capability definition is recorded under.</summary>
+    public static readonly AuditEventType DefinitionWrittenEventType = new("AuthorizationDefinitionWritten");
 
     private async Task StageWriteAsync(NodeLocalSearchDbContext context,
         ValidatedAuthorizationConfigurationWrite write, CancellationToken ct, IRoleVocabularyReader? writeVocabulary = null)

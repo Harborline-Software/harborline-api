@@ -29,7 +29,7 @@ using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Kernel.Core;
 
-using AmbientTenantContext = Harborline.Api.Foundation.MultiTenancy.ITenantContext;
+using AmbientTenantContext = Harborline.Foundation.MultiTenancy.ITenantContext;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -605,8 +605,9 @@ public static class CatalogueRoutes
         app.MapGet(RouteBase, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
             var tenant = RequestTenant(http, tenantContext);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct).ConfigureAwait(false) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-definitions"), ct).ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
 
             if (!TryKind(http.Request.Query["kind"], out var kind))
@@ -620,8 +621,9 @@ public static class CatalogueRoutes
             string kind, string id, HttpContext http, CancellationToken ct) =>
         {
             var tenant = RequestTenant(http, tenantContext);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct).ConfigureAwait(false) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of(id), ct).ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
 
             if (!Enum.TryParse<PackContentKind>(kind, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
@@ -634,8 +636,9 @@ public static class CatalogueRoutes
         app.MapGet(TypesRoute, async Task<IResult> (HttpContext http, CancellationToken ct) =>
         {
             var tenant = RequestTenant(http, tenantContext);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct).ConfigureAwait(false) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.CatalogueRead, RouteRecord.Of("catalogue-types"), ct).ConfigureAwait(false);
+            if (denied is not null)
                 return denied;
             var platform = packStore.GetActive(tenant, "harborline.platform");
             // ck-1: the compiled floor first and unconditionally; the seed's sealed descriptors follow.

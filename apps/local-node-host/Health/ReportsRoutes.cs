@@ -178,8 +178,9 @@ public static class ReportsRoutes
         if (time is null) return RequestAuthorization.Denied(Permission.ReportsRun);
         var authority = RequestAuthorization.Authority(http, tenant, time);
         var reportRecord = RouteRecord.Of(ReportRecordId(kind, requestedChartId));
-        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.ReportsRun, reportRecord, ct)
-            .ConfigureAwait(false) is { } refused) return refused;
+        var refused = await RequestAuthorization.RefusalAsync(http, authority, Permission.ReportsRun, reportRecord, ct)
+            .ConfigureAwait(false);
+        if (refused is not null) return refused;
 
         return await RunAsync<TParams, TResult>(kind, parameters, requestedChartId, runner, factory,
             tenant, NodeCallerParty.Resolve(http).Value, ct).ConfigureAwait(false);

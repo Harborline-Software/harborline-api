@@ -39,6 +39,7 @@ public sealed class PackBoundSelectedPrincipalTests
     private const string Principal = "selected-grant-subject";
     private const string Party = "selected-attribution-party";
     private const string Type = "selected.note";
+    private const string PlainType = "selected.plain";
     private static readonly TenantId Tenant = new("aaaaaaaa-0000-0000-0000-000000003701");
     private static readonly TenantId OtherTenant = new("bbbbbbbb-0000-0000-0000-000000003702");
 
@@ -118,6 +119,51 @@ public sealed class PackBoundSelectedPrincipalTests
             .ListByTypeAsync(Tenant, new EntityTypeId(Type)));
     }
 
+    // ck-5 (T-975): each type write decides in the selected session's tenant, not the active team's.
+    // The active team is another tenant with no grants, so a route that fell back to it would refuse.
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs()
+    {
+        await using var host = await Host.OpenAsync(Principal, differentActiveTenant: true, role: RoleReference.Administrator);
+        var types = host.Services.GetRequiredService<IEntityTypeRegistry>();
+
+        using var created = await host.Client.PostAsJsonAsync("/api/local-node/asset-registry/types",
+            new { id = "selected.shed", displayName = "Shed", traits = new[] { "maintainable" } });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var edited = await host.Client.PutAsJsonAsync("/api/local-node/asset-registry/types/selected.shed",
+            new { displayName = "Big shed", traits = new[] { "maintainable" } });
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        Assert.Equal("Big shed", (await types.GetTypeAsync(Tenant, new EntityTypeId("selected.shed")))!.Descriptor.DisplayName);
+
+        using var overridden = await host.Client.PutAsJsonAsync($"/api/local-node/asset-registry/types/{PlainType}",
+            new { displayName = "Plain override", traits = new[] { "movable" } });
+        Assert.Equal(HttpStatusCode.OK, overridden.StatusCode);
+        using var reverted = await host.Client.PostAsync($"/api/local-node/asset-registry/types/{PlainType}/revert", content: null);
+        Assert.Equal(HttpStatusCode.OK, reverted.StatusCode);
+        Assert.Null(await types.GetTypeAsync(Tenant, new EntityTypeId(PlainType)));
+        Assert.Empty(await types.ListTypesAsync(OtherTenant));
+    }
+
+    // ck-5 (T-975): the edge write decides in the selected session's tenant, not the active team's.
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-5")]
+    public async Task Edge_write_decides_in_the_selected_tenant_when_the_active_team_differs()
+    {
+        await using var host = await Host.OpenAsync(Principal, differentActiveTenant: true);
+        using var first = await host.CreateAsync();
+        using var second = await host.CreateAsync();
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        var from = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        var to = (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+
+        using var edge = await host.Client.PostAsJsonAsync("/api/local-node/asset-registry/edges",
+            new { kind = "located-at", from, to });
+
+        Assert.Equal(HttpStatusCode.Created, edge.StatusCode);
+    }
+
     private sealed class CountingForms(IFormDefinitionStore inner) : IFormDefinitionStore
     {
         internal int Lookups { get; private set; }
@@ -141,6 +187,7 @@ public sealed class PackBoundSelectedPrincipalTests
     private sealed class Host(WebApplication app, HttpClient client, IDisposable configuration) : IAsyncDisposable
     {
         internal IServiceProvider Services => app.Services;
+        internal HttpClient Client => client;
 
         internal Task<HttpResponseMessage> CreateAsync() => client.PostAsJsonAsync(
             "/api/local-node/asset-registry/entities",
@@ -170,7 +217,8 @@ public sealed class PackBoundSelectedPrincipalTests
             Assert.DoesNotContain("principal:" + Party, facts);
         }
 
-        internal static async Task<Host> OpenAsync(string grantedSubject, bool differentActiveTenant = false, string formState = "published")
+        internal static async Task<Host> OpenAsync(string grantedSubject, bool differentActiveTenant = false, string formState = "published",
+            RoleReference? role = null)
         {
             var now = DateTimeOffset.UtcNow;
             var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
@@ -182,7 +230,7 @@ public sealed class PackBoundSelectedPrincipalTests
                 .InstallAsync(Tenant, now.AddMinutes(-1), AuthorizationSeedProfile.Production, TestDesktopOperator.Actor);
             var subject = new ActorId(grantedSubject);
             await grants.AppendAsync(Tenant, new AccessGrant(
-                GrantId.New(), Tenant, subject, AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/"),
+                GrantId.New(), Tenant, subject, role ?? AccessGrantAuthorizationSeed.MemberRole, ScopeExpression.Parse("/"),
                 GrantResidency.Cache, new GrantValidity(now.AddMinutes(-1)), GranterKind.Person, subject,
                 now.AddMinutes(-1), new GrantProvenance(GrantSourceKind.Manual,
                     new GrantReason(GrantReasonCodes.Manual), subject), now.AddMinutes(-1)));
@@ -229,6 +277,8 @@ public sealed class PackBoundSelectedPrincipalTests
             app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(new EntityTypeId(Type),
                 new EntityTypeDescriptor("Selected note", EntityTrait.Movable,
                     PropertyFormBinding: new FormBindingRef(form.Id, form.Version)), CascadeLayer.Pack));
+            app.Services.GetRequiredService<IEntityTypeRegistry>().SeedType(new EntityTypeSeed(new EntityTypeId(PlainType),
+                new EntityTypeDescriptor("Plain", EntityTrait.Movable), CascadeLayer.Pack));
             var activeTenant = differentActiveTenant ? OtherTenant : Tenant;
             var active = new ActiveTeam(new TeamContext(new TeamId(Guid.Parse(activeTenant.Value)), "Active",
                 new ServiceCollection().BuildServiceProvider(), TimeProvider.System));

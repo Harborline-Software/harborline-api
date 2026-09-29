@@ -1,6 +1,6 @@
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.Banking.Models;
 

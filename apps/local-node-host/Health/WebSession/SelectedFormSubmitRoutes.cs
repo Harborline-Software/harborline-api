@@ -9,7 +9,7 @@ using Harborline.Api.Foundation.Forms.Engine.Exceptions;
 using Harborline.Api.Foundation.Forms.Exceptions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
-using Harborline.Api.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.Kernel.Audit;
@@ -52,8 +52,9 @@ internal static class SelectedFormSubmitRoutes
             // choose them; unregistered forms stay unavailable on this surface.
             if (submissionGate.RequiredPermission(form) is not { } permission) return Results.NotFound();
             var authority = RequestAuthorization.Authority(http, principal.TenantId, time);
-            if (await RequestAuthorization.RefusalAsync(http, authority, permission, RouteRecord.TheInstall, ct)
-                .ConfigureAwait(false) is { } refused) return refused;
+            var refused = await RequestAuthorization.RefusalAsync(http, authority, permission, RouteRecord.TheInstall, ct)
+                .ConfigureAwait(false);
+            if (refused is not null) return refused;
             // T-974: the engine mints the form instance; a caller-constructed `instanceId` is refused.
             if (body.TryGetProperty("instanceId", out _))
                 return Results.BadRequest(new { code = "request.record-id-not-accepted" });

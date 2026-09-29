@@ -205,7 +205,8 @@ public sealed class RuleFailClosedTests
         // spent at the last step before the gate (reuse resolution) rather than on a clock read.
         reuse.CancelOnNextResolve = true;
 
-        await Assert.ThrowsAsync<RuleEngineTimeoutException>(() =>
+        // T-304: the submit gate runs on the platform runtime, so its timeout is the platform's type.
+        await Assert.ThrowsAsync<global::Harborline.Foundation.RuleEngine.RuleEngineTimeoutException>(() =>
             engine.SaveWithReceiptAsync(FormId, candidate, token,
                 TestAuthorization.FormWrite(token, FormId, SubmittedAt), cancelled.Token));
     }

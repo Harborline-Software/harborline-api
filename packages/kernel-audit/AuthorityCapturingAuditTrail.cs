@@ -8,11 +8,12 @@ namespace Harborline.Api.Kernel.Audit;
 /// Write-side decorator that replaces any caller-provided authority with the kernel-captured value before
 /// persistence. Its read path delegates to the stored-record reader and never reaches the authority source.
 /// </summary>
-internal sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail
+public sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail, IRefusedAuditTrail, ICapturedAuditTrail
 {
-    private readonly EventLogBackedAuditTrail _inner;
+    private readonly IAuditTrail _inner;
 
-    internal AuthorityCapturingAuditTrail(EventLogBackedAuditTrail inner)
+    /// <summary>Decorates <paramref name="inner"/>, the store that persists each record exactly as given.</summary>
+    public AuthorityCapturingAuditTrail(IAuditTrail inner)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
@@ -36,6 +37,14 @@ internal sealed class AuthorityCapturingAuditTrail : IAuthorizedAuditTrail, IRef
 
     public ValueTask AppendRefusedAsync(AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default)
         => _inner.AppendAsync(AuthorizedAuditRecord.CopyRefusal(record, decision), ct);
+
+    public ValueTask AppendCapturedAsync(AuditRecord captured, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(captured);
+        if (captured.AuthoritySnapshot is null)
+            throw new ArgumentException("A captured audit record must carry its authority snapshot.", nameof(captured));
+        return _inner.AppendAsync(captured, ct);
+    }
 
     public async IAsyncEnumerable<AuditRecord> QueryAsync(
         AuditQuery query,

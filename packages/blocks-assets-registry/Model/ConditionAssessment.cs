@@ -1,4 +1,4 @@
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Instant = Harborline.Api.Foundation.Assets.Common.Instant;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Model;

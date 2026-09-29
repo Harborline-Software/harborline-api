@@ -16,7 +16,6 @@ using Harborline.Api.Blocks.People.Foundation.Models;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Blocks.FinancialPayments.Data;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Health;

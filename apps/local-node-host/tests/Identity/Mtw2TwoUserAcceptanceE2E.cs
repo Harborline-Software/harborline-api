@@ -1338,7 +1338,7 @@ public sealed class Mtw2TwoUserAcceptanceE2E
             o => o.UseSqlite(SqliteTestDatabase.ConnectionString(databasePath)));
         services.AddSingleton<IHarborlineEntityModule, PeopleEntityModule>();
         services.AddSingleton(activeTeam);
-        services.AddSingleton<Harborline.Api.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
+        services.AddSingleton<Harborline.Foundation.MultiTenancy.ITenantContext, ActiveTeamTenantContext>();
         services.AddSingleton<Harborline.Api.Foundation.Recovery.TenantKey.ITenantKeyProvider,
             Harborline.Api.Foundation.Recovery.TenantKey.InMemoryTenantKeyProvider>();
         services.AddSingleton<Harborline.Api.Foundation.Recovery.Crypto.IFieldEncryptor,

@@ -90,7 +90,7 @@ public interface IAuditEventReader
     /// </summary>
     /// <param name="tenantId">
     /// The calling tenant (server-derived from
-    /// <c>Harborline.Api.Foundation.MultiTenancy.ITenantContext</c> per ADR 0091).
+    /// <c>Harborline.Foundation.MultiTenancy.ITenantContext</c> per ADR 0091).
     /// </param>
     /// <param name="auditId">The record's stable identifier.</param>
     /// <param name="admittedAt">The instant admitted by the read act; reused if the probe is refused.</param>
