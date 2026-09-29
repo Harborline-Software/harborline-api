@@ -78,6 +78,9 @@ public sealed class AllowListVacuityArchTests
         new("SeparationOfDutyDecisionCallSiteFenceTests", "Allowed",
             SeparationOfDutyDecisionCallSiteFenceTests.AllowedRows,
             SeparationOfDutyDecisionCallSiteFenceTests.DiscoveredSeparationOfDutyDecisionCallSites),
+        new("AuthorizationDefinitionWriteFenceTests", "Reviewed",
+            AuthorizationDefinitionWriteFenceTests.ReviewedRows,
+            AuthorizationDefinitionWriteFenceTests.DiscoveredPipelineWriteKeys),
         new("AuthorizationRefusalRenderingFenceTests", "Allowed",
             AuthorizationRefusalRenderingFenceTests.AllowedRows,
             AuthorizationRefusalRenderingFenceTests.DiscoveredDenialProseReads),
@@ -177,6 +180,9 @@ public sealed class AllowListVacuityArchTests
         ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
             "an exact inventory compared with SequenceEqual against the discovered callers, both "
             + "directions, so a row that excused nothing would be red as a stale expectation",
+        ["AuthorizationDefinitionWriteFenceTests.ContainerWriteVerbs"] =
+            "the EF container-write method names the ck-10 fence scans FOR, not an exception list; a verb it "
+            + "does not hold excuses nothing, and the planted bypass proves the listed verbs are seen",
         ["AllowListVacuityArchTests.SelfVerifying"] =
             "this classification map itself; the stale-entry assertion below keeps it exact",
         ["AuthorizationGateArchTests.ReflectedReadAllowList"] =

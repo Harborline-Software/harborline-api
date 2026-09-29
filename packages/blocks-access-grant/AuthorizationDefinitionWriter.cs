@@ -102,6 +102,9 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(authority);
+        // ck-10: authorize precedes every read. The no-op check below reads state before the pipeline
+        // runs, so the carried authority is refused here first, exactly as the authorize stage would.
+        authority.EnsureUsable();
         if (!string.Equals(definition.PublisherPackageId, authority.PackId, StringComparison.Ordinal))
         {
             throw new ArgumentException(
@@ -143,6 +146,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(authority);
+        authority.EnsureUsable(); // ck-10: refuse before the pre-pipeline read, as in WritePackDefinitionAsync.
         var bound = await states.ReadStateAsync(definitionId, authority.Tenant, ct).ConfigureAwait(false);
         if (bound.Definition is null || bound.EffectiveBinding.Equals(RoleBindingSet.Empty)) return false;
         var context = new AuthorizationWriteContext(
@@ -349,15 +353,19 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                     throw new InvalidOperationException("The authorization definition is already installed.");
                 }
 
+                // ck-10: admit the exact mutate output that is sealed below, so the persisted payload is
+                // the validated one by construction rather than because mutate happens to copy the command.
+                var installed = mutation.Definition
+                    ?? throw new InvalidOperationException("Mutate produced no definition.");
                 await definitionAdmission.AdmitAsync(
-                    install.Definition,
+                    installed,
                     install.DeclaringTenantId,
                     previous: null,
                     packPublished,
                     ct).ConfigureAwait(false);
                 return new ValidatedAuthorizationConfigurationWrite(
                     AuthorizationConfigurationWriteKind.InstallDefinition,
-                    mutation.Definition,
+                    installed,
                     bindingRevision: null,
                     expectedDefinitionRevision: 0,
                     expectedBindingRevision: 0,
@@ -367,15 +375,17 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
             case ReplaceAuthorizationDefinition replace:
                 var previous = bound.Definition
                     ?? throw new InvalidOperationException("The authorization definition is not installed.");
+                var replacement = mutation.Definition
+                    ?? throw new InvalidOperationException("Mutate produced no definition.");
                 await definitionAdmission.AdmitAsync(
-                    replace.Definition,
+                    replacement,
                     replace.DeclaringTenantId,
                     previous,
                     packPublished,
                     ct).ConfigureAwait(false);
                 return new ValidatedAuthorizationConfigurationWrite(
                     AuthorizationConfigurationWriteKind.ReplaceDefinition,
-                    mutation.Definition,
+                    replacement,
                     bindingRevision: null,
                     expectedDefinitionRevision: previous.Revision,
                     expectedBindingRevision: 0,
@@ -385,14 +395,16 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
             case NarrowCapabilityRoleBinding narrow:
                 var definition = bound.Definition
                     ?? throw new InvalidOperationException("The authorization definition is not installed.");
+                var revision = mutation.BindingRevision
+                    ?? throw new InvalidOperationException("Mutate produced no binding revision.");
                 bindingAdmission.Admit(
                     definition.OfferedRoles,
                     bound.EffectiveBinding,
-                    narrow.SelectedRoles);
+                    revision.SelectedRoles);
                 return new ValidatedAuthorizationConfigurationWrite(
                     AuthorizationConfigurationWriteKind.NarrowBinding,
                     definition: null,
-                    mutation.BindingRevision,
+                    revision,
                     expectedDefinitionRevision: definition.Revision,
                     expectedBindingRevision: bound.BindingRevision,
                     definitionEffectiveAt: null,
