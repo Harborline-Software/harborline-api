@@ -1489,6 +1489,58 @@ public sealed class AuthorizationWriteStageTests
         Assert.Equal(WritePipeline.Order.Select(WritePipeline.NameOf), result.Stages);
     }
 
+    // T-519: one fixture per stage that refuses there and nowhere else, pinned to the literal ADR-0038 order
+    // (not to WritePipeline.Order, so reordering the kernel declaration reds this fence). Authorize, bind,
+    // validate and commit refuse through their real collaborators; mutate and react are pure, so their only
+    // refusal is the cancellation check they make on entry.
+    [Theory]
+    [InlineData(WritePipelineStage.Authorize)]
+    [InlineData(WritePipelineStage.Bind)]
+    [InlineData(WritePipelineStage.Mutate)]
+    [InlineData(WritePipelineStage.Validate)]
+    [InlineData(WritePipelineStage.Commit)]
+    [InlineData(WritePipelineStage.React)]
+    public async Task AuthorizationDefinitionWriter_EachStageRefusalStopsThereInAdr0038Order(WritePipelineStage refusing)
+    {
+        WritePipelineStage[] adr0038 =
+        [
+            WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate,
+            WritePipelineStage.Validate, WritePipelineStage.Commit, WritePipelineStage.React,
+        ];
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var store = new FaultingConfigurationStore(configuration, refusing == WritePipelineStage.Commit);
+        var states = new FaultingStateReader(configuration, refusing == WritePipelineStage.Bind);
+        using var cancel = new CancellationTokenSource();
+        var recorder = new StageRecorder(refusing is WritePipelineStage.Mutate or WritePipelineStage.React
+            ? refusing : null, cancel);
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            states,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            refusing == WritePipelineStage.Authorize ? TestAuthorization.Gate(false) : TestAuthorization.AllowGate(),
+            TestInMemoryAuthorizationStores.GrantStore(),
+            recorder);
+        var definition = PipelineDefinition("dddddddd-1111-2222-3333-444444444444");
+        if (refusing == WritePipelineStage.Validate)
+        {
+            definition = definition with
+            {
+                Operation = AuthorizationOperation.Parse("unknown:read"),
+                Atom = PermissionAtom.Parse("unknown:read@/"),
+            };
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+            await writer.WriteAsync(new InstallAuthorizationDefinition(definition), cancel.Token));
+
+        Assert.Equal(adr0038.TakeWhile(stage => stage != refusing).Append(refusing), recorder.Stages);
+        Assert.Equal(refusing == WritePipelineStage.Authorize ? 0 : 1, states.ReadCount);
+        Assert.Equal(refusing == WritePipelineStage.React, store.Committed);
+        Assert.Equal(refusing == WritePipelineStage.React,
+            (await configuration.ReadStateAsync(definition.DefinitionId)).Definition is not null);
+    }
+
     [Fact]
     public void WritePipeline_OrderCannotBeMutatedByACallerHoldingIt()
     {
@@ -1812,11 +1864,52 @@ public sealed class AuthorizationWriteStageTests
         PermissionAtom.Parse($"{Permission.ContactsRead}@/"),
         RoleBindingSet.Of(RoleReference.Administrator));
 
-    private sealed class StageRecorder : IWritePipelineObserver
+    private sealed class StageRecorder(WritePipelineStage? cancelAt = null, CancellationTokenSource? cancel = null)
+        : IWritePipelineObserver
     {
         public List<WritePipelineStage> Stages { get; } = [];
 
-        public void OnStage(WritePipelineStage stage) => Stages.Add(stage);
+        public void OnStage(WritePipelineStage stage)
+        {
+            Stages.Add(stage);
+            if (stage == cancelAt) cancel!.Cancel();
+        }
+    }
+
+    private sealed class FaultingStateReader(InMemoryAuthorizationConfigurationStore inner, bool refuse)
+        : AuthorizationConfigurationStateReader
+    {
+        public int ReadCount { get; private set; }
+
+        public override ValueTask<AuthorizationConfigurationState> ReadStateAsync(
+            AuthorizationCapabilityDefinitionId definitionId,
+            TenantId? tenantId = null,
+            CancellationToken ct = default)
+        {
+            ReadCount++;
+            return refuse
+                ? throw new InvalidOperationException("bind refused: state unreadable")
+                : inner.ReadStateAsync(definitionId, tenantId, ct);
+        }
+    }
+
+    private sealed class FaultingConfigurationStore(InMemoryAuthorizationConfigurationStore inner, bool refuse)
+        : IAuthorizationConfigurationStore
+    {
+        public bool Committed { get; private set; }
+
+        public async ValueTask CommitAsync(ValidatedAuthorizationConfigurationWrite write, CancellationToken ct = default)
+        {
+            if (refuse) throw new InvalidOperationException("commit refused: revision conflict");
+            await inner.CommitAsync(write, ct);
+            Committed = true;
+        }
+
+        public ValueTask CommitBootstrapAsync(
+            ValidatedAuthorizationConfigurationWrite write,
+            TenantId tenant,
+            IGrantStore grants,
+            CancellationToken ct = default) => inner.CommitBootstrapAsync(write, tenant, grants, ct);
     }
 
     private sealed class RecordingStateReader(InMemoryAuthorizationConfigurationStore inner)

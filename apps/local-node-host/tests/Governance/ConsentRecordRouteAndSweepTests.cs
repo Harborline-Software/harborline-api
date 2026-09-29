@@ -128,6 +128,37 @@ public sealed class ConsentRecordRouteAndSweepTests
         Assert.NotEqual(ConsentExpirySweepDaemon.SweepPrincipal, row.Actor.Value);
     }
 
+    [Fact(DisplayName = "T-974: a client-supplied consent record id is refused 400 with no write, and omission mints a server id")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        await using var h = await Host.CreateAsync(offerConsentToTheCaller: true);
+
+        var refused = await h.Client.PostAsJsonAsync(ConsentRecordRoutes.RouteBase, new
+        {
+            id = "client-constructed-id",
+            subject = "subject-1",
+            purpose = "care-coordination",
+            scope = "/records/42",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        using (var store = FileTenantConsentStore.InDirectory(h.Directory))
+            Assert.Empty(await store.ReadAsync(h.Tenant));
+
+        var created = await h.Client.PostAsJsonAsync(ConsentRecordRoutes.RouteBase, new
+        {
+            subject = "subject-1",
+            purpose = "care-coordination",
+            scope = "/records/42",
+        });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Offered to another role only, every consent route refuses the caller fail-closed")]
     public async Task Another_role_holding_the_capability_refuses_this_caller()
     {

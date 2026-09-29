@@ -95,6 +95,9 @@ public static class LeaseRoutes
             CreateLeaseRequest body,
             CancellationToken ct) =>
         {
+            // T-974: `name` is this record's key and the server mints it; a caller-constructed key is refused.
+            if (body?.Name is not null || body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.Tenant))
             {
                 return Results.BadRequest(new { error = "tenant is required." });
@@ -198,4 +201,6 @@ public sealed record CreateLeaseRequest(
     [property: JsonPropertyName("status")] string? Status,
     [property: JsonPropertyName("company")] string? Company,
     [property: JsonPropertyName("termCadence")] string? TermCadence,
-    [property: JsonPropertyName("autoRenew")] bool? AutoRenew);
+    [property: JsonPropertyName("autoRenew")] bool? AutoRenew,
+    [property: JsonPropertyName("name")] string? Name = null,
+    [property: JsonPropertyName("id")] string? Id = null);

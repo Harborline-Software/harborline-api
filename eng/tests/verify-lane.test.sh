@@ -24,8 +24,12 @@ done
 check "all runs every step" "$(echo "$steps" | wc -w | tr -d ' ')" "$(wc -l < "/tmp/lane-all.$$" | tr -d ' ')"
 check "host runs only exact-clone" "exact-clone" "$(cat "/tmp/lane-host.$$")"
 check "shared excludes exact-clone" "0" "$(grep -c '^exact-clone$' "/tmp/lane-shared.$$")"
-check "the two lanes cover every step" "$(echo "$steps" | tr ' ' '\n' | sort | tr -d '\n')" \
-  "$(cat "/tmp/lane-shared.$$" "/tmp/lane-hostquality.$$" | sort | tr -d '\n')"
+# The package lanes run in CI as the required packages.yml jobs (2026-09-29, owner), so the shared
+# lane skips them and only `all` runs them here.
+package_lanes="contracts-typescript contracts-csharp contracts-rust operator-cli-headless packages"
+check "the lanes plus the package lanes cover every step" "$(echo "$steps" | tr ' ' '\n' | sort | tr -d '\n')" \
+  "$( (cat "/tmp/lane-shared.$$" "/tmp/lane-hostquality.$$"; printf '%s\n' $package_lanes) | sort | tr -d '\n')"
+check "shared runs no package lane" "0" "$(grep -cxE "$(echo $package_lanes | tr ' ' '|')" "/tmp/lane-shared.$$")"
 # quality reads what exact-clone writes, so it must never run in a lane that has no exact-clone.
 check "shared runs no quality step" "0" "$(grep -cE '^quality' "/tmp/lane-shared.$$")"
 check "a host without the quality flag runs no quality step" "0" "$(grep -cE '^quality' "/tmp/lane-host.$$")"

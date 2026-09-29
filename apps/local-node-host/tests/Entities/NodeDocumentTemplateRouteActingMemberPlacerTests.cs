@@ -222,6 +222,36 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         Assert.Equal(TestDesktopOperator.Party.Value, placer.Value);
     }
 
+    [Theory(DisplayName = "Document issue: a client-supplied document id is refused 400 with no issuance, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("documentId")]
+    public async Task Issue_refuses_a_client_supplied_record_id(string key)
+    {
+        using var refused = await _client.PostAsJsonAsync(IssueRoute, new Dictionary<string, object?>
+        {
+            ["templateKey"] = TemplateKey,
+            ["templateVersion"] = TemplateVersion,
+            ["invoiceId"] = AliceInvoiceId,
+            [key] = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("code").GetString());
+        Assert.Empty(await _holds.ListActiveAsync(LocalTenantId));
+
+        using var created = await _client.PostAsJsonAsync(IssueRoute, new
+        {
+            templateKey = TemplateKey,
+            templateVersion = TemplateVersion,
+            invoiceId = AliceInvoiceId,
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<IssuedDocumentResponse>())!.Data.DocumentId;
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     // T-687: the vendored engine still throws on an uncompilable guard until the api consumes the platform
     // seam; the walker withholds the one block rather than letting the fault escape the render route.
     [Fact(DisplayName =

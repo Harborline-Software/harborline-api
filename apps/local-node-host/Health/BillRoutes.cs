@@ -187,6 +187,9 @@ public static class BillRoutes
             {
                 return Results.BadRequest(new { error = "request_null" });
             }
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body.ChartId))
             {
                 return Results.BadRequest(new { error = "chart_id_required" });
@@ -220,7 +223,7 @@ public static class BillRoutes
                 return Results.BadRequest(new { error = "line_debit_account_required" });
             }
 
-            var billId = string.IsNullOrWhiteSpace(body.Id) ? BillId.NewId() : new BillId(body.Id);
+            var billId = BillId.NewId();
 
             // Build the bill lines (amount = banker's-round(qty * unitPrice) per BillLine.Create).
             var lines = new List<BillLine>(body.Lines.Count);
