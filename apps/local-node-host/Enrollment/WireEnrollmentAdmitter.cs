@@ -48,8 +48,8 @@ namespace Harborline.Api.LocalNodeHost.Enrollment;
 ///     (<see cref="MemberRoster.Admit"/> — no-escalation + admitter-key-binding enforced inside).</item>
 ///   <item><see cref="NodeTeamRoster.AdmitPeer"/> — wire the admitted peer's TRANSPORT key into A's trust map
 ///     additively (so A's <c>MemberSetTrustPolicy</c> trusts B's wire HELLO).</item>
-///   <item>publish the new admission to the roster-sync doctype so it converges to every peer.</item>
-///   <item>record the SoD compensating-control audit event (the "second set of eyes") — fail-safe-but-loud.</item>
+///   <item>publish the new admission to the roster-sync doctype so it converges to every peer, with the SoD
+///     compensating-control audit event (the "second set of eyes") committed in the same save (T-986).</item>
 ///   <item><see cref="WireEnrollment.BuildResponse"/> — A's team-scoped transport key + the team genesis anchor +
 ///     the synced roster + the per-member transport-key map: the bootstrap B adopts.</item>
 /// </list>
@@ -223,27 +223,30 @@ public sealed class WireEnrollmentAdmitter
             .FirstOrDefault(a => string.Equals(a.PartyId, request.JoiningPartyId, StringComparison.Ordinal));
         if (newAdmission is not null)
         {
+            // (5) SoD compensating-control audit (the second set of eyes). T-986: it is staged on the roster
+            //     record's own save, so the admission and its signed audit commit together or not at all; an
+            //     audit fault throws here and the admission record is not written.
+            var grantedPermissions = conferredPermissions.Permissions;
+            var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
+                ?? request.JoiningPrincipalPublicKey;
+            var tenant = NodeTenant.Resolve(_activeTeam);
+            var correlationId = System.Diagnostics.Activity.Current?.Id;
             // C5 — ALSO stamp B's DM public key onto the synced record so every converging member harvests it
             // (roster-derived DM keys; the #1310 pattern extended to the DM half).
             await _projection.PublishLocalAsync(
-                RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct)
+                RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
+                stageWithRecord: (write, token) => _sodAudit.Within(write).RecordMemberAdmittedAsync(
+                    tenantId: tenant,
+                    teamId: newRoster.TeamId.ToString("D"),
+                    admitterPartyId: _admitterPartyId,
+                    admittedPartyId: request.JoiningPartyId,
+                    admittedPublicKeyBase64Url: admittedPublicKey,
+                    grantedPermissions: grantedPermissions.ToArray(),
+                    admissionMode: "invite",
+                    correlationId: correlationId,
+                    ct: token))
                 .ConfigureAwait(false);
         }
-
-        // (5) SoD compensating-control audit (the second set of eyes) — fail-safe-but-loud (host-wired onFault).
-        var grantedPermissions = conferredPermissions.Permissions;
-        var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
-            ?? request.JoiningPrincipalPublicKey;
-        await _sodAudit.RecordMemberAdmittedAsync(
-            tenantId: NodeTenant.Resolve(_activeTeam),
-            teamId: newRoster.TeamId.ToString("D"),
-            admitterPartyId: _admitterPartyId,
-            admittedPartyId: request.JoiningPartyId,
-            admittedPublicKeyBase64Url: admittedPublicKey,
-            grantedPermissions: grantedPermissions.ToArray(),
-            admissionMode: "invite",
-            correlationId: System.Diagnostics.Activity.Current?.Id,
-            ct: ct).ConfigureAwait(false);
 
         // (6) Build the A→B bootstrap response. A's team-scoped transport key comes from the ACTIVE TEAM's
         //     INodeIdentityProvider (the #1296-F2 source of truth — the SAME key A presents on the wire HELLO).

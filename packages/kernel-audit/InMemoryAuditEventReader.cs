@@ -55,9 +55,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// </remarks>
 public sealed class InMemoryAuditEventReader : IAuditEventReader
 {
-    private readonly InMemoryAuditTrail _trail;
-    private readonly IAuditTrail _emitter;
-    private readonly IOperationSigner _signer;
+    private readonly SnapshotAuditEventReader _reader;
 
     /// <summary>
     /// Initialises the reader with the shared in-memory store.
@@ -83,219 +81,22 @@ public sealed class InMemoryAuditEventReader : IAuditEventReader
         IOperationSigner signer)
     {
         ArgumentNullException.ThrowIfNull(trail);
-        ArgumentNullException.ThrowIfNull(emitter);
-        ArgumentNullException.ThrowIfNull(signer);
-        _trail = trail;
-        _emitter = emitter;
-        _signer = signer;
+        _reader = new SnapshotAuditEventReader(
+            _ => ValueTask.FromResult<IReadOnlyList<AuditRecord>>(trail.Snapshot()), emitter, signer);
     }
 
     /// <inheritdoc />
-    public async Task<AuditRecord?> GetByIdAsync(
-        TenantId tenantId,
-        Guid auditId,
-        DateTimeOffset admittedAt,
-        CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        var snapshot = _trail.Snapshot();
-        var found = snapshot.FirstOrDefault(r => r.AuditId == auditId);
-
-        if (found is null)
-        {
-            // Not found — no audit emission; absence is not a probe signal.
-            return null;
-        }
-
-        if (found.TenantId == tenantId)
-        {
-            return found;
-        }
-
-        // Cross-tenant probe: record exists but belongs to a different tenant.
-        // Emit TenantBoundaryViolation then return null (uniform-empty per
-        // ADR 0092 §A3 — no diagnostic leak).
-        await EmitTenantBoundaryViolationAsync(
-            entityId: auditId.ToString("D"),
-            requestedTenant: tenantId,
-            actualTenant: found.TenantId,
-            admittedAt: admittedAt,
-            ct: ct).ConfigureAwait(false);
-
-        return null;
-    }
+    public Task<AuditRecord?> GetByIdAsync(
+        TenantId tenantId, Guid auditId, DateTimeOffset admittedAt, CancellationToken ct = default) =>
+        _reader.GetByIdAsync(tenantId, auditId, admittedAt, ct);
 
     /// <inheritdoc />
-    public async Task<AuditEventPage> ListAsync(
-        TenantId tenantId,
-        AuditEventReaderQuery query,
-        CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(query);
-        ct.ThrowIfCancellationRequested();
-
-        var pageSize = Math.Clamp(query.PageSize, 1, 200);
-
-        // Cross-tenant cursor reuse: if the cursor belongs to a different
-        // tenant, return uniform-empty (ADR 0092 §A3; Bridge signature-check
-        // fires first per cohort-4 hand-off Decision 5).
-        if (query.Cursor is { } c && c.TenantId != tenantId)
-        {
-            return new AuditEventPage(
-                Records: Array.Empty<AuditRecord>(),
-                NextCursor: null,
-                HasMore: false);
-        }
-
-        var snapshot = _trail.Snapshot();
-
-        // Apply tenant + filter predicates.
-        var filtered = ApplyFilters(snapshot, tenantId, query);
-
-        // Sort reverse-chronological: OccurredAt DESC, AuditId DESC (byte-lex).
-        filtered = filtered
-            .OrderByDescending(r => r.OccurredAt)
-            .ThenByDescending(r => r.AuditId, GuidComparer.Instance)
-            .ToList();
-
-        // Apply cursor walking predicate (ADR 0094 Amendment 2.3):
-        // include R iff R.OccurredAt < C.OccurredAt
-        //              OR (R.OccurredAt == C.OccurredAt AND R.AuditId < C.AuditId)
-        if (query.Cursor is { } cursor)
-        {
-            filtered = filtered
-                .Where(r =>
-                    r.OccurredAt < cursor.OccurredAt ||
-                    (r.OccurredAt == cursor.OccurredAt &&
-                     GuidComparer.Instance.Compare(r.AuditId, cursor.AuditId) < 0))
-                .ToList();
-        }
-
-        // Take one extra to detect HasMore.
-        var page = filtered.Take(pageSize + 1).ToList();
-        var hasMore = page.Count > pageSize;
-        var records = hasMore ? page.Take(pageSize).ToList() : page;
-
-        AuditEventCursor? nextCursor = null;
-        if (hasMore && records.Count > 0)
-        {
-            var last = records[^1];
-            nextCursor = new AuditEventCursor(last.OccurredAt, last.AuditId, tenantId);
-        }
-
-        return await Task.FromResult(new AuditEventPage(
-            Records: records,
-            NextCursor: nextCursor,
-            HasMore: hasMore));
-    }
+    public Task<AuditEventPage> ListAsync(
+        TenantId tenantId, AuditEventReaderQuery query, CancellationToken ct = default) =>
+        _reader.ListAsync(tenantId, query, ct);
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<AuditRecord> StreamAsync(
-        TenantId tenantId,
-        AuditEventReaderQuery query,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(query);
-
-        var snapshot = _trail.Snapshot();
-        var filtered = ApplyFilters(snapshot, tenantId, query)
-            .OrderByDescending(r => r.OccurredAt)
-            .ThenByDescending(r => r.AuditId, GuidComparer.Instance);
-
-        foreach (var record in filtered)
-        {
-            ct.ThrowIfCancellationRequested();
-            yield return record;
-            await Task.Yield();
-        }
-    }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Applies tenant + query field filters (excluding cursor and page size —
-    /// those are applied by callers separately).
-    /// </summary>
-    private static List<AuditRecord> ApplyFilters(
-        AuditRecord[] snapshot,
-        TenantId tenantId,
-        AuditEventReaderQuery query)
-    {
-        var result = new List<AuditRecord>(snapshot.Length);
-        foreach (var record in snapshot)
-        {
-            if (record.TenantId != tenantId) continue;
-            if (query.EventType is { } et && !record.EventType.Equals(et)) continue;
-            if (query.From is { } from && record.OccurredAt < from) continue;
-            if (query.To is { } to && record.OccurredAt > to) continue;
-            if (query.CorrelationId is { } cid)
-            {
-                if (!record.Payload.Payload.Body.TryGetValue("correlation_id", out var v) ||
-                    !string.Equals(v?.ToString(), cid, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-            }
-            result.Add(record);
-        }
-        return result;
-    }
-
-    /// <summary>
-    /// Emits a <c>TenantBoundaryViolation</c> audit record via the write-side
-    /// <see cref="IAuditTrail"/> (NOT through this reader — recursion-safe).
-    /// Canonical 5-field payload per ADR 0092 §A6 + ADR 0094 §Decision drivers:
-    /// entity_type, entity_id, requested_tenant, actual_tenant, correlation_id.
-    /// </summary>
-    private async ValueTask EmitTenantBoundaryViolationAsync(
-        string entityId,
-        TenantId requestedTenant,
-        TenantId actualTenant,
-        DateTimeOffset admittedAt,
-        CancellationToken ct)
-    {
-        var correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString("N");
-        var payload = new AuditPayload(new Dictionary<string, object?>
-        {
-            ["entity_type"]       = "AuditRecord",
-            ["entity_id"]         = entityId,
-            ["requested_tenant"]  = requestedTenant.Value,
-            ["actual_tenant"]     = actualTenant.Value,
-            ["correlation_id"]    = correlationId,
-        });
-
-        var signed = await _signer.SignAsync(payload, admittedAt, Guid.NewGuid(), ct)
-            .ConfigureAwait(false);
-
-        var record = new AuditRecord(
-            AuditId: Guid.NewGuid(),
-            TenantId: requestedTenant,
-            EventType: AuditEventType.TenantBoundaryViolation,
-            OccurredAt: admittedAt,
-            Payload: signed,
-            AttestingSignatures: Array.Empty<AttestingSignature>());
-
-        await _emitter.AppendAsync(record, ct).ConfigureAwait(false);
-    }
-
-    // ── Guid comparator (byte-lex order per ADR 0094 §AuditEventCursor) ───────
-
-    private sealed class GuidComparer : IComparer<Guid>
-    {
-        public static readonly GuidComparer Instance = new();
-        private GuidComparer() { }
-
-        public int Compare(Guid x, Guid y)
-        {
-            var xBytes = x.ToByteArray();
-            var yBytes = y.ToByteArray();
-            for (var i = 0; i < 16; i++)
-            {
-                var cmp = xBytes[i].CompareTo(yBytes[i]);
-                if (cmp != 0) return cmp;
-            }
-            return 0;
-        }
-    }
+    public IAsyncEnumerable<AuditRecord> StreamAsync(
+        TenantId tenantId, AuditEventReaderQuery query, CancellationToken ct = default) =>
+        _reader.StreamAsync(tenantId, query, ct);
 }

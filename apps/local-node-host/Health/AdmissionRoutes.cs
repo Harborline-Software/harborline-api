@@ -75,14 +75,13 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// </para>
 /// <para>
 /// <b>The SoD compensating control fires HERE (#1295 F1).</b> A successful redeem-invite IS a real runtime
-/// member admit — the SoD-significant op the "second set of eyes" audit control exists to record. AFTER the
-/// roster mutation succeeds (token redeemed, admission signed + applied + published), this route invokes
-/// <see cref="IEnrollmentCompensatingControlRecorder.RecordMemberAdmittedAsync"/> so the admit lands in the immutable, signed,
-/// tamper-evident audit trail at RUNTIME — not only in a direct-call unit test (the F1 wiring gap). The sink is
-/// fail-safe-but-loud: a recording fault never bricks the admit, but it is signalled (the host wires the loud
-/// onFault). The other SoD ops (revoke / permission-grant / ownership-transfer) have no runtime route in this
-/// host yet (only admit is exposed), so their <see cref="IEnrollmentCompensatingControlRecorder"/> methods wire when those routes land —
-/// the sink is already DI-registered and ready (a named follow-on, not a silent gap).
+/// member admit — the SoD-significant op the "second set of eyes" audit control exists to record. The admitter
+/// invokes <see cref="IEnrollmentCompensatingControlRecorder.RecordMemberAdmittedAsync"/> on the roster record's own save
+/// (T-986), so the signed audit commits in <c>local-node.db</c> with the admission or the admission does not
+/// commit, and the record survives a restart. The other SoD ops (revoke / permission-grant /
+/// ownership-transfer) have no runtime route in this host yet (only admit is exposed), so their
+/// <see cref="IEnrollmentCompensatingControlRecorder"/> methods wire when those routes land, on the same save (a named
+/// follow-on, not a silent gap).
 /// </para>
 /// </remarks>
 public static class AdmissionRoutes

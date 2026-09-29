@@ -915,17 +915,16 @@ void AddInstallStore(IServiceCollection services, bool pooling = true)
     }
 
     // ── Enrollment Phase C — the SoD COMPENSATING-CONTROL audit, WIRED LIVE (#1295 F1/F2). ───────────────
-    // Registers IEnrollmentCompensatingControlRecorder → KernelAuditEnrollmentCompensatingControlRecorder over a singleton in-memory kernel audit trail
-    // (signed/tamper-evident/undeletable; SEPARATE from the SC4-guarded EF financial-audit path) + the node's
-    // canonical principal signer, with a fail-safe-but-LOUD onFault (WARN/degraded-mode, escalated to Error for
-    // OwnershipTransferred). With this, the admission-redeem route's RecordMemberAdmittedAsync call lands a SoD
-    // audit record at RUNTIME — the "second set of eyes" control is LIVE, not test-only (closes the F1 gap that
-    // the seam + adapter existed but nothing invoked them and nothing was DI-registered).
+    // Registers the durable kernel audit trail in local-node.db (T-986; SEPARATE from the SC4-guarded EF
+    // financial-audit path) and IEnrollmentCompensatingControlRecorder → KernelAuditEnrollmentCompensatingControlRecorder
+    // over the node's canonical principal signer. The admission routes stage the signed SoD audit record in the
+    // SAME save as the roster record it records, so an admission never commits unaudited and the record survives
+    // a restart; the audit outbox delivers it to the trail.
     builder.Services.AddEnrollmentCompensatingControlAudit();
     Console.WriteLine(
         "[local-node-host] Enrollment Phase C: SoD compensating-control audit WIRED LIVE — IEnrollmentCompensatingControlRecorder → "
-        + "KernelAuditEnrollmentCompensatingControlRecorder (signed, tamper-evident trail) + fail-safe-but-LOUD onFault; a runtime member "
-        + "admit now records a SoD audit event (the second-set-of-eyes control).");
+        + "KernelAuditEnrollmentCompensatingControlRecorder (signed, tamper-evident, durable in local-node.db); a runtime member "
+        + "admit commits its SoD audit event with the roster record (the second-set-of-eyes control).");
 }
 
 // inc-4 cross-process CALLER AUTH — the per-boot session token the Tauri Harborline App shell

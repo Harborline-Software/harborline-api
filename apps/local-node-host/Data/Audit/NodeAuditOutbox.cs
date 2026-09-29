@@ -103,6 +103,40 @@ public sealed class NodeAuditOutbox(
     }
 
     /// <summary>
+    /// T-986: signs <paramref name="body"/> now and stages the signed envelope on <paramref name="write"/>, the
+    /// context whose one save commits the change it records. Nothing is saved here; a signing fault throws, so
+    /// the change fails with it rather than committing unaudited.
+    /// </summary>
+    /// <returns>The staged entry's audit id.</returns>
+    public static async ValueTask<Guid> StageSignedAsync(
+        DbContext write,
+        IOperationSigner signer,
+        TenantId tenant,
+        AuditEventType eventType,
+        DateTimeOffset occurredAt,
+        IReadOnlyDictionary<string, object?> body,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        ArgumentNullException.ThrowIfNull(signer);
+        ArgumentNullException.ThrowIfNull(body);
+        var nonce = Guid.NewGuid();
+        var payload = await signer.SignAsync(new AuditPayload(body), occurredAt, nonce, ct).ConfigureAwait(false);
+        var id = Guid.NewGuid();
+        write.Set<AuditOutboxRow>().Add(new AuditOutboxRow
+        {
+            AuditId = id.ToString("D"),
+            TenantId = tenant.Value,
+            EventType = eventType.Value,
+            OccurredAt = occurredAt,
+            Nonce = nonce.ToString("D"),
+            BodyJson = JsonSerializer.Serialize(body),
+            SignedPayloadJson = NodeAuditRecordJson.WritePayload(payload),
+        });
+        return id;
+    }
+
+    /// <summary>
     /// Delivers every owed entry to the trail in stage order. An entry the trail already holds (a crash between
     /// its append and its mark) is marked without a second append. A failed entry records its error and stays owed.
     /// </summary>
@@ -172,11 +206,9 @@ public sealed class NodeAuditOutbox(
 
     private async Task AppendAsync(AuditOutboxRow row, TenantId tenant, Guid auditId, CancellationToken ct)
     {
-        var body = JsonSerializer.Deserialize<Dictionary<string, string?>>(row.BodyJson)
-            ?? throw new InvalidOperationException("Audit outbox entry has no body.");
-        var payload = await signer.SignAsync(
-            new AuditPayload(body.ToDictionary(pair => pair.Key, pair => (object?)pair.Value, StringComparer.Ordinal)),
-            row.OccurredAt, Guid.Parse(row.Nonce), ct).ConfigureAwait(false);
+        var payload = row.SignedPayloadJson is { } signed
+            ? NodeAuditRecordJson.ReadPayload(signed)
+            : await SignAsync(row, ct).ConfigureAwait(false);
         var record = new AuditRecord(
             auditId,
             tenant,
@@ -198,6 +230,15 @@ public sealed class NodeAuditOutbox(
         var snapshot = JsonSerializer.Deserialize<AuthoritySnapshot>(row.AuthoritySnapshotJson)
             ?? throw new InvalidOperationException("Audit outbox entry has an empty authority snapshot.");
         await captured.AppendCapturedAsync(record with { AuthoritySnapshot = snapshot }, ct).ConfigureAwait(false);
+    }
+
+    private async Task<SignedOperation<AuditPayload>> SignAsync(AuditOutboxRow row, CancellationToken ct)
+    {
+        var body = JsonSerializer.Deserialize<Dictionary<string, string?>>(row.BodyJson)
+            ?? throw new InvalidOperationException("Audit outbox entry has no body.");
+        return await signer.SignAsync(
+            new AuditPayload(body.ToDictionary(pair => pair.Key, pair => (object?)pair.Value, StringComparer.Ordinal)),
+            row.OccurredAt, Guid.Parse(row.Nonce), ct).ConfigureAwait(false);
     }
 
     private async Task MarkAsync(string auditId, long? publishedAt, string? error, CancellationToken ct)

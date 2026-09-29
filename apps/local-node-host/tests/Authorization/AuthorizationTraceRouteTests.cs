@@ -61,16 +61,16 @@ public sealed class AuthorizationTraceRouteTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Real_route_returns_fixture_shape_and_reports_volatile_history_after_restart(bool allowed)
+    public async Task Real_route_returns_fixture_shape_and_the_same_trace_after_restart(bool allowed)
     {
         await using var host = await Host.OpenAsync();
         var (id, decision) = await host.RecordAsync(allowed);
         var before = await host.ReadAsync(id);
         AssertShape(before, decision);
         await host.RestartAsync();
+        // T-986: the kernel audit trail is durable, so the recorded decision is still read after a restart.
         var after = await host.ReadAsync(id);
-        Assert.Equal((int)AuthorizationTraceAvailability.NotAvailable, after.GetProperty("availability").GetInt32());
-        Assert.Empty(after.GetProperty("steps").EnumerateArray());
+        Assert.True(JsonElement.DeepEquals(before, after));
     }
 
     [Fact]
@@ -148,9 +148,9 @@ public sealed class AuthorizationTraceRouteTests
         var deniedTrace = await host.ReadAsync(deniedBody.GetProperty("auditId").GetGuid());
         Assert.Contains("verdict:denied", deniedTrace.GetProperty("steps")[3].GetProperty("facts").EnumerateArray().Select(f => f.GetString()));
         await host.RestartAsync();
+        // T-986: the durable trail answers for the recorded decision after a restart.
         var restarted = await host.ReadAsync(id);
-        Assert.Equal((int)AuthorizationTraceAvailability.NotAvailable, restarted.GetProperty("availability").GetInt32());
-        Assert.Empty(restarted.GetProperty("steps").EnumerateArray());
+        Assert.True(JsonElement.DeepEquals(trace, restarted));
     }
 
     // Ticket 331 slice 2 (M3 acceptance 5 clause 6): the accepted record write the first install actually
