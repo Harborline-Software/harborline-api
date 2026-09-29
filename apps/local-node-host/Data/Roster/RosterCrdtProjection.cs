@@ -566,7 +566,9 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                     foreach (var tenant in existing.Values.Select(r => r.TeamId).Distinct(StringComparer.Ordinal))
                         await reader.ReadForRebuildAsync(new TenantId(tenant), ct).ConfigureAwait(false);
 
+                    // A candidate whose instant does not parse has no order time; verification refuses it below.
                     var candidates = snapshot.Where(s => !existing.ContainsKey(s.RecordId)).DistinctBy(s => s.RecordId)
+                        .Where(s => NodeRosterRecord.TryParseIssuedAt(s, out _))
                         .Select(NodeRosterRecord.FromCrdtState).ToDictionary(r => r.Id, StringComparer.Ordinal);
                     orderTime = NodeRosterRecord.OrderTimes(existing.Values.Concat(candidates.Values));
                     var toInsert = new List<NodeRosterRecord>();
@@ -998,7 +1000,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
                 refused[candidate.RecordId] = new RebuildRefusal(candidate.RecordId, report,
                     candidate.Kind == RosterRecordKind.Revocation ? Permission.MembersRevoke : Permission.MembersAdmit,
                     new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
-                    NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc);
+                    NodeRosterRecord.IssuedAtOr(candidate, _clock.GetUtcNow()));
             }
         }
         return refused;
@@ -1010,6 +1012,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     {
         if (!Guid.TryParse(candidate.TeamId, out var tenant) || string.IsNullOrWhiteSpace(candidate.PartyId)
             || string.IsNullOrWhiteSpace(candidate.AdmittedByPartyId)) return "roster.record.malformed";
+        // T-909 ck-9: an unparseable instant is corrupt; it is refused here, never re-dated to a clock read.
+        if (!NodeRosterRecord.TryParseIssuedAt(candidate, out var issuedAt)) return "roster.record.malformed";
         if (candidate.WireFormatVersion != RosterWireFormat.CurrentVersion)
             return RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal;
         if (candidate.UnmappedWireFields is { Count: > 0 })
@@ -1020,8 +1024,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
         if (!RosterReceiveAttestationSigning.Verify(
                 candidate.RecordId, recordNonce, receiveAttestation, _verifier, out var attestationRefusal))
             return attestationRefusal ?? "roster.record.receive_attestation_invalid";
-        if (!NodeRosterRecord.IsWithinReceiveTimeWindow(
-                NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc, receiveAttestation.ReceivedAt))
+        if (!NodeRosterRecord.IsWithinReceiveTimeWindow(issuedAt, receiveAttestation.ReceivedAt))
             return FutureOrderTimeRefusal;
         var admission = candidate.ToAdmissionOrNull();
         var revocation = candidate.ToRevocationOrNull();
@@ -1163,7 +1166,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             JsonSerializer.Serialize(candidate));
         return new RebuildRefusal(candidate.RecordId, report, Permission.MembersAdmit,
             new ActorId(candidate.AdmittedByPartyId), new TenantId(candidate.TeamId),
-            NodeRosterRecord.FromCrdtState(candidate).IssuedAtUtc);
+            NodeRosterRecord.IssuedAtOr(candidate, _clock.GetUtcNow()));
     }
 
     private static AuthorizationRefusal RefusalReport(RosterRevocationRefusal refusal) =>

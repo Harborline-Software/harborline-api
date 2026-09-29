@@ -132,6 +132,9 @@
     <ProjectReference Include="..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj" />
     <ProjectReference Include="..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj" />
+    <!-- Direct, not only transitive through the host, so a scoped Stryker run can mutate the package
+         (one config mutates one direct reference; see AGENTS.md "Mutation testing"). -->
+    <ProjectReference Include="..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
     <!-- Calendar thin-slice (ONR app-calendar survey 2026-06-24): the durable-store + route tests
          construct CalendarEvent / ResourceAvailability / ParticipantRef directly + reference the block's
          query/free-busy services. -->

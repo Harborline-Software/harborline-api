@@ -77,18 +77,16 @@ public static class AccountingPeriodRoutes
             // caller-constructed one is refused rather than ignored.
             if (body?.Id is not null)
                 return Results.BadRequest(new { code = "request.record-id-not-accepted" });
-            DateOnly date;
+            DateOnly? date = null;
             if (!string.IsNullOrWhiteSpace(body?.Date))
             {
-                if (!DateOnly.TryParse(body.Date, out date))
+                if (!DateOnly.TryParse(body.Date, out var parsed))
                 {
                     return Results.BadRequest(new { error = "invalid_date" });
                 }
+                date = parsed;
             }
-            else
-            {
-                date = DateOnly.FromDateTime(DateTime.UtcNow);
-            }
+            // An omitted date defaults inside the service from the host clock (T-909 ck-9).
 
             var result = await service.OpenForDateAsync(date, ct).ConfigureAwait(false);
             return result.Outcome switch

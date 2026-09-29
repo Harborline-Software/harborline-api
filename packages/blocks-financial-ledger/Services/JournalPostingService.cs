@@ -233,8 +233,24 @@ public sealed class JournalPostingService : IJournalPostingService
             PostedAtUtc = new Instant(at),
         };
         if (persist)
-            await _store.SaveAtomicAsync(posted.TenantId, posted, postDecision, cancellationToken)
-                .ConfigureAwait(false);
+        {
+            try
+            {
+                await _store.SaveAtomicAsync(posted.TenantId, posted, postDecision, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception) when (posted.SourceReference is { Length: > 0 })
+            {
+                // A concurrent re-drive committed the same SourceReference after phase 1.5 and the durable
+                // unique index refused this save. The operation already happened: return its first result.
+                var winner = await _store
+                    .FindBySourceReferenceAsync(posted.TenantId, posted.SourceReference, cancellationToken)
+                    .ConfigureAwait(false);
+                if (winner is null)
+                    throw;
+                return new PostResult(winner, PostError.None, $"idempotent: source-reference={posted.SourceReference}");
+            }
+        }
         else
             await stage!(posted, cancellationToken).ConfigureAwait(false);
 

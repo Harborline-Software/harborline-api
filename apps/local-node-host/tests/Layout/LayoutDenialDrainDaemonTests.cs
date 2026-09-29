@@ -18,10 +18,10 @@ public sealed class LayoutDenialDrainDaemonTests
     [Fact(DisplayName = "T-735: DrainAsync stops waiting on a stalled append once its token cancels, without cancelling or duplicating the append itself")]
     public async Task DrainAsyncStopsWaitingOnCancellationButLeavesTheAppendRunning()
     {
-        // The trail's append is slow on a clock unrelated to the daemon's token (Task.Delay with no
-        // cancellation), so the delay lands squarely on the append RunAsync is already running, never on
-        // the outbox's own (fast) listing.
-        var trail = new SlowAppendTrail(TimeSpan.FromMilliseconds(400));
+        // The trail's append stalls until the test releases it, on no caller's token, so the stall lands
+        // squarely on the append RunAsync is already running, never on the outbox's own listing. No clock
+        // decides the verdict: DrainAsync must return while the append is provably still stalled.
+        var trail = new StalledAppendTrail();
         using var p = new Pipeline(trail);
         var trace = p.Trace();
         Resolve(new OutcomeSources(LayoutRelatedResult.Denied(
@@ -32,11 +32,14 @@ public sealed class LayoutDenialDrainDaemonTests
         Assert.Single(await p.Outbox.ListUnresolvedAsync());
 
         var daemon = new LayoutDenialDrainDaemon(p.Outbox, p.Appender, TimeProvider.System, NullLogger<LayoutDenialDrainDaemon>.Instance);
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(30));
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => daemon.DrainAsync(cts.Token));
-        // DrainAsync returned on the token's own deadline, not the append's — well short of the 400 ms delay.
-        Assert.True(clock.Elapsed < TimeSpan.FromMilliseconds(300), $"DrainAsync waited {clock.Elapsed} for a cancelled token.");
+        using var cts = new CancellationTokenSource();
+        var drain = daemon.DrainAsync(cts.Token);
+        await trail.Entered.WaitAsync(HangGuard);
+        cts.Cancel();
+        // DrainAsync returned on the token, not the append: the append has still not finished.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => drain.WaitAsync(HangGuard));
+        Assert.Empty(await RowsAsync(trail.Inner));
+        trail.Release();
 
         // The append itself was never cancelled (RunAsync uses no token) and finishes on its own; a later
         // drain (this daemon's next tick, or the reader path) safely resumes it via the same in-flight join,
@@ -46,15 +49,27 @@ public sealed class LayoutDenialDrainDaemonTests
         Assert.Empty(await p.Outbox.ListUnresolvedAsync());
     }
 
-    /// <summary>A gate log whose append takes <paramref name="delay"/>, on a clock no caller's
-    /// cancellation token reaches — it always finishes, just not promptly.</summary>
-    private sealed class SlowAppendTrail(TimeSpan delay) : IAuditTrail
+    /// <summary>Only stops a broken DrainAsync hanging the run; generous, and never the verdict.</summary>
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>A gate log whose append waits for <see cref="Release"/>, on no caller's cancellation
+    /// token — it always finishes, just not until the test says so.</summary>
+    private sealed class StalledAppendTrail : IAuditTrail
     {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public InMemoryAuditTrail Inner { get; } = new();
+
+        /// <summary>Completes once an append is running and stalled.</summary>
+        public Task Entered => _entered.Task;
+
+        public void Release() => _released.TrySetResult();
 
         public async ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default)
         {
-            await Task.Delay(delay, CancellationToken.None).ConfigureAwait(false);
+            _entered.TrySetResult();
+            await _released.Task.ConfigureAwait(false);
             await Inner.AppendAsync(record, CancellationToken.None).ConfigureAwait(false);
         }
 

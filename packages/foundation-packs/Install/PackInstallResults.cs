@@ -77,6 +77,11 @@ public static class PackInstallCodes
     public const string RefusedUnsupportedTerminologyOverride =
         "pack.install.refused.unsupported_content_kind.terminology_override";
 
+    /// <summary>A <c>RecordType</c> item re-declares a compiled bootstrap shape by its key or identity (ck-1).
+    /// No pack, the platform pack included, may replace the compiled floor. The value is the platform's
+    /// <c>KernelBootstrapErrors.CompiledShapeReplacement</c>.</summary>
+    public const string RefusedCompiledShapeReplacement = "kernel.compiled-shape-replacement";
+
     /// <summary>A first install created a new seed layer (Draft).</summary>
     public const string Installed = "pack.install.installed";
 

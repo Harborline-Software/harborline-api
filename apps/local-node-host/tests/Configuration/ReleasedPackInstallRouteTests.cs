@@ -386,6 +386,32 @@ public sealed class ReleasedPackInstallRouteTests : IAsyncLifetime
         Assert.Equal(candidateDigest, await EffectiveDigestAsync());
     }
 
+    [Fact(DisplayName = "T-909 ck-1: released installation refuses a record type that claims a compiled shape")]
+    public async Task Released_install_refuses_a_compiled_shape_claim()
+    {
+        const string proposalId = "proposal-909";
+        using (var started = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId }))
+            Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await AutosaveAsync(proposalId, "forms/invoice", FormsEdit, FormsKind);
+        await AutosaveAsync(proposalId, "kernel.field", """{"sealed":true}""", "RecordType");
+        using (var saved = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/versions", new { rationale = Rationale }))
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        using (var checked_ = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/checks", new { receiptId = "receipt-909" }))
+            Assert.Equal(HttpStatusCode.OK, checked_.StatusCode);
+        using var released = await _client.PostAsJsonAsync($"{Proposal(proposalId)}/release",
+            new { ordinal = 1, packageKey = "acme.bootstrap", revision = Revision });
+        var releasedBody = await released.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(released.StatusCode == HttpStatusCode.OK, releasedBody.ToString());
+        var digest = releasedBody.GetProperty("releasedPackage").GetProperty("digest").GetString()!;
+
+        using var install = await _client.PostAsJsonAsync(InstallRoute(digest), new { });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, install.StatusCode);
+        var refusal = Assert.Single((await install.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refusals").EnumerateArray());
+        Assert.Equal(Harborline.Kernel.Core.KernelBootstrapErrors.CompiledShapeReplacement, refusal.GetProperty("code").GetString());
+        Assert.DoesNotContain(_store.ListInstalled(_tenant), item => item.PackKey == "acme.bootstrap");
+    }
+
     private static string InstallRoute(string digest) => $"/api/local-node/configuration/releases/{digest}/install";
 
     private static object OwnedByRelease() => new
