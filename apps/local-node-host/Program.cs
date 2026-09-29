@@ -2392,9 +2392,10 @@ builder.Services.AddNodeForms(
         services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter(
             sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.LocalNodeDbContext>>(),
             entityMutations(sp),
-            // Ticket 151 (L1418): the REAL compile-at-activation validator, not the container's
-            // null-object store hook.
-            sp.GetRequiredService<Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator>(),
+            // Ticket 151 (L1418) / T-978: the keyed record validator (compiled schema, then the Rules
+            // stage), not the container's null-object store hook.
+            sp.GetRequiredKeyedService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(
+                Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator.RecordWriteKey),
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
             // Ticket 151 row 4d: a stage-two refusal reaches the decision trace.
             sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>(),
@@ -2413,7 +2414,8 @@ builder.Services.AddNodeForms(
                 sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(),
                 sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>(),
                 sp.GetRequiredService<TimeProvider>(),
-                sp.GetRequiredService<Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator>()));
+                sp.GetRequiredKeyedService<Harborline.Api.Foundation.Assets.Entities.IEntityValidator>(
+                    Harborline.Api.Kernel.Schema.CompiledSchemaEntityValidator.RecordWriteKey)));
         services.AddEntityStoreWorkflowDefinitionStore(entityMutations);
     });
 

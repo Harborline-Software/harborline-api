@@ -3,11 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Crdt.Backends;
+using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -228,6 +230,49 @@ public sealed class RosterPreInsertVerificationTests
         Assert.DoesNotContain(await f.StoredAsync(), row => row.RecordId == candidate.RecordId);
         Assert.Contains("roster.record.malformed",
             JsonSerializer.Serialize(Assert.Single(await f.AuditsAsync()).Payload.Payload.Body));
+    }
+
+    // ck-11 (DES-0029): a genuine founder-signed admission rewritten on the wire to carry a permission set is
+    // refused, so the party gains no roster edge and the production gate refuses the members act the edge would
+    // have admitted. The untampered control proves the same record and grant are otherwise allowed.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TamperedPermissionEvidenceConfersNoAuthorityThroughTheGate(bool tampered)
+    {
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        var candidate = f.Admission(f.Founder, "founder", "stray", At.AddHours(2))
+            .AttestReceipt(f.Founder, "founder", At.AddHours(2));
+        if (tampered)
+        {
+            candidate = JsonSerializer.Deserialize<RosterRecordCrdtState>(JsonSerializer.Serialize(candidate with
+            {
+                UnmappedWireFields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                {
+                    ["Permissions"] = JsonSerializer.Deserialize<JsonElement>("[\"members:manage\"]"),
+                },
+            }))!;
+        }
+        await f.MergeRawAsync([candidate]);
+
+        var tenant = new TenantId(Tenant.ToString("D"));
+        var rosters = f.Provider.GetRequiredService<IVerifiedTenantRosterReader>();
+        Assert.Equal(!tampered, (await rosters.ReadAsync(tenant, default)).Contains("stray"));
+        // The subject holds a (non-Administrator) members grant; only the roster edge can satisfy RequireMember.
+        var gate = Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.Gate(_ => true,
+            new NodeAuthorizationRosterConstraintReader(new NoPartyBinding(), rosters),
+            new RoleReference(RoleVocabularies.Domain, "member"));
+        var decision = await gate.DecideAsync(new AuthorizationWriteContext(new ActorId("stray"), tenant, At.AddHours(3))
+            .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "stray"));
+        Assert.Equal(tampered ? AuthorizationVerdict.Denied : AuthorizationVerdict.Allowed, decision.Verdict);
+        Assert.Equal(!tampered, decision.Evidence.Roster!.Member);
+    }
+
+    private sealed class NoPartyBinding : ICanonicalPrincipalPartyReader
+    {
+        public ValueTask<CanonicalPartyBinding?> ResolveAsync(
+            TenantId tenant, PrincipalUserId user, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<CanonicalPartyBinding?>(null);
     }
 
     private static Dictionary<string, JsonElement> PermissionField() => new(StringComparer.Ordinal)

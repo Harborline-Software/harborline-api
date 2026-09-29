@@ -22,7 +22,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         using var body = JsonDocument.Parse("""{"a":1}""");
 
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            ValidatedRecordBody.AdmitAsync(validator, new Admission(false), Thing, body));
+            ValidatedRecordBody.AdmitAsync(validator, new Admission(false), Thing, body, Tenant, null));
 
         Assert.Contains("entity.validation.not_admitted", refusal.Message, StringComparison.Ordinal);
         // The ordering is the point: the validator must not have run for a write the gate refused.
@@ -35,7 +35,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         var validator = new CountingValidator();
         using var body = JsonDocument.Parse("""{"a":1}""");
 
-        var token = await ValidatedRecordBody.AdmitAsync(validator, new Admission(true), Thing, body);
+        var token = await ValidatedRecordBody.AdmitAsync(validator, new Admission(true), Thing, body, Tenant, null);
 
         Assert.Equal(1, validator.Calls);
         Assert.Equal(Thing, token.Schema);
@@ -50,7 +50,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
         using var body = JsonDocument.Parse("""{"a":1}""");
         var allowed = new Admission(true);
 
-        var created = await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, body);
+        var created = await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, body, Tenant, null);
         var id = await store.CreateAsync(
             created,
             new CreateOptions("record", "test", Guid.NewGuid().ToString("N"),
@@ -58,7 +58,7 @@ public sealed class ValidatedRecordBodyAdmissionTests
 
         // A body the validator accepted — against the WRONG schema. This is the shape that broke the
         // competition candidate: a non-record admission must never reach a record's stored schema.
-        var mismatched = await ValidatedRecordBody.AdmitAsync(validator, allowed, Other, body);
+        var mismatched = await ValidatedRecordBody.AdmitAsync(validator, allowed, Other, body, Tenant, null);
         var refusal = await Assert.ThrowsAsync<EntityValidationException>(() =>
             store.UpdateAsync(id, mismatched, new UpdateOptions(new ActorId("actor"))));
 
@@ -81,12 +81,12 @@ public sealed class ValidatedRecordBodyAdmissionTests
         var allowed = new Admission(true);
 
         var id = await store.CreateAsync(
-            await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, first),
+            await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, first, Tenant, null),
             new CreateOptions("record", "test", Guid.NewGuid().ToString("N"),
                 new ActorId("actor"), new TenantId("tenant")));
         await store.UpdateAsync(
             id,
-            await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, second),
+            await ValidatedRecordBody.AdmitAsync(validator, allowed, Thing, second, Tenant, null),
             new UpdateOptions(new ActorId("actor")));
 
         var stored = await store.GetAsync(id);
@@ -95,7 +95,12 @@ public sealed class ValidatedRecordBodyAdmissionTests
         Assert.Equal(2, stored.Body.RootElement.GetProperty("a").GetInt32());
     }
 
-    private sealed record Admission(bool IsAllowed) : IWriteAdmission;
+    private sealed record Admission(bool IsAllowed) : IWriteAdmission
+    {
+        public DateTimeOffset At { get; } = DateTimeOffset.UnixEpoch;
+    }
+
+    private static readonly TenantId Tenant = new("tenant");
 
     private sealed class CountingValidator : IEntityValidator
     {
