@@ -186,11 +186,34 @@ done
   fail "the catalogue carries no $pack_key definition before removal; the absence check below would be vacuous"
 
 echo
+# POST /packs/deactivate for <key> <version>: body into $clean_root/body.txt, HTTP status on stdout.
+deactivate() {
+  curl -sS -o "$clean_root/body.txt" -w '%{http_code}' \
+    -X POST -H "Authorization: Bearer $session_token" -H 'Content-Type: application/json' \
+    -d "{\"packKey\":\"$1\",\"version\":\"$2\"}" \
+    "http://127.0.0.1:$port/api/local-node/packs/deactivate" 2>/dev/null
+}
+
+# Deactivation does not cascade (T-980 S3, ruling D4): the platform pack is refused while an Active
+# pack depends on it, and the refusal names every such dependent. Remove those first, through the
+# same route, at their Active versions from the installed list.
+probe /api/local-node/packs/installed > /dev/null
+cp "$clean_root/body.txt" "$clean_root/installed.json"
+dependents=$(node -e '
+  const read = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
+  process.stdout.write(read
+    .filter(p => p.lifecycle === "Active" && p.packKey !== process.argv[2])
+    .map(p => p.packKey + "@" + p.version).join(" "))
+' "$clean_root/installed.json" "$pack_key" 2>/dev/null)
+for dependent in $dependents; do
+  echo "removal-exercise: deactivating dependent ${dependent%@*} ${dependent#*@} first"
+  status=$(deactivate "${dependent%@*}" "${dependent#*@}")
+  echo "  $status  POST /api/local-node/packs/deactivate -> $(body)"
+  [ "$status" = "200" ] || fail "a dependent of $pack_key could not be deactivated ($status)"
+done
+
 echo "removal-exercise: REMOVING $pack_key $pack_version through the ordinary installer route"
-remove_status=$(curl -sS -o "$clean_root/body.txt" -w '%{http_code}' \
-  -X POST -H "Authorization: Bearer $session_token" -H 'Content-Type: application/json' \
-  -d "{\"packKey\":\"$pack_key\",\"version\":\"$pack_version\"}" \
-  "http://127.0.0.1:$port/api/local-node/packs/deactivate" 2>/dev/null)
+remove_status=$(deactivate "$pack_key" "$pack_version")
 echo "  $remove_status  POST /api/local-node/packs/deactivate -> $(body)"
 [ "$remove_status" = "200" ] || fail "the installed package could not be removed ($remove_status)"
 
