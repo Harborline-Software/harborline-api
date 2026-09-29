@@ -76,7 +76,7 @@ internal static class CallerTenantIdentifierFence
         if (element.ValueKind == JsonValueKind.Object)
             return element.EnumerateObject().Any(property =>
                 (IsTenantKey(property.Name)
-                    && !(selectionRoot && property.Name.Equals("tenantId", StringComparison.OrdinalIgnoreCase)))
+                    && !(selectionRoot && property.Name.Equals("tenantId", StringComparison.Ordinal)))
                 || ContainsTenantKey(property.Value));
         if (element.ValueKind == JsonValueKind.Array)
             return element.EnumerateArray().Any(item => ContainsTenantKey(item));
