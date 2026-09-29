@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Foundation.Assets.Audit;
@@ -188,23 +189,71 @@ public sealed class RuleFailClosedTests
     public async Task Submit_gate_propagates_a_real_rule_graph_timeout_instead_of_saving()
     {
         using var cancelled = new CancellationTokenSource();
-        var clock = new CancellingTimeProvider(SubmittedAt, cancelled);
+        var reuse = new CancellingReuseResolver(cancelled);
         var context = await CreateServicesAsync(RestrictingRule(
             id: "restrict.active",
             expression: """{"==":[{"var":"name"},"ok"]}""",
             action: RuleActionKind.Validate,
             scope: RuleScope.Field,
-            scopeTarget: "name"), services => services.AddFrozenKernelClock(clock));
+            scopeTarget: "name"), services => services.AddSingleton<IReuseResolver>(reuse));
         await using var services = context.Services;
         var engine = services.GetRequiredService<IFormEngine>();
         var token = await IssueReadWriteTokenAsync(services);
         using var candidate = JsonDocument.Parse("""{"name":"ok"}""");
         Assert.True((await engine.ValidateAsync(FormId, candidate, token, CancellationToken.None)).IsValid);
-        clock.CancelOnNextRead = true;
+        // T-540: the gate evaluates at authority.At and no longer reads the host clock, so the budget is
+        // spent at the last step before the gate (reuse resolution) rather than on a clock read.
+        reuse.CancelOnNextResolve = true;
 
         await Assert.ThrowsAsync<RuleEngineTimeoutException>(() =>
             engine.SaveWithReceiptAsync(FormId, candidate, token,
                 TestAuthorization.FormWrite(token, FormId, SubmittedAt), cancelled.Token));
+    }
+
+    // ── T-540 (ck-7): one authoritative clock per act ──
+    // The record is stamped with the admitted instant (authority.At). The rule verdict must read
+    // that same instant, not the live host clock, or a date rule and the stored record disagree
+    // about when the act happened.
+
+    [Fact]
+    public async Task Submit_gate_evaluates_date_rules_at_the_admitted_instant_not_the_live_clock()
+    {
+        var clock = new SettableTimeProvider(SubmittedAt);
+        var context = await CreateServicesAsync(RestrictingRule(
+            id: "restrict.today",
+            expression: """{"==":[{"date.today":[]},"2026-08-30"]}""",
+            action: RuleActionKind.Validate), services => services.AddFrozenKernelClock(clock));
+        await using var services = context.Services;
+        var engine = services.GetRequiredService<IFormEngine>();
+        var token = await IssueReadWriteTokenAsync(services);
+
+        // Admitted on 2026-08-30; the host clock has crossed midnight before the rules run.
+        clock.Now = SubmittedAt.AddDays(1);
+        using var candidate = JsonDocument.Parse("{}");
+        var receipt = await engine.SaveWithReceiptAsync(FormId, candidate, token,
+            TestAuthorization.FormWrite(token, FormId, SubmittedAt), CancellationToken.None);
+
+        Assert.Equal(SubmittedAt, receipt.SubmittedAt);
+        var entity = await services.GetRequiredService<IEntityStore>().GetAsync(receipt.InstanceId);
+        Assert.Equal(SubmittedAt, entity!.Binding!.SubmittedAt);
+    }
+
+    [Fact]
+    public async Task Submit_without_a_composed_act_clock_fails_closed_before_any_write()
+    {
+        var context = await CreateServicesAsync(RestrictingRule(
+            id: "restrict.today",
+            expression: """{"==":[{"date.today":[]},"2026-08-30"]}""",
+            action: RuleActionKind.Validate),
+            services => services.RemoveAll<Func<DateTimeOffset, TimeProvider>>());
+        await using var services = context.Services;
+        var engine = services.GetRequiredService<IFormEngine>();
+        var token = await IssueReadWriteTokenAsync(services);
+
+        using var candidate = JsonDocument.Parse("{}");
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.SaveWithReceiptAsync(
+            FormId, candidate, token, TestAuthorization.FormWrite(token, FormId, SubmittedAt), CancellationToken.None));
+        Assert.Contains("act clock", ex.Message, StringComparison.Ordinal);
     }
 
     // ── Render is projection (advisory): the degrade may stand, but never silently ──
@@ -682,18 +731,24 @@ public sealed class RuleFailClosedTests
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private sealed class CancellingTimeProvider(DateTimeOffset now, CancellationTokenSource cancellation) : TimeProvider
+    private sealed class SettableTimeProvider(DateTimeOffset now) : TimeProvider
     {
-        public bool CancelOnNextRead { get; set; }
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 
-        public override DateTimeOffset GetUtcNow()
+    private sealed class CancellingReuseResolver(CancellationTokenSource cancellation) : IReuseResolver
+    {
+        public bool CancelOnNextResolve { get; set; }
+
+        public ValueTask<ResolvedFormDefinition> ResolveAsync(FormDefinition definition, CancellationToken ct = default)
         {
-            if (CancelOnNextRead)
+            if (CancelOnNextResolve)
             {
-                CancelOnNextRead = false;
+                CancelOnNextResolve = false;
                 cancellation.Cancel();
             }
-            return now;
+            return ValueTask.FromResult(new ResolvedFormDefinition(definition, new Dictionary<string, ReuseProvenance>()));
         }
     }
 

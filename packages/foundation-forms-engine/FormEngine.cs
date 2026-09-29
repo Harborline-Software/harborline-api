@@ -144,7 +144,8 @@ public sealed class FormEngine : IFormEngine
         Harborline.Api.Foundation.Forms.IReuseResolver? reuseResolver = null,
         IFieldDecryptor? fieldDecryptor = null,
         Harborline.Api.Foundation.Crypto.IDecryptCapabilityProvider? decryptCapabilityProvider = null,
-        ILogger<FormEngine>? logger = null)
+        ILogger<FormEngine>? logger = null,
+        Func<DateTimeOffset, TimeProvider>? actClock = null)
     {
         ArgumentNullException.ThrowIfNull(formDefinitions);
         ArgumentNullException.ThrowIfNull(schemaRegistry);
@@ -186,7 +187,14 @@ public sealed class FormEngine : IFormEngine
         _fieldDecryptor = fieldDecryptor;
         _decryptCapabilities = decryptCapabilityProvider;
         _logger = logger ?? NullLogger<FormEngine>.Instance;
+        _actClock = actClock;
     }
+
+    /// <summary>
+    /// T-540 (ck-7): mints a clock pinned to one act's admitted instant. Ticket 216 keeps every clock in the
+    /// composition root, so the root supplies this factory; a submit without it fails closed.
+    /// </summary>
+    private readonly Func<DateTimeOffset, TimeProvider>? _actClock;
 
     /// <summary>True when the SPINE-2 governance seam is wired (enforcer + resolver both present).</summary>
     private bool GovernanceEnabled => _enforcer is not null && _aspectResolver is not null;
@@ -340,7 +348,7 @@ public sealed class FormEngine : IFormEngine
 
         // F-20: the query surfaces the SAME combined verdict the save command enforces
         // (schema + rule gate, hidden-respecting) so a client pre-check has parity.
-        var (result, pruned) = await ValidateForSubmitAsync(formDef, candidate, ct).ConfigureAwait(false);
+        var (result, pruned) = await ValidateForSubmitAsync(formDef, candidate, _timeProvider, ct).ConfigureAwait(false);
         pruned.Dispose();
         return result;
     }
@@ -414,7 +422,12 @@ public sealed class FormEngine : IFormEngine
         // (hidden-respecting required, Tier-2 validity blockers) over the HIDDEN-PRUNED
         // candidate. The pruned body is what persists: the payload keeps only values
         // visible at submit (D3 final-values minimization).
-        var (validation, prunedCandidate) = await ValidateForSubmitAsync(formDef, candidate, ct).ConfigureAwait(false);
+        // T-540 (ck-7): one authoritative clock per act. The rules read the admitted instant the record is
+        // stamped with (authority.At), not the live clock, so a date rule and the stored record agree.
+        var actClock = _actClock ?? throw new InvalidOperationException(
+            "No act clock is composed: a submit evaluates its rules at the admitted instant, and the composition root must supply the pinned-clock factory.");
+        var (validation, prunedCandidate) = await ValidateForSubmitAsync(
+            formDef, candidate, actClock(authority.At), ct).ConfigureAwait(false);
         using var candidateForStore = prunedCandidate;
 
         if (!validation.IsValid)
@@ -765,7 +778,7 @@ public sealed class FormEngine : IFormEngine
     /// </summary>
     /// <returns>The combined verdict plus the pruned candidate (caller owns/disposes).</returns>
     private async Task<(ValidationResult Result, JsonDocument PrunedCandidate)> ValidateForSubmitAsync(
-        FormDefinition formDef, JsonDocument candidate, CancellationToken ct)
+        FormDefinition formDef, JsonDocument candidate, TimeProvider clock, CancellationToken ct)
     {
         // (1) INV-S2 first: bound the work before the rule engine sees the candidate.
         var candidateBytes = SerializeCandidate(candidate);
@@ -784,7 +797,7 @@ public sealed class FormEngine : IFormEngine
         }
 
         // (2) + (3): the rule gate, then prune the hidden values.
-        var gate = SubmitValidationGate.Evaluate(formDef, candidate, _timeProvider, ct);
+        var gate = SubmitValidationGate.Evaluate(formDef, candidate, clock, ct);
         var pruned = SubmitValidationGate.Prune(candidate, gate.PrunedKeys);
 
         // (4) Schema validation over the PRUNED body.
@@ -1492,8 +1505,8 @@ public sealed class FormEngine : IFormEngine
         RuleEvaluationResult result;
         try
         {
-            // T-676: the same clock the submit gate below evaluates against (_timeProvider) — render
-            // and submit must read one clock, and the graph has no usable default.
+            // T-676: the host clock (_timeProvider), the one ValidateAsync reads; the graph has no usable
+            // default. Submit reads its act's admitted instant instead (T-540, ValidateForSubmitAsync).
             result = new FormRuleGraph(compiled, _timeProvider).EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
         }
         catch (RuleEngineTimeoutException)

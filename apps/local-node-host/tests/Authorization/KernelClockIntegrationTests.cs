@@ -103,6 +103,22 @@ public sealed class KernelClockIntegrationTests
     }
 
     [Fact]
+    public async Task ProductionComposition_SuppliesTheFormSubmitActClock_PinnedToTheAdmittedInstant()
+    {
+        // T-540 (ck-7): a form submit evaluates its rules at authority.At through a clock the root mints.
+        // Without the registration the engine refuses every submit; with a live clock it would drift.
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        var admitted = FrozenAt.AddDays(-3);
+
+        var actClock = fixture.Services.GetRequiredService<Func<DateTimeOffset, TimeProvider>>()(admitted);
+
+        Assert.NotSame(clock, actClock);
+        Assert.Equal(admitted, actClock.GetUtcNow());
+        Assert.Equal(admitted, actClock.GetUtcNow());
+    }
+
+    [Fact]
     public async Task ProductionComposition_AdminRouteRevocation_KillsSessionAndRefusesTransportHello()
     {
         var clock = new MutableHostClock(FrozenAt);

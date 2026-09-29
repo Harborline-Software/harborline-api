@@ -16,6 +16,7 @@ internal static class TestAuthorizationServiceCollectionExtensions
     internal static IServiceCollection AddTestKernelClock(this IServiceCollection services)
     {
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.TryAddSingleton<Func<DateTimeOffset, TimeProvider>>(static instant => new ActInstantClock(instant));
         return services;
     }
 
@@ -26,7 +27,14 @@ internal static class TestAuthorizationServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(clock);
         services.RemoveAll<TimeProvider>();
         services.AddSingleton(clock);
+        services.TryAddSingleton<Func<DateTimeOffset, TimeProvider>>(static instant => new ActInstantClock(instant));
         return services;
+    }
+
+    /// <summary>The test composition's act clock (T-540): pinned to the admitted instant, as Program.cs mints it.</summary>
+    private sealed class ActInstantClock(DateTimeOffset instant) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => instant;
     }
 
     internal static IServiceCollection AddTestAuthorizationGate(this IServiceCollection services)
