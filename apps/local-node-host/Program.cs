@@ -1660,7 +1660,7 @@ builder.Services.AddSingleton<NodeAccountingPeriodService>();
 // over the SAME SQLCipher LocalNodeDbContext the payments read-plane projects over (JournalEntry
 // is mapped by FinancialLedgerEntityModule, Lines as JSONB — single SELECT, no Include). The
 // host-agnostic IJournalEntryQueryReadModel (earlier repository ticket #1161) composes over that store for the read
-// surface; routes receive the concrete store (including ReplaceEntryAsync for reversal) from the
+// surface; routes receive the concrete store (a reversal transitions its original inside SaveAtomicAsync) from the
 // composition root. ADDITIVE — the Bridge JE path is untouched; the frontend flip + Rust sc5 fail-close
 // are a sequenced follow-up after the security SPOT-CHECK. Registered before SharedHostedWebApp so
 // paths are mapped before Kestrel starts.

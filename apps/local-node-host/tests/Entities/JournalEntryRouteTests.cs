@@ -561,6 +561,27 @@ public sealed class JournalEntryRouteTests : IAsyncLifetime
         Assert.Equal(id, Data(list)[0].GetProperty("id").GetString());
     }
 
+    [Fact(DisplayName = "ck-6 batch: a two-command JE batch is refused 400 before any mutation")]
+    public async Task Create_TwoCommandBatch_IsRefusedBeforeMutation()
+    {
+        var one = new
+        {
+            postingDate = "2026-01-15",
+            memo = "batched entry",
+            chartId = "CH-1",
+            lines = new[]
+            {
+                new { accountCode = "1000", amount = 10m, direction = "Debit" },
+                new { accountCode = "4000", amount = 10m, direction = "Credit" },
+            },
+        };
+
+        var resp = await _client.PostAsJsonAsync(Route, new[] { one, one });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        await AssertNoEntryPostedAsync("CH-1");
+    }
+
     [Fact(DisplayName = "ticket 151 cluster: JE create without ledger:post is refused (403), nothing persists")]
     public async Task Create_Without_LedgerPost_Is_Refused()
     {

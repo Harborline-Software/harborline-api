@@ -449,23 +449,9 @@ public static class JournalEntryRoutes
                 return PostErrorToResult(result);
             }
 
+            // The store transitioned the ORIGINAL to Reversed (ReversedBy set) in the same transaction as the
+            // reversing entry and its audit row (DES-0029 ck-6; F-89-A's second-reverse guard depends on it).
             var reversalEntry = result.Entry!;
-
-            // Transition the ORIGINAL to Reversed + set its ReversedBy FK (atomic EF update).
-            // Without this the Posted-only guard never fires on a second reverse (F-89-A).
-            var reversedOriginal = original with
-            {
-                Status     = JournalEntryStatus.Reversed,
-                ReversedBy = reversalEntry.Id,
-            };
-            try
-            {
-                await store.ReplaceEntryAsync(LocalTenantId, reversedOriginal, ct).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                return Results.StatusCode(StatusCodes.Status500InternalServerError);
-            }
 
             return Results.Created(
                 $"{RouteBase}/{reversalEntry.Id.Value}",
