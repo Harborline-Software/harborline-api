@@ -218,28 +218,25 @@ internal static class ConfigurationProposalRoutes
         // it, so what the author released is what POST /configuration/prepare can then resolve over.
         // Installing is OPERATE, as releasing is: it is the same act's other end, not a new ceiling.
         if (releases is not null)
-            selectedSession.MapPost(InstallReleaseRoute, async (HttpContext http, string digest,
-                InstallReleaseRequestDto? request, CancellationToken ct) =>
+            selectedSession.MapPost(InstallReleaseRoute, async (HttpContext http, string digest, CancellationToken ct) =>
             {
                 if (string.IsNullOrWhiteSpace(digest))
                     return Results.BadRequest(new { error = "digest is required." });
                 var tenant = Tenant();
                 var (authority, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Operate, ct).ConfigureAwait(false);
                 if (refusal is not null) return refusal;
-                // Optional, and empty for the ordinary case. A release under the same pack key is that
-                // pack's upgrade and contests nothing; a release that takes another pack's definitions
-                // needs an owner named, and that choice is the caller's, as on the pack activate route.
-                var ownership = (request?.Ownership ?? [])
-                    .Where(owner => !string.IsNullOrWhiteSpace(owner.DefinitionKey) && !string.IsNullOrWhiteSpace(owner.PackageKey))
-                    .ToDictionary(owner => owner.DefinitionKey, owner => owner.PackageKey, StringComparer.Ordinal);
-                var outcome = await releases.InstallAsync(tenant, digest, authority, ownership, ct).ConfigureAwait(false);
-                var dto = new InstalledReleaseDto(outcome.Installed ? "installed" : "refused", tenant.Value,
+                // ck-2 S8: no ownership choice. A released package never takes over another package's
+                // definition (ADR 0028, K8); an edit that only narrows one is carried as its overlay.
+                var outcome = await releases.InstallAsync(tenant, digest, authority, ct).ConfigureAwait(false);
+                var dto = new InstalledReleaseDto(
+                    !outcome.Succeeded ? "refused" : outcome.Installed ? "installed" : "narrowed", tenant.Value,
                     outcome.ReleasedDigest, outcome.PackKey, outcome.Version,
-                    [.. outcome.Refusals.Select(item => new ConfigurationRefusalDto(item.Code, item.Target, item.Message))]);
+                    [.. outcome.Refusals.Select(item => new ConfigurationRefusalDto(item.Code, item.Target, item.Message))],
+                    outcome.Narrowed ?? []);
                 if (logger.IsEnabled(LogLevel.Information))
                     logger.LogInformation("Configuration INSTALL RELEASE (tenant {Tenant}, digest {Digest}) → {Status} {Pack}@{Version}",
                         tenant, digest, dto.Status, dto.PackKey, dto.Version);
-                return outcome.Installed ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
+                return outcome.Succeeded ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
             });
     }
 
@@ -306,19 +303,16 @@ public sealed record SavedVersionDto(int Ordinal, string Digest, string Author, 
 /// <summary>A recorded check and whether it still describes the state now being edited.</summary>
 public sealed record CheckDto(string ReceiptId, string CheckedDigest, bool IsCurrent);
 
-/// <summary>Install one offered Released package, with the owning-pack choice for contested definitions.</summary>
-/// <param name="Ownership">Which package owns each definition the released package also claims.</param>
-public sealed record InstallReleaseRequestDto(IReadOnlyList<ConfigurationOwnershipDto>? Ownership);
-
 /// <summary>An installed Released package: the artifact digest and the pack identity it installed under.</summary>
-/// <param name="Status">"installed" or "refused".</param>
+/// <param name="Status">"installed", "narrowed" (only other packages' definitions, carried as overlays) or "refused".</param>
 /// <param name="TenantKey">The tenant the release belongs to.</param>
 /// <param name="Digest">The Released package's own artifact digest.</param>
 /// <param name="PackKey">The pack key it installed under; empty when nothing installed.</param>
 /// <param name="Version">The pack version it installed under; empty when nothing installed.</param>
 /// <param name="Refusals">Why nothing was installed; empty on success.</param>
+/// <param name="Narrowed">Other packages' definitions carried as tenant narrowing overlays.</param>
 public sealed record InstalledReleaseDto(string Status, string TenantKey, string Digest, string PackKey,
-    string Version, IReadOnlyList<ConfigurationRefusalDto> Refusals);
+    string Version, IReadOnlyList<ConfigurationRefusalDto> Refusals, IReadOnlyList<string> Narrowed);
 
 /// <summary>A Released package offered for activation. The digest is the artifact's own bytes.</summary>
 public sealed record ReleasedPackageDto(string Digest, string PackageKey, string Revision, string ProposalId,

@@ -106,12 +106,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         if (active is null || Operator is not { } actor) return null;
         var tenant = ActiveTeamTenantContext.ProjectTenantId(active.TeamId);
         var at = _timeProvider.GetUtcNow();
-        var membership = ResolveActiveMembership(actor);
-        // The actor IS the roster party; admissions retain revoked keys, so an ejection reaches the gate too.
-        // (Evidence only: the gate derives its own roster facts through its constraint reader.)
-        var inputs = _roster is { } roster
-            ? EffectiveMemberPermissions.Read(roster.Current, actor.Value, actor)
-            : new AuthorizationRosterInputs(actor.Value, false, false);
+        // The gate derives the actor's roster facts through its own constraint reader (T-519).
         AuthorizationDecision? decision = null;
         // A role label previously required at least one allowed act. Each candidate still asks the gate;
         // an empty input set asks it once as well, so absence has refusal evidence.
@@ -123,10 +118,7 @@ public sealed class ActiveTeamAuthorizationContext : ICurrentUser, IAuthorizatio
         {
             if (!TryParsePermission(candidate, out var operation)) continue;
             decision = await _gate.DecideAsync(new AuthorizationWriteContext(actor, tenant, at)
-                .Request(operation, AuthorizationGate.RecordKindFor(operation), "desktop") with
-                {
-                    Roster = inputs with { RegistryMember = membership is not null }
-                }).ConfigureAwait(false);
+                .Request(operation, AuthorizationGate.RecordKindFor(operation), "desktop")).ConfigureAwait(false);
             if (permission is not null && _refusalAudit is not null)
                 await _refusalAudit.RecordAsync(decision, CancellationToken.None).ConfigureAwait(false);
             if (decision.Verdict == AuthorizationVerdict.Allowed) break;

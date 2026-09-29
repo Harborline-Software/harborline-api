@@ -129,7 +129,7 @@ public static class FormsRoutes
             }
 
             var token = await MintTokenAsync(
-                issuer, verifier, activeTeam, ActingSubject(http), roles, FormCapabilityAction.Read, timeProvider, ct)
+                issuer, verifier, activeTeam, ActingSubject(http), roles, FormCapabilityAction.Read, timeProvider.GetUtcNow(), ct)
                 .ConfigureAwait(false);
 
             try
@@ -165,6 +165,10 @@ public static class FormsRoutes
             {
                 return Results.BadRequest(new { code = "forms.body_must_be_json_object" });
             }
+            // T-974: the engine mints the form instance; `instanceId` is that record's wire identity, never
+            // candidate data, so a caller-constructed one is refused rather than stored or coerced.
+            if (body.TryGetProperty("instanceId", out _))
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
 
             // F-ROUTE idempotency (ADR 0101 Rev 3.1 Wave 2b) is owned here by the durable forms
             // mechanism. NodeMutationIdempotency deliberately skips this route so the two regimes do not stack.
@@ -192,9 +196,13 @@ public static class FormsRoutes
 
             using var candidate = JsonDocument.Parse(body.GetRawText());
 
+            // T-540 (ck-7): the act's ONE host-clock read. The token, the pre-save validate, the pack gate's
+            // decision, the save's rule gate and the stored stamp all use this instant, so a submit that
+            // straddles midnight cannot pass its pre-check on one day and be judged or dated on the next.
+            var at = timeProvider.GetUtcNow();
             var token = await MintTokenAsync(
                 issuer, verifier, activeTeam, ActingSubject(request.HttpContext), roles, FormCapabilityAction.Write,
-                timeProvider, ct)
+                at, ct)
                 .ConfigureAwait(false);
 
             var definition = new Harborline.Api.Foundation.Forms.Models.FormDefinitionId(formId);
@@ -204,7 +212,7 @@ public static class FormsRoutes
             // the structured 503 below rather than escaping as a bodyless 500.
             try
             {
-                var validation = await engine.ValidateAsync(definition, candidate, token, ct).ConfigureAwait(false);
+                var validation = await engine.ValidateAtAsync(definition, candidate, token, at, ct).ConfigureAwait(false);
                 if (!validation.IsValid)
                 {
                     return Results.UnprocessableEntity(ValidationResultDto.From(validation));
@@ -212,7 +220,7 @@ public static class FormsRoutes
 
                 if (submissionGate?.RequiredPermission(definition) is { } permission)
                 {
-                    var gateAuthority = RequestAuthorization.Authority(request.HttpContext, token.Tenant, timeProvider);
+                    var gateAuthority = RequestAuthorization.Authority(request.HttpContext, token.Tenant, at);
                     var denied = await RequestAuthorization.RefusalAsync(
                         request.HttpContext, gateAuthority, permission, RouteRecord.TheInstall, ct).ConfigureAwait(false);
                     if (denied is not null) return denied;
@@ -223,11 +231,10 @@ public static class FormsRoutes
                         token = await MintTokenAsync(
                             issuer, verifier, activeTeam, ActingSubject(request.HttpContext),
                             roles.Concat(capabilityRoles).Distinct(StringComparer.Ordinal).ToArray(),
-                            FormCapabilityAction.Write, timeProvider, ct).ConfigureAwait(false);
+                            FormCapabilityAction.Write, at, ct).ConfigureAwait(false);
                     }
                 }
 
-                var at = timeProvider.GetUtcNow();
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
                     token.Tenant,
@@ -412,11 +419,10 @@ public static class FormsRoutes
         ActorId subject,
         IReadOnlyList<string> roles,
         FormCapabilityAction action,
-        TimeProvider timeProvider,
+        DateTimeOffset now,
         CancellationToken ct)
     {
         var tenant = NodeTenant.Resolve(activeTeam);
-        var now = timeProvider.GetUtcNow();
         var bearer = await issuer
             .IssueAsync(tenant, subject, roles, new[] { action }, now + TokenLifetime, ct)
             .ConfigureAwait(false);

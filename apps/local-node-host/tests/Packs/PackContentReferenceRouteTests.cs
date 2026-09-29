@@ -185,6 +185,17 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         var content = new ByteArrayContent(new PackFileCodec().Encode(honest with { Envelope = envelope }));
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
+        var forgedBytes = await content.ReadAsByteArrayAsync();
+        var check = new ByteArrayContent(forgedBytes);
+        check.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        using (var checkDoc = JsonDocument.Parse(await (await _client.PostAsync(PackInstallRoutes.CheckRoute, check)).Content.ReadAsStringAsync()))
+        {
+            // CHECK collects the same refusal without installing.
+            var collected = Assert.Single(checkDoc.RootElement.GetProperty("refusals").EnumerateArray().ToList());
+            Assert.Equal("pack.install.refused.undeclared_reference", collected.GetProperty("code").GetString());
+            Assert.Equal("/contents/0/contentBase64", collected.GetProperty("pointer").GetString());
+        }
+
         var install = await _client.PostAsync(PackInstallRoutes.InstallRoute, content);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, install.StatusCode);
 

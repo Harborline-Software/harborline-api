@@ -148,7 +148,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             {
                 var operation = AuthorizationOperation.Parse(permission);
                 var decision = await _gate.DecideAsync(authority.Request(operation,
-                    AuthorizationGate.RecordKindFor(operation), "session") with { Roster = inputs }, cancellationToken)
+                    AuthorizationGate.RecordKindFor(operation), "session"), cancellationToken)
                     .ConfigureAwait(false);
                 if (_refusalAudit is not null) await _refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
                 if (decision.Verdict == AuthorizationVerdict.Allowed) allowed.Add(permission);

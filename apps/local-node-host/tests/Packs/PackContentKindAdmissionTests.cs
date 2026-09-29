@@ -81,6 +81,23 @@ public sealed class PackContentKindAdmissionTests
         Assert.Null(malformed);
     }
 
+    [Theory(DisplayName = "T-981: an unknown kind string, or a kind that is not a string or number, names its pointer")]
+    [InlineData("\"RetentionPolicy\"")]
+    [InlineData("true")]
+    [InlineData("null")]
+    public void Unknown_Kind_Shapes_Name_Their_Pointer(string kind)
+    {
+        Assert.Null(new PackFileCodec().TryDecode(PackFileWith(kind), out var pointer));
+        Assert.Equal("/contents/0/kind", pointer);
+    }
+
+    [Fact(DisplayName = "T-981: the kind gate matches kind names case-insensitively, as the deserializer does")]
+    public void Kind_Gate_Is_Case_Insensitive()
+    {
+        Assert.NotNull(new PackFileCodec().TryDecode(PackFileWith("\"formdefinition\""), out var pointer));
+        Assert.Null(pointer);
+    }
+
     [Fact(DisplayName = "ticket 150 control: a kind this node DOES know still decodes")]
     public void Known_Content_Kind_Still_Decodes()
     {

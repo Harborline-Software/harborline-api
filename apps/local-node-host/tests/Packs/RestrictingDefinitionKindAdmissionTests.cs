@@ -161,6 +161,46 @@ public sealed class RestrictingDefinitionKindAdmissionTests
         Assert.Contains("999", finding.Message, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "T-981: install names an unknown content kind and its pointer before store or projection")]
+    public async Task Install_names_an_unknown_content_kind_before_store_or_projector()
+    {
+        var fixture = await SignedPackAsync(
+            "test.unknown-content-kind", "forms.known", PackContentKind.FormDefinition, JsonNode.Parse("""{"title":"t"}""")!);
+        using (fixture.KeyPair)
+        {
+            var file = JsonNode.Parse(fixture.Bytes)!.AsObject();
+            file["contents"]![0]!["kind"] = 99;
+            var bytes = System.Text.Encoding.UTF8.GetBytes(file.ToJsonString());
+            var store = EmptyStore();
+            var projector = new ProjectionSpy();
+            var installer = new PackInstaller(
+                new PackVerifier(new Ed25519Verifier(), new PackFileCodec()),
+                store,
+                new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator()),
+                new InMemoryPackInstallAudit(),
+                TestAuthorization.AllowGate(),
+                projector);
+
+            var outcome = installer.Install(bytes, fixture.Context);
+
+            Assert.False(outcome.Installed);
+            Assert.Equal([PackInstallCodes.RefusedUnknownContentKind], outcome.RefusalCodes);
+            var refusal = Assert.Single(outcome.Preview.Refusals);
+            Assert.Equal(PackInstallCodes.RefusedUnknownContentKind, refusal.Code);
+            Assert.Equal("/contents/0/kind", refusal.Pointer);
+            var verdict = new PackVerifier(new Ed25519Verifier(), new PackFileCodec()).Verify(bytes, fixture.Context.TrustStore);
+            Assert.Equal([PackVerificationCodes.ContentKindUnknown], verdict.Details);
+            var malformed = new PackVerifier(new Ed25519Verifier(), new PackFileCodec())
+                .Verify(System.Text.Encoding.UTF8.GetBytes("not json"), fixture.Context.TrustStore);
+            Assert.Equal([PackVerificationCodes.Malformed], malformed.Details);
+            Assert.Null(malformed.FailurePointer);
+            var notVerified = installer.Install(System.Text.Encoding.UTF8.GetBytes("not json"), fixture.Context);
+            Assert.Equal([PackInstallCodes.RefusedNotVerified], notVerified.RefusalCodes);
+            store.DidNotReceiveWithAnyArgs().Commit(default!);
+            Assert.Equal(0, projector.ProjectCount);
+        }
+    }
+
     private static IPackInstallMutationStore EmptyStore()
     {
         var store = Substitute.For<IPackInstallMutationStore>();

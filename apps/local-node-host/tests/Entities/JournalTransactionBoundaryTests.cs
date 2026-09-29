@@ -94,6 +94,27 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         Assert.Equal((1, 1), await CountsAsync());
     }
 
+    [Fact(DisplayName = "ck-6 replay: a non-duplicate save failure propagates even when a same-reference posting exists")]
+    public async Task NonDuplicateSaveFailure_IsNotTurnedIntoAReplay()
+    {
+        const string sourceReference = "invoice:CK6-FAULT";
+        var racing = new RacingStore(_store, Posted("JE-CK6-WINNER", sourceReference))
+        {
+            OnRaced = () => _fault.FailOn = "INSERT INTO \"journal_entries\"",
+        };
+        var posting = new JournalPostingService(
+            new NodeEfAccountResolver(_factory),
+            new NodeEfPeriodResolver(_factory),
+            racing,
+            TestAuthorization.AllowGate());
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => posting.PostAsync(Draft("JE-CK6-LOSER", sourceReference), TestAuthorization.Write(Tenant)));
+
+        Assert.True(_fault.Fired);
+        Assert.Equal((1, 1), await CountsAsync());
+    }
+
     [Fact(DisplayName = "ck-6 atomicity: a reversal commits the reversing entry and the original's transition together")]
     public async Task Reversal_TransitionsTheOriginalInTheSameSave()
     {
@@ -290,6 +311,8 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
     {
         public bool Raced { get; private set; }
 
+        public Action? OnRaced { get; init; }
+
         public Task SaveAtomicAsync(
             TenantId tenantId,
             JournalEntry entry,
@@ -308,6 +331,7 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
             {
                 Raced = true;
                 await inner.SaveAtomicForTestAsync(tenantId, competitor, cancellationToken);
+                OnRaced?.Invoke();
                 return null;
             }
 

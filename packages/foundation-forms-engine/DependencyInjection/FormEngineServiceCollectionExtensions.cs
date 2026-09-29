@@ -95,7 +95,9 @@ public static class FormEngineServiceCollectionExtensions
             sp.GetService<Harborline.Api.Foundation.Crypto.IDecryptCapabilityProvider>(),
             // Ticket 150: optional logger so render-time rule-projection degrades are observable
             // (a warning naming the responsible definition); NullLogger fallback when unregistered.
-            sp.GetService<Microsoft.Extensions.Logging.ILogger<FormEngine>>()));
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<FormEngine>>(),
+            // T-540 (ck-7): the root-minted act clock (Ticket 216). Absent, a submit fails closed.
+            sp.GetService<Func<DateTimeOffset, TimeProvider>>()));
         return services;
     }
 
