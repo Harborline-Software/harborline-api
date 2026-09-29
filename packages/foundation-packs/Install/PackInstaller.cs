@@ -262,7 +262,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             expectedActiveVersion, decision, cancellationToken).ConfigureAwait(false);
     }
 
-    private PackActivationOutcome? FindClosureRefusal(
+    private static PackActivationOutcome? FindClosureRefusal(
         InstalledPack target, IReadOnlyList<InstalledPack> installed, AuthorizationDecision decision)
     {
         // DES-0029 ck-2 S2: the target's whole closure resolves against the Active versions. A key with no
@@ -1352,7 +1352,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
     /// <summary>The Active packs, ordinal order, whose declared closure runs through <paramref name="packKey"/>,
     /// transitively. Every other Active pack depends on the platform pack, which roots every closure (D5).</summary>
-    private static IReadOnlyList<string> ActiveDependents(IReadOnlyList<InstalledPack> installed, string packKey)
+    private static string[] ActiveDependents(IReadOnlyList<InstalledPack> installed, string packKey)
     {
         var active = installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active).ToList();
         var reached = new HashSet<string>(StringComparer.Ordinal) { packKey };
