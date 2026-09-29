@@ -54,6 +54,9 @@ internal static class SelectedFormSubmitRoutes
             var authority = RequestAuthorization.Authority(http, principal.TenantId, time);
             if (await RequestAuthorization.RefusalAsync(http, authority, permission, RouteRecord.TheInstall, ct)
                 .ConfigureAwait(false) is { } refused) return refused;
+            // T-974: the engine mints the form instance; a caller-constructed `instanceId` is refused.
+            if (body.TryGetProperty("instanceId", out _))
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             try
             {
                 var bearer = await issuer.IssueAsync(principal.TenantId, NodeGatePrincipal.Of(principal),

@@ -1541,6 +1541,102 @@ public sealed class AuthorizationWriteStageTests
             (await configuration.ReadStateAsync(definition.DefinitionId)).Definition is not null);
     }
 
+    // ck-10: "nothing amends the record after validate". The sealed value validate hands to commit is the
+    // instance admission saw, the store persists exactly it, and react reports exactly it. The seal itself is
+    // immutable, so neither commit, react nor an observer at those stages can change it.
+    [Theory]
+    [InlineData("install")]
+    [InlineData("replace")]
+    [InlineData("narrow")]
+    public async Task AuthorizationDefinitionWriter_PersistsExactlyTheValidatedPayload(string kind)
+    {
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var store = new SealCapturingStore(configuration);
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            configuration,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(),
+            TestInMemoryAuthorizationStores.GrantStore());
+        var definition = PipelineDefinition("eeeeeeee-1111-2222-3333-444444444444");
+        var tenant = new TenantId("ck10-tenant");
+        if (kind != "install") await writer.WriteAsync(new InstallAuthorizationDefinition(definition));
+
+        AuthorizationConfigurationCommand command = kind switch
+        {
+            "install" => new InstallAuthorizationDefinition(definition),
+            "replace" => new ReplaceAuthorizationDefinition(definition with { Revision = 2 }),
+            _ => new NarrowCapabilityRoleBinding(tenant, definition.DefinitionId, RoleBindingSet.Empty,
+                new ActorId("ck10-actor"), new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero),
+                new BindingChangeReason("ck10")),
+        };
+        var result = await writer.WriteAsync(command);
+        var sealedWrite = Assert.Single(store.Sealed.Skip(kind == "install" ? 0 : 1));
+
+        if (command is NarrowCapabilityRoleBinding narrow)
+        {
+            var revision = Assert.IsType<CapabilityRoleBindingRevision>(sealedWrite.BindingRevision);
+            Assert.Same(narrow.SelectedRoles, revision.SelectedRoles);
+            Assert.Same(revision, result.BindingChange!.Revision);
+            var persisted = await configuration.ReadStateAsync(definition.DefinitionId, tenant);
+            Assert.Equal(revision.Revision, persisted.BindingRevision);
+            Assert.Equal(revision.SelectedRoles, persisted.EffectiveBinding);
+        }
+        else
+        {
+            var admitted = command is InstallAuthorizationDefinition install
+                ? install.Definition
+                : ((ReplaceAuthorizationDefinition)command).Definition;
+            Assert.Same(admitted, sealedWrite.Definition);
+            Assert.Same(admitted, result.Definition);
+            Assert.Equal(admitted, (await configuration.ReadStateAsync(definition.DefinitionId)).Definition);
+        }
+
+        var seal = typeof(ValidatedAuthorizationConfigurationWrite);
+        Assert.Empty(seal.GetConstructors());
+        Assert.All(seal.GetProperties(), property => Assert.Null(property.SetMethod));
+        Assert.All(seal.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic), field => Assert.True(field.IsInitOnly, field.Name));
+    }
+
+    // ck-10: authorize precedes every stage, including the pack paths' pre-pipeline no-op read. A carried
+    // authority that the authorize stage would refuse is refused before any state is read, and a withdraw
+    // under it refuses rather than reporting "nothing to withdraw".
+    [Fact]
+    public async Task AuthorizationDefinitionWriter_PackWritesRefuseAnUnusableAuthorityBeforeAnyStateRead()
+    {
+        var configuration = TestInMemoryAuthorizationStores.ConfigurationStore();
+        var states = new RecordingStateReader(configuration);
+        var store = new RecordingConfigurationStore(configuration);
+        var recorder = new StageRecorder();
+        var writer = new AuthorizationDefinitionWriter(
+            store,
+            states,
+            new AuthorizationDefinitionAdmission(new InMemoryRoleVocabulary(AccessGrantAuthorizationSeed.RoleDefinitions)),
+            new AuthorizationCapabilityBindingAdmission(),
+            TestAuthorization.AllowGate(),
+            TestInMemoryAuthorizationStores.GrantStore(),
+            recorder);
+        var authority = Authority("pack", "ck10-pack", "/records/ck10-pack");
+        var decision = await PackDecision(authority, "ck10-pack");
+        var stale = new PackProjectionAuthority(
+            decision, "ck10-pack", "1.0.0", authority.Tenant, authority.Principal, authority.At.AddMinutes(1));
+        var definition = PipelineDefinition("ffffffff-1111-2222-3333-444444444444") with
+        {
+            PublisherPackageId = "ck10-pack",
+        };
+
+        await Assert.ThrowsAsync<PackProjectionAuthorityException>(async () =>
+            await writer.WritePackDefinitionAsync(definition, stale));
+        await Assert.ThrowsAsync<PackProjectionAuthorityException>(async () =>
+            await writer.WithdrawPackDefinitionAsync(definition.DefinitionId, stale));
+
+        Assert.Equal(0, states.ReadCount);
+        Assert.Equal(0, store.CommitCount);
+        Assert.Empty(recorder.Stages);
+    }
+
     [Fact]
     public void WritePipeline_OrderCannotBeMutatedByACallerHoldingIt()
     {
@@ -1903,6 +1999,24 @@ public sealed class AuthorizationWriteStageTests
             if (refuse) throw new InvalidOperationException("commit refused: revision conflict");
             await inner.CommitAsync(write, ct);
             Committed = true;
+        }
+
+        public ValueTask CommitBootstrapAsync(
+            ValidatedAuthorizationConfigurationWrite write,
+            TenantId tenant,
+            IGrantStore grants,
+            CancellationToken ct = default) => inner.CommitBootstrapAsync(write, tenant, grants, ct);
+    }
+
+    private sealed class SealCapturingStore(InMemoryAuthorizationConfigurationStore inner)
+        : IAuthorizationConfigurationStore
+    {
+        public List<ValidatedAuthorizationConfigurationWrite> Sealed { get; } = [];
+
+        public ValueTask CommitAsync(ValidatedAuthorizationConfigurationWrite write, CancellationToken ct = default)
+        {
+            Sealed.Add(write);
+            return inner.CommitAsync(write, ct);
         }
 
         public ValueTask CommitBootstrapAsync(

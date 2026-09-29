@@ -1,6 +1,6 @@
 # Harborline.Api.Kernel.SchemaRegistry
 
-Harborline kernel §3.4 Schema Registry — JSON Schema draft 2020-12 via `JsonSchema.Net`, content-addressed via `IBlobStore`, in-memory default backend.
+Harborline kernel §3.4 Schema Registry. Since T-303, registration and validation run in the platform `Harborline.Kernel.SchemaValidation` library (pinned NuGet from the feed); this package keeps the api-only responsibilities: the `schema:{cid}` ids stored definitions carry, parents, tags, blob threshold, pack-projection staging, and the lens, upcaster, epoch and compaction surface. T-542 retires it once those have owners.
 
 **Validation path shipped.** Migration path (jsonata-style transforms) is a follow-up.
 

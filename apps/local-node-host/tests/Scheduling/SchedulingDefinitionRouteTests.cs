@@ -880,6 +880,37 @@ public sealed class SchedulingDefinitionRouteTests : IAsyncLifetime
         Assert.Single(await EventsAsync());
     }
 
+    [Theory]
+    [InlineData("id")]
+    [InlineData("eventId")]
+    public async Task Appointment_booking_refuses_a_client_supplied_record_id(string key)
+    {
+        var resource = await BookableResourceAsync();
+
+        var refused = await _client.PostAsJsonAsync(SchedulingDefinitionRoutes.AppointmentRoute, new Dictionary<string, object?>
+        {
+            ["subjectId"] = "subject-1",
+            ["definitionId"] = "visit",
+            ["resource"] = resource,
+            ["title"] = "Client id",
+            ["startUtc"] = "2026-07-13T15:00:00Z",
+            ["endUtc"] = "2026-07-13T15:30:00Z",
+            [key] = "client-constructed-id",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Empty(await EventsAsync());
+
+        var booked = await BookAsync(resource, "subject-1", "15:00", "15:30");
+        Assert.Equal(HttpStatusCode.OK, booked.StatusCode);
+        var minted = (await booked.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("eventId").ToString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+        Assert.Equal(minted, Assert.Single(await EventsAsync()).Id.Value.ToString());
+    }
+
     /// <summary>Grants the booking permissions, publishes a 30-minute definition and a weekday-available party.</summary>
     private async Task<string> BookableResourceAsync()
     {

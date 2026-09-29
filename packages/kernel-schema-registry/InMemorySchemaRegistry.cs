@@ -3,9 +3,6 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
-
-using Json.Schema;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Blobs;
@@ -13,6 +10,8 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.SchemaRegistry.Epochs;
 using Harborline.Api.Kernel.SchemaRegistry.Lenses;
 using Harborline.Api.Kernel.SchemaRegistry.Upcasters;
+
+using Platform = Harborline.Kernel.SchemaValidation;
 
 namespace Harborline.Api.Kernel.Schema;
 
@@ -36,15 +35,17 @@ namespace Harborline.Api.Kernel.Schema;
 /// consumers.
 /// </para>
 /// <para>
-/// Validation uses JsonSchema.Net (<c>Json.Schema</c> namespace) in
-/// draft 2020-12 mode. The parsed <see cref="JsonSchema"/> is cached alongside
-/// the <see cref="Schema"/> record to avoid re-parsing on every
-/// <see cref="ValidateAsync"/> call.
+/// T-303: registration and validation run in the platform
+/// <c>Harborline.Kernel.SchemaValidation</c> library (draft 2020-12 only, the resource bounds,
+/// the timed <c>pattern</c> and the field-addressable errors). This class keeps the api-only
+/// responsibilities: the <c>schema:{cid}</c> id every stored definition already carries, parents,
+/// tags, the blob threshold, pack-projection staging, and the lens, upcaster and epoch surface.
 /// </para>
 /// </remarks>
 public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionParticipant
 {
-    private readonly SchemaRegistryOptions _options;
+    private readonly Platform.SchemaRegistryOptions _options;
+    private readonly Platform.InMemorySchemaRegistry _validator;
     private ConcurrentDictionary<SchemaId, Entry> _schemas = new();
 
     /// <inheritdoc />
@@ -62,9 +63,9 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     /// callers mutate them via the public <see cref="Lenses"/> /
     /// <see cref="Upcasters"/> / <see cref="Epochs"/> members.
     /// <paramref name="options"/> tunes the INV-S2 register-time resource bounds;
-    /// <c>null</c> uses <see cref="SchemaRegistryOptions.Default"/>.
+    /// <c>null</c> uses <see cref="Platform.SchemaRegistryOptions.Default"/>.
     /// </summary>
-    public InMemorySchemaRegistry(TimeProvider timeProvider, SchemaRegistryOptions? options = null)
+    public InMemorySchemaRegistry(TimeProvider timeProvider, Platform.SchemaRegistryOptions? options = null)
         : this(new LensGraph(), new UpcasterChain(), new EpochCoordinator(timeProvider), options)
     {
     }
@@ -75,18 +76,19 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     /// the migration primitives are registered as separate singletons so downstream
     /// components can depend on them directly. <paramref name="options"/> tunes the
     /// INV-S2 register-time resource bounds; <c>null</c> uses
-    /// <see cref="SchemaRegistryOptions.Default"/>.
+    /// <see cref="Platform.SchemaRegistryOptions.Default"/>.
     /// </summary>
     public InMemorySchemaRegistry(
         LensGraph lenses,
         UpcasterChain upcasters,
         IEpochCoordinator epochs,
-        SchemaRegistryOptions? options = null)
+        Platform.SchemaRegistryOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(lenses);
         ArgumentNullException.ThrowIfNull(upcasters);
         ArgumentNullException.ThrowIfNull(epochs);
-        _options = options ?? SchemaRegistryOptions.Default;
+        _options = options ?? Platform.SchemaRegistryOptions.Default;
+        _validator = new Platform.InMemorySchemaRegistry(_options);
         Lenses = lenses;
         Upcasters = upcasters;
         Epochs = epochs;
@@ -112,7 +114,7 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
     }
 
     /// <inheritdoc />
-    public ValueTask<Schema> RegisterAsync(
+    public async ValueTask<Schema> RegisterAsync(
         string jsonSchemaText,
         IReadOnlyList<SchemaId>? parents = null,
         IReadOnlyList<string>? tags = null,
@@ -153,41 +155,25 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
                 $"limit ({_options.MaxNestingDepth}): {ex.Message}", ex);
         }
 
-        // INV-S2 (a): reject an over-large schema before the (more expensive)
-        // JsonSchema.Net parse — a cheap, deterministic register-time pre-reject.
-        if (canonicalBytes.Length > _options.MaxSchemaBytes)
-        {
-            throw new InvalidSchemaException(
-                $"JSON Schema is {canonicalBytes.Length} canonical bytes, exceeding the " +
-                $"{_options.MaxSchemaBytes}-byte register-time limit (ADR 0055 INV-S2).");
-        }
-
-        // 2. Parse + validate with JsonSchema.Net so we fail at register-time
-        //    on malformed schema documents rather than on the first payload.
-        //    INV-S2 (c): build against SchemaRegistryDialect.TimedBuildOptions so the
-        //    schema's `pattern` regexes are compiled by TimedPatternKeyword with an
-        //    explicit match-timeout — the ReDoS control. A schema declaring a dialect
-        //    other than draft 2020-12 fails the build and surfaces fail-closed below.
-        JsonSchema parsedSchema;
+        // The platform library owns the dialect, the size bound and the schema build (T-303).
+        Platform.Schema platformSchema;
         try
         {
-            parsedSchema = JsonSchema.FromText(
-                jsonSchemaText, SchemaRegistryDialect.TimedBuildOptions, null, null);
+            platformSchema = await _validator.RegisterAsync(jsonSchemaText, cancellationToken: ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Platform.InvalidSchemaException ex)
         {
-            throw new InvalidSchemaException(
-                $"JSON Schema text is not a valid JSON Schema: {ex.Message}", ex);
+            throw new InvalidSchemaException(ex.InnerException is null ? ex.Message : $"{ex.Message} {ex.InnerException.Message}", ex);
         }
 
-        // 3. Content-address the canonical bytes. No blob side-store: the Schema
+        // 2. Content-address the canonical bytes. No blob side-store: the Schema
         //    record carries JsonSchemaText inline and the CID is recomputable from
         //    it, so a blob copy is unreadable dead weight (and, against the node's
         //    envelope-sealed store, a permanently orphaned encrypted file — card
         //    3776).
         var cid = Cid.FromBytes(canonicalBytes);
 
-        // 4. Build the schema record with a self-identifying id of the form
+        // 3. Build the schema record with a self-identifying id of the form
         //    "schema:{cid}". The id embeds the CID so schemas are addressable
         //    by content across federation boundaries without a side lookup.
         var id = new SchemaId($"schema:{cid.Value}");
@@ -201,12 +187,12 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
             BlobThreshold: blobThreshold);
 
         // Register-or-return-existing so the operation is idempotent.
-        var entry = _schemas.GetOrAdd(id, _ => new Entry(schema, parsedSchema));
-        return ValueTask.FromResult(entry.Schema);
+        var entry = _schemas.GetOrAdd(id, _ => new Entry(schema, platformSchema.Id));
+        return entry.Schema;
     }
 
     /// <inheritdoc />
-    public ValueTask<SchemaValidationResult> ValidateAsync(
+    public async ValueTask<SchemaValidationResult> ValidateAsync(
         SchemaId id,
         ReadOnlyMemory<byte> documentBytes,
         CancellationToken ct = default)
@@ -220,52 +206,10 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
                 $"Schema '{id.Value}' is not registered with this ISchemaRegistry instance.");
         }
 
-        using var document = JsonDocument.Parse(documentBytes);
-
-        // OutputFormat.List gives us a flat list of sub-results, each with its
-        // own InstanceLocation (JSON Pointer) — exactly the shape we map to
-        // SchemaValidationError. Hierarchical would nest; Flag would collapse
-        // to a single pass/fail bit.
-        var options = new EvaluationOptions
-        {
-            OutputFormat = OutputFormat.List,
-        };
-
-        EvaluationResults results;
-        try
-        {
-            results = entry.ParsedSchema.Evaluate(document.RootElement, options);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            // INV-S2 (c): a schema `pattern` exceeded the per-pattern match-timeout that
-            // TimedPatternKeyword compiled into its regex (see SchemaRegistryDialect).
-            // Fail CLOSED — a validation we could not complete is never reported valid.
-            return new ValueTask<SchemaValidationResult>(
-                new SchemaValidationResult(false, new[]
-                {
-                    new SchemaValidationError(
-                        JsonPointer: string.Empty,
-                        Message: "Validation aborted: a schema `pattern` exceeded the regex "
-                            + "match-timeout budget (possible ReDoS).",
-                        Code: "pattern-timeout"),
-                }));
-        }
-
-        if (results.IsValid)
-        {
-            return new ValueTask<SchemaValidationResult>(
-                new SchemaValidationResult(true, Array.Empty<SchemaValidationError>()));
-        }
-
-        // Parse the schema JSON once so the walk can resolve a failing keyword's structured
-        // constraint value (e.g. minimum: 1) by its EvaluationPath. Best-effort: a parse miss
-        // simply leaves Params null (the code + English message still localize the error).
-        JsonNode? schemaNode = TryParseSchemaNode(entry.Schema.JsonSchemaText);
-
-        var errors = CollectErrors(results, schemaNode);
-        return new ValueTask<SchemaValidationResult>(
-            new SchemaValidationResult(false, errors));
+        var result = await _validator.ValidateAsync(entry.PlatformId, documentBytes, ct).ConfigureAwait(false);
+        return new SchemaValidationResult(
+            result.IsValid,
+            result.Errors.Select(e => new SchemaValidationError(e.JsonPointer, e.Message, e.Code, e.Params)).ToArray());
     }
 
     /// <inheritdoc />
@@ -308,294 +252,6 @@ public sealed class InMemorySchemaRegistry : ISchemaRegistry, IPackProjectionPar
             "Migration half of ISchemaRegistry is deferred — see gap analysis G2 follow-up.");
     }
 
-    /// <summary>
-    /// Flattens a JsonSchema.Net <see cref="EvaluationResults"/> tree into the
-    /// Harborline <see cref="SchemaValidationError"/> list. The List-format result
-    /// has a top-level <see cref="EvaluationResults.Details"/> collection; we
-    /// walk it and emit one Harborline error per keyword entry in the node's
-    /// <see cref="EvaluationResults.Errors"/> dictionary, attaching the failing
-    /// keyword as the stable <see cref="SchemaValidationError.Code"/> plus any
-    /// structured constraint values as <see cref="SchemaValidationError.Params"/>
-    /// (resolved from <paramref name="schemaNode"/> by the leaf's evaluation path),
-    /// so a client can localize the error instead of parsing English.
-    /// </summary>
-    private static IReadOnlyList<SchemaValidationError> CollectErrors(EvaluationResults results, JsonNode? schemaNode)
-    {
-        var collected = new List<(string EvaluationPath, SchemaValidationError Error)>();
-        Walk(results, schemaNode, collected);
-        var errors = DropSummaryOnlyApplicatorErrors(collected);
-        if (errors.Count == 0)
-        {
-            // Defensive: IsValid was false but we found no errored leaves.
-            // Surface a single aggregate error rather than silently returning
-            // an empty list on an invalid result.
-            errors.Add(new SchemaValidationError(
-                JsonPointer: results.InstanceLocation.ToString(),
-                Message: "Validation failed (no keyword-level details reported).",
-                Code: "invalid"));
-        }
-        return errors;
-    }
-
-    /// <summary>
-    /// Applicator keywords whose OWN <see cref="EvaluationResults.Errors"/> entry (as of
-    /// JsonSchema.Net 9.4.0, needed by T-737's platform-pin move) is just "one or more of my
-    /// subschemas failed" — a summary that duplicates whatever specific leaf keyword already
-    /// failed underneath it. 9.2.2 did not surface this summary entry at all (F-20 regression).
-    /// <see cref="OutputFormat.List"/> reports every node as a SIBLING in one flat list rather
-    /// than a tree, so the summary cannot be recognized by its node having children — instead
-    /// <see cref="DropSummaryOnlyApplicatorErrors"/> drops it by <b>evaluation-path</b> nesting
-    /// (the SCHEMA location, e.g. "" for the root object vs "/properties/legalName" for one of
-    /// its properties) — never by JSON Pointer / instance location, which two INDEPENDENT
-    /// keyword failures on the very same instance value (e.g. root-level <c>not</c> and
-    /// <c>minLength</c> both failing on the same string) share without either being a summary of
-    /// the other (CodeRabbit 4112934954).
-    /// </summary>
-    private static readonly HashSet<string> SummaryOnlyApplicatorKeywords = new(StringComparer.Ordinal)
-    {
-        "properties", "patternProperties", "items", "prefixItems", "contains",
-        "allOf", "anyOf", "oneOf", "not", "if", "dependentSchemas",
-    };
-
-    private static List<SchemaValidationError> DropSummaryOnlyApplicatorErrors(
-        List<(string EvaluationPath, SchemaValidationError Error)> entries)
-    {
-        if (entries.Count < 2)
-        {
-            return entries.Select(e => e.Error).ToList();
-        }
-        return entries
-            .Where(e => !SummaryOnlyApplicatorKeywords.Contains(e.Error.Code ?? string.Empty)
-                // The applicator's OWN subtree root is its evaluation path PLUS the applicator
-                // keyword itself (e.g. "" + "/properties" = "/properties", or "" + "/not" =
-                // "/not") — never just its evaluation path. Comparing against the bare
-                // evaluation path (as an earlier revision did) treats ANY deeper failure
-                // ANYWHERE in the schema as proof this applicator is a redundant summary, which
-                // wrongly drops a root-level `not` alongside an unrelated `/properties/name`
-                // `minLength` failure — both share the root "" evaluation path as a COMMON
-                // ancestor, but neither is nested inside the other's own subschema
-                // (CodeRabbit 4113220972, a follow-up on 4112934954).
-                || !entries.Any(other => !ReferenceEquals(other.Error, e.Error)
-                    && IsStrictDescendantPath(other.EvaluationPath, $"{e.EvaluationPath}/{e.Error.Code}")))
-            .Select(e => e.Error)
-            .ToList();
-    }
-
-    /// <summary>True when <paramref name="path"/> is one schema-path segment (or more) BELOW
-    /// <paramref name="ancestor"/> — e.g. ancestor "/properties" matches "/properties/legalName"
-    /// (a property INSIDE that applicator's own subschema), but NOT "/properties" itself: two
-    /// keywords declared at the SAME schema location are independent siblings, never one a
-    /// summary of the other, even when they fail on the identical instance value.</summary>
-    private static bool IsStrictDescendantPath(string path, string ancestor)
-        => path.Length > ancestor.Length
-            && path.StartsWith(ancestor, StringComparison.Ordinal)
-            && path[ancestor.Length] == '/';
-
-    private static void Walk(
-        EvaluationResults node,
-        JsonNode? schemaNode,
-        List<(string EvaluationPath, SchemaValidationError Error)> sink)
-    {
-        // Errors is a Dictionary<string, string>? on EvaluationResults —
-        // keyed by the failing keyword (e.g. "type", "required", "minimum")
-        // and valued with a human-readable message produced by the validator.
-        if (node.Errors is { Count: > 0 } keywordErrors)
-        {
-            var pointer = node.InstanceLocation.ToString();
-            var evalPath = node.EvaluationPath.ToString();
-            foreach (var kvp in keywordErrors)
-            {
-                EmitKeywordError(kvp.Key, kvp.Value, pointer, evalPath, schemaNode, sink);
-            }
-        }
-
-        // Details is nullable on EvaluationResults — walk only when present.
-        if (node.Details is { Count: > 0 } children)
-        {
-            foreach (var child in children)
-            {
-                Walk(child, schemaNode, sink);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Projects one JsonSchema.Net keyword failure onto one or more
-    /// <see cref="SchemaValidationError"/>s with a stable <c>Code</c> + structured
-    /// <c>Params</c>. The English <c>Message</c> keeps the historic
-    /// <c>"{keyword}: {detail}"</c> shape (the engine/UI fallback). A
-    /// <c>required</c> failure is SPLIT into one per-field error located at the
-    /// missing field's pointer, so a per-field renderer can attach it (the
-    /// validator reports a single object-level <c>required</c> error naming all
-    /// missing properties).
-    /// </summary>
-    private static void EmitKeywordError(
-        string keyword,
-        string detail,
-        string instancePointer,
-        string evaluationPath,
-        JsonNode? schemaNode,
-        List<(string EvaluationPath, SchemaValidationError Error)> sink)
-    {
-        // An empty keyword key is the boolean-false-schema rejection (e.g. an
-        // `additionalProperties: false` violation, which the validator reports
-        // with no keyword name). Give it a stable code rather than dropping it.
-        var code = string.IsNullOrEmpty(keyword) ? "additional-properties" : keyword;
-        var message = string.IsNullOrEmpty(keyword) ? detail : $"{keyword}: {detail}";
-
-        // The keyword's declared value in the schema, looked up at the leaf's
-        // evaluation path (e.g. /properties/conditionRating + "minimum" → 1).
-        var keywordValue = ResolveKeywordValue(schemaNode, evaluationPath, keyword);
-
-        // `required` reports ONE object-level error naming every missing property.
-        // Split it into one per-field error at each missing field's pointer so a
-        // per-field UI can bind it; the field name rides in `Params["field"]`.
-        if (code == "required" && keywordValue is JsonArray requiredArr)
-        {
-            var missing = ExtractMissingRequiredNames(detail);
-            foreach (var item in requiredArr)
-            {
-                var name = item?.GetValue<string>();
-                if (string.IsNullOrEmpty(name)) continue;
-                // The validator only lists the ABSENT ones in the detail; emit a
-                // per-field error only for those genuinely missing.
-                if (missing.Count > 0 && !missing.Contains(name)) continue;
-                var fieldPointer = instancePointer.Length == 0 ? $"/{EncodePointerSegment(name)}" : $"{instancePointer}/{EncodePointerSegment(name)}";
-                sink.Add((evaluationPath, new SchemaValidationError(
-                    JsonPointer: fieldPointer,
-                    Message: $"required: '{name}' is required.",
-                    Code: "required",
-                    Params: new Dictionary<string, string> { ["field"] = name })));
-            }
-            return;
-        }
-
-        var parameters = BuildParams(code, keywordValue);
-        sink.Add((evaluationPath, new SchemaValidationError(
-            JsonPointer: instancePointer,
-            Message: message,
-            Code: code,
-            Params: parameters)));
-    }
-
-    /// <summary>
-    /// Builds the structured-params map for a keyword from its declared schema value.
-    /// Numeric/length bounds expose <c>min</c>/<c>max</c>; <c>enum</c> exposes the JSON
-    /// <c>allowed</c> array; <c>pattern</c> exposes the <c>pattern</c> text; others carry no
-    /// param (null). The client interpolates these into a localized template.
-    /// </summary>
-    private static IReadOnlyDictionary<string, string>? BuildParams(string code, JsonNode? keywordValue)
-    {
-        if (keywordValue is null) return null;
-        var value = keywordValue.ToJsonString().Trim('"');
-        return code switch
-        {
-            "minimum" or "exclusiveMinimum" or "minLength" or "minItems" or "minProperties"
-                => new Dictionary<string, string> { ["min"] = value },
-            "maximum" or "exclusiveMaximum" or "maxLength" or "maxItems" or "maxProperties"
-                => new Dictionary<string, string> { ["max"] = value },
-            "multipleOf"
-                => new Dictionary<string, string> { ["multiple"] = value },
-            "enum" or "const"
-                => new Dictionary<string, string> { ["allowed"] = keywordValue.ToJsonString() },
-            "pattern"
-                => new Dictionary<string, string> { ["pattern"] = value },
-            "format"
-                => new Dictionary<string, string> { ["format"] = value },
-            _ => null,
-        };
-    }
-
-    /// <summary>
-    /// Resolves a failing keyword's declared value out of the schema document by the
-    /// leaf's <paramref name="evaluationPath"/> (a JSON Pointer into the schema, e.g.
-    /// <c>/properties/conditionRating</c>). The keyword value sits at
-    /// <c>evaluationPath + "/" + keyword</c>. Best-effort: returns null on any miss.
-    /// </summary>
-    private static JsonNode? ResolveKeywordValue(JsonNode? schemaNode, string evaluationPath, string keyword)
-    {
-        if (schemaNode is null || string.IsNullOrEmpty(keyword)) return null;
-        var subSchema = ResolvePointer(schemaNode, evaluationPath);
-        if (subSchema is JsonObject obj && obj.TryGetPropertyValue(keyword, out var value))
-        {
-            return value;
-        }
-        return null;
-    }
-
-    /// <summary>Walks a JSON Pointer (RFC 6901) into a node; returns null on any miss.</summary>
-    private static JsonNode? ResolvePointer(JsonNode root, string pointer)
-    {
-        if (string.IsNullOrEmpty(pointer)) return root;
-        JsonNode? current = root;
-        foreach (var raw in pointer.Split('/').Skip(1))
-        {
-            var segment = raw.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
-            if (current is JsonObject obj && obj.TryGetPropertyValue(segment, out var next))
-            {
-                current = next;
-            }
-            else if (current is JsonArray arr && int.TryParse(segment, out var index) && index >= 0 && index < arr.Count)
-            {
-                current = arr[index];
-            }
-            else
-            {
-                return null;
-            }
-        }
-        return current;
-    }
-
-    /// <summary>Encodes a property name into one RFC-6901 JSON-Pointer segment.</summary>
-    private static string EncodePointerSegment(string name)
-        => name.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
-
-    /// <summary>
-    /// Extracts the property names the validator listed as absent in a `required` detail
-    /// message (e.g. <c>Required properties ["assetId","inspectedOn"] are not present</c>).
-    /// Returns an empty set when none can be parsed — the caller then treats every declared
-    /// required name as a candidate (a safe over-approximation that the validator wouldn't
-    /// have raised at all if nothing was missing).
-    /// </summary>
-    private static HashSet<string> ExtractMissingRequiredNames(string detail)
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        var start = detail.IndexOf('[', StringComparison.Ordinal);
-        var end = detail.IndexOf(']', StringComparison.Ordinal);
-        if (start < 0 || end < start) return names;
-        var inner = detail.Substring(start, end - start + 1);
-        try
-        {
-            if (JsonNode.Parse(inner) is JsonArray arr)
-            {
-                foreach (var item in arr)
-                {
-                    var name = item?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(name)) names.Add(name);
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // Unparseable detail — leave the set empty (over-approximate, see summary).
-        }
-        return names;
-    }
-
-    /// <summary>Best-effort parse of the schema JSON text into a node for keyword-value lookup.</summary>
-    private static JsonNode? TryParseSchemaNode(string schemaText)
-    {
-        try
-        {
-            return JsonNode.Parse(schemaText);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Pairs a <see cref="Schema"/> with its parsed <see cref="JsonSchema"/> for validation reuse.</summary>
-    private sealed record Entry(Schema Schema, JsonSchema ParsedSchema);
+        /// <summary>Pairs the api <see cref="Schema"/> record with the platform schema that validates it.</summary>
+    private sealed record Entry(Schema Schema, Platform.SchemaId PlatformId);
 }
