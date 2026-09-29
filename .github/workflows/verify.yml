@@ -117,7 +117,10 @@ jobs:
     # T-578: the host lanes are in `needs`, so one required context carries all three lanes and a
     # red verify-windows or verify-macos blocks the pull request and ejects it from the merge queue.
     # Before this, only the shared lane was required and PR 175 landed with both host lanes red.
-    needs: [verify-shared, verify-macos, verify-windows, verify-perf-hosted]
+    # 2026-09-29 (owner): the Windows half is the hosted windows-2025 lane; winbox is advisory, so no
+    # self-hosted runner is on the merge path. Dependabot PRs cannot read the secret the hosted lane
+    # needs for its pinned checkouts, so for them (and only them) winbox's result stands in.
+    needs: [verify-shared, verify-macos, verify-windows, verify-windows-hosted, verify-perf-hosted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -131,7 +134,11 @@ jobs:
             exit 1
           fi
           echo "$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
+          jq -e '
+            ([."verify-shared", ."verify-macos", ."verify-perf-hosted"] | all(.result == "success"))
+            and (."verify-windows-hosted".result == "success"
+                 or (."verify-windows-hosted".result == "skipped" and ."verify-windows".result == "success"))
+          ' <<< "$NEEDS" >/dev/null || { echo "::error::a lane the verify context stands for did not succeed"; exit 1; }
 
   verify-perf:
     # Advisory comparison with the hosted perf gate during mac16's retirement window. The
@@ -343,12 +350,16 @@ jobs:
     # T-662: the fork guard, character for character the one verify-shared carries above. A fork
     # pull request does not start this job, so it does not run its author's code on winbox. The
     # nightly schedule datapoint is unaffected -- `schedule` is the first disjunct.
+    # 2026-09-29 (owner): advisory. Pull requests and merge groups verify Windows on the hosted
+    # verify-windows-hosted lane; winbox runs nightly, on demand, and for Dependabot PRs, which the
+    # hosted lane cannot check out.
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       (github.event_name == 'schedule' ||
        github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'merge_group' ||
-       (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event_name == 'pull_request' &&
+        github.actor == 'dependabot[bot]' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.draft == false))
     runs-on: [self-hosted, Windows, winbox]
     timeout-minutes: 90
@@ -456,10 +467,10 @@ jobs:
         # Ticket 436: no gate step reads this any more -- the comparison is against the committed
         # eng/baselines/quality-baseline.json. It is kept because a re-pin needs a MEASURED finding
         # set from a gate host, and this is where a person gets one. It is evidence, not a gate input.
-        if: always() && github.event_name == 'merge_group'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
-          name: quality-findings-${{ github.sha }}
+          name: quality-findings-winbox-${{ github.sha }}
           if-no-files-found: error
           retention-days: 14
           path: artifacts/quality/findings.json
@@ -477,8 +488,8 @@ jobs:
             .claude/gate-evidence/
 
   verify-windows-hosted:
-    # Trial the full Windows host lane on a fresh VM. The required verify context still depends on
-    # verify-windows (winbox); this job is advisory until its PR and merge-group receipts match.
+    # The required Windows host lane, on a fresh VM (2026-09-29, owner: replaces winbox on the merge
+    # path). The verify context depends on it; verify-windows (winbox) is advisory.
     # Dependabot PRs have no access to the Actions secret needed for private pinned checkouts.
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
@@ -547,6 +558,17 @@ jobs:
 
       - name: Host lane (exact-clone against the Windows baseline)
         run: bash eng/verify.sh
+
+      - name: Publish main quality findings
+        # Moved from verify-windows (winbox) with the required lane: a re-pin needs a measured finding
+        # set from a gate host (ticket 436). Evidence, not a gate input.
+        if: always() && github.event_name == 'merge_group'
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-findings-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: artifacts/quality/findings.json
 
       - name: Evidence
         if: always()
