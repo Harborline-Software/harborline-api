@@ -309,6 +309,62 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.DoesNotContain(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.bootstrap");
     }
 
+    [Fact(DisplayName = "T-980: activate refuses over an Active dependency below the pin, though a newer one is installed")]
+    public async Task Activate_route_refuses_when_the_active_dependency_is_below_the_pin()
+    {
+        PlatformPackTestPreload.Activate(_store, NodeTenantFor());
+        foreach (var version in new[] { "1.0.0", "2.0.0" })
+        {
+            using var dependency = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+                await ExportAsync(FormPackBody("acme.base", version)));
+            Assert.Equal(HttpStatusCode.OK, dependency.StatusCode);
+            if (version != "1.0.0") continue;
+            using var active = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, new { packKey = "acme.base", version });
+            Assert.Equal(HttpStatusCode.OK, active.StatusCode);
+        }
+        // Install is satisfied by the latest installed 2.0.0; activation reads the Active 1.0.0.
+        using var install = await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(
+            FormPackBody("acme.pack", dependencies: [new { key = "acme.base", version = "2.0.0" }])));
+        Assert.Equal(HttpStatusCode.OK, install.StatusCode);
+
+        using var activate = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute,
+            new { packKey = "acme.pack", version = "1.0.0" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, activate.StatusCode);
+        var body = await activate.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(PackInstallCodes.ActivateDependencyBelowPin, body.GetProperty("error").GetString());
+        Assert.Equal("closure path 'acme.pack > acme.base': active 1.0.0 is below the pin 2.0.0.",
+            body.GetProperty("detail").GetString());
+        Assert.Null(_store.GetActive(NodeTenantFor(), "acme.pack"));
+    }
+
+    [Fact(DisplayName = "T-980: deactivate refuses while an Active pack depends on the target and names it")]
+    public async Task Deactivate_route_refuses_while_an_active_pack_depends_on_it()
+    {
+        PlatformPackTestPreload.Activate(_store, NodeTenantFor());
+        foreach (var body in new[] { FormPackBody("acme.base"),
+            FormPackBody("acme.pack", dependencies: [new { key = "acme.base", version = "1.0.0" }]) })
+        {
+            var bytes = await ExportAsync(body);
+            using var install = await PostBytesAsync(PackInstallRoutes.InstallRoute, bytes);
+            Assert.Equal(HttpStatusCode.OK, install.StatusCode);
+        }
+        foreach (var key in new[] { "acme.base", "acme.pack" })
+        {
+            using var active = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, new { packKey = key, version = "1.0.0" });
+            Assert.Equal(HttpStatusCode.OK, active.StatusCode);
+        }
+
+        using var deactivate = await _client.PostAsJsonAsync(PackInstallRoutes.DeactivateRoute,
+            new { packKey = "acme.base", version = "1.0.0" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, deactivate.StatusCode);
+        var refusal = await deactivate.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(PackInstallCodes.DeactivateDependentsActive, refusal.GetProperty("error").GetString());
+        Assert.Equal(["acme.pack"], refusal.GetProperty("dependents").EnumerateArray().Select(item => item.GetString()));
+        Assert.NotNull(_store.GetActive(NodeTenantFor(), "acme.base"));
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)
@@ -325,10 +381,10 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         return _client.PostAsync(route, content);
     }
 
-    private static object FormPackBody(string key = "acme.pack") => new
+    private static object FormPackBody(string key = "acme.pack", string version = "1.0.0", object[]? dependencies = null) => new
     {
         key,
-        version = "1.0.0",
+        version,
         name = "Acme Pack",
         description = "form pack",
         scopeTier = "Vertical",
@@ -342,7 +398,7 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
                 content = PackProjectionTestFixture.FormContent("Intake"),
             },
         },
-        dependencies = Array.Empty<object>(),
+        dependencies = dependencies ?? [],
         capabilityRequirements = new[] { "forms.dynamic" },
     };
 

@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Packs.Navigation;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.Foundation.Packs.Install;
 
@@ -242,13 +243,6 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 PackInstallCodes.ActivateNotInstalled, null, decision);
         }
 
-        var dependencyRefusal = FindDeclaredPlatformDependencyRefusal(tenant, target, decision);
-        if (dependencyRefusal is not null)
-        {
-            return AuditActivationRefusal(tenant, packKey, version, now, actingPrincipal,
-                dependencyRefusal.Error!, dependencyRefusal.Detail, decision);
-        }
-
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(target, _platform);
         if (unmetRequirements.Count > 0)
         {
@@ -268,28 +262,80 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             expectedActiveVersion, decision, cancellationToken).ConfigureAwait(false);
     }
 
-    private PackActivationOutcome? FindDeclaredPlatformDependencyRefusal(
-        TenantId tenant, InstalledPack target, AuthorizationDecision decision)
+    private PackActivationOutcome? FindClosureRefusal(
+        InstalledPack target, IReadOnlyList<InstalledPack> installed, AuthorizationDecision decision)
     {
-        // Bootstrap order comes from the signed dependency, never an implicit pack-key convention.
-        return target.Dependencies.Any(dependency =>
-                string.Equals(dependency.Key, "harborline.platform", StringComparison.Ordinal))
-            && _store.GetActive(tenant, "harborline.platform") is null
-            ? new(false, target.PackKey, target.Version, PackInstallCodes.ActivatePlatformPackRequired,
-                "the declared platform dependency 'harborline.platform' must be active before "
-                    + $"'{target.PackKey}' can activate.", Decision: decision)
-            : null;
+        // DES-0029 ck-2 S2: the target's whole closure resolves against the Active versions. A key with no
+        // Active version is resolved from its latest installed manifest so the refusal says "inactive", not
+        // "missing".
+        var active = installed
+            .Where(pack => pack.Lifecycle == PackLifecycleState.Active && pack.PackKey != target.PackKey)
+            .ToDictionary(pack => pack.PackKey, pack => pack.Version, StringComparer.Ordinal);
+        active[target.PackKey] = target.Version;
+        var manifests = installed
+            .Where(pack => pack.PackKey != target.PackKey)
+            .GroupBy(pack => pack.PackKey, StringComparer.Ordinal)
+            .Select(versions => versions.FirstOrDefault(pack => pack.Lifecycle == PackLifecycleState.Active)
+                ?? versions.MaxBy(pack => pack.Version, VersionComparer)!)
+            .Append(target)
+            .ToDictionary(pack => pack.PackKey, pack => new KernelPackageManifest(pack.PackKey, pack.Version,
+                pack.Dependencies
+                    .Where(dependency => dependency.Key != pack.PackKey) // a self-reference is this very pack.
+                    .Select(dependency => new KernelPackageDependency(dependency.Key, dependency.Version))
+                    .ToArray()), StringComparer.Ordinal);
+        // ponytail: until S9 (D5) the platform root is required only when a closure member declares it, so an
+        // inactive platform pack is stood in by an empty 0.0.0 floor that any declared pin on it refuses. S9
+        // deletes these lines and every closure is rooted at the Active platform pack.
+        const string platform = KernelPackageClosure.PlatformPackageKey;
+        var floorPending = !active.ContainsKey(platform);
+        if (floorPending)
+        {
+            active[platform] = "0.0.0";
+            manifests[platform] = new KernelPackageManifest(platform, "0.0.0", []);
+        }
+        try
+        {
+            var closure = KernelPackageClosure.Resolve([target.PackKey], manifests.Values, active);
+            var declarer = floorPending
+                ? closure.Packages.FirstOrDefault(pack => pack.Dependencies.Any(dependency => dependency.Key == platform))
+                : null;
+            if (declarer is null) return null;
+            var (code, message) = PlatformRequired(declarer.Key);
+            return new(false, target.PackKey, target.Version, code, message, Decision: decision);
+        }
+        catch (KernelClosureRefusalException refusal)
+        {
+            var path = $"'{string.Join(" > ", refusal.Path)}'";
+            var last = refusal.Path[^1];
+            var (error, detail) = refusal.Code switch
+            {
+                _ when floorPending && last == platform => PlatformRequired(refusal.Path[^2]),
+                KernelClosureErrors.DependencyInactive => (PackInstallCodes.ActivateDependencyInactive,
+                    $"closure path {path}: '{last}' is installed but not active."),
+                KernelClosureErrors.DependencyBelowPin => (PackInstallCodes.ActivateDependencyBelowPin,
+                    $"closure path {path}: active {active[last]} is below the pin "
+                        + $"{manifests[refusal.Path[^2]].Dependencies.First(dependency => dependency.Key == last).MinimumVersion}."),
+                KernelClosureErrors.DependencyMissing => (PackInstallCodes.ActivateDependencyMissing,
+                    $"closure path {path}: '{last}' is not installed."),
+                KernelClosureErrors.Cycle => (PackInstallCodes.ActivateDependencyCycle, $"closure cycle {path}."),
+                _ => (refusal.Code, $"closure path {path}."),
+            };
+            return new(false, target.PackKey, target.Version, error, detail, Decision: decision);
+        }
+
+        (string, string) PlatformRequired(string declarer) => (PackInstallCodes.ActivatePlatformPackRequired,
+            $"the platform dependency '{platform}' declared by '{declarer}' must be active before '{target.PackKey}' can activate.");
     }
 
     private PackActivationOutcome? FindActivationCompositionRefusal(
         TenantId tenant, InstalledPack target, IReadOnlyDictionary<string, string>? ownershipResolutions,
         AuthorizationDecision decision)
     {
-        var dependencyRefusal = FindDeclaredPlatformDependencyRefusal(tenant, target, decision);
-        if (dependencyRefusal is not null) return dependencyRefusal;
+        var installed = _store.ListInstalled(tenant);
+        if (FindClosureRefusal(target, installed, decision) is { } closureRefusal) return closureRefusal;
         var packKey = target.PackKey;
         var version = target.Version;
-        var active = _store.ListInstalled(tenant)
+        var active = installed
             .Where(pack => pack.Lifecycle == PackLifecycleState.Active)
             .ToList();
         var unmetInterfaces = PackInterfaceRequirementCheck.FindUnmet(target, active);
@@ -494,26 +540,35 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         var decision = AuthorizeOrAudit(tenant, actingPrincipal, now, packKey, version);
 
-        var active = _store.GetActive(tenant, packKey);
-        if (active is null || !string.Equals(active.Version, version, StringComparison.Ordinal))
+        // The dependents check and the pointer flip share one read lease, which excludes every activation's
+        // write lease: no dependent can activate over this pack between the check and the flip (D4).
+        string? refusal = null;
+        IReadOnlyList<string> dependents = [];
+        using (PackProjectionActivationBarrier.Read())
         {
-            return AuditDeactivationRefusal(tenant, packKey, version, now, actingPrincipal,
-                PackInstallCodes.DeactivateNotActive, decision);
+            var active = _store.GetActive(tenant, packKey);
+            if (active is null || !string.Equals(active.Version, version, StringComparison.Ordinal))
+                refusal = PackInstallCodes.DeactivateNotActive;
+            else if ((dependents = ActiveDependents(_store.ListInstalled(tenant), packKey)).Count > 0)
+                refusal = PackInstallCodes.DeactivateDependentsActive;
+            else
+            {
+                try
+                {
+                    var candidate = new PackProjectionAuthority(
+                        decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
+                    ProjectionStore().DeactivateAndRecordProjectionAdmission(
+                        tenant, packKey, version, Admission(candidate));
+                    projectionAuthority = candidate;
+                }
+                catch (PackTransitionStateException)
+                {
+                    refusal = PackInstallCodes.DeactivateNotActive;
+                }
+            }
         }
-
-        try
-        {
-            var candidate = new PackProjectionAuthority(
-                decision, packKey, version, tenant, new ActorId(actingPrincipal), now);
-            ProjectionStore().DeactivateAndRecordProjectionAdmission(
-                tenant, packKey, version, Admission(candidate));
-            projectionAuthority = candidate;
-        }
-        catch (PackTransitionStateException)
-        {
-            return AuditDeactivationRefusal(tenant, packKey, version, now, actingPrincipal,
-                PackInstallCodes.DeactivateNotActive, decision);
-        }
+        if (refusal is not null)
+            return AuditDeactivationRefusal(tenant, packKey, version, now, actingPrincipal, refusal, decision, dependents);
 
         _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Deactivated, packKey, version, now, null, null,
@@ -1298,12 +1353,31 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         DateTimeOffset now,
         string actingPrincipal,
         string error,
-        AuthorizationDecision decision)
+        AuthorizationDecision decision,
+        IReadOnlyList<string>? dependents = null)
     {
         _audit.AppendAuthorized(new PackInstallAuditEntry(
             tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
-            Detail: error, ActingPrincipal: actingPrincipal), decision);
-        return new PackDeactivationOutcome(false, packKey, version, error, Decision: decision);
+            Detail: dependents is { Count: > 0 } ? $"{error}: {string.Join(", ", dependents)}" : error,
+            ActingPrincipal: actingPrincipal), decision);
+        return new PackDeactivationOutcome(false, packKey, version, error, Decision: decision, Dependents: dependents ?? []);
+    }
+
+    /// <summary>The Active packs, ordinal order, whose declared closure runs through <paramref name="packKey"/>,
+    /// transitively. S9 (D5) adds every other Active pack when <paramref name="packKey"/> is the platform pack.</summary>
+    private static IReadOnlyList<string> ActiveDependents(IReadOnlyList<InstalledPack> installed, string packKey)
+    {
+        var active = installed.Where(pack => pack.Lifecycle == PackLifecycleState.Active).ToList();
+        var reached = new HashSet<string>(StringComparer.Ordinal) { packKey };
+        for (var grew = true; grew;)
+        {
+            grew = false;
+            foreach (var pack in active)
+                if (!reached.Contains(pack.PackKey) && pack.Dependencies.Any(dependency => reached.Contains(dependency.Key)))
+                    grew = reached.Add(pack.PackKey);
+        }
+        reached.Remove(packKey);
+        return reached.Order(StringComparer.Ordinal).ToArray();
     }
 
     private static InstalledPack? LatestInstalled(IReadOnlyList<InstalledPack> installed, string packKey)
