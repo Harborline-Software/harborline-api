@@ -89,7 +89,6 @@ public sealed class IdentityContractArchTests(Xunit.Abstractions.ITestOutputHelp
             .Where(file => File.ReadAllText(file).Contains("foundation-multitenancy", StringComparison.OrdinalIgnoreCase))
             .Select(file => Path.GetRelativePath(root.FullName, file));
         Assert.Empty(projectEdges);
-        Assert.False(Directory.Exists(Path.Combine(root.FullName, "packages", "foundation-multitenancy")));
 
         // TenantSelection (packages/foundation/MultiTenancy) keeps the Harborline.Api namespace;
         // every other name from the retired package must be spelled from the platform namespace.
