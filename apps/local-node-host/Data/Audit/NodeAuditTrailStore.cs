@@ -37,7 +37,15 @@ public sealed class NodeAuditTrailStore(IDbContextFactory<NodeLocalSearchDbConte
             OccurredAt = record.OccurredAt,
             RecordJson = NodeAuditRecordJson.Write(record),
         });
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (NodePersistenceConflict.IsDuplicate(ex))
+        {
+            // The audit id is the record's identity, so a second insert is the same record delivered twice
+            // (two deliverers can both pass the outbox's existence check); only the key violation is absorbed.
+        }
     }
 
     /// <inheritdoc />

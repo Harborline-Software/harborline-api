@@ -1337,7 +1337,7 @@ internal static class BuilderSchemaSynthesizer
                     }
                     try
                     {
-                        // Construction-validity only; the registry's TimedPatternKeyword owns the
+                        // Construction-validity only; the platform schema-validation library owns the
                         // ReDoS match-timeout control at validation time.
                         _ = new System.Text.RegularExpressions.Regex(v.Param);
                     }

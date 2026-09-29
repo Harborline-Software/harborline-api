@@ -43,6 +43,9 @@ public sealed class AuthorizationDecision : Assets.Entities.IWriteAdmission
     /// </summary>
     bool Assets.Entities.IWriteAdmission.IsAllowed => Verdict is AuthorizationVerdict.Allowed;
 
+    /// <summary>The instant this decision was made at: the act's admitted instant (T-978 Rules stage).</summary>
+    DateTimeOffset Assets.Entities.IWriteAdmission.At => Request.At;
+
     internal static AuthorizationDecision CreateBootstrap(
         AuthorizationGateRequest request,
         string evidence) => new(
