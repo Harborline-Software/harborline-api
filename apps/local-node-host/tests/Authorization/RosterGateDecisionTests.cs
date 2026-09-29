@@ -177,6 +177,33 @@ public sealed class RosterGateDecisionTests
         Assert.Null(decision.Request.GrantRefusal);
     }
 
+    [Fact]
+    public async Task Unreadable_roster_refuses_an_ordinary_act_the_grants_allow()
+    {
+        // T-519: an absent roster derivation is a refusal for every act, not only members management.
+        var request = TestAuthorization.Write(new TenantId("tenant"))
+            .Request(AuthorizationOperation.Parse("records:read"), "record", "r-1");
+
+        var member = await TestAuthorization.GateWithRoster(
+            allowed: true, roster: new AuthorizationRosterInputs("party", Member: true, Ejected: false))
+            .DecideAsync(request);
+        var unreadable = await TestAuthorization.GateWithRoster(allowed: true, roster: null).DecideAsync(request);
+
+        Assert.Equal(AuthorizationVerdict.Allowed, member.Verdict);
+        Assert.Equal(AuthorizationVerdict.Denied, unreadable.Verdict);
+    }
+
+    [Fact]
+    public void Only_the_kernel_can_set_a_grant_refusal_on_a_gate_request()
+    {
+        // T-519 item 2: a route or block outside the authorization kernel cannot assert a kernel refusal code.
+        var setter = typeof(AuthorizationGateRequest)
+            .GetProperty(nameof(AuthorizationGateRequest.GrantRefusal))!.SetMethod!;
+
+        Assert.False(setter.IsPublic);
+        Assert.True(setter.IsAssembly);
+    }
+
     [Theory]
     [InlineData(true, false, true, true)]
     [InlineData(true, true, true, false)]
