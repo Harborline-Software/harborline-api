@@ -239,7 +239,7 @@ public sealed class JournalPostingService : IJournalPostingService
                 await _store.SaveAtomicAsync(posted.TenantId, posted, postDecision, cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (Exception) when (posted.SourceReference is { Length: > 0 })
+            catch (JournalSourceReferenceConflictException) when (posted.SourceReference is { Length: > 0 })
             {
                 // A concurrent re-drive committed the same SourceReference after phase 1.5 and the durable
                 // unique index refused this save. The operation already happened: return its first result.

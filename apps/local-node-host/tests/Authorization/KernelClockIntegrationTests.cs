@@ -70,6 +70,7 @@ public sealed class KernelClockIntegrationTests
     [InlineData("definition-publish")]
     [InlineData("form-definition-publish")]
     [InlineData("form-definition-restore")]
+    [InlineData("form-submit")]
     [InlineData("scheduling-draft-save")]
     [InlineData("scheduling-draft-restore")]
     [InlineData("identity-administration")]
@@ -90,6 +91,7 @@ public sealed class KernelClockIntegrationTests
                 "definition-publish" => await fixture.DefinitionPublishAsync(),
                 "form-definition-publish" => await fixture.FormDefinitionPublishAsync(),
                 "form-definition-restore" => await fixture.FormDefinitionRestoreAsync(),
+                "form-submit" => await fixture.FormSubmitAsync(),
                 "scheduling-draft-save" => await fixture.SchedulingDraftSaveAsync(),
                 "scheduling-draft-restore" => await fixture.SchedulingDraftRestoreAsync(),
                 "identity-administration" => await fixture.IdentityAdministrationAsync(),
@@ -143,6 +145,22 @@ public sealed class KernelClockIntegrationTests
 
         Assert.Throws<FormatException>(() => Harborline.Api.LocalNodeHost.Data.Comms.NodeMessage.FromCrdtState(message));
         Assert.Throws<FormatException>(() => NodeRosterRecord.FromCrdtState(roster));
+    }
+
+    [Fact]
+    public async Task ProductionComposition_SuppliesTheFormSubmitActClock_PinnedToTheAdmittedInstant()
+    {
+        // T-540 (ck-7): a form submit evaluates its rules at authority.At through a clock the root mints.
+        // Without the registration the engine refuses every submit; with a live clock it would drift.
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        var admitted = FrozenAt.AddDays(-3);
+
+        var actClock = fixture.Services.GetRequiredService<Func<DateTimeOffset, TimeProvider>>()(admitted);
+
+        Assert.NotSame(clock, actClock);
+        Assert.Equal(admitted, actClock.GetUtcNow());
+        Assert.Equal(admitted, actClock.GetUtcNow());
     }
 
     [Fact]
@@ -340,6 +358,7 @@ public sealed class KernelClockIntegrationTests
                     await SeedOperatorGrantAsync();
                     break;
                 case "form-definition-restore":
+                case "form-submit":
                     await SeedOperatorGrantAsync();
                     await FormDefinitionPublishAsync();
                     break;
@@ -522,6 +541,25 @@ public sealed class KernelClockIntegrationTests
                 response.StatusCode == HttpStatusCode.OK,
                 $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
             return [await FormUpdatedAtAsync(await VersionOfAsync(response))];
+        }
+
+        // T-540 (ck-7): a form submit is one act — the token mint, the pre-save validate, the rule gate and
+        // the stamp all read the instant the route admitted, so the host clock is read once.
+        internal async Task<DateTimeOffset[]> FormSubmitAsync()
+        {
+            using var client = Client();
+            using var response = await client.PostAsJsonAsync(
+                // An empty candidate: the desktop's minted roles do not hold this form's Administrator-gated
+                // section, and the act under test is the submit's clock reads, not field write authority.
+                $"{FormsRoutes.RouteBase}/{FormKey}/submit", new { });
+            Assert.True(
+                response.StatusCode == HttpStatusCode.Created,
+                $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var instance = Harborline.Api.Foundation.Assets.Common.EntityId.Parse(body.GetProperty("instanceId").GetString()!);
+            var entity = await Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>()
+                .GetAsync(instance);
+            return [Assert.IsType<Harborline.Api.Foundation.Assets.Entities.EntityBinding>(entity?.Binding).SubmittedAt];
         }
 
         internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()

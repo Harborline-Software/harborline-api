@@ -202,8 +202,6 @@ internal sealed class AccountSetupAcceptanceService : IAccountSetupAcceptanceAut
                 AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", invitation.InvitationId) with
             {
                 RequiredGrantAtoms = requestedPermissions,
-                Roster = EffectiveMemberPermissions.Read(roster, invitation.InviterPartyId, inviterAuthorityPrincipal) with
-                { RequireMember = true, RequireGrantCoverage = true },
             },
             cancellationToken).ConfigureAwait(false);
         if (_refusalAudit is not null) await _refusalAudit.RecordAsync(mandate, cancellationToken).ConfigureAwait(false);

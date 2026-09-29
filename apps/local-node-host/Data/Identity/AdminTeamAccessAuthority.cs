@@ -789,16 +789,13 @@ internal sealed partial class AdminTeamAccessAuthority(
         // L618 in grant state and strands the install at the surface. The signed roster edge is
         // authoritative where it exists, so a successor the roster narrows or has ejected is refused here
         // rather than handed a role that does nothing.
-        var successorInputs = successorParty is null ? null : EffectiveMemberPermissions.Read(
-            context.Roster, successorPrincipal.Value, successorPrincipal);
-        var successorDecision = successorInputs is null ? null : await _gate.DecideProspectiveAdministratorAsync(
+        var successorDecision = successorParty is null ? null : await _gate.DecideProspectiveAdministratorAsync(
             new AuthorizationWriteContext(successorPrincipal, tenant, at)
                 .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "handover")
                 // Ticket 294 slice 2a — the flag is the whole question; the gate answers it. The caller no
                 // longer substitutes a members:manage set for a successor the roster reports nothing about,
                 // which silently made every successor look capable.
-                with { Roster = successorInputs with { ProspectiveAdministratorGrant = true } },
-            cancellationToken).ConfigureAwait(false);
+                , cancellationToken).ConfigureAwait(false);
         if (successorDecision is not null && refusalAudit is not null)
             await refusalAudit.RecordAsync(successorDecision, cancellationToken).ConfigureAwait(false);
         if (successorParty is null || successorDecision?.Verdict != AuthorizationVerdict.Allowed
@@ -960,16 +957,13 @@ internal sealed partial class AdminTeamAccessAuthority(
             return null;
         }
 
-        // Ticket 294 slice 2a — the roster is read by the ONE key. `party` above is still required and
-        // still pinned to the session's canonical party reference (attribution); it is not the roster key.
-        var inputs = EffectiveMemberPermissions.Read(
-            roster, session.TenantPrincipalId, new ActorId(session.TenantPrincipalId));
+        // `party` above is still required and pinned to the session's canonical party reference
+        // (attribution); the gate derives the roster facts itself (T-519).
         request ??= new AuthorizationWriteContext(new ActorId(session.TenantPrincipalId), tenant, now)
             .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", "list");
         if (request.Principal.Value != session.TenantPrincipalId)
             throw new ArgumentException("The selected-session principal does not match the write authority.");
-        var decision = await _gate.DecideAsync(request with { Roster = inputs with
-            { RequireGrantCoverage = requireGrantCoverage } }, cancellationToken).ConfigureAwait(false);
+        var decision = await _gate.DecideAsync(request, cancellationToken).ConfigureAwait(false);
         if (refusalAudit is not null) await refusalAudit.RecordAsync(decision, cancellationToken).ConfigureAwait(false);
         if (requireGrantCoverage) decision.RequireAllowed();
         if (decision.Verdict == AuthorizationVerdict.Denied) return null;
