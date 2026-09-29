@@ -8,8 +8,8 @@
 //                                          each project with changed .cs files. Survived and NoCoverage
 //                                          mutants on changed lines are review feedback, never a failure;
 //                                          it fails only when mutable code changed and no mutant was tested
-//   node eng/mutation-report.mjs --only <test csproj> --scoped <glob> [--project <X.csproj>] [--filter <expr>]
-//                                          lane evidence: one file, one test filter, whole tree (see scoped())
+//   node eng/mutation-report.mjs --only <test csproj> --scoped <glob> [--scoped <glob>...] [--project <X.csproj>] [--filter <expr>]
+//                                          lane evidence: named files or spans, one test filter, whole tree (see scoped())
 //   node eng/mutation-report.mjs --full    scheduled mode: every configured project on the whole tree;
 //                                          fails when a project's score is below its break
 //
@@ -226,22 +226,27 @@ function stryker(run, extra, name = path.basename(run.test, '.csproj')) {
 }
 
 // Lane evidence for one file and one test filter (AGENTS.md "Mutation testing"). It writes an ignored
-// config beside the test project's own, with `mutate` narrowed to the glob and `test-case-filter` set,
-// runs it on the whole tree (no since, so it works in a linked worktree) and prints each mutated file's
-// counts with CompileError, Timeout and NoCoverage apart, then every survivor by line and mutator.
+// config (.stryker/<test>-scoped-<file>.json) beside the test project's own, with `mutate` narrowed to
+// the glob and `test-case-filter` set, runs it on the whole tree (no since, so it works in a linked
+// worktree) and prints each mutated file's counts with CompileError, Timeout and NoCoverage apart, then
+// every survivor by line and mutator. The report lands in .stryker/<test>-scoped-<file>/.
 // Stryker still compiles every mutant of the project and rolls back the ones that fail (about 9% here);
 // those rollbacks are CompileError whatever the glob, so a zero-tested run means the glob matched nothing.
 function scoped(runs, only, argument) {
   const run = runs.find(candidate => candidate.test === only)
   if (!run) { console.error(`FAIL --scoped needs --only <configured test project path>`); process.exit(1) }
   const config = JSON.parse(readFileSync(path.join(root, run.dir, 'stryker-config.json'), 'utf8'))['stryker-config']
-  const lane = {...config, since: {enabled: false}, thresholds: thresholdsFor(0), mutate: [argument('--scoped')],
+  // --scoped may repeat: several files or character spans in one run.
+  const mutate = process.argv.flatMap((arg, index) => arg === '--scoped' ? [process.argv[index + 1]] : [])
+  const lane = {...config, since: {enabled: false}, thresholds: thresholdsFor(0), mutate,
     ...(argument('--project') && {project: argument('--project')}), ...(argument('--filter') && {'test-case-filter': argument('--filter')})}
-  const configFile = path.join(root, run.dir, '.stryker', 'scoped-config.json')
+  // Named after the mutated file, so runs on different files keep their own config and report.
+  const name = `${path.basename(run.test, '.csproj')}-scoped-${path.basename(mutate[0]).replace(/[^\w.-]/g, '_')}`
+  const configFile = path.join(root, run.dir, '.stryker', `${name}.json`)
   mkdirSync(path.dirname(configFile), {recursive: true})
   writeFileSync(configFile, JSON.stringify({'stryker-config': lane}, null, 2))
   const started = Date.now()
-  const {status, report, reportFile} = stryker(run, ['--config-file', '.stryker/scoped-config.json'], `${path.basename(run.test, '.csproj')}-scoped`)
+  const {status, report, reportFile} = stryker(run, ['--config-file', `.stryker/${name}.json`], name)
   console.log(`scoped run: ${Math.round((Date.now() - started) / 1000)} s, ${reportFile}`)
   if (!report) { console.error(`FAIL no json report (Stryker exited ${status})`); process.exit(1) }
   let tested = 0

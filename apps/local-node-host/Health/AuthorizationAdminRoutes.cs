@@ -35,8 +35,9 @@ public static class AuthorizationAdminRoutes
         if (selected is null || selected.TenantId.IsSystemSentinel ||
             string.IsNullOrWhiteSpace(http.Request.Cookies[WebSessionCookieNames.Selected])) return Results.Unauthorized();
         var authority = RequestAuthorization.Authority(http, selected.TenantId, time);
-        if (await RequestAuthorization.RefusalAsync(http, authority, Permission.OrgManageSettings, RouteRecord.TheInstall, ct)
-            .ConfigureAwait(false) is { } denied) return denied;
+        var denied = await RequestAuthorization.RefusalAsync(http, authority, Permission.OrgManageSettings, RouteRecord.TheInstall, ct)
+            .ConfigureAwait(false);
+        if (denied is not null) return denied;
         var rows = await vocabulary.ListAsync(ct).ConfigureAwait(false);
         return Results.Ok(rows.Where(row => row.Owner.Kind != RoleOwnerKind.Tenant || row.Owner.OwnerId == selected.TenantId.Value)
             .OrderBy(row => row.Role.Vocabulary, StringComparer.Ordinal).ThenBy(row => row.Role.Name, StringComparer.Ordinal)
