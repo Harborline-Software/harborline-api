@@ -53,6 +53,10 @@ public sealed class ProjectingFormEngine : IFormEngine
         => _inner.ValidateAsync(form, candidate, token, ct);
 
     /// <inheritdoc />
+    public Task<ValidationResult> ValidateAtAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, DateTimeOffset at, CancellationToken ct)
+        => _inner.ValidateAtAsync(form, candidate, token, at, ct);
+
+    /// <inheritdoc />
     public async Task<EntityId> SaveAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
         => await _inner.SaveAsync(form, candidate, token, ct).ConfigureAwait(false);
 

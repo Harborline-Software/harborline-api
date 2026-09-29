@@ -2376,6 +2376,9 @@ if (!builder.Environment.IsDevelopment())
     builder.Services.TryAddSingleton<Harborline.Api.Foundation.Forms.Submission.IFormSubmitOutbox,
         Harborline.Api.LocalNodeHost.Data.Forms.NodeEfFormSubmitOutbox>();
 }
+// T-540 (ck-7): a form submit evaluates its rules at the act's admitted instant — the instant the record is
+// stamped with. Ticket 216: that pinned clock is minted HERE, like the verification runner's fixture clock.
+builder.Services.AddSingleton<Func<DateTimeOffset, TimeProvider>>(static instant => new DeclaredInstantTimeProvider(instant));
 builder.Services.AddNodeForms(
     localNodeOptions.HostJurisdiction,
     static (services, entityMutations, hierarchyMutations) =>

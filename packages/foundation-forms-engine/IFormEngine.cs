@@ -60,6 +60,13 @@ public interface IFormEngine
     Task<ValidationResult> ValidateAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct);
 
     /// <summary>
+    /// Validates <paramref name="candidate"/> as <see cref="ValidateAsync"/>
+    /// does, but at the act's admitted instant <paramref name="at"/> rather than the host clock (T-540, ck-7):
+    /// a submit route's pre-save check and its save then judge the candidate at the same instant.
+    /// </summary>
+    Task<ValidationResult> ValidateAtAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, DateTimeOffset at, CancellationToken ct);
+
+    /// <summary>
     /// Validates <paramref name="candidate"/> (as <see cref="ValidateAsync"/>),
     /// enforces section-level write authorization, encrypts every PII-classified
     /// field at rest (INV-S3), persists the result as a new form-instance entity
