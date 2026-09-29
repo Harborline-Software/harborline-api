@@ -218,7 +218,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
             // returned is what the mint requires, so the ordering cannot be swapped or re-decided.
             var admission = authorization.Require(replacementIds[index]);
             var admitted = await ValidatedRecordBody.AdmitAsync(
-                validator, admission, target.Schema, target.Body, ct).ConfigureAwait(false);
+                validator, admission, target.Schema, target.Body, tenant, target.Options.Binding, ct).ConfigureAwait(false);
             minted.Add(await entities.CreateAsync(
                 admitted, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
         }
@@ -281,7 +281,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
             throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
         // Ticket 366: the merge target is a RECORD, minted from the same decision the admission returned.
         var admitted = await ValidatedRecordBody.AdmitAsync(
-            validator, admission, newSchema, newBody, ct).ConfigureAwait(false);
+            validator, admission, newSchema, newBody, tenant, newOptions.Binding, ct).ConfigureAwait(false);
         var newId = await entities.CreateAsync(
             admitted, newOptions with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false);
         if (newId != expectedNewId)
