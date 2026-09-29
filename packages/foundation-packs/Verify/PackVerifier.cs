@@ -42,10 +42,13 @@ public sealed class PackVerifier : IPackVerifier
         ArgumentNullException.ThrowIfNull(trustStore);
 
         // (1) Decode. Undecodable ⇒ fail-closed (not a pack we can vouch for).
-        var file = _codec.TryDecode(packFileBytes);
+        var file = _codec.TryDecode(packFileBytes, out var unknownKindPointer);
         if (file is null)
         {
-            return PackVerificationResult.Fail(PackVerificationCodes.Malformed);
+            // T-981: a content kind this node cannot classify keeps its own code and pointer.
+            return unknownKindPointer is null
+                ? PackVerificationResult.Fail(PackVerificationCodes.Malformed)
+                : PackVerificationResult.Fail(PackVerificationCodes.ContentKindUnknown) with { FailurePointer = unknownKindPointer };
         }
 
         // A well-formed pack with no signature envelope is NotSigned (distinct from a tamper).

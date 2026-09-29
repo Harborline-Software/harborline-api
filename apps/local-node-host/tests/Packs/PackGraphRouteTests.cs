@@ -214,6 +214,8 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
         },
         dependencies = Array.Empty<object>(),
         capabilityRequirements = Array.Empty<string>(),
+        exposes = new[] { "core-records.property" },
+        interfaceVersion = 1,
     };
 
     private static object FleetOpsBody() => new
@@ -236,7 +238,8 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
                 content = PackProjectionTestFixture.FormContent("Daily walkaround"),
             },
         },
-        dependencies = Array.Empty<object>(),
+        // K9 (T-152 D7): the parentType edge into core-records needs the declared dependency.
+        dependencies = new object[] { new { key = "core-records", version = "1.0.0" } },
         capabilityRequirements = Array.Empty<string>(),
     };
 

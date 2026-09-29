@@ -16,10 +16,10 @@ public sealed record AuthorizationGateRequest(
     DateTimeOffset At)
 {
     /// <summary>
-    /// Legacy caller observation retained for source compatibility. The gate ignores this value and
-    /// replaces it with facts read from <see cref="IAuthorizationRosterConstraintReader"/>.
+    /// The roster facts the gate derived through <see cref="IAuthorizationRosterConstraintReader"/>, recorded
+    /// on the decision's request. Only the gate sets it (T-519); routes and blocks cannot supply one.
     /// </summary>
-    public AuthorizationRosterInputs? Roster { get; init; }
+    public AuthorizationRosterInputs? Roster { get; internal init; }
     /// <summary>Validated audit association only; never consulted by authorization policy.</summary>
     public Guid? CorrelationId { get; init; }
     /// <summary>

@@ -38,6 +38,9 @@ public static class PackVerificationCodes
     public const string NotSigned = "pack.verify.not_signed";
     /// <summary>The Ed25519 signature over the canonical subject did not verify (tamper).</summary>
     public const string SignatureInvalid = "pack.verify.signature_invalid";
+    /// <summary>A carried content item declares no kind, or a kind this node does not know (T-981; the
+    /// pointer is <see cref="PackVerificationResult.FailurePointer"/>).</summary>
+    public const string ContentKindUnknown = "pack.verify.content.kind_unknown";
     /// <summary>A manifest content ref has no matching carried payload.</summary>
     public const string ContentMissing = "pack.verify.content.missing";
     /// <summary>A carried payload is not referenced by the manifest (orphan / smuggled).</summary>
@@ -95,6 +98,10 @@ public sealed record PackVerificationResult(
     PackManifest? Manifest,
     IReadOnlyList<PackContentItem>? Contents)
 {
+    /// <summary>The RFC 6901 pointer a failure names, when it names one (<c>/contents/n/kind</c> for
+    /// <see cref="PackVerificationCodes.ContentKindUnknown"/>).</summary>
+    public string? FailurePointer { get; init; }
+
     internal static PackVerificationResult Fail(string code, PrincipalId? keyId = null, long? epoch = null)
         => new(PackVerdict.VerificationFailed, new[] { code }, keyId, epoch, null, null, null);
 

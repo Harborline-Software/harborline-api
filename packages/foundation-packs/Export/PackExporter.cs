@@ -91,7 +91,13 @@ public sealed class PackExporter : IPackExporter
         //      graph's class-3 edge survives without a body re-parse. Null (not empty) when there are no
         //      cross-app edges, so a dependency-free pack's signed manifest is byte-identical to a pre-G2 one.
         var contentReferences = PackContentReferenceDeriver.Derive(
-            request.Key, request.Contents, request.Dependencies.Select(d => d.Key));
+            request.Key, request.Contents, request.Dependencies.Select(d => d.Key), out var undeclared);
+        var referenceErrors = undeclared
+            .Select(reference => new PackValidationError(
+                PackValidationCodes.ReferenceDependencyUndeclared,
+                reference.FromContentKey,
+                $"'{reference.FromContentKey}' references '{reference.ToContentKey}', which no declared dependency provides."))
+            .ToList();
 
         var manifest = new PackManifest(
             Key: request.Key,
@@ -116,9 +122,9 @@ public sealed class PackExporter : IPackExporter
         // (4) Validate FIRST — fail-closed. Never sign an invalid pack. Combine the completeness/PII
         //     findings with the DCP gate findings so the caller sees the full picture in ONE result.
         var validation = _validator.Validate(manifest, items);
-        if (!validation.IsValid || dcpErrors.Count > 0)
+        if (!validation.IsValid || dcpErrors.Count > 0 || referenceErrors.Count > 0)
         {
-            var combined = validation.Errors.Concat(dcpErrors).ToList();
+            var combined = validation.Errors.Concat(referenceErrors).Concat(dcpErrors).ToList();
             var failed = PackValidationResult.Invalid(combined);
             return new PackExportOutcome(Succeeded: false, File: null, FileBytes: null, Validation: failed);
         }

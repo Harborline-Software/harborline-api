@@ -1577,7 +1577,9 @@ builder.Services.AddSingleton(sp => new Harborline.Api.LocalNodeHost.Data.Config
     sp.GetRequiredService<Harborline.Api.LocalNodeHost.Health.NodePrincipalSigner>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Crypto.IOperationVerifier>(),
     sp.GetRequiredService<Harborline.Api.Foundation.Packs.Trust.IPackTrustStore>(),
-    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>()));
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.Trust.IPackRevocationList>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Packs.Install.IPackInstallStore>(),
+    sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
 // App-layer FEATURE GRAPH (G1 keystone; design note app-layer-feature-graph-2026-07-07). The rebuildable
 // content-edge-index provider + the read-model that assembles per-app contributions (grouped by pillar) +
 // cross-app edges from install state, surfaced read-only at GET /packs/graph. Registered here so the seed
@@ -2376,6 +2378,9 @@ if (!builder.Environment.IsDevelopment())
     builder.Services.TryAddSingleton<Harborline.Api.Foundation.Forms.Submission.IFormSubmitOutbox,
         Harborline.Api.LocalNodeHost.Data.Forms.NodeEfFormSubmitOutbox>();
 }
+// T-540 (ck-7): a form submit evaluates its rules at the act's admitted instant — the instant the record is
+// stamped with. Ticket 216: that pinned clock is minted HERE, like the verification runner's fixture clock.
+builder.Services.AddSingleton<Func<DateTimeOffset, TimeProvider>>(static instant => new DeclaredInstantTimeProvider(instant));
 builder.Services.AddNodeForms(
     localNodeOptions.HostJurisdiction,
     static (services, entityMutations, hierarchyMutations) =>

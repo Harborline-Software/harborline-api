@@ -194,6 +194,17 @@ public sealed class RosterGateDecisionTests
     }
 
     [Fact]
+    public void Only_the_kernel_can_set_roster_facts_on_a_gate_request()
+    {
+        // T-519 item 1: roster facts are the gate's derivation; a route or block cannot hand it a roster.
+        var setter = typeof(AuthorizationGateRequest)
+            .GetProperty(nameof(AuthorizationGateRequest.Roster))!.SetMethod!;
+
+        Assert.False(setter.IsPublic);
+        Assert.True(setter.IsAssembly);
+    }
+
+    [Fact]
     public void Only_the_kernel_can_set_a_grant_refusal_on_a_gate_request()
     {
         // T-519 item 2: a route or block outside the authorization kernel cannot assert a kernel refusal code.

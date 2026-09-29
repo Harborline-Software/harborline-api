@@ -110,6 +110,9 @@ public sealed class FormsRouteTimeoutTests : IAsyncLifetime
         public Task<ValidationResult> ValidateAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
             => throw new RuleEngineTimeoutException();
 
+        public Task<ValidationResult> ValidateAtAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, DateTimeOffset at, CancellationToken ct)
+            => throw new RuleEngineTimeoutException();
+
         public Task<EntityId> SaveAsync(FormDefinitionId form, JsonDocument candidate, CapabilityToken token, CancellationToken ct)
             => throw new RuleEngineTimeoutException();
 

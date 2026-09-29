@@ -261,6 +261,10 @@ public sealed class InvoicePostingService : IInvoicePostingService
         if (!postResult.IsSuccess)
             return new VoidResult(invoice, null, VoidError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         // Mark the original JE as Reversed (reverse-not-delete invariant, F-89-A / P3).
         // This sets Status=Reversed + ReversedBy FK so the GL read model counts both entries
         // (original Posted→Reversed + reversal Posted) and nets to zero — and prevents the
@@ -277,7 +281,7 @@ public sealed class InvoicePostingService : IInvoicePostingService
                 inMemoryStore.ReplaceEntry(CurrentTenantId, originalEntry with
                 {
                     Status     = JournalEntryStatus.Reversed,
-                    ReversedBy = reversal.Id,
+                    ReversedBy = postedId,
                 });
             }
         }
@@ -285,7 +289,7 @@ public sealed class InvoicePostingService : IInvoicePostingService
         var voided = invoice with
         {
             Status = InvoiceStatus.Voided,
-            VoidedByEntryId = reversal.Id,
+            VoidedByEntryId = postedId,
             Balance = 0m,
             UpdatedAtUtc = now,
             UpdatedBy = actor,
@@ -295,13 +299,13 @@ public sealed class InvoicePostingService : IInvoicePostingService
 
         await PublishAsync(
             AccountsReceivableEventNames.InvoiceVoided,
-            new InvoiceVoidedPayload(voided.Id, voided.InvoiceNumber, reversal.Id, reason),
+            new InvoiceVoidedPayload(voided.Id, voided.InvoiceNumber, postedId, reason),
             $"invoice-voided:{voided.Id.Value}",
             voided.TenantId,
             authority.At,
             cancellationToken).ConfigureAwait(false);
 
-        return new VoidResult(voided, reversal.Id, VoidError.None, null);
+        return new VoidResult(voided, postedId, VoidError.None, null);
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -356,10 +360,14 @@ public sealed class InvoicePostingService : IInvoicePostingService
         if (!postResult.IsSuccess)
             return new WriteOffResult(invoice, null, WriteOffError.JournalRejected, postResult.Detail);
 
+        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
+        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
+        var postedId = postResult.Entry!.Id;
+
         var writtenOff = invoice with
         {
             Status = InvoiceStatus.WrittenOff,
-            WrittenOffByEntryId = entry.Id,
+            WrittenOffByEntryId = postedId,
             Balance = 0m,
             UpdatedAtUtc = now,
             UpdatedBy = actor,
@@ -369,13 +377,13 @@ public sealed class InvoicePostingService : IInvoicePostingService
 
         await PublishAsync(
             AccountsReceivableEventNames.InvoiceWrittenOff,
-            new InvoiceWrittenOffPayload(writtenOff.Id, writtenOff.InvoiceNumber, entry.Id, amount, reason),
+            new InvoiceWrittenOffPayload(writtenOff.Id, writtenOff.InvoiceNumber, postedId, amount, reason),
             $"invoice-writtenoff:{writtenOff.Id.Value}",
             writtenOff.TenantId,
             authority.At,
             cancellationToken).ConfigureAwait(false);
 
-        return new WriteOffResult(writtenOff, entry.Id, WriteOffError.None, null);
+        return new WriteOffResult(writtenOff, postedId, WriteOffError.None, null);
     }
 
     private void RequireTenant(AuthorizationWriteContext authority)

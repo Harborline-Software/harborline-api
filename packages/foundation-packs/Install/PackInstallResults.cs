@@ -16,6 +16,16 @@ public static class PackInstallCodes
     /// own detail codes carry the specifics (tamper / untrusted / epoch / unsigned).</summary>
     public const string RefusedNotVerified = "pack.install.refused.not_verified";
 
+    /// <summary>A carried content item declares no kind, or a kind this node cannot classify (T-981, ADR 0028,
+    /// DES-0006 §9). Refused because a node that cannot classify a kind cannot show it only permits; the
+    /// pointer names the item (<c>/contents/n/kind</c>) instead of folding it into <see cref="RefusedNotVerified"/>.</summary>
+    public const string RefusedUnknownContentKind = "pack.install.refused.unknown_content_kind";
+
+    /// <summary>A content item references another package that the manifest does not declare as a dependency
+    /// (K9, ADR 0028, T-152). Install re-derives the edges from content and never trusts the manifest's own
+    /// <c>ContentReferences</c> for this check; the pointer names the referencing item.</summary>
+    public const string RefusedUndeclaredReference = "pack.install.refused.undeclared_reference";
+
     /// <summary>The signer key + epoch is on the channel revocation list (S-11).</summary>
     public const string RefusedRevoked = "pack.install.refused.revoked";
 
