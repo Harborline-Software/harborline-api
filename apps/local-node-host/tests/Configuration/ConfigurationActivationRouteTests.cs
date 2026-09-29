@@ -153,6 +153,12 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         Assert.NotNull(published.AuthoritySnapshot);
         Assert.Equal(candidate, published.Payload.Payload.Body["version"]?.ToString());
         Assert.StartsWith("configuration.activated:intent-1:", published.Payload.Payload.Body["detail"]?.ToString(), StringComparison.Ordinal);
+        Assert.Equal("Activated", published.Payload.Payload.Body["action"]?.ToString());
+        Assert.Equal("configuration-generation", published.Payload.Payload.Body["packKey"]?.ToString());
+        // The install-wide act the decision admitted, so the captured authority names the act the entry records.
+        Assert.Equal(Harborline.Api.Foundation.IdentityAtlas.Permissions.PermissionAtom.Parse(
+            $"{Harborline.Api.Foundation.IdentityAtlas.Permissions.Permission.PackagesOperate}@/"), published.Act);
+        Assert.Equal(("", "", "/"), (published.Target!.Value.RecordKind, published.Target.Value.RecordId, published.Target.Value.Scope.ToString()));
     }
 
     [Fact(DisplayName = "ck-6 activation outbox: evidence whose publication crashed is delivered by the running host's drain daemon, without the offline verb")]
