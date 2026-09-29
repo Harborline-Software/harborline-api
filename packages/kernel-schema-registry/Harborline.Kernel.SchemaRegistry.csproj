@@ -3,7 +3,7 @@
     <PackageId>Harborline.Api.Kernel.SchemaRegistry</PackageId>
     <AssemblyName>Harborline.Api.Kernel.SchemaRegistry</AssemblyName>
     <RootNamespace>Harborline.Api.Kernel.SchemaRegistry</RootNamespace>
-    <Description>Harborline kernel §3.4 Schema Registry — JSON Schema draft 2020-12 via JsonSchema.Net, content-addressed via IBlobStore, in-memory default backend. Validation path shipped; migration path (jsonata) is a follow-up.</Description>
+    <Description>Harborline kernel §3.4 Schema Registry — content-addressed schema ids, pack-projection staging and the lens, upcaster and epoch surface. Registration and validation run in the platform Harborline.Kernel.SchemaValidation library (T-303).</Description>
     <PackageTags>harborline;kernel;schema;json-schema;registry</PackageTags>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
@@ -15,7 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="JsonSchema.Net" />
+    <PackageReference Include="Harborline.Kernel.SchemaValidation" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
