@@ -134,6 +134,21 @@ public sealed class PackDependencyClosureActivationTests
     }
 
     [Fact]
+    public void A_zero_pin_on_the_inactive_platform_pack_is_not_satisfied_by_the_stand_in_floor()
+    {
+        var store = new InMemoryPackInstallStore();
+        Seed(store, "test.b", "1.0.0", (PlatformPackTestPreload.PackKey, "0.0.0"));
+        store.Activate(Tenant, "test.b", "1.0.0");
+        Seed(store, "test.a", "1.0.0", ("test.b", "1.0.0"));
+
+        var outcome = Installer(store).Activate(Tenant, "test.a", "1.0.0", Now, "operator");
+
+        Assert.False(outcome.Activated);
+        Assert.Equal(PackInstallCodes.ActivatePlatformPackRequired, outcome.Error);
+        Assert.Contains("declared by 'test.b'", outcome.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Activate_without_a_platform_declaration_in_the_closure_does_not_yet_require_the_platform_pack()
     {
         // S9 (DES-0029 ck-2 D5) makes the platform pack the root of every closure; until it lands the
