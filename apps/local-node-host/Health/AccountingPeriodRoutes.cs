@@ -73,6 +73,10 @@ public static class AccountingPeriodRoutes
         // POST /api/local-node/accounting-periods/open
         app.MapPost($"{RouteBase}/open", async (OpenPeriodRequest? body, CancellationToken ct) =>
         {
+            // T-974: when no period covers the date this mints a FiscalPeriod; its id is server-minted, so a
+            // caller-constructed one is refused rather than ignored.
+            if (body?.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             DateOnly date;
             if (!string.IsNullOrWhiteSpace(body?.Date))
             {
@@ -158,7 +162,8 @@ public sealed record AccountingPeriodWire(
 
 /// <summary>POST body for <c>POST /api/local-node/accounting-periods/open</c> (date optional).</summary>
 public sealed record OpenPeriodRequest(
-    [property: JsonPropertyName("date")] string? Date = null);
+    [property: JsonPropertyName("date")] string? Date = null,
+    [property: JsonPropertyName("id")] string? Id = null);
 
 /// <summary>POST body for <c>POST /api/local-node/accounting-periods/{id}/close</c>.</summary>
 public sealed record ClosePeriodRequest(

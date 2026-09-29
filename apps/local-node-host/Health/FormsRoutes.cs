@@ -165,6 +165,10 @@ public static class FormsRoutes
             {
                 return Results.BadRequest(new { code = "forms.body_must_be_json_object" });
             }
+            // T-974: the engine mints the form instance; `instanceId` is that record's wire identity, never
+            // candidate data, so a caller-constructed one is refused rather than stored or coerced.
+            if (body.TryGetProperty("instanceId", out _))
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
 
             // F-ROUTE idempotency (ADR 0101 Rev 3.1 Wave 2b) is owned here by the durable forms
             // mechanism. NodeMutationIdempotency deliberately skips this route so the two regimes do not stack.
