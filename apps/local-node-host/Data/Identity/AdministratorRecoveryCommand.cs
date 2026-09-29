@@ -293,14 +293,14 @@ public static class AdministratorRecoveryCommand
     }
 
     /// <summary>The node store file name inside the data directory — the same one the host keys and opens.</summary>
-    private const string StoreFileName = "local-node.db";
+    internal const string StoreFileName = "local-node.db";
 
     /// <summary>
     /// Bind <c>LocalNode</c> the way the host binds it: appsettings (+ environment overlay), environment
     /// variables, then the durable install footprint. Recovery must resolve the SAME data directory, the
     /// SAME team and the SAME store key the node would, or it repairs something that is not the node.
     /// </summary>
-    private static ResolvedRecoveryConfiguration ResolveConfiguration(
+    internal static ResolvedRecoveryConfiguration ResolveConfiguration(
         IReadOnlyList<string> args,
         IInstallationResolver installationResolver)
     {
@@ -435,7 +435,7 @@ public static class AdministratorRecoveryCommand
             IsGenesisAdmission: genesis.Admission.IsGenesis);
     }
 
-    private static async Task<byte[]> ResolveRootSeedAsync(
+    internal static async Task<byte[]> ResolveRootSeedAsync(
         ResolvedRecoveryConfiguration configuration,
         CancellationToken cancellationToken)
     {
@@ -454,7 +454,7 @@ public static class AdministratorRecoveryCommand
             .ConfigureAwait(false);
     }
 
-    private sealed record ResolvedRecoveryConfiguration(
+    internal sealed record ResolvedRecoveryConfiguration(
         LocalNodeOptions Options,
         Lazy<ResolvedRecoveryInstallation> Installation);
 
@@ -463,7 +463,7 @@ public static class AdministratorRecoveryCommand
         IInstallFootprintProvider FootprintProvider,
         InstallFootprint Footprint);
 
-    private static string? ValueOf(IReadOnlyList<string> args, string name)
+    internal static string? ValueOf(IReadOnlyList<string> args, string name)
     {
         for (var i = 0; i < args.Count - 1; i++)
         {

@@ -27,6 +27,7 @@ using Harborline.Api.Foundation.Taxonomy.Services;
 using Harborline.Api.Foundation.ViewDefinitions;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Kernel.Core;
 
 using AmbientTenantContext = Harborline.Api.Foundation.MultiTenancy.ITenantContext;
 
@@ -52,6 +53,36 @@ public sealed record CatalogueProvenance(
     [property: JsonPropertyName("packKey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PackKey,
     [property: JsonPropertyName("packVersion"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PackVersion,
     [property: JsonPropertyName("kind")] string Kind);
+
+/// <summary>
+/// One compiled bootstrap shape (ck-1) as the types route serves it. It is read from the platform's
+/// compiled floor, so it answers before any catalogue or seed read and no pack can supply it.
+/// </summary>
+public sealed record CompiledCatalogueType(
+    string Identity,
+    string Key,
+    string Name,
+    int Revision,
+    bool Sealed,
+    IReadOnlyList<CompiledCatalogueMember> Members,
+    CatalogueProvenance Provenance)
+{
+    /// <summary>The platform's compiled floor, in its declared order.</summary>
+    public static IReadOnlyList<CompiledCatalogueType> All { get; } = CompiledBootstrapCatalogue.Shapes
+        .Select(shape => new CompiledCatalogueType(
+            shape.Identity.Value,
+            shape.Key,
+            shape.Name,
+            shape.Revision,
+            Sealed: true,
+            [.. shape.Members.Select(member => new CompiledCatalogueMember(
+                member.Key, member.Kind.ToString(), member.Required, member.Many, member.Target))],
+            new CatalogueProvenance(null, null, "compiled")))
+        .ToArray();
+}
+
+/// <summary>One member of a compiled bootstrap shape; <paramref name="Target"/> names a referenced shape or catalogue key.</summary>
+public sealed record CompiledCatalogueMember(string Key, string Kind, bool Required, bool Many, string? Target);
 
 /// <summary>One compiled, sealed system type represented by the catalogue.</summary>
 public sealed record SystemRecordType(
@@ -610,7 +641,8 @@ public static class CatalogueRoutes
             if (denied is not null)
                 return denied;
             var platform = packStore.GetActive(tenant, "harborline.platform");
-            return Results.Ok(SystemRecordType.FromActivePlatformPack(platform));
+            // ck-1: the compiled floor first and unconditionally; the seed's sealed descriptors follow.
+            return Results.Ok<object[]>([.. CompiledCatalogueType.All, .. SystemRecordType.FromActivePlatformPack(platform)]);
         });
     }
 

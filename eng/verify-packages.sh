@@ -2,7 +2,10 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-bash "$repo_root/eng/verify-boundaries.sh"
+# HARBORLINE_PACKAGE_PACK_ONLY=1: pack and stop, no checks (packages.yml on push, which is
+# publication only; the merge group already ran the full check on the same commit).
+pack_only=${HARBORLINE_PACKAGE_PACK_ONLY:-}
+[ "$pack_only" = 1 ] || bash "$repo_root/eng/verify-boundaries.sh"
 version=${HARBORLINE_PACKAGE_VERSION:-"0.1.0-preview.local.$(date -u +%Y%m%d%H%M%S)"}
 if [ -n "${HARBORLINE_PACKAGE_OUTPUT:-}" ]; then
   artifact_dir=$HARBORLINE_PACKAGE_OUTPUT
@@ -26,6 +29,7 @@ for project in "${package_projects[@]}"; do
   # immutable version the workflow selected.
   dotnet pack "$project" -c Release -p:MinVerVersionOverride="$version" -o "$artifact_dir"
 done
+[ "$pack_only" = 1 ] && exit 0
 # The nuget.org URL is listed FIRST deliberately. With the local feed first, NuGet
 # normalises the URL that follows as though it were a path -- the "//" collapses and
 # it is then resolved relative to the project directory, so restore dies with

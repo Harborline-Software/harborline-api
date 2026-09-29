@@ -232,6 +232,9 @@ public static class InvoiceRoutes
             {
                 return Results.BadRequest(new { error = "request_null" });
             }
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body.ChartId))
             {
                 return Results.BadRequest(new { error = "chart_id_required" });
@@ -277,7 +280,7 @@ public static class InvoiceRoutes
                 }
             }
 
-            var invoiceId = string.IsNullOrWhiteSpace(body.Id) ? InvoiceId.NewId() : new InvoiceId(body.Id);
+            var invoiceId = InvoiceId.NewId();
 
             // Mint the canonical number AT CREATE time (mirrors the Bridge create flow). This keeps even
             // the Draft carrying a real INV-… number, so the EF unique index on (tenant, chart, number)

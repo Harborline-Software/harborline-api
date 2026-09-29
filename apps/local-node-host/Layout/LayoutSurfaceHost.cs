@@ -195,6 +195,10 @@ public sealed class LayoutSurfaceHost(
     /// <summary>One request's Layout access answers, built over the host authorization gate.</summary>
     private sealed class LayoutGateAccess(bool canOpen) : ILayoutAccess
     {
+        // This host opens published surfaces only; authoring and publication are not asked here.
+        public bool CanAuthor() => false;
+        public bool CanPublish() => false;
+
         public bool CanOpen(string surfaceId) => canOpen;
 
         public bool CanRead(LayoutBinding binding)

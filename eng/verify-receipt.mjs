@@ -48,11 +48,15 @@ export const requiredStepIds = [
 // artifacts/quality, and only the host carrying HARBORLINE_GATE_QUALITY=1 produces it -- so only
 // that host's receipt is expected to carry them.
 export const hostStepIds = ['exact-clone', 'quality', 'quality-baseline']
+// The package lanes (2026-09-29, owner): the same commands as the required packages.yml jobs
+// protocol-lane-conformance, operator-cli-headless and pack-consume, which own that proof in CI. The
+// shared lane leaves them to those jobs; `all` still requires them.
+export const packageLaneStepIds = ['contracts-typescript', 'contracts-csharp', 'contracts-rust', 'operator-cli-headless', 'packages']
 export const stepIdsForLane = (lane, env = process.env) => {
   if (lane === 'host') {
     return env.HARBORLINE_GATE_QUALITY === '1' ? hostStepIds : ['exact-clone']
   }
-  if (lane === 'shared') return requiredStepIds.filter(id => !hostStepIds.includes(id))
+  if (lane === 'shared') return requiredStepIds.filter(id => !hostStepIds.includes(id) && !packageLaneStepIds.includes(id))
   return requiredStepIds
 }
 

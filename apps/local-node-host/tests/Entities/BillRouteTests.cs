@@ -318,6 +318,24 @@ public sealed class BillRouteTests : IAsyncLifetime
         Assert.Equal("chart_id_required", doc.GetProperty("error").GetString());
     }
 
+    [Fact(DisplayName = "Bill create: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)")]
+    public async Task Create_refuses_a_client_supplied_record_id()
+    {
+        using var refused = await _client.PostAsJsonAsync(BillsRoute, NewBillBody(id: "client-constructed-id"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        using var detail = await _client.GetAsync($"{BillsRoute}/client-constructed-id");
+        Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
+        var list = await _client.GetFromJsonAsync<JsonElement>($"{BillsRoute}?chartId=CH-1");
+        Assert.Empty(Data(list).EnumerateArray());
+
+        var minted = Data(await (await _client.PostAsJsonAsync(BillsRoute, NewBillBody())).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Bill create: no lines is rejected 400 no_lines")]
     public async Task Create_NoLines_Rejected()
     {

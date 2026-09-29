@@ -170,6 +170,9 @@ public static class ChartOfAccountsManagementRoutes
             {
                 return Results.BadRequest(new { error = "code_required" });
             }
+            // T-974: `code` is the chart-scoped business key; the account id itself is server-minted.
+            if (body.Id is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(body.Name))
             {
                 return Results.BadRequest(new { error = "name_required" });
@@ -406,4 +409,5 @@ public sealed record CreateAccountRequest(
     [property: JsonPropertyName("currency")] string Currency,
     [property: JsonPropertyName("description")] string? Description = null,
     [property: JsonPropertyName("parentAccountId")] string? ParentAccountId = null,
-    [property: JsonPropertyName("isPostable")] bool? IsPostable = null);
+    [property: JsonPropertyName("isPostable")] bool? IsPostable = null,
+    [property: JsonPropertyName("id")] string? Id = null);

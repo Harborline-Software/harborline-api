@@ -13,6 +13,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Health;
 public sealed class RouteAudienceGraphTests
 {
     [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
     public async Task Every_production_route_refuses_caller_supplied_tenant_identifiers()
     {
         foreach (var profile in LocalNodeHostedComponentCatalog.SupportedEndpointProfiles)

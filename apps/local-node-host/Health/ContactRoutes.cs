@@ -223,6 +223,9 @@ public static class ContactRoutes
                     http, LocalTenantId, Permission.ContactsCreate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (body?.Id is not null || body?.ContactId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (body is null || string.IsNullOrWhiteSpace(body.DisplayName))
                 return Results.BadRequest(new { error = "display_name_required" });
             if (!TryParseKind(body.Kind, out var kind))
@@ -477,7 +480,8 @@ public static class ContactRoutes
         };
 
     // ── Request bodies ───────────────────────────────────────────────────────────
-    public sealed record CreateContactBody(string? DisplayName, string? Kind);
+    public sealed record CreateContactBody(
+        string? DisplayName, string? Kind, string? Id = null, string? ContactId = null);
     public sealed record AttachRoleBody(string? RoleName);
     public sealed record UpdateContactBody(
         string? DisplayName, string? LegalName, string? Notes,

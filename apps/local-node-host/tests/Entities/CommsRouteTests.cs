@@ -120,6 +120,26 @@ public sealed class CommsRouteTests : IAsyncLifetime
         }
     }
 
+    [Theory(DisplayName = "Comms route: a client-supplied message id is refused 400 with no append, and omission mints a server id (T-974)")]
+    [InlineData("id")]
+    [InlineData("messageId")]
+    public async Task Post_refuses_a_client_supplied_record_id(string key)
+    {
+        var refused = await _client.PostAsJsonAsync(
+            Route, new Dictionary<string, object?> { ["body"] = "client id", [key] = "client-constructed-id" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("request.record-id-not-accepted",
+            (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(0, (await _client.GetFromJsonAsync<JsonElement>(Route)).GetProperty("messages").GetArrayLength());
+
+        var created = await _client.PostAsJsonAsync(Route, new { body = "server id" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var minted = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("messageId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(minted));
+        Assert.NotEqual("client-constructed-id", minted);
+    }
+
     [Fact(DisplayName = "Comms route: POST with an empty body → 400 body_required")]
     public async Task Post_EmptyBody_Returns400()
     {

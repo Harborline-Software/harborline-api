@@ -270,6 +270,9 @@ public static class SchedulingDefinitionRoutes
                     http, Tenant(), Permission.SchedulingOperate, RouteRecord.TheInstall, ct);
             if (denied is not null)
                 return denied;
+            // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+            if (request.Id is not null || request.EventId is not null)
+                return Results.BadRequest(new { code = "request.record-id-not-accepted" });
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { code = "scheduling.event.invalid" });
             var tenant = Tenant();
@@ -445,5 +448,7 @@ public sealed record SchedulingEventRequest(
     DateTimeOffset? EndUtc = null,
     bool AllDay = false,
     string? StartDate = null,
-    string? EndDate = null);
+    string? EndDate = null,
+    string? Id = null,
+    string? EventId = null);
 public sealed record SchedulingResourceAvailabilityRequest(string Resource, string Timezone);
