@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -6,6 +7,7 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Health;
 
 namespace Harborline.Api.LocalNodeHost.Enrollment;
@@ -54,7 +56,10 @@ public static class EnrollmentCompensatingControlAuditComposition
         // writer consumes it yet (later slices convert them); the arch fence keeps that true meanwhile.
         services.TryAddSingleton<SeparationOfDutyEngine>();
 
-        services.TryAddSingleton<NodeAuditTrailStore>();
+        // A factory registration, so a graph that registered its own trail first (TryAdd below) never needs the
+        // local-node.db context factory this store resolves.
+        services.TryAddSingleton(sp => new NodeAuditTrailStore(
+            sp.GetRequiredService<IDbContextFactory<NodeLocalSearchDbContext>>()));
         services.TryAddSingleton(sp => new AuthorityCapturingAuditTrail(sp.GetRequiredService<NodeAuditTrailStore>()));
         services.TryAddSingleton<IAuditTrail>(sp => sp.GetRequiredService<AuthorityCapturingAuditTrail>());
         services.TryAddSingleton<IAuthorizedAuditTrail>(sp => sp.GetRequiredService<AuthorityCapturingAuditTrail>());

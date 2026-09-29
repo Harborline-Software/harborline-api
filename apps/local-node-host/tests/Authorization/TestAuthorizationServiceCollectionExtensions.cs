@@ -29,6 +29,28 @@ internal static class TestAuthorizationServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// T-986: an in-memory kernel audit trail for test graphs that compose the shipping enrollment audit but test
+    /// something else. Registered first, it wins the composition's TryAdd registrations, so the graph needs no
+    /// local-node.db store. The shipping host registers no in-memory trail.
+    /// </summary>
+    internal static IServiceCollection AddTestInMemoryKernelAudit(this IServiceCollection services)
+    {
+        services.TryAddSingleton<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>();
+        services.TryAddSingleton<Harborline.Api.Kernel.Audit.IAuditTrail>(sp =>
+            sp.GetRequiredService<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>());
+        services.TryAddSingleton<Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail>(sp =>
+            sp.GetRequiredService<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>());
+        services.TryAddSingleton<Harborline.Api.Kernel.Audit.ICapturedAuditTrail>(sp =>
+            sp.GetRequiredService<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>());
+        services.TryAddSingleton<Harborline.Api.Kernel.Audit.IAuditEventReader>(sp =>
+            new Harborline.Api.Kernel.Audit.InMemoryAuditEventReader(
+                sp.GetRequiredService<Harborline.Api.Kernel.Audit.InMemoryAuditTrail>(),
+                sp.GetRequiredService<Harborline.Api.Kernel.Audit.IAuditTrail>(),
+                sp.GetRequiredService<IOperationSigner>()));
+        return services;
+    }
+
     internal static IServiceCollection AddTestAuthorizationGate(this IServiceCollection services)
     {
         services.AddTestKernelClock();
@@ -55,6 +77,7 @@ internal static class TestAuthorizationServiceCollectionExtensions
         services.TryAddSingleton(_ => new NodePrincipalSigner(RandomNumberGenerator.GetBytes(32)));
         services.TryAddSingleton<IOperationSigner>(sp =>
             sp.GetRequiredService<NodePrincipalSigner>().Signer);
+        services.AddTestInMemoryKernelAudit();
         services.AddEnrollmentCompensatingControlAudit();
         return services.AddNodeForms(hostJurisdiction, configureWriters);
     }
