@@ -5,10 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Packs</RootNamespace>
     <Description>Pack Composer B-1a — the EXPORT + VERIFY half of the domain-pack composer (design note 2026-07-02; ADR 0129 D1 pack manifest, ADR 0007 envelope conventions, ADR 0126 D4 epoch-aware verification). Pack manifest model, canonical serialization (reuses Harborline.Api.Foundation.Crypto.CanonicalJson — S-14 single source), merkle-binding signature envelope carrying {key-id, epoch}, fail-closed validator (single-level deps, value-level PII floor), export to a sneakernet-able signed pack file, and verify-before-effect verification returning a typed verdict (Verified/NotSigned/EpochUnverifiable/VerificationFailed). NO install engine, NO seed-layer writes (that is B-1b).</Description>
     <PackageTags>packs;pack-composer;domain-pack;canonical-json;ed25519;merkle;epoch;trust-store;harborline;foundation;adr-0129</PackageTags>
-    <!-- CS1591 suppressed at package level (matches sibling foundation-* packages): the public
-         surface is documented, but seed-data / small DTO members need not each carry a doc comment
-         to keep the 0/0 build under the repo-wide GenerateDocumentationFile + TreatWarningsAsErrors. -->
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

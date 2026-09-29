@@ -12,10 +12,8 @@
          transitive availability via the Microsoft.AspNetCore.App framework
          reference. Per fleet-conventions §"NU1510 — keep the PackageRef, suppress
          the warning" + the LANDED foundation-authorization csproj precedent
-         (ADR 0099 A4); reference template shipyard commit b4475df.
-         CS1591 suppressed for the AuditEventTypes constant strings (self-describing
-         names; xmldoc on the container type). -->
-    <NoWarn>$(NoWarn);CS1591;NU1510</NoWarn>
+         (ADR 0099 A4); reference template shipyard commit b4475df. -->
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <!-- HttpContext (Http.Abstractions) + SignInAsync (Authentication.Abstractions) +
        CookieAuthenticationDefaults come from the ASP.NET Core shared framework. ADR 0099

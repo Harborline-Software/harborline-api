@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Forms.Engine</RootNamespace>
     <Description>Foundation-tier dynamic-forms rendering engine (ADR 0055 §3.1). The IFormEngine companion to the Harborline.Api.Foundation.Forms keystone: composes the kernel schema registry, the foundation macaroon capability primitives, the foundation-recovery PII field-encryption seam, and the asset audit log to render / validate / save form instances. Enforces INV-S1 (read-path tenant fail-closed), INV-S2 (schema-validation resource bounds), INV-S3 (PII default-secure-at-rest), and INV-S4 (audit completeness).</Description>
     <PackageTags>harborline;foundation;forms;form-engine;capabilities;macaroon;adr-0055</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

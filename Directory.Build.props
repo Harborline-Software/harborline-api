@@ -29,19 +29,12 @@
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);NETSDK1206</MSBuildWarningsAsMessages>
     <!--
       harborline-api addition (ticket 008 Phase A step 7), not present in the source root.
-      The NoWarn above states the intent that NU1510 is suppressed repo-wide, but a number of
-      the copied projects set a bare <NoWarn>CS1591</NoWarn> that does NOT include $(NoWarn), so
-      they discard the inherited suppression. That count was 36 when this comment was written
-      and is 28 today: seven acquired $(NoWarn) in later commits and one project was deleted.
-      Do not treat the number as current without re-counting — the register is still open.
-      Four of them reference a prunable package and therefore fail restore under
-      TreatWarningsAsErrors. The source hit this too and patched
-      it per-project twice (foundation-scheduling and blocks-migration-erpnext re-add NU1510
-      by hand), which is a fix that has to be repeated for every future project that trips it.
-      WarningsNotAsErrors is immune to a project-level NoWarn override, so it enforces the
-      already-stated global intent once. This does NOT silence NU1510 — it stays a visible
-      warning; it only declines to fail the build on an advisory the source chose to suppress.
-      The bare-NoWarn projects are a source defect: cleanup register C-004.
+      The NoWarn above suppresses NU1510 repo-wide, but a project that sets a bare <NoWarn> without
+      $(NoWarn) discards it, and one that references a prunable package then fails restore under
+      TreatWarningsAsErrors. WarningsNotAsErrors is immune to a project-level NoWarn override, so it
+      keeps NU1510 a visible warning that never fails the build. Cleanup register C-004 (the bare
+      per-project CS1591 lines that caused this) was closed on 2026-09-29: CS1591 policy now lives in
+      Directory.Build.targets and no project sets a bare <NoWarn>. This stays as the guard.
     -->
     <!-- HLQ.CS.1000 / VSTHRD002 and HLQ.CS.1100 / CA1031 are Preview-mode
          evidence for CQG. Keep these two warnings visible in ErrorLog without

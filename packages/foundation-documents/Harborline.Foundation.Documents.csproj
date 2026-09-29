@@ -12,7 +12,6 @@
       subject-key-encrypted snapshot, ADR 0142 legal-hold pre-shred gated). Provider-neutral: carries no
       PDF library — the PDFsharp adapter ships as the non-Foundation Harborline.Api.Documents.PdfSharp package.</Description>
     <PackageTags>harborline;foundation;documents;templates;pdf;merge;adr-0146;adr-0021;adr-0142;pillar-111</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

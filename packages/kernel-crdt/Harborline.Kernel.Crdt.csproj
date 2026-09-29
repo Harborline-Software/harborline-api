@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Kernel.Crdt</RootNamespace>
     <Description>Harborline CRDT engine abstraction — Wave 1.2 of the paper-alignment plan (paper §2.2, §9; ADR 0008). Wraps the YDotNet/yrs engine of record behind framework-agnostic ICrdtDocument / ICrdtText / ICrdtMap / ICrdtList contracts and includes a test-only in-memory fake.</Description>
     <PackageTags>harborline;kernel;crdt;local-first</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
