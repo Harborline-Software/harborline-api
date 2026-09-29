@@ -15,6 +15,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Composition;
 public sealed class SingleContainerCompositionTests
 {
     [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
     public async Task Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"selected-session-composition-{Guid.NewGuid():N}");
