@@ -139,6 +139,8 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
             // attribution reference and is not an authorization key (see NodeGatePrincipal).
             var gatePrincipal = NodeGatePrincipal.Of(principal);
             var inputs = EffectiveMemberPermissions.Read(roster, gatePrincipal.Value, gatePrincipal);
+            // Ticket 294 bullet 3 — roster ABSENCE is not ejection. A subject with no edge (the pre-edge web
+            // invitee) falls through to its grants; an ejected subject is denied here and on every plane.
             if (inputs.Ejected) return null;
             var allowed = new List<string>();
             var authority = new AuthorizationWriteContext(gatePrincipal, principal.TenantId, evaluatedAt);
