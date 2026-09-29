@@ -134,6 +134,36 @@ public sealed class WebTenantSwitchAuthorityTests
             (await completed.Coordinators.AsNoTracking().SingleAsync()).State);
     }
 
+    [Fact]
+    [Trait("PlanCard", "MTW-01C")]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written()
+    {
+        // The target partition would still report a usable membership, so only the candidate
+        // check stands between the account and a tenant it was never listed for.
+        await using var fixture = await SwitchFixture.CreateAsync(listTarget: false);
+
+        var switched = await fixture.Authority.SwitchAsync(
+            SwitchFixture.OldHandle,
+            TargetTenantId);
+
+        Assert.Null(switched);
+        Assert.Empty(fixture.TargetStore.VisibilityObservedDuringFinalize);
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Empty(await identity.Coordinators.AsNoTracking().ToArrayAsync());
+        }
+        await using (var sessions = fixture.SessionFactory.CreateDbContext())
+        {
+            Assert.Equal(2, await sessions.UserSessions.CountAsync());
+            Assert.Empty(await sessions.Revocations.AsNoTracking().ToArrayAsync());
+        }
+        Assert.NotNull(await new WebSelectedSessionStore(fixture.SessionFactory).FindActiveAsync(
+            Digest(SwitchFixture.OldHandle),
+            fixture.AccountSecurityVersion,
+            Now));
+    }
+
     private sealed class SwitchFixture : IAsyncDisposable
     {
         internal const string OldHandle =
@@ -169,7 +199,7 @@ public sealed class WebTenantSwitchAuthorityTests
         internal RecordingMembershipStore TargetStore { get; }
         internal WebTenantSwitchAuthority Authority { get; }
 
-        internal static async Task<SwitchFixture> CreateAsync()
+        internal static async Task<SwitchFixture> CreateAsync(bool listTarget = true)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"tenant-switch-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -256,7 +286,7 @@ public sealed class WebTenantSwitchAuthorityTests
                 identityFactory,
                 sessionFactory,
                 selectedStore,
-                new FixedCandidateLocator(),
+                new FixedCandidateLocator(listTarget),
                 coordinator,
                 resolver,
                 new FixedPartyReader(),
@@ -467,18 +497,20 @@ public sealed class WebTenantSwitchAuthorityTests
             Task.FromResult(_partitions[tenantId]);
     }
 
-    private sealed class FixedCandidateLocator : IInstallationTenantCandidateLocator
+    private sealed class FixedCandidateLocator(bool listTarget) : IInstallationTenantCandidateLocator
     {
-        private static readonly IReadOnlyList<InstallationTenantCandidate> Candidates =
+        private readonly IReadOnlyList<InstallationTenantCandidate> Candidates =
         [
             new(
                 new TenantId(OldTenantId),
                 "old-tenant",
                 TenantMembershipStatus.Active),
-            new(
-                new TenantId(TargetTenantId),
-                "target-tenant",
-                TenantMembershipStatus.Active),
+            .. listTarget
+                ? [new InstallationTenantCandidate(
+                    new TenantId(TargetTenantId),
+                    "target-tenant",
+                    TenantMembershipStatus.Active)]
+                : Array.Empty<InstallationTenantCandidate>(),
         ];
 
         public Task<IReadOnlyList<InstallationTenantCandidate>> ListForAccountAsync(

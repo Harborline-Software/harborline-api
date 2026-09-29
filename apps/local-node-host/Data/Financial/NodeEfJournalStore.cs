@@ -113,9 +113,12 @@ public sealed class NodeEfJournalStore : IJournalStore
         //
         // With no scope the registered fence adapter reports NotApplicable and the write keeps the plain
         // SaveChanges shape, avoiding a write-lock-held transaction it does not need.
+        //
+        // A reversal reads the original and transitions it in the same unit of work, so it also takes the write
+        // lock before that read: two concurrent reversals cannot both see the original Posted.
         var fenceActive = HomeEpochWriteScope.Current is not null;
 
-        if (fenceActive)
+        if (fenceActive || entry.ReversalOf is not null)
         {
             await HomeEpochFenceTransaction.RunAsync(
                 ctx,
@@ -141,6 +144,24 @@ public sealed class NodeEfJournalStore : IJournalStore
         await _enlistmentRegistry
             .EnlistAsync(NodeJournalWriteOperation.Post, unitOfWork, cancellationToken)
             .ConfigureAwait(false);
+        if (entry.ReversalOf is { } originalId)
+        {
+            // DES-0029 ck-6: the original's Posted -> Reversed transition commits with the reversing entry and
+            // its audit row, or none of them does. A second reversal is refused before anything is written.
+            var original = await ctx.Set<JournalEntry>()
+                .SingleOrDefaultAsync(e => e.TenantId == entry.TenantId && e.Id == originalId, cancellationToken)
+                .ConfigureAwait(false);
+            if (original?.Status != JournalEntryStatus.Posted)
+            {
+                throw new JournalEntryNotReversibleException(
+                    $"JournalEntry '{originalId.Value}' is {original?.Status.ToString() ?? "absent"}; only a Posted entry can be reversed.");
+            }
+
+            var tracked = ctx.Entry(original);
+            tracked.Property(e => e.Status).CurrentValue = JournalEntryStatus.Reversed;
+            tracked.Property(e => e.ReversedBy).CurrentValue = entry.Id;
+        }
+
         ctx.Set<JournalEntry>().Add(entry);
         await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -181,50 +202,7 @@ public sealed class NodeEfJournalStore : IJournalStore
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
     }
-
-    /// <summary>
-    /// Replaces a persisted entry with <paramref name="updated"/> (matched on
-    /// <see cref="JournalEntry.Id"/>). Used by the reverse path to transition the ORIGINAL
-    /// entry to <see cref="JournalEntryStatus.Reversed"/> + set its
-    /// <see cref="JournalEntry.ReversedBy"/> FK after the reversing entry is saved — the same
-    /// state transition <see cref="InMemoryJournalStore.ReplaceEntry"/> performs in-memory and
-    /// the Bridge applies for its in-memory store. Without it the Posted-only guard would never
-    /// fire on a second reverse, allowing double-counted GL reversals (F-89-A, sec-eng 2026-06-13).
-    /// </summary>
-    /// <remarks>
-    /// No-op (idempotent) when no row matches the id, matching the in-memory contract. The
-    /// tenant guard throws <see cref="System.ArgumentException"/> on a mismatched tenant. The
-    /// whole replace is one atomic EF transaction.
-    /// </remarks>
-    public async Task ReplaceEntryAsync(
-        TenantId tenantId,
-        JournalEntry updated,
-        CancellationToken cancellationToken = default)
-    {
-        System.ArgumentNullException.ThrowIfNull(updated);
-        if (!updated.TenantId.Equals(tenantId))
-        {
-            throw new System.ArgumentException(
-                $"JournalEntry '{updated.Id.Value}' carries TenantId '{updated.TenantId.Value}' " +
-                $"but caller passed tenantId '{tenantId.Value}'.",
-                nameof(updated));
-        }
-
-        await using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        // Defence-in-depth tenant WHERE clause: never updates a foreign-tenant row even if
-        // one somehow shared the id (structurally impossible on a single-device node).
-        var exists = await ctx.Set<JournalEntry>()
-            .AsNoTracking()
-            .AnyAsync(e => e.TenantId == tenantId && e.Id == updated.Id, cancellationToken)
-            .ConfigureAwait(false);
-        if (!exists)
-        {
-            return; // idempotent no-op (matches the in-memory ReplaceEntry contract)
-        }
-
-        ctx.Set<JournalEntry>().Update(updated);
-        await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
 }
+
+/// <summary>A reversal's transaction found its original no longer Posted: another reversal won the race.</summary>
+public sealed class JournalEntryNotReversibleException(string message) : InvalidOperationException(message);
