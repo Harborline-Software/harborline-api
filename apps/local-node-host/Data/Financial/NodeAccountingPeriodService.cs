@@ -112,15 +112,18 @@ public sealed class NodeAccountingPeriodService
     }
 
     /// <summary>
-    /// Ensures an OPEN period covers <paramref name="date"/> in the install chart, creating the
+    /// Ensures an OPEN period covers <paramref name="requestedDate"/> in the install chart, creating the
     /// covering fiscal year + monthly period if none exists, or REOPENing a SoftClosed covering
     /// period. A Locked covering period is an <see cref="Outcome.InvalidTransition"/> (unlock is a
     /// separate, deliberate admin step — not part of the offline first-run open path). Returns the
     /// open period covering the date on success. This is the offline "open a period" entry point.
+    /// An omitted date is today's UTC date from the same host clock read that stamps the write.
     /// </summary>
-    public async Task<PeriodResult> OpenForDateAsync(DateOnly date, CancellationToken ct = default)
+    public async Task<PeriodResult> OpenForDateAsync(DateOnly? requestedDate, CancellationToken ct = default)
     {
-        var at = new Instant(_time.GetUtcNow());
+        var now = _time.GetUtcNow();
+        var at = new Instant(now);
+        var date = requestedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
         var chartId = await ResolveChartIdAsync(ctx, ct).ConfigureAwait(false);
         if (chartId is null)

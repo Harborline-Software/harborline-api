@@ -372,7 +372,6 @@ public sealed class AuthorizationGateArchTests
         var inventory = new (string Entry, string Admission)[]
         {
             ("NodeEfJournalStore.SaveAtomicAsync", "JournalPostingService"),
-            ("NodeEfJournalStore.ReplaceEntryAsync", "JournalEntryRoutes reversal coordinator"),
             ("NodeEfWorkflowStore.CreateInstanceAsync", "NodeWorkflowInstantiationService"),
             ("NodeEfWorkflowStore.AdvanceAsync", "WorkflowTriggerDispatcher"),
             ("NodeEfWorkflowStore.ParkAsync", "WorkflowTriggerDispatcher"),
@@ -405,7 +404,6 @@ public sealed class AuthorizationGateArchTests
         [
             "Harborline.Api.Blocks.FinancialLedger.Services.InMemoryJournalStore.ReplaceEntry",
             "Harborline.Api.Blocks.FinancialLedger.Services.InMemoryJournalStore.SaveAtomicAsync",
-            "Harborline.Api.LocalNodeHost.Data.Financial.NodeEfJournalStore.ReplaceEntryAsync",
             "Harborline.Api.LocalNodeHost.Data.Financial.NodeEfJournalStore.SaveAtomicAsync",
             "Harborline.Api.LocalNodeHost.Data.Identity.AccountSetupInvitationStore.ConsumeAndReadAsync",
             "Harborline.Api.LocalNodeHost.Data.Identity.AccountSetupInvitationStore.ConsumeAsync",
@@ -579,7 +577,7 @@ public sealed class AuthorizationGateArchTests
     private static readonly IReadOnlyDictionary<string, string> Slice3MutationMethods =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["NodeEfJournalStore"] = "SaveAtomicAsync|ReplaceEntryAsync",
+            ["NodeEfJournalStore"] = "SaveAtomicAsync",
             ["IJournalStore"] = "SaveAtomicAsync|ReplaceEntryAsync",
             ["NodeEfWorkflowStore"] = "CreateInstanceAsync|AdvanceAsync|ParkAsync",
             ["IWorkflowStore"] = "CreateInstanceAsync|AdvanceAsync|ParkAsync",
