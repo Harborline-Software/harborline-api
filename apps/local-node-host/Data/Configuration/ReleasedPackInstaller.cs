@@ -146,6 +146,17 @@ public sealed class ReleasedPackInstaller
         var releaseKey = converted.PackageKey;
         var version = request?.Version ?? string.Empty;
 
+        // T-982 (ck-2 S7): every pinned package must be Active at its pin or newer before anything is
+        // exported, installed or narrowed, whether or not the release has content of its own to install.
+        var unmet = converted.Dependencies.Where(pin => _packs.GetActive(tenant, pin.Key) is not { } active
+                || !PackVersion.IsWellFormed(pin.Version) || PackVersion.Compare(active.Version, pin.Version) < 0)
+            .Select(pin => new ReleasedPackRefusal(
+                PackVersion.IsWellFormed(pin.Version) ? PackInstallCodes.RefusedUnmetDependency : PackInstallCodes.RefusedMalformedDependencyPin,
+                pin.Key, $"The Released package depends on '{pin.Key}' at {pin.Version} or newer, and no such version of it is Active."))
+            .ToList();
+        if (unmet.Count > 0)
+            return new(false, offer.Released.Digest, releaseKey, version, unmet);
+
         // Every K8 refusal is found before anything is exported, installed or narrowed.
         var refusals = new List<ReleasedPackRefusal>();
         var installedPacks = _packs.ListInstalled(tenant);
@@ -273,8 +284,9 @@ public sealed record ReleasedDefinitionEdit(string DefinitionKey, string Package
 /// <param name="PackageKey">The release's own package key.</param>
 /// <param name="Request">The export request for the release's own definitions; null when it has none.</param>
 /// <param name="ForeignEdits">Edits of definitions another package owns (ck-2 S8, K8); never installed as own content.</param>
+/// <param name="Dependencies">The release's pinned closure (T-982), in the document's key order.</param>
 public sealed record ReleasedPackConversionResult(string PackageKey, PackExportRequest? Request,
-    IReadOnlyList<ReleasedDefinitionEdit> ForeignEdits);
+    IReadOnlyList<ReleasedDefinitionEdit> ForeignEdits, IReadOnlyList<PackDependencyRef> Dependencies);
 
 /// <summary>
 /// The mechanical conversion from one released <c>PlatformPackageManifest</c> document to the pack export
@@ -283,6 +295,15 @@ public sealed record ReleasedPackConversionResult(string PackageKey, PackExportR
 /// </summary>
 public static class ReleasedPackConversion
 {
+    /// <summary>T-982: the released document carries no <c>closure.dependencies</c> array.</summary>
+    public const string ClosureMissingCode = "configuration-release-closure-missing";
+
+    /// <summary>T-982: a closure entry has a blank key or version, repeats a key, or names the release itself.</summary>
+    public const string ClosureMalformedCode = "configuration-release-closure-malformed";
+
+    /// <summary>T-982: an edit names a package the closure does not pin.</summary>
+    public const string ClosureMismatchCode = "configuration-release-closure-mismatch";
+
     /// <summary>
     /// Reads the released document into an export request. Each item carrying a <c>definitionKey</c> is
     /// one content source, keyed by that definition key, of the content kind the item states, pinned at
@@ -294,7 +315,9 @@ public static class ReleasedPackConversion
     /// <param name="authoringPrincipal">The node principal the declared compliance profile is authored by.</param>
     /// <remarks>ck-2 S8: each edit's <c>packageKey</c> is compared with the release key. Only the release's
     /// own edits become content; an edit naming another package is returned in
-    /// <see cref="ReleasedPackConversionResult.ForeignEdits"/> and never becomes the release's content.</remarks>
+    /// <see cref="ReleasedPackConversionResult.ForeignEdits"/> and never becomes the release's content.
+    /// T-982 (ck-2 S7): <c>closure.dependencies</c> is read into the request's dependencies. A missing
+    /// closure, a malformed entry, or an edit naming a package the closure does not pin is refused.</remarks>
     /// <exception cref="ReleasedPackConversionException">The document is not a convertible released package.</exception>
     public static ReleasedPackConversionResult Convert(ReadOnlySpan<byte> document, string authoringPrincipal)
     {
@@ -353,10 +376,16 @@ public static class ReleasedPackConversion
                 throw new ReleasedPackConversionException("configuration-release-no-definitions", "items",
                     "The Released package carries no edited definition to install.");
 
+            var dependencies = Closure(root, packageKey);
+            var unpinned = foreign.FirstOrDefault(edit => !dependencies.Any(pin => pin.Key == edit.PackageKey));
+            if (unpinned is not null)
+                throw new ReleasedPackConversionException(ClosureMismatchCode, unpinned.PackageKey,
+                    $"The released definition '{unpinned.DefinitionKey}' names package '{unpinned.PackageKey}', which the Released package's closure does not pin.");
+
             var digest = root.TryGetProperty("digest", out var digestElement) && digestElement.ValueKind == JsonValueKind.Object
                 ? digestElement.GetProperty("value").GetString() ?? string.Empty
                 : string.Empty;
-            if (contents.Count == 0) return new(packageKey, null, foreign);
+            if (contents.Count == 0) return new(packageKey, null, foreign, dependencies);
             return new(packageKey, new PackExportRequest(
                 Key: packageKey,
                 Version: revision,
@@ -364,11 +393,33 @@ public static class ReleasedPackConversion
                 Description: $"Released configuration pack {digest}.",
                 ScopeTier: PackScopeTier.Vertical,
                 Contents: contents,
-                Dependencies: [],
+                Dependencies: dependencies,
                 CapabilityRequirements: [],
                 Epoch: PackComposerRoutes.OwnRosterEpoch,
-                Dcp: DomainComplianceProfile.General(authoringPrincipal)), foreign);
+                Dcp: DomainComplianceProfile.General(authoringPrincipal)), foreign, dependencies);
         }
+    }
+
+    private static List<PackDependencyRef> Closure(JsonElement root, string packageKey)
+    {
+        if (!root.TryGetProperty("closure", out var closure) || closure.ValueKind != JsonValueKind.Object
+            || !closure.TryGetProperty("dependencies", out var entries) || entries.ValueKind != JsonValueKind.Array)
+            throw new ReleasedPackConversionException(ClosureMissingCode, "closure",
+                "The Released package carries no pinned dependency closure.");
+        var pins = new List<PackDependencyRef>();
+        foreach (var entry in entries.EnumerateArray())
+        {
+            string? Field(string name) => entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty(name, out var value)
+                && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            var key = Field("key");
+            var pinned = Field("version");
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(pinned) || key == packageKey
+                || pins.Any(pin => pin.Key == key))
+                throw new ReleasedPackConversionException(ClosureMalformedCode, string.IsNullOrWhiteSpace(key) ? "closure" : key,
+                    "A pinned closure entry states no key or version, names the Released package itself, or repeats a key.");
+            pins.Add(new PackDependencyRef(key, pinned));
+        }
+        return pins;
     }
 
     private static string Text(JsonElement root, string property)
