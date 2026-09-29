@@ -198,6 +198,22 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         Assert.Null(Outbox().Single().LastError);
     }
 
+    [Fact(DisplayName = "ck-6 activation outbox: an activation delivers only its own row; an owed backlog stays with the drain daemon")]
+    public async Task Activation_delivers_only_its_own_row_and_leaves_the_backlog_to_the_daemon()
+    {
+        await ActivateCrashingPublicationAsync("intent-backlog", "acme.ext");
+        var baseline = await DigestAsync();
+        var candidate = (await PrepareAsync(baseline, "form.shared", "acme.core")).GetProperty("candidateDigest").GetString()!;
+
+        using (var activate = await ActivateAsync(baseline, candidate, "intent-now"))
+            Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+
+        var rows = Outbox().ToDictionary(row => row.IntentId);
+        Assert.NotNull(rows["intent-now"].PublishedAt);
+        Assert.Null(rows["intent-backlog"].PublishedAt);
+        Assert.Equal([ConfigurationEvidenceOutbox.AuditIdFor(_tenant.Value, "intent-now")], (await EvidenceAsync()).Select(entry => entry.AuditId));
+    }
+
     [Fact(DisplayName = "ck-6 activation outbox: two overlapping drains deliver an owed row once")]
     public async Task Overlapping_drains_deliver_once()
     {

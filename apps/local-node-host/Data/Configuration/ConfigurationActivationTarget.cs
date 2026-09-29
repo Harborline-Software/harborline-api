@@ -284,14 +284,14 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
             outcome = ConfigurationActivationOutcome.ConfirmCommitted(decided);
         }
 
-        // Publication runs after the durable commit and outside the lease: a drain of the evidence outbox, which
-        // delivers this row with the authority captured above. A publication failure leaves the row owed; the
-        // host's drain daemon (DES-0029 ck-6) or the offline recovery (T-587) brings it to a terminal state, and
-        // nothing here turns the committed switch into a refusal.
+        // Publication runs after the durable commit and outside the lease: this row alone is delivered from the
+        // evidence outbox, with the authority captured above; any owed backlog stays with the drain daemon. A
+        // publication failure leaves the row owed; the host's drain daemon (DES-0029 ck-6) or the offline recovery
+        // (T-587) brings it to a terminal state, and nothing here turns the committed switch into a refusal.
         try
         {
             CrashPoint?.Invoke("before-publish");
-            if (_evidence is not null) await _evidence.DrainAsync(cancellationToken).ConfigureAwait(false);
+            if (_evidence is not null) await _evidence.DeliverAsync(tenant.Value, intent.Id, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

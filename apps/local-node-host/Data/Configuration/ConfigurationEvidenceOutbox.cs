@@ -101,39 +101,65 @@ public sealed class ConfigurationEvidenceOutbox(
         }
     }
 
+    /// <summary>
+    /// Delivers one activation's row, if it is still owed, under the drain's gate: the post-commit path of that
+    /// activation. The owed backlog stays with <see cref="ConfigurationEvidenceDrainDaemon"/>, so an activation
+    /// after a trail outage does not wait on every earlier row.
+    /// </summary>
+    public async Task DeliverAsync(string tenant, string intentId, CancellationToken cancellationToken = default)
+    {
+        await _drain.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            var row = await context.EvidenceOutbox.AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Tenant == tenant && r.IntentId == intentId && r.PublishedAt == null && r.AuthoritySnapshotJson != null,
+                    cancellationToken).ConfigureAwait(false);
+            if (row is not null) await DeliverRowAsync(row, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _drain.Release();
+        }
+    }
+
     private async Task<int> DrainOnceAsync(CancellationToken cancellationToken)
     {
         var delivered = 0;
         foreach (var row in await OwedAsync(tenant: null, cancellationToken).ConfigureAwait(false))
+            if (await DeliverRowAsync(row, cancellationToken).ConfigureAwait(false)) delivered++;
+        return delivered;
+    }
+
+    /// <summary>Appends and marks one owed row; a failure is logged and recorded on the row, which stays owed.</summary>
+    private async Task<bool> DeliverRowAsync(ConfigurationEvidenceOutboxRow row, CancellationToken cancellationToken)
+    {
+        try
         {
+            await EnsureOnTrailAsync(row, cancellationToken).ConfigureAwait(false);
+            await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await MarkPublishedAsync(context, row.Tenant, row.IntentId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogError(exception, "Configuration activation evidence {IntentId} (tenant {Tenant}) is still owed to the audit trail.",
+                row.IntentId, row.Tenant);
             try
             {
-                await EnsureOnTrailAsync(row, cancellationToken).ConfigureAwait(false);
                 await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                await MarkPublishedAsync(context, row.Tenant, row.IntentId, time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
-                await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                delivered++;
+                await context.EvidenceOutbox.Where(r => r.Tenant == row.Tenant && r.IntentId == row.IntentId)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(r => r.LastError, exception.Message), cancellationToken)
+                    .ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception markFailure) when (markFailure is not OperationCanceledException)
             {
-                logger.LogError(exception, "Configuration activation evidence {IntentId} (tenant {Tenant}) is still owed to the audit trail.",
-                    row.IntentId, row.Tenant);
-                try
-                {
-                    await using var context = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                    await context.EvidenceOutbox.Where(r => r.Tenant == row.Tenant && r.IntentId == row.IntentId)
-                        .ExecuteUpdateAsync(setters => setters.SetProperty(r => r.LastError, exception.Message), cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (Exception markFailure) when (markFailure is not OperationCanceledException)
-                {
-                    // Best effort: the row stays owed either way, and throwing would end the pass before later rows.
-                    logger.LogError(markFailure, "Configuration activation evidence {IntentId} could not record its delivery failure.", row.IntentId);
-                }
+                // Best effort: the row stays owed either way, and throwing would end the pass before later rows.
+                logger.LogError(markFailure, "Configuration activation evidence {IntentId} could not record its delivery failure.", row.IntentId);
             }
+            return false;
         }
-
-        return delivered;
     }
 
     /// <summary>The unpublished rows that carry a captured authority, in commit order, for one tenant or all.</summary>
