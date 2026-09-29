@@ -86,7 +86,7 @@ public sealed class AccountingSummaryRouteTests : IAsyncLifetime
         ChartOfAccountsRoutes.Map(deviceReachable, _factory, NodeTestActiveTeam.Accessor, TimeProvider.System);
         AccountingSummaryRoutes.Map(
             deviceReachable,
-            new NodeAccountingSummaryService(_factory, NodeTestActiveTeam.Accessor));
+            new NodeAccountingSummaryService(_factory, NodeTestActiveTeam.Accessor, TimeProvider.System));
 
         await _app.StartAsync();
 

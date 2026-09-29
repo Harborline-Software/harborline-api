@@ -493,6 +493,17 @@ public sealed class CommsCrdtProjection : IDeltaProducer, IDeltaStateVectorProvi
                     continue;
                 }
 
+                // T-909 ck-9: a message whose authored instant does not parse is dropped like any other bad
+                // frame (log-and-skip), never re-dated to wall time and never allowed to abort the reconcile.
+                if (!DateTimeOffset.TryParse(m.AuthoredAtIso, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out _))
+                {
+                    _logger.LogWarning(
+                        "Comms CRDT reconcile DROPPED message {MessageId}: its authored instant does not parse — not stored.",
+                        m.MessageId);
+                    continue;
+                }
+
                 // C4 — DM CONTENT ENCRYPTION merge handling. A dm: message body is SEALED (ciphertext). The seal
                 // is verified + stored differently from a plaintext team message:
                 //   • PARTICIPANT (this node can derive the per-conversation key): UNSEAL → re-verify authorship

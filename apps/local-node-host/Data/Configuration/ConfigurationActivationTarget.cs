@@ -21,7 +21,8 @@ namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 /// <remarks>
 /// T-644: never a refusal and never a retry. The evidence intent identity is the recovery handle; a re-request
 /// carrying the same intent and inputs is answered from the committed outbox, and the kernel (T-587) brings a
-/// crashed pointer or outbox to a terminal state.
+/// crashed pointer or outbox to a terminal state through the offline <c>recover-configuration</c> verb
+/// (<see cref="ConfigurationRecoveryCommand"/>).
 /// </remarks>
 public sealed class ConfigurationCommitIndeterminateException(string evidenceIntentId, Exception inner)
     : Exception("configuration-commit-indeterminate", inner)
