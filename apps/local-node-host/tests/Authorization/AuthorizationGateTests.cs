@@ -144,6 +144,57 @@ public sealed class AuthorizationGateTests
         Assert.Empty(calls);
     }
 
+    // T-519 / ck-5: request shapes the gate refuses before it reads any grant. Each case is one
+    // validation branch that a Stryker survivor showed no test reached.
+    [Theory]
+    [InlineData("org:manage-settings@/records/a", "", "", "/")]          // install-wide act off the install root
+    [InlineData("tenant:read@/", "tenant", "another-tenant", "/")]      // tenant target naming another tenant
+    [InlineData("records:write@/records/a/b", "record", "a/b", "/records/a/b")] // record id with a scope separator
+    public async Task DecideAsync_RefusesAnInvalidTargetBeforeSnapshotRead(
+        string atom, string recordKind, string recordId, string scope)
+    {
+        var calls = new List<string>();
+        var gate = Gate([Derivation(atom)], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
+            new AuthorizationTarget(recordKind, recordId, ScopeExpression.Parse(scope)), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
+
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public async Task DecideAsync_DecidesATenantTargetAtTheInstallRoot()
+    {
+        var decision = await Gate([Derivation("tenant:read@/")]).DecideAsync(new AuthorizationGateRequest(
+            PermissionAtom.Parse("tenant:read@/"), Principal, Tenant,
+            new AuthorizationTarget("tenant", Tenant.Value, ScopeExpression.Parse("/")), At));
+
+        Assert.Equal(AuthorizationVerdict.Allowed, decision.Verdict);
+    }
+
+    // T-519: the dedicated entry points refuse any act but their own, so a caller cannot borrow the
+    // membership-admission or prospective-Administrator reading for an ordinary decision.
+    [Theory]
+    [InlineData("membership", "records:write@/records/a", "record", "a")]
+    [InlineData("membership", "members:read@/records/a", "members", "a")]
+    [InlineData("prospective", "members:read@/records/handover", "members", "handover")]
+    [InlineData("prospective", "members:manage@/records/other", "members", "other")]
+    public async Task Dedicated_entry_points_refuse_an_act_that_is_not_their_own(
+        string entry, string atom, string recordKind, string recordId)
+    {
+        var calls = new List<string>();
+        var gate = Gate([Derivation(atom)], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse(atom), Principal, Tenant,
+            new AuthorizationTarget(recordKind, recordId, PermissionAtom.Parse(atom).Scope), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => (entry == "membership"
+            ? gate.DecideMembershipAdmissionAsync(request)
+            : gate.DecideProspectiveAdministratorAsync(request)).AsTask());
+
+        Assert.Empty(calls);
+    }
+
     [Fact]
     public async Task DecideAsync_RefusesWrongOperationRecordKindBeforeSnapshotRead()
     {
@@ -275,6 +326,132 @@ public sealed class AuthorizationGateTests
         Assert.Equal(["closure", "standings", "definitions"], calls);
     }
 
+    // ck-5 gate survivors: a catalogue target whose record id or act disagrees with the field it names
+    // is refused before any grant is read; neither half of the agreement may stand in for the other.
+    [Theory]
+    [InlineData("other", "/records/source/catalogue-fields/1/FormDefinition/2.3.4/title")] // record id disagrees
+    [InlineData("source", "/records/source")]                                              // act is wider than the field
+    public async Task Catalogue_field_target_that_disagrees_with_its_field_is_refused_before_closure_read(
+        string recordId, string actScope)
+    {
+        const string field = "/records/source/catalogue-fields/1/FormDefinition/2.3.4/title";
+        var calls = new List<string>();
+        var gate = Gate([Derivation("catalogue:read@/records/source")], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse($"catalogue:read@{actScope}"), Principal, Tenant,
+            new AuthorizationTarget("catalogue", recordId, ScopeExpression.Parse(field)), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
+
+        Assert.Empty(calls);
+    }
+
+    // ck-5: only a target with neither a record kind nor a record id is an install-wide target. A record
+    // id without its kind is refused, not read as install-wide.
+    [Fact]
+    public async Task DecideAsync_RefusesARecordIdWithoutARecordKind()
+    {
+        var calls = new List<string>();
+        var gate = Gate([Derivation("org:manage-settings@/")], calls);
+        var request = new AuthorizationGateRequest(PermissionAtom.Parse("org:manage-settings@/"), Principal, Tenant,
+            new AuthorizationTarget("", "a", ScopeExpression.Parse("/")), At);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => gate.DecideAsync(request).AsTask());
+
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public async Task Dedicated_entry_points_refuse_a_null_request_as_an_argument_error()
+    {
+        var gate = Gate([]);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => gate.DecideMembershipAdmissionAsync(null!).AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(() => gate.DecideProspectiveAdministratorAsync(null!).AsTask());
+    }
+
+    // ck-5: when no roster can be verified, the refuse fallback is what the decision evidence records:
+    // not a registry member, not a roster member, ejected.
+    [Fact]
+    public async Task Unverified_roster_fallback_is_recorded_in_the_decision_evidence()
+    {
+        var derivations = new[] { Derivation("records:write@/records/a") };
+        var gate = new AuthorizationGate(
+            new StaticReader(derivations, null),
+            new RecordingStandingResolver(null),
+            new StaticDefinitionReader(new Dictionary<RoleReference, IReadOnlyList<PermissionAtom>>
+            {
+                [Member] = [PermissionAtom.Parse("records:write@/records/a")],
+            }),
+            RefusingAuthorizationRosterConstraintReader.Shared);
+
+        var decision = await gate.DecideAsync(Request("records:write@/records/a"));
+
+        Assert.Equal(AuthorizationVerdict.Denied, decision.Verdict);
+        var roles = decision.Evidence.Project()[1].Facts;
+        Assert.Contains("registry:member:False", roles);
+        Assert.Contains(
+            $"roster:party:{Principal.Value};member:False;ejected:True;prospective-administrator-grant:False", roles);
+    }
+
+    // ck-5: the resolution trace names each deciding binding and each standing in full.
+    [Fact]
+    public async Task Resolution_trace_describes_each_binding_and_standing()
+    {
+        var derivation = Derivation("records:write@/records/a");
+        var gate = new AuthorizationGate(
+            new StaticReader([derivation], null),
+            new RecordingStandingResolver(null, [new RecordStanding(Reviewer, "rule-1", "evidence-3")]),
+            new StaticDefinitionReader(new Dictionary<RoleReference, IReadOnlyList<PermissionAtom>>
+            {
+                [Member] = [derivation.Atom],
+            }));
+
+        var decision = await gate.DecideAsync(Request("records:write@/records/a"));
+
+        Assert.Equal(
+            [$"role:{Member};atom:records:write@/records/a;grant:grant@7;definition:definition;valid:{At.AddHours(-1):O}..{At.AddHours(1):O}"],
+            decision.Resolution.Single(step => step.Stage == AuthorizationResolutionStage.EffectiveRecordRoles).Inputs);
+        Assert.Equal(
+            [$"role:{Reviewer};rule:rule-1;evidence:evidence-3"],
+            decision.Resolution.Single(step => step.Stage == AuthorizationResolutionStage.RecordStandings).Outputs);
+    }
+
+    // ck-5: attenuation evidence is ordered by binding, then by exclusion reason, whatever order the
+    // closure reader returned, so two decisions over the same grants record the same evidence.
+    [Fact]
+    public async Task Attenuation_evidence_is_ordered_whatever_the_reader_order()
+    {
+        var grantA = Derivation("records:write@/records/a", "grant-a");
+        var grantB = Derivation("records:write@/records/a", "grant-b");
+        var gate = new AuthorizationGate(
+            new SnapshotReader(new AuthorizationClosureSnapshot([grantB, grantA],
+            [
+                new(grantB, AuthorizationExclusionReason.ValidityLapsed),
+                new(grantA, AuthorizationExclusionReason.GrantRevoked),
+                new(grantA, AuthorizationExclusionReason.ValidityLapsed),
+            ])),
+            new RecordingStandingResolver(null),
+            new StaticDefinitionReader(new Dictionary<RoleReference, IReadOnlyList<PermissionAtom>>
+            {
+                [Member] = [grantA.Atom],
+            }));
+
+        var decision = await gate.DecideAsync(Request("records:write@/records/a") with
+        {
+            RequiredGrantAtoms = PermissionAtomSet.Of(PermissionAtom.Parse("records:write@/records/a")),
+        });
+
+        var evidence = Assert.Single(decision.GrantAttenuation!.Atoms);
+        Assert.Equal(["grant-a", "grant-b"], evidence.Bindings.Select(item => item.GrantId));
+        Assert.Equal(
+            [
+                ("grant-a", AuthorizationExclusionReason.ValidityLapsed),
+                ("grant-a", AuthorizationExclusionReason.GrantRevoked),
+                ("grant-b", AuthorizationExclusionReason.ValidityLapsed),
+            ],
+            evidence.Excluded.Select(item => (item.Binding.GrantId, item.Reason)));
+    }
+
     private static void AssertReadingsAgree(AuthorizationDecision decision)
     {
         var verdict = decision.Verdict.ToString().ToLowerInvariant();
@@ -316,6 +493,13 @@ public sealed class AuthorizationGateTests
             calls?.Add("closure");
             return ValueTask.FromResult(new AuthorizationClosureSnapshot(derivations));
         }
+    }
+
+    private sealed class SnapshotReader(AuthorizationClosureSnapshot snapshot) : IAuthorizationClosureSnapshotReader
+    {
+        public ValueTask<AuthorizationClosureSnapshot> ReadAsync(
+            AuthorizationGateRequest request, CancellationToken ct = default) =>
+            ValueTask.FromResult(snapshot);
     }
 
     private sealed class RecordingStandingResolver(
