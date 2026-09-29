@@ -262,16 +262,15 @@ public sealed class AdmissionWebPlaneFenceTests : IAsyncLifetime
 
         var inner = new ServiceCollection();
         inner.AddLogging(b => b.ClearProviders());
-        inner.AddDbContextFactory<NodeLocalRosterDbContext>(opt =>
-            opt.UseSqlite($"Data Source={Path.Combine(dir, "roster.db")};Pooling=False"));
         inner.AddDbContextFactory<NodeLocalAdmissionDbContext>(opt =>
             opt.UseSqlite($"Data Source={Path.Combine(dir, "admission.db")};Pooling=False"));
         inner.AddSingleton<ICrdtEngine, YDotNetCrdtEngine>();
         var sp = inner.BuildServiceProvider();
         _providers.Add(sp);
-        var factory = sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
-        await using (var ctx = await factory.CreateDbContextAsync())
-            await ctx.Database.EnsureCreatedAsync();
+        // T-986: the roster record and its SoD audit share one encrypted local-node.db, as in production.
+        var audit = await Harborline.Api.LocalNodeHost.Tests.Audit.DurableAuditHarness.CreateAsync();
+        _async.Add(audit);
+        var factory = audit.RosterFactory;
         var admissionFactory = sp.GetRequiredService<IDbContextFactory<NodeLocalAdmissionDbContext>>();
         await using (var ctx = await admissionFactory.CreateDbContextAsync())
             await ctx.Database.EnsureCreatedAsync();
@@ -281,9 +280,8 @@ public sealed class AdmissionWebPlaneFenceTests : IAsyncLifetime
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);
 
-        var auditSigner = new Ed25519Signer(KeyPair.Generate());
-        var auditTrail = new InMemoryAuditTrail();
-        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(auditTrail, auditSigner, time: TimeProvider.System);
+        var sodAudit = new KernelAuditEnrollmentCompensatingControlRecorder(
+            new Ed25519Signer(KeyPair.Generate()), TimeProvider.System);
 
         var teamServices = new ServiceCollection().BuildServiceProvider();
         _providers.Add(teamServices);

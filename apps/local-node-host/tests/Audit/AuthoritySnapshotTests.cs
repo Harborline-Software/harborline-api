@@ -529,7 +529,6 @@ public sealed class AuthoritySnapshotTests
         // hand-picked file scan can conceal a new ordinary append.
         string[] allowed =
         {
-            "apps/local-node-host/Enrollment/KernelAuditEnrollmentCompensatingControlRecorder.cs|Harborline.Api.LocalNodeHost.Enrollment.KernelAuditEnrollmentCompensatingControlRecorder.EmitAsync(Harborline.Foundation.Assets.Common.TenantId,Harborline.Api.Kernel.Audit.AuditEventType,System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Object],System.DateTimeOffset,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuditTrail.AppendAsync(Harborline.Api.Kernel.Audit.AuditRecord,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|0",
             // DES-0029 ck-6 — a system entry (pack projection, seed, rekey, conferral) delivered from the audit outbox. ORDINARY: no
             // request decision authorized the act; an authorized entry's authority was captured in its write transaction and is
             // delivered through ICapturedAuditTrail instead.

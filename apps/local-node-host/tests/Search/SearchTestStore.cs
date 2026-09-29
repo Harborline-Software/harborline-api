@@ -150,6 +150,14 @@ public sealed class SearchTestStore : IAsyncDisposable
 
     public IDbContextFactory<Data.Packs.NodeLocalPacksDbContext> PacksFactory => new PacksHarnessFactory(this);
 
+    /// <summary>A roster-context factory over the same encrypted file as <see cref="Factory"/>.</summary>
+    public IDbContextFactory<Data.Roster.NodeLocalRosterDbContext> RosterFactory => new RosterHarnessFactory(this);
+
+    private sealed class RosterHarnessFactory(SearchTestStore store) : IDbContextFactory<Data.Roster.NodeLocalRosterDbContext>
+    {
+        public Data.Roster.NodeLocalRosterDbContext CreateDbContext() => store.CreateRosterContext();
+    }
+
     private sealed class PacksHarnessFactory(SearchTestStore store) : IDbContextFactory<Data.Packs.NodeLocalPacksDbContext>
     {
         public Data.Packs.NodeLocalPacksDbContext CreateDbContext() => store.CreatePacksContext();
