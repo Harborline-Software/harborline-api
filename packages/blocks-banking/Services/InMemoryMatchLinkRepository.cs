@@ -10,6 +10,11 @@ namespace Harborline.Api.Blocks.Banking.Services;
 public sealed class InMemoryMatchLinkRepository : IMatchLinkRepository
 {
     private readonly ConcurrentDictionary<(TenantId, MatchLinkId), MatchLink> _store = new();
+    private readonly IStatementLineRepository _lines;
+
+    /// <summary>Binds the repository to the line store <see cref="TransitionWithLineAsync"/> writes.</summary>
+    public InMemoryMatchLinkRepository(IStatementLineRepository lines)
+        => _lines = lines ?? throw new ArgumentNullException(nameof(lines));
 
     /// <inheritdoc />
     public Task<MatchLink?> GetByIdAsync(TenantId tenantId, MatchLinkId id, CancellationToken ct = default)
@@ -47,5 +52,18 @@ public sealed class InMemoryMatchLinkRepository : IMatchLinkRepository
     {
         _store[(link.TenantId, link.Id)] = link;
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TransitionWithLineAsync(
+        MatchLink link, MatchLinkState expectedState, StatementLine line, CancellationToken ct = default)
+    {
+        // In memory there is no crash to roll back; the compare-and-swap still refuses a duplicate.
+        var key = (link.TenantId, link.Id);
+        if (!_store.TryGetValue(key, out var current) || current.State != expectedState
+            || !_store.TryUpdate(key, link, current))
+            return false;
+        await _lines.UpdateAsync(line, ct).ConfigureAwait(false);
+        return true;
     }
 }

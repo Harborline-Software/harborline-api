@@ -108,4 +108,38 @@ public sealed class NodeEfMatchLinkRepository : IMatchLinkRepository
         ctx.Set<MatchLink>().Update(link);
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The link moves by a conditional UPDATE on its persisted state inside the transaction, so a duplicate finds no
+    /// row and writes nothing; the line UPDATE commits with it or, on any fault, neither does.
+    /// </remarks>
+    public async Task<bool> TransitionWithLineAsync(
+        MatchLink link, MatchLinkState expectedState, StatementLine line, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        ArgumentNullException.ThrowIfNull(line);
+        if (line.Id != link.StatementLine || !line.TenantId.Equals(link.TenantId))
+            throw new ArgumentException(
+                $"StatementLine '{line.Id.Value}' is not the line of MatchLink '{link.Id.Value}'.", nameof(line));
+
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        var moved = await ctx.Set<MatchLink>()
+            .Where(m => m.Id == link.Id && m.TenantId == link.TenantId && m.State == expectedState)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.State, link.State)
+                .SetProperty(m => m.AcceptedAt, link.AcceptedAt), ct)
+            .ConfigureAwait(false);
+        if (moved == 0)
+            return false;
+
+        // A missing line row fails the save (DbUpdateConcurrencyException) and the link rolls back with it.
+        ctx.Set<StatementLine>().Update(line);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return true;
+    }
 }

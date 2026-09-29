@@ -42,4 +42,15 @@ public interface IMatchLinkRepository
     /// Never removes links; callers use Reversed state.
     /// </summary>
     Task UpdateAsync(MatchLink link, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves <paramref name="link"/> from <paramref name="expectedState"/> to its new state and writes
+    /// <paramref name="line"/> (its statement line's derived state) in one transaction (DES-0029 ck-6, T-988).
+    /// </summary>
+    /// <returns>
+    /// False, writing nothing, when the link's persisted state is not <paramref name="expectedState"/>: the
+    /// transition already happened, so the caller is a duplicate.
+    /// </returns>
+    Task<bool> TransitionWithLineAsync(
+        MatchLink link, MatchLinkState expectedState, StatementLine line, CancellationToken ct = default);
 }

@@ -16,7 +16,7 @@ apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs
 apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs	1	atomic-audit	one AuthorizationGrantSubjectRekeyed entry per moved grant in the same fence; NodeAuditOutboxTests.cs
 apps/local-node-host/Data/Banking/NodeEfBankAccountRepository.cs	2	record-is-audit	financial durable-layer pattern (:30-31); one save per op
 apps/local-node-host/Data/Banking/NodeEfFiscalPeriodRepository.cs	2	unaudited	writes have no production caller (banking flow is read-only, :35-38)
-apps/local-node-host/Data/Banking/NodeEfMatchLinkRepository.cs	2	unaudited	accept/un-match still commit link then line separately, but a retry now finishes the line and a true duplicate is refused (BankMatchCrashResumeTests.cs); no audit
+apps/local-node-host/Data/Banking/NodeEfMatchLinkRepository.cs	4	unaudited	accept/un-match commit the link and its statement line in one transaction (TransitionWithLineAsync: conditional link UPDATE on its persisted state, then the line, one commit); a crash commits neither and a duplicate is refused on the link's own state (BankMatchCrashResumeTests.cs, T-988); no audit
 apps/local-node-host/Data/Banking/NodeEfReconciliationRepository.cs	2	unaudited	versioned lock/unlock rows carry LockedByPrincipalId only
 apps/local-node-host/Data/Banking/NodeEfStatementLineRepository.cs	3	unaudited	import commits once per line (ImportPipelineService.cs:164, BankAccountRoutes.cs:661): partial import on crash
 apps/local-node-host/Data/Calendar/NodeEfCalendarEventStore.cs	5	unaudited	explicit transaction per op; no audit in callers
