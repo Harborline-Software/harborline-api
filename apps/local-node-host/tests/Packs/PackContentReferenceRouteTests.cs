@@ -155,6 +155,48 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         Assert.Equal("core-records.property", unmet.GetProperty("toContentKey").GetString());
     }
 
+    [Fact(DisplayName = "K9: export refuses a reference into a package the pack does not declare")]
+    public async Task Export_refuses_a_reference_into_an_undeclared_package()
+    {
+        // ADR 0028: a cross-package reference requires a declared dependency. The deriver used to drop the
+        // edge silently, so the pack exported with the reference and no edge.
+        var export = await _client.PostAsJsonAsync(PackComposerRoutes.ExportRoute, FleetOpsBody(declareDependency: false));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, export.StatusCode);
+
+        using var doc = JsonDocument.Parse(await export.Content.ReadAsStringAsync());
+        var code = Assert.Single(doc.RootElement.GetProperty("codes").EnumerateArray().ToList());
+        Assert.Equal("pack.validation.reference.dependency_undeclared", code.GetProperty("code").GetString());
+        Assert.Equal("fleet-ops.vehicle", code.GetProperty("target").GetString());
+    }
+
+    [Fact(DisplayName = "K9: install re-derives edges from content and refuses a reference into an undeclared package")]
+    public async Task Install_rederives_edges_and_refuses_an_undeclared_reference()
+    {
+        await InstallAndActivateAsync(CoreRecordsBody());
+
+        // A hand-signed manifest that drops both the dependency and the edge: install must not trust it.
+        var honest = new PackFileCodec().TryDecode(await ExportAsync(FleetOpsBody(declareDependency: true)))!;
+        var subject = honest.Envelope!.Payload;
+        var forged = subject with
+        {
+            Manifest = subject.Manifest with { Dependencies = [], ContentReferences = null },
+        };
+        var envelope = await new Ed25519Signer(_key).SignAsync(forged, DateTimeOffset.UtcNow, Guid.NewGuid());
+        var content = new ByteArrayContent(new PackFileCodec().Encode(honest with { Envelope = envelope }));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+        var install = await _client.PostAsync(PackInstallRoutes.InstallRoute, content);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, install.StatusCode);
+
+        using var doc = JsonDocument.Parse(await install.Content.ReadAsStringAsync());
+        Assert.Equal(
+            "pack.install.refused.undeclared_reference",
+            string.Join(",", doc.RootElement.GetProperty("refusalCodes").EnumerateArray().Select(c => c.GetString())));
+        var refusal = Assert.Single(doc.RootElement.GetProperty("refusals").EnumerateArray().ToList());
+        Assert.Equal("pack.install.refused.undeclared_reference", refusal.GetProperty("code").GetString());
+        Assert.Equal("/contents/0/contentBase64", refusal.GetProperty("pointer").GetString());
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<JsonDocument> GetJsonAsync(string route)
