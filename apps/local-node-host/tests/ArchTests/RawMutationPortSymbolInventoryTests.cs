@@ -256,22 +256,22 @@ public sealed class RawMutationPortSymbolInventoryTests
         return false;
     }
 
-    private static CallSite[] Discover(IEnumerable<Assembly> assemblies, Func<Type, bool>? typeFilter = null)
-    {
-        var ports = new HashSet<Type>
-        {
-            typeof(IEntityMutationStore),
-            typeof(IBankAccountMutationRepository),
-            typeof(IPackInstallMutationStore),
-            typeof(IPackProjectionAdmissionStore),
-            typeof(IHierarchyMutationStore),
-            typeof(IHierarchyCompositeUnitOfWork),
-        };
-        return DiscoverCalls(
-            assemblies,
-            target => IsRawMutationTarget(target, ports) || IsRawGrantRevocationTarget(target),
-            typeFilter);
-    }
+    private static readonly HashSet<Type> Ports =
+    [
+        typeof(IEntityMutationStore),
+        typeof(IBankAccountMutationRepository),
+        typeof(IPackInstallMutationStore),
+        typeof(IPackProjectionAdmissionStore),
+        typeof(IHierarchyMutationStore),
+        typeof(IHierarchyCompositeUnitOfWork),
+    ];
+
+    /// <summary>The raw mutation seams this inventory fences; ck-10's executor fence reuses them as sinks.</summary>
+    internal static bool IsRawMutationSink(MethodBase target) =>
+        IsRawMutationTarget(target, Ports) || IsRawGrantRevocationTarget(target);
+
+    private static CallSite[] Discover(IEnumerable<Assembly> assemblies, Func<Type, bool>? typeFilter = null) =>
+        DiscoverCalls(assemblies, IsRawMutationSink, typeFilter);
 
     private static bool IsRawGrantRevocationTarget(MethodBase target) =>
         target.Name == nameof(IGrantStore.RevokeAsync)

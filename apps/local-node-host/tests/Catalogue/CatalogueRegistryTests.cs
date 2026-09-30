@@ -24,7 +24,9 @@ using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.ReportDefinitions;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.Foundation.ScheduleDefinitions;
 using Harborline.Api.Foundation.Taxonomy.Models;
 using Harborline.Api.Foundation.Taxonomy.Services;
@@ -253,9 +255,15 @@ public sealed class CatalogueRegistryTests
     private static PackSeedItem[] Content()
     {
         var rule = new StandingRuleDefinition("receipt.handler", "1.0.0", new StandingReference("handler"), "matter", ["handler_id"],
-            new RuleDefinition(new DefinitionEnvelope<string, string, TenantId, string?>("receipt.handler", "1.0.0", Tenant,
-                CascadeLayer.Pack, null, []), RuleTier.JsonLogic, RuleScope.Schema, string.Empty,
-                """{"==":[{"var":"handler_id"},"person-a"]}""", RuleActionKind.Validate));
+            new Harborline.Contracts.Forms.RuleDefinition
+            {
+                Id = "receipt.handler",
+                Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
+                Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+                ScopeTarget = string.Empty,
+                Expression = """{"==":[{"var":"handler_id"},"person-a"]}""",
+                Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+            });
         return
         [
             Item("receipt.asset", PackContentKind.AssetTypeDefinition, new { id = "receipt.asset", displayName = "Pump from registry", traits = new[] { "maintainable" } }),

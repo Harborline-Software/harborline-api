@@ -275,6 +275,72 @@ public sealed class NodeEfCalendarStoreTests : IDisposable
         Assert.Throws<SqliteException>(() => cmd.ExecuteScalar());
     }
 
+    private static CalendarEvent BookedOn(TenantId tenant, ParticipantRef resource)
+    {
+        var day = new DateOnly(2026, 3, 2);
+        var ev = CalendarEvent.Create(
+            tenant, "Booked", day, day, Actor,
+            timezone: "UTC", startTime: new TimeOnly(9, 0), endTime: new TimeOnly(10, 0));
+        ev.SetResource(resource, Actor, ParticipationStatus.Confirmed);
+        return ev;
+    }
+
+    [Fact(DisplayName = "T-606: a multi-resource claim commits every event and moves every epoch once")]
+    public async Task SaveAll_CommitsWhole_WhenEveryEpochIsUnchanged()
+    {
+        using var host = await StartKeyedHostAsync(FreshRootSeed());
+        var store = EventStore(host);
+        var room = ParticipantRef.Asset("room-1");
+        var crew = ParticipantRef.Asset("crew-1");
+        await store.SaveAsync(BookedOn(TenantA, crew)); // crew starts at epoch 1, room at 0
+        var expected = new Dictionary<ParticipantRef, long>
+        {
+            [room] = await store.GetCapacityEpochAsync(TenantA, room),
+            [crew] = await store.GetCapacityEpochAsync(TenantA, crew),
+        };
+        CalendarEvent[] claimed = [BookedOn(TenantA, room), BookedOn(TenantA, crew)];
+
+        Assert.True(await store.SaveAllIfCapacityUnchangedAsync(TenantA, claimed, expected));
+
+        foreach (var ev in claimed) Assert.NotNull(await store.GetAsync(TenantA, ev.Id));
+        Assert.Equal(1, await store.GetCapacityEpochAsync(TenantA, room));
+        Assert.Equal(2, await store.GetCapacityEpochAsync(TenantA, crew));
+    }
+
+    [Fact(DisplayName = "T-606: one stale epoch refuses the whole claim; no event is written and no epoch moves")]
+    public async Task SaveAll_WritesNothing_WhenAnyEpochMoved()
+    {
+        using var host = await StartKeyedHostAsync(FreshRootSeed());
+        var store = EventStore(host);
+        var room = ParticipantRef.Asset("room-1");
+        var crew = ParticipantRef.Asset("crew-1");
+        var expected = new Dictionary<ParticipantRef, long>
+        {
+            [room] = await store.GetCapacityEpochAsync(TenantA, room),
+            [crew] = await store.GetCapacityEpochAsync(TenantA, crew),
+        };
+        await store.SaveAsync(BookedOn(TenantA, crew)); // a rival moves crew after the read
+        CalendarEvent[] claimed = [BookedOn(TenantA, room), BookedOn(TenantA, crew)];
+
+        Assert.False(await store.SaveAllIfCapacityUnchangedAsync(TenantA, claimed, expected));
+
+        foreach (var ev in claimed) Assert.Null(await store.GetAsync(TenantA, ev.Id));
+        Assert.Equal(0, await store.GetCapacityEpochAsync(TenantA, room));
+        Assert.Equal(1, await store.GetCapacityEpochAsync(TenantA, crew));
+    }
+
+    [Fact(DisplayName = "T-606: a multi-resource claim refuses an event from another tenant")]
+    public async Task SaveAll_Throws_WhenAnEventBelongsToAnotherTenant()
+    {
+        using var host = await StartKeyedHostAsync(FreshRootSeed());
+        var store = EventStore(host);
+        var room = ParticipantRef.Asset("room-1");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAllIfCapacityUnchangedAsync(
+            TenantA, [BookedOn(TenantB, room)], new Dictionary<ParticipantRef, long> { [room] = 0 }));
+        Assert.Equal(0, await store.GetCapacityEpochAsync(TenantA, room));
+    }
+
     public void Dispose()
     {
         try

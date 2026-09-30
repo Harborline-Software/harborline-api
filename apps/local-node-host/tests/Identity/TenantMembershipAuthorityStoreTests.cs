@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
 
 using Xunit.Abstractions;
 
@@ -305,6 +307,130 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
             CancellationToken.None);
         await authority.FinalizeAsync(
             "command-1", "fingerprint-1", FixedNow.AddSeconds(1), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutants 14002 and 14022: a prepared intent proposing a membership in another
+    /// tenant is refused on load. Its own digests are consistent (they cover the foreign tenant id), no
+    /// membership row names it yet, and nothing later reads a prepared intent's tenant, so the intent
+    /// tenant clause is the only defence.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_prepared_intent_proposing_a_membership_in_another_tenant_is_refused_on_load()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        await using var foreignDatabase = await TenantStoreDatabase.CreateAsync();
+        var servedTenant = Guid.NewGuid().ToString("D");
+        var foreignTenant = Guid.NewGuid().ToString("D");
+        await FinalizeOneMembershipAsync(Authority(database.Store, servedTenant), servedTenant);
+        await Authority(foreignDatabase.Store, foreignTenant).PrepareAsync(
+            "command-2", "fingerprint-2", "account-2", ActorAccountId, AuthorityEvidenceDigest,
+            Mutation(foreignTenant, "principal-2"), FixedNow,
+            CancellationToken.None);
+
+        var foreignIntent = JsonNode.Parse(
+            await foreignDatabase.Store.GetAsync(AuthorityKey, CancellationToken.None))!["intents"]![0]!;
+        var document = JsonNode.Parse(await database.Store.GetAsync(AuthorityKey, CancellationToken.None))!;
+        document["intents"]!.AsArray().Add(foreignIntent.DeepClone());
+        await database.Store.SetAsync(
+            AuthorityKey, Encoding.UTF8.GetBytes(document.ToJsonString()), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Authority(database.Store, servedTenant).GetMembershipAsync("account-1", CancellationToken.None));
+        Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutant 14004: two session-revocation intents sharing one correlation id are
+    /// refused on load. Each copy is internally consistent, so the uniqueness clause is the only check
+    /// that sees the duplicate.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Session_revocation_intents_sharing_a_correlation_id_are_refused_on_load()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var tenantId = Guid.NewGuid().ToString("D");
+        var authority = Authority(database.Store, tenantId);
+        await FinalizeOneMembershipAsync(authority, tenantId);
+        var membership = await authority.GetMembershipAsync("account-1", CancellationToken.None);
+        await authority.PrepareSessionRevocationAsync(
+            "revoke-1", "revoke-fingerprint-1", "account-1", membership!.MembershipId, "session-1",
+            AuthorityEvidenceDigest, FixedNow.AddSeconds(2), CancellationToken.None);
+
+        var document = JsonNode.Parse(await database.Store.GetAsync(AuthorityKey, CancellationToken.None))!;
+        var revocations = document["sessionRevocations"]!.AsArray();
+        revocations.Add(revocations[0]!.DeepClone());
+        await database.Store.SetAsync(
+            AuthorityKey, Encoding.UTF8.GetBytes(document.ToJsonString()), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.GetMembershipAsync("account-1", CancellationToken.None));
+        Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutants 14080/14081 (membership), 14136/14137 (selection) and 14191/14192
+    /// (revocation): a finalization receipt that names another tenant is refused on load, even though
+    /// every other receipt field still matches. The tenant id is in none of the receipt's digests, so
+    /// the receipt tenant clause is the only check that sees it.
+    /// </summary>
+    [Theory]
+    [Trait("Holds", "kernel-core-ck-4")]
+    [InlineData("intents")]
+    [InlineData("sessionSelections")]
+    [InlineData("sessionRevocations")]
+    public async Task A_finalization_receipt_naming_another_tenant_is_refused_on_load(string intents)
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var tenantId = Guid.NewGuid().ToString("D");
+        var authority = Authority(database.Store, tenantId);
+        await FinalizeOneMembershipAsync(authority, tenantId);
+        var membership = await authority.GetMembershipAsync("account-1", CancellationToken.None);
+        await authority.PrepareSessionSelectionAsync(
+            "select-1", "select-fingerprint-1", "account-1", membership!.MembershipId,
+            AuthorityEvidenceDigest, FixedNow.AddSeconds(2), CancellationToken.None);
+        await authority.FinalizeSessionSelectionAsync(
+            "select-1", "select-fingerprint-1", FixedNow.AddSeconds(3), CancellationToken.None);
+        await authority.PrepareSessionRevocationAsync(
+            "revoke-1", "revoke-fingerprint-1", "account-1", membership.MembershipId, "session-1",
+            AuthorityEvidenceDigest, FixedNow.AddSeconds(4), CancellationToken.None);
+        await authority.FinalizeSessionRevocationAsync(
+            "revoke-1", "revoke-fingerprint-1", FixedNow.AddSeconds(5), CancellationToken.None);
+        // The untampered document loads.
+        Assert.NotNull(await authority.GetMembershipAsync("account-1", CancellationToken.None));
+
+        var document = JsonNode.Parse(await database.Store.GetAsync(AuthorityKey, CancellationToken.None))!;
+        document[intents]![0]!["finalizationReceipt"]!["tenantId"] = Guid.NewGuid().ToString("D");
+        await database.Store.SetAsync(
+            AuthorityKey, Encoding.UTF8.GetBytes(document.ToJsonString()), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authority.GetMembershipAsync("account-1", CancellationToken.None));
+        Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutants 14284 and 14285: a membership mutation whose tenant id is not a canonical
+    /// GUID is refused before anything is written, even by a store bound to that same tenant id, so the
+    /// store's own tenant-binding check cannot be what refuses it.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_membership_mutation_with_a_non_guid_tenant_id_is_refused_before_it_is_written()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        const string tenantId = "tenant-without-guid-form";
+        var authority = Authority(database.Store, tenantId);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => authority.PrepareAsync(
+            "command-1", "fingerprint-1", "account-1", ActorAccountId, AuthorityEvidenceDigest,
+            Mutation(tenantId), FixedNow,
+            CancellationToken.None));
+
+        Assert.Null(await authority.GetIntentStateAsync("command-1", CancellationToken.None));
+        Assert.Null(await database.Store.GetAsync(AuthorityKey, CancellationToken.None));
     }
 
     [Fact]

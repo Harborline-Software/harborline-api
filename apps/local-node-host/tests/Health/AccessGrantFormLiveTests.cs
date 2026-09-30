@@ -60,8 +60,10 @@ public sealed partial class ComposedHostBootSmokeTests
         using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
         var existing = before.RootElement.GetProperty("holders").EnumerateArray()
             .Select(row => row.GetProperty("grantId").GetString()).ToHashSet();
-        using var response = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate());
+        var start = GrantStart();
+        using var response = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate(start));
         Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        await InForceAsync(start);
         using var holders = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
         var issued = Assert.Single(holders.RootElement.GetProperty("holders").EnumerateArray(), row =>
             !existing.Contains(row.GetProperty("grantId").GetString()));
@@ -74,7 +76,7 @@ public sealed partial class ComposedHostBootSmokeTests
     {
         await using var host = StartAccessHost();
         using var client = await AccessClientAsync(host);
-        using var response = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate());
+        using var response = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate(GrantStart()));
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         using var refusal = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(new[] { "auditId", "code", "detail", "permission", "remediation", "title" },
@@ -106,8 +108,10 @@ public sealed partial class ComposedHostBootSmokeTests
             using var before = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
             var existing = before.RootElement.GetProperty("holders").EnumerateArray()
                 .Select(row => row.GetProperty("grantId").GetString()).ToHashSet();
-            using var submitted = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate());
+            var start = GrantStart();
+            using var submitted = await client.PostAsJsonAsync("/api/local-node/forms/access.grant-a-role/submit", AccessCandidate(start));
             Assert.Equal(HttpStatusCode.Created, submitted.StatusCode);
+            await InForceAsync(start);
             using var issued = JsonDocument.Parse(await client.GetStringAsync(AccessHoldersRead.Route));
             issuedGrantId = Assert.Single(issued.RootElement.GetProperty("holders").EnumerateArray(), row =>
                 !existing.Contains(row.GetProperty("grantId").GetString())).GetProperty("grantId").GetString()!;
@@ -121,10 +125,22 @@ public sealed partial class ComposedHostBootSmokeTests
             holder.GetProperty("role").GetProperty("name").GetString() == "administrator");
     }
 
-    private static object AccessCandidate() => new
+    // K3 (T-909 ck-9): a past effective-from is refused without a backdate capability, and this pack's field is
+    // required, so a grant "from now" is requested a few seconds ahead of the host clock and read once in force.
+    private static DateTimeOffset GrantStart() => DateTimeOffset.UtcNow.AddSeconds(5);
+
+    private static Task InForceAsync(DateTimeOffset start) =>
+        Task.Delay((start - DateTimeOffset.UtcNow).Add(TimeSpan.FromMilliseconds(500)) is { Ticks: > 0 } wait ? wait : TimeSpan.Zero);
+
+    private static object AccessCandidate(DateTimeOffset effectiveFrom) => new
     {
-        person = "principal-access-recipient", role = "administrator", scope = "/", residency = "cache",
-        effectiveFrom = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"), effectiveTo = "", reason = "manual",
+        person = "principal-access-recipient",
+        role = "administrator",
+        scope = "/",
+        residency = "cache",
+        effectiveFrom = effectiveFrom.ToString("O"),
+        effectiveTo = "",
+        reason = "manual",
     };
 
     private static ComposedHost StartAccessHost(string? directory = null) => ComposedHost.Start(

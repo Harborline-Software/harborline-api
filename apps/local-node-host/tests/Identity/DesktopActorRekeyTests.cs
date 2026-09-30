@@ -170,6 +170,27 @@ public sealed class DesktopActorRekeyTests
     }
 
     [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects()
+    {
+        await using var store = await NodeStore.CreateAsync();
+        await SeedRetiredRowsAsync(store);
+        using var node = KeyPair.Generate();
+        await using var provider = SeedServices(FounderRoster(node), new Ed25519Signer(node), store.Factory);
+
+        await StartSeedAsync(provider);
+
+        await using var context = store.CreateContext();
+        var audit = await context.AuditOutbox.AsNoTracking()
+            .SingleAsync(row => row.EventType == "AuthorizationGrantSubjectRekeyed");
+        var body = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(audit.BodyJson)!;
+        var moved = await context.Grants.AsNoTracking().SingleAsync(row => row.SourceReference == NodeOperatorSource);
+        Assert.Equal(moved.GrantId, body["grantId"]);
+        Assert.Equal(Retired, body["fromSubject"]);
+        Assert.Equal(Founder, body["toSubject"]);
+    }
+
+    [Fact]
     [Trait("PlanCard", "294-s3b")]
     public async Task A_store_holding_local_grant_rows_on_a_node_with_no_roster_edge_refuses_the_boot_with_a_remedy()
     {

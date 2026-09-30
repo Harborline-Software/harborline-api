@@ -4,7 +4,9 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Microsoft.Data.Sqlite;
@@ -190,10 +192,15 @@ public sealed class PackProjectionResourceLifetimeTests
     }
 
     private static StandingRuleDefinition Standing(string id) => new(id, "1.0.0", new StandingReference("handler"),
-        "matter", ["handler_id"], new RuleDefinition(
-            new DefinitionEnvelope<string, string, TenantId, string?>(id, "1.0.0", Tenant, CascadeLayer.Pack, null, []),
-            RuleTier.JsonLogic, RuleScope.Schema, string.Empty,
-            """{"==":[{"var":"handler_id"},"person-7"]}""", RuleActionKind.Validate));
+        "matter", ["handler_id"], new Harborline.Contracts.Forms.RuleDefinition
+        {
+            Id = id,
+            Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
+            Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+            ScopeTarget = string.Empty,
+            Expression = """{"==":[{"var":"handler_id"},"person-7"]}""",
+            Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+        });
 
     private sealed class ObservedContext(DbContextOptions<ObservedContext> options) : DbContext(options)
     {

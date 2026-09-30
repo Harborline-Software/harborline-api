@@ -13,7 +13,7 @@ namespace Harborline.Api.Foundation.Forms;
 /// <remarks>
 /// These are STRUCTURAL bounds on the definition (checked once at authoring),
 /// complementary to the rule engine's INSTANCE-time bounds
-/// (<c>Harborline.Api.Foundation.RuleEngine.RuleEngineLimits</c> — graph nodes, table
+/// (<c>Harborline.Foundation.RuleEngine.RuleEngineLimits</c> — graph nodes, table
 /// rows, step budget). Both fail closed; together they bound the definition AND the
 /// evaluation.
 /// </remarks>

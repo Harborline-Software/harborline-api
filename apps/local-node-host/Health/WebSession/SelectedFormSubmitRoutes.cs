@@ -64,7 +64,10 @@ internal static class SelectedFormSubmitRoutes
                     submissionGate.CapabilityRoles(form), [FormCapabilityAction.Write], authority.At.AddMinutes(5), ct)
                     .ConfigureAwait(false);
                 var token = await verifier.VerifyAsync(bearer, authority.At, ct).ConfigureAwait(false);
-                using var candidate = JsonDocument.Parse(body.GetRawText());
+                using var candidate = FormsRoutes.Candidate(body);
+                if (await FormsRoutes.BackdateRefusalAsync(submissionGate, form, candidate, token.Subject, authority.At, time, ct)
+                    .ConfigureAwait(false) is { } backdate)
+                    return backdate;
                 var receipt = await engine.SaveWithReceiptAsync(form, candidate, token, authority, ct, key)
                     .ConfigureAwait(false);
                 var auditReceipt = audit is null ? null : await FormSubmissionAuditReceipt.ReadAsync(

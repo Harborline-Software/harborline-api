@@ -36,16 +36,16 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
     private static readonly (string Key, string Reason)[] Reviewed =
     [
         // The pipeline itself: validate mints the seal, commit hands it to the store.
-        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ValidateAsync|seal",
-            "validate stage: the only ordinary mint"),
-        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.CommitAsync|commit",
-            "commit stage"),
+        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter+ConfigurationWrite.ValidateAsync|seal",
+            "validate stage (run by WritePipeline.RunAsync): the only ordinary mint"),
+        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter+ConfigurationWrite.CommitAsync|commit",
+            "commit stage (run by WritePipeline.RunAsync)"),
         // The admission conferral runs the same six stages inside the caller's fence: its validate stage mints
         // one seal per derived definition, its commit stage hands them to the caller's unit, and that unit's
         // commit is the only other staging of a sealed write.
         ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ValidateConferralAsync|seal",
             "admission conferral: validate stage"),
-        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.ConferAdmissionAsync|conferral-commit",
+        ("packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter+ConferralWrite.CommitAsync|conferral-commit",
             "admission conferral: commit stage"),
         ("apps/local-node-host/Data/Authorization/NodeEfAuthorizationConfigurationStore.cs|Harborline.Api.LocalNodeHost.Data.Authorization.NodeEfAuthorizationConfigurationStore+ConferralUnit.CommitAsync|stage-write",
             "admission conferral: the commit stage's staging, in the caller's fence"),
@@ -82,9 +82,9 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
     {
         Assert.All(Reviewed, row => Assert.False(row.Reason.StartsWith("GAP", StringComparison.Ordinal), row.Key));
         var discovered = DiscoveredPipelineWriteKeys();
-        const string writer = "packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter.";
-        Assert.Contains(writer + "ValidateConferralAsync|seal", discovered);
-        Assert.Equal(writer + "ConferAdmissionAsync|conferral-commit",
+        const string writer = "packages/blocks-access-grant/AuthorizationDefinitionWriter.cs|Harborline.Api.Blocks.AccessGrant.AuthorizationDefinitionWriter";
+        Assert.Contains(writer + ".ValidateConferralAsync|seal", discovered);
+        Assert.Equal(writer + "+ConferralWrite.CommitAsync|conferral-commit",
             Assert.Single(discovered, key => key.EndsWith("|conferral-commit", StringComparison.Ordinal)));
         Assert.Single(discovered, key => key.Contains("+ConferralUnit.", StringComparison.Ordinal));
     }
@@ -145,7 +145,7 @@ public sealed partial class AuthorizationDefinitionWriteFenceTests
     [GeneratedRegex(@"<>c__DisplayClass_\d+")]
     private static partial Regex ClosureScopeOrdinal();
 
-    private static string? Sink(MethodBase target)
+    internal static string? Sink(MethodBase target)
     {
         var declaring = target.DeclaringType;
         if (declaring is null) return null;

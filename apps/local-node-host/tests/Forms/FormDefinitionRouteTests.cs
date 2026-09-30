@@ -429,16 +429,25 @@ public sealed class FormDefinitionRouteTests : IAsyncLifetime
     }
 
     [Fact(DisplayName = "T-691: PUT returns a non-disclosing 422 when persistence rejects a malformed section role")]
-    public async Task Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token()
+    public Task Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token() =>
+        AssertMalformedSectionRolePutIsNonDisclosing422(draft: false, "malformed-section-role");
+
+    // The draft save registers without publishing, but the register still rebuilds the gate references.
+    [Fact(DisplayName = "T-691: draft PUT returns a non-disclosing 422 when persistence rejects a malformed section role")]
+    public Task Draft_Put_Malformed_Section_Role_Is422_Without_Disclosing_The_Rejected_Token() =>
+        AssertMalformedSectionRolePutIsNonDisclosing422(draft: true, "malformed-section-role-draft");
+
+    private async Task AssertMalformedSectionRolePutIsNonDisclosing422(bool draft, string formId)
     {
         var body = JsonSerializer.SerializeToNode(SaveBody())!.AsObject();
+        body["draft"] = draft;
         body["overlay"]!["sections"]![0]!["access"] = new JsonObject
         {
             ["readRoles"] = new JsonArray(JsonValue.Create("Administrator")),
             ["writeRoles"] = new JsonArray(JsonValue.Create("Admin")),
         };
 
-        using var response = await _client.PutAsJsonAsync($"{DefBase}/malformed-section-role", body);
+        using var response = await _client.PutAsJsonAsync($"{DefBase}/{formId}", body);
         var responseBody = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
