@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -49,6 +50,46 @@ public sealed class DurableKernelAuditTrailTests : IAsyncLifetime
         var record = Assert.Single(page.Records);
         Assert.Equal(auditId, record.AuditId);
         Assert.True(new Ed25519Verifier().Verify(record.Payload));
+    }
+
+    [Fact(DisplayName = "T-986: appending a record whose audit id is already stored is a no-op, not a key violation")]
+    public async Task DuplicateAppend_OfTheSameAuditId_KeepsOneRecord()
+    {
+        // Two deliverers can both pass the outbox's HoldsAsync check before either inserts (two drain passes,
+        // or the offline recover verb beside a running host); the second insert must not fault the drain.
+        var tenant = new TenantId("tenant-t986-dup");
+        var at = DateTimeOffset.Parse("2026-09-29T11:00:00Z");
+        var signer = new NodePrincipalSigner(Seed).Signer;
+        var payload = await signer.SignAsync(
+            new AuditPayload(new Dictionary<string, object?> { ["team_id"] = "team-1" }), at, Guid.NewGuid());
+        var record = new AuditRecord(Guid.NewGuid(), tenant, AuditEventType.OwnershipTransferred, at, payload, []);
+        var trail = new NodeAuditTrailStore(_store.Factory);
+
+        await trail.AppendAsync(record);
+        await trail.AppendAsync(record);
+
+        var stored = await trail.QueryAsync(new AuditQuery(tenant)).ToListAsync();
+        Assert.Single(stored);
+    }
+
+    [Fact(DisplayName = "T-986: a different record under an audit id already stored is refused, not absorbed")]
+    public async Task ConflictingAppend_UnderAStoredAuditId_Throws()
+    {
+        var tenant = new TenantId("tenant-t986-conflict");
+        var at = DateTimeOffset.Parse("2026-09-29T11:30:00Z");
+        var signer = new NodePrincipalSigner(Seed).Signer;
+        var auditId = Guid.NewGuid();
+        var first = new AuditRecord(auditId, tenant, AuditEventType.OwnershipTransferred, at,
+            await signer.SignAsync(new AuditPayload(new Dictionary<string, object?> { ["team_id"] = "team-1" }), at, Guid.NewGuid()), []);
+        var other = new AuditRecord(auditId, tenant, AuditEventType.OwnershipTransferred, at,
+            await signer.SignAsync(new AuditPayload(new Dictionary<string, object?> { ["team_id"] = "team-2" }), at, Guid.NewGuid()), []);
+        var trail = new NodeAuditTrailStore(_store.Factory);
+
+        await trail.AppendAsync(first);
+        await Assert.ThrowsAsync<DbUpdateException>(() => trail.AppendAsync(other).AsTask());
+
+        var stored = Assert.Single(await trail.QueryAsync(new AuditQuery(tenant)).ToListAsync());
+        Assert.Equal(NodeAuditRecordJson.Write(first), NodeAuditRecordJson.Write(stored));
     }
 
     internal static ServiceProvider Host(SearchTestStore store)

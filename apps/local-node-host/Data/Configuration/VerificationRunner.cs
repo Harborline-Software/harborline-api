@@ -15,13 +15,15 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs;
 using Harborline.Api.Foundation.Packs.Install;
-using Harborline.Api.Foundation.RuleEngine;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
-using Harborline.Api.Foundation.RuleEngine.Graph;
-using Harborline.Api.Foundation.RuleEngine.Model;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Environments;
+using Harborline.Foundation.RuleEngine.Graph;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Blocks.BuilderDefinitions;
+
+using FormsExpressionEnvironment = Harborline.Foundation.Forms.Engine.FormsExpressionEnvironment;
 
 namespace Harborline.Api.LocalNodeHost.Data.Configuration;
 
@@ -44,8 +46,9 @@ public sealed record VerificationRunResult(VerificationReceipt? Receipt,
 /// actually runs. Those are two: <see cref="RuleCompiler"/> /
 /// <see cref="FormRuleGraph.EvaluateInstance"/> for the business rules, and the real
 /// <see cref="AuthorizationGate"/> for authority. Both are the host's own production engines, and
-/// the receipt names each of them with the exact module that ran. When [[T-304]] retires the api
-/// copies it must repoint this runner; until then a run is host evidence, not producer evidence.
+/// the receipt names each of them with the exact module that ran. Since T-304 slice 2 the business
+/// rules run on the platform rule runtime (<c>Harborline.Foundation.RuleEngine</c>) under Forms'
+/// admitted environment for the submission phase, the act a case replays.
 /// </para>
 /// <para>
 /// <b>Why the run is isolated.</b> Each case receives a clean world built from the fixture alone:
@@ -245,7 +248,8 @@ public sealed class VerificationRunner
         // Authority allowed the act; whether it is ACCEPTED is now the candidate's own rules' answer.
         // A closed save gate is refused under the engine's own released code rather than a second
         // vocabulary invented here, because the engine already named that fault.
-        var record = candidate.Evaluate(recordType, values, _fixtureClock(fixture.Instant), out var blocked);
+        var record = candidate.Evaluate(recordType, values, _fixtureClock(fixture.Instant),
+            FormsExpressionEnvironment.Admitted.For(EvaluationPhase.Submission), out var blocked);
         return blocked is { } fault
             ? new Observed(false, fault.Code, fault.Pointer, "allowed", record, [])
             : new Observed(true, string.Empty, string.Empty, "allowed", record, ["records.created"]);

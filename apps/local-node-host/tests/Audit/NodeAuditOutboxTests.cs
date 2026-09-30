@@ -187,12 +187,14 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
         await ExecuteAsync("CREATE TRIGGER ck6_fault BEFORE INSERT ON search_audit_outbox BEGIN SELECT RAISE(ABORT, 'ck6'); END;");
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            configuration.ConferAdmissionGrantAsync(Tenant, "party-admitted", Admin.Value, permissions, At));
+            configuration.ConferAdmissionGrantAsync(Tenant, "party-admitted", Admin.Value, permissions, At,
+                TestAdmissions.SignedBy(Admin.Value, "party-admitted")));
         await using (var db = _store.CreateContext())
             Assert.Empty(await db.Grants.ToListAsync());
 
         await ExecuteAsync("DROP TRIGGER ck6_fault;");
-        var grant = await configuration.ConferAdmissionGrantAsync(Tenant, "party-admitted", Admin.Value, permissions, At);
+        var grant = await configuration.ConferAdmissionGrantAsync(Tenant, "party-admitted", Admin.Value, permissions, At,
+            TestAdmissions.SignedBy(Admin.Value, "party-admitted"));
 
         var row = await SingleOwedAsync(NodeEfAuthorizationConfigurationStore.AdmissionGrantConferredEventType);
         Assert.Contains(grant!.GrantId.ToString(), row.BodyJson, StringComparison.Ordinal);
@@ -204,7 +206,8 @@ public sealed class NodeAuditOutboxTests : IAsyncLifetime
         var configuration = new NodeEfAuthorizationConfigurationStore(_store.Factory, new InMemoryRoleVocabulary([]));
         await configuration.ConferAdmissionGrantAsync(Tenant,
             Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.RetiredDesktopActor, Admin.Value,
-            PermissionSet.From([Permission.OrgManageSettings]), At);
+            PermissionSet.From([Permission.OrgManageSettings]), At,
+            TestAdmissions.SignedBy(Admin.Value, Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.RetiredDesktopActor));
         await _outbox.DrainAsync();
 
         Assert.Equal(1, await RetiredDesktopActorRekey.RunAsync(_store.Factory, new ActorId("party-operator"), At, CancellationToken.None));

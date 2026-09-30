@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- CS1574/CS0419: XML doc crefs reference sibling types in blocks-financial-ar and -ap. -->
-    <NoWarn>CS1591;CS1574;CS0419</NoWarn>
+    <NoWarn>$(NoWarn);CS1574;CS0419</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

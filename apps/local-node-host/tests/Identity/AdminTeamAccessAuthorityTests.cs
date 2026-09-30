@@ -790,7 +790,7 @@ public sealed class AdminTeamAccessAuthorityTests
             var grantStore = new NodeEfGrantStore(grantFactory);
             // Ticket 293 slice 4 — the gate decides from GRANTS, never from a roster permission set.
             // Each admitted party's admission conferred a grant carrying the permissions the roster edge
-            // records (NodeEfAuthorizationConfigurationStore.StageAdmissionGrantAsync), and an install-wide
+            // records (NodeEfAuthorizationConfigurationStore.ConferAdmissionGrantAsync), and an install-wide
             // Administrator grant in force confers members:manage on top of it. Those two, and nothing the
             // roster supplies, are what admits a caller here.
             var conferred = new Dictionary<string, PermissionSet>(StringComparer.Ordinal)

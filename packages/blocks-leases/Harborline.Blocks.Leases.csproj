@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- TODO(HARBORLINE_API_I18N_002): Path A temporary suppression — SharedResource scaffolded
          ahead of consumer wiring. Remove once IStringLocalizer references land. -->
-    <NoWarn>CS1591;HARBORLINE_API_I18N_002</NoWarn>
+    <NoWarn>$(NoWarn);HARBORLINE_API_I18N_002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

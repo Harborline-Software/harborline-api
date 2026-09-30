@@ -58,6 +58,26 @@ public sealed class DesktopActorRekeyTests
         Assert.NotEmpty(asked);
     }
 
+    [Fact(DisplayName = "ck-4: an unbound request context keeps desktop authority on the desktop plane and never lends it to a device-plane request")]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_device_plane_request_never_borrows_the_desktop_operators_grants()
+    {
+        using var node = KeyPair.Generate();
+        var (active, _) = await ActiveAsync();
+        var plane = new ActiveTeamAuthorizationContext(
+            active, new InMemoryTeamRegistry(), new FixedTimeProvider(At), FounderRoster(node), new Ed25519Signer(node),
+            TestAuthorization.Gate(_ => true, _ => { }));
+        var context = new Harborline.Api.LocalNodeHost.Health.WebSession.SelectedSessionTenantContext(
+            new FailClosedSelectedSessionPermissionResolver(), plane);
+
+        // Desktop plane (no bound web principal, no device): the operator's grant stands.
+        Assert.True(context.HasPermission(TeamRolePermissions.RecordsRead));
+
+        // Device plane: no selected principal is bound, and the desktop operator's grants are not lent.
+        using (Harborline.Api.LocalNodeHost.Data.Audit.NodeCallerAttributionScope.EnterDevice("device-ck4", Tenant.Value, "device-principal"))
+            Assert.False(context.HasPermission(TeamRolePermissions.RecordsRead));
+    }
+
     [Fact]
     [Trait("PlanCard", "294-s3b")]
     public void A_desktop_request_with_no_session_principal_is_attributed_to_the_founders_canonical_principal()

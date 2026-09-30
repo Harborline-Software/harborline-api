@@ -18,9 +18,10 @@ using Xunit;
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
-/// DES-0029 kernel-core-ck-6: accepting or un-matching a bank match commits the link, then the statement line's
-/// derived state. A crash at the real line UPDATE after the link committed must not leave the line wrong for good:
-/// the retry finishes the derived step, and a true duplicate is still refused.
+/// DES-0029 kernel-core-ck-6 (T-988): accepting or un-matching a bank match commits the link and the statement line's
+/// derived state in one transaction. A crash at the real line UPDATE leaves neither, a retry is a fresh accept, and a
+/// duplicate for a completed link is refused on the link's own persisted state, even when another link on the same line
+/// was interrupted.
 /// </summary>
 public sealed class BankMatchCrashResumeTests : IAsyncLifetime
 {
@@ -65,12 +66,14 @@ public sealed class BankMatchCrashResumeTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    [Fact(DisplayName = "ck-6 bank: an accept retried after a crash between the link and the line leaves the line Matched")]
-    public async Task Accept_RetryAfterCrash_FinishesTheLine()
+    [Fact(DisplayName = "ck-6 bank: a crash at the line update leaves neither the link nor the line accepted; the retry accepts both")]
+    public async Task Accept_CrashAtLineUpdate_CommitsNeither_RetryAccepts()
     {
         _fault.Armed = true;
         await Assert.ThrowsAnyAsync<Exception>(() => Accept().AcceptAsync(Tenant, _linkId));
-        Assert.Equal(MatchLinkState.Accepted, (await Link()).State);
+        Assert.Equal(MatchLinkState.Proposed, (await Link()).State);
+        Assert.Null((await Link()).AcceptedAt);
+        Assert.Equal(ReconciliationState.Proposed, (await Line()).State);
 
         await Accept().AcceptAsync(Tenant, _linkId);
 
@@ -79,19 +82,109 @@ public sealed class BankMatchCrashResumeTests : IAsyncLifetime
         Assert.Equal(MatchAcceptRejectReason.LinkNotProposed, duplicate.Reason);
     }
 
-    [Fact(DisplayName = "ck-6 bank: an un-match retried after a crash between the link and the line leaves the line Unmatched")]
-    public async Task UnMatch_RetryAfterCrash_FinishesTheLine()
+    [Fact(DisplayName = "ck-6 bank: a crash at the line update leaves neither the link nor the line un-matched; the retry un-matches both")]
+    public async Task UnMatch_CrashAtLineUpdate_CommitsNeither_RetryUnMatches()
     {
         await Accept().AcceptAsync(Tenant, _linkId);
         _fault.Armed = true;
         await Assert.ThrowsAnyAsync<Exception>(() => UnMatch().UnMatchAsync(Tenant, _linkId));
-        Assert.Equal(MatchLinkState.Reversed, (await Link()).State);
+        Assert.Equal(MatchLinkState.Accepted, (await Link()).State);
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
 
         await UnMatch().UnMatchAsync(Tenant, _linkId);
 
         Assert.Equal(ReconciliationState.Unmatched, (await Line()).State);
         var duplicate = await Assert.ThrowsAsync<UnMatchException>(() => UnMatch().UnMatchAsync(Tenant, _linkId));
         Assert.Equal(UnMatchRejectReason.AlreadyReversed, duplicate.Reason);
+    }
+
+    [Fact(DisplayName = "T-988 bank: a duplicate accept of a completed link is refused although another link's accept was interrupted")]
+    public async Task Accept_DuplicateOfCompletedLink_IsRefused_WhileAnotherLinkWasInterrupted()
+    {
+        // The line is 125: link A (50) completes, link B (75) is interrupted at the line update.
+        var a = await AddLink(50m);
+        var b = await AddLink(75m);
+        await Accept().AcceptAsync(Tenant, a);
+        _fault.Armed = true;
+        await Assert.ThrowsAnyAsync<Exception>(() => Accept().AcceptAsync(Tenant, b));
+
+        var duplicate = await Assert.ThrowsAsync<MatchAcceptException>(() => Accept().AcceptAsync(Tenant, a));
+
+        Assert.Equal(MatchAcceptRejectReason.LinkNotProposed, duplicate.Reason);
+        Assert.Equal(MatchLinkState.Proposed, (await Link(b)).State);
+        Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
+    }
+
+    [Fact(DisplayName = "T-988 bank: a duplicate un-match of a completed link is refused although another link's un-match was interrupted")]
+    public async Task UnMatch_DuplicateOfCompletedLink_IsRefused_WhileAnotherLinkWasInterrupted()
+    {
+        var a = await AddLink(50m);
+        var b = await AddLink(75m);
+        await Accept().AcceptAsync(Tenant, a);
+        await Accept().AcceptAsync(Tenant, b);
+        await UnMatch().UnMatchAsync(Tenant, a);
+        _fault.Armed = true;
+        await Assert.ThrowsAnyAsync<Exception>(() => UnMatch().UnMatchAsync(Tenant, b));
+
+        var duplicate = await Assert.ThrowsAsync<UnMatchException>(() => UnMatch().UnMatchAsync(Tenant, a));
+
+        Assert.Equal(UnMatchRejectReason.AlreadyReversed, duplicate.Reason);
+        Assert.Equal(MatchLinkState.Accepted, (await Link(b)).State);
+        Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
+    }
+
+    [Fact(DisplayName = "T-988 bank: a duplicate un-match of a reversed link is refused and leaves a line a later full accept matched")]
+    public async Task UnMatch_DuplicateAfterAnotherLinkFullyMatched_IsRefused_LineStaysMatched()
+    {
+        // Reverse A (50), then accept the 125 link for the full line amount: the line is Matched.
+        var a = await AddLink(50m);
+        await Accept().AcceptAsync(Tenant, a);
+        await UnMatch().UnMatchAsync(Tenant, a);
+        await Accept().AcceptAsync(Tenant, _linkId);
+
+        var duplicate = await Assert.ThrowsAsync<UnMatchException>(() => UnMatch().UnMatchAsync(Tenant, a));
+
+        Assert.Equal(UnMatchRejectReason.AlreadyReversed, duplicate.Reason);
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
+    [Fact(DisplayName = "T-988 bank: an un-match that leaves the full line amount accepted leaves the line Matched")]
+    public async Task UnMatch_LeavingTheFullAmountAccepted_LeavesTheLineMatched()
+    {
+        // The 125 link matches the line in full; an extra 50 link makes it PartiallyMatched until it is reversed.
+        var a = await AddLink(50m);
+        await Accept().AcceptAsync(Tenant, _linkId);
+        await Accept().AcceptAsync(Tenant, a);
+        Assert.Equal(ReconciliationState.PartiallyMatched, (await Line()).State);
+
+        await UnMatch().UnMatchAsync(Tenant, a);
+
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
+    [Fact(DisplayName = "T-988 bank: a transition whose link already left the expected state writes neither the link nor the line")]
+    public async Task Transition_FromAStateTheLinkLeft_WritesNothing()
+    {
+        // A racing accept read Proposed, then another caller accepted first: the persisted state decides.
+        await Accept().AcceptAsync(Tenant, _linkId);
+        var repo = new NodeEfMatchLinkRepository(_factory);
+        var stale = (await Link()) with { State = MatchLinkState.Reversed };
+
+        var moved = await repo.TransitionWithLineAsync(
+            stale, MatchLinkState.Proposed, (await Line()) with { State = ReconciliationState.Unmatched });
+
+        Assert.False(moved);
+        Assert.Equal(MatchLinkState.Accepted, (await Link()).State);
+        Assert.Equal(ReconciliationState.Matched, (await Line()).State);
+    }
+
+    private async Task<MatchLinkId> AddLink(decimal amount)
+    {
+        var id = MatchLinkId.NewId();
+        await new NodeEfMatchLinkRepository(_factory).AddAsync(new MatchLink(
+            id, Tenant, _lineId, new LedgerTransactionRef(new JournalEntryId("JE-" + amount)), amount,
+            MatchLinkState.Proposed, AcceptedAt: null));
+        return id;
     }
 
     private AcceptMatchService Accept() => new(
@@ -103,7 +196,9 @@ public sealed class BankMatchCrashResumeTests : IAsyncLifetime
         new NodeEfMatchLinkRepository(_factory), new NodeEfStatementLineRepository(_factory),
         new NodeEfReconciliationRepository(_factory), new ReconciliationLockLease(TimeProvider.System));
 
-    private async Task<MatchLink> Link() => (await new NodeEfMatchLinkRepository(_factory).GetByIdAsync(Tenant, _linkId))!;
+    private Task<MatchLink> Link() => Link(_linkId);
+
+    private async Task<MatchLink> Link(MatchLinkId id) => (await new NodeEfMatchLinkRepository(_factory).GetByIdAsync(Tenant, id))!;
 
     private async Task<StatementLine> Line() => (await new NodeEfStatementLineRepository(_factory).GetByIdAsync(Tenant, _lineId))!;
 

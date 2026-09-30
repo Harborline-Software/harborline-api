@@ -10,7 +10,6 @@
       package: it holds the PDF-library dependency the ProviderNeutrality analyzer keeps out of Foundation
       (ADR 0021 §5); the mobile-carve AOT-clean emitter would register the same contract, different adapter.</Description>
     <PackageTags>harborline;documents;pdf;pdfsharp;migradoc;render;adr-0021;pillar-111</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

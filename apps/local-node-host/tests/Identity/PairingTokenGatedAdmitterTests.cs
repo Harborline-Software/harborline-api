@@ -259,6 +259,43 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         Assert.Equal(string.Empty, admission.MintingSessionEvidence);
     }
 
+    // ── ck-10: in-memory trust and the conferred grant follow the roster save, never precede it. ──
+
+    [Fact(DisplayName = "ck-10 pairing: a refused roster save leaves no in-memory trust, no grant and no roster record")]
+    public async Task Refused_Roster_Save_Leaves_No_Trust_And_No_Grant()
+    {
+        var h = await BuildAsync();
+        var (_, req) = h.MintBindAndSign();
+        await using (var db = h.Search.CreateContext())
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER ck10_roster_fault BEFORE INSERT ON roster_records BEGIN SELECT RAISE(ABORT, 'ck10'); END;");
+
+        await Assert.ThrowsAnyAsync<Exception>(() => h.Admitter.AdmitAsync(req, CancellationToken.None));
+
+        Assert.False(h.Roster.Current.Contains(JoinerPartyId));
+        Assert.DoesNotContain(JoinerPartyId, h.Roster.AdmittedPeerTransportKeys().Keys);
+        await using var search = h.Search.CreateContext();
+        Assert.Equal([GrantId], await search.Grants.AsNoTracking().Select(row => row.GrantId).ToArrayAsync());
+        Assert.Equal(0, await search.AuthorizationDefinitions.CountAsync());
+        await using var roster = h.Search.CreateRosterContext();
+        Assert.DoesNotContain(await roster.RosterRecords.AsNoTracking().ToListAsync(), row => row.PartyId == JoinerPartyId);
+    }
+
+    [Fact(DisplayName = "ck-10 pairing: an admission commits its roster record, its conferred grant and then trusts the peer")]
+    public async Task Admission_Commits_Record_And_Grant_Then_Trusts()
+    {
+        var h = await BuildAsync();
+        var (_, req) = h.MintBindAndSign();
+
+        Assert.True((await h.Admitter.AdmitAsync(req, CancellationToken.None)).Accepted);
+
+        Assert.Contains(JoinerPartyId, h.Roster.AdmittedPeerTransportKeys().Keys);
+        await using var search = h.Search.CreateContext();
+        Assert.Equal(2, await search.Grants.CountAsync());
+        await using var roster = h.Search.CreateRosterContext();
+        Assert.Contains(await roster.RosterRecords.AsNoTracking().ToListAsync(), row => row.PartyId == JoinerPartyId);
+    }
+
     // ── 293 s5: the SoD audit row records the set the admission CONFERRED, never a roster read. ──
 
     [Fact(DisplayName = "293 s5 pairing: the SoD audit row carries the CONFERRED set, not a roster permission read")]
@@ -328,6 +365,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         public required TeamTrustAnchor Anchor { get; init; }
         public required IDbContextFactory<NodeLocalAdmissionDbContext> AdmissionFactory { get; init; }
         public required RecordingCompensatingControlRecorder SodAudit { get; init; }
+        public required SearchTestStore Search { get; init; }
 
         // Mint a durable pairing token bound to (party), and build a signed enrollment request presenting it.
         public (string TokenId, EnrollmentRequest Request) MintBindAndSign(
@@ -405,17 +443,17 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         var durableTokenStore = tokenStore ?? new DurableAdmissionTokenStore(admissionFactory);
         var bindings = new DurableWebPairingInviteBindingStore(admissionFactory);
 
-        // Roster db + CRDT projection.
-        var rosterFactory = NewRosterFactory(out var crdtSp);
-        _providers.Add(crdtSp);
+        // Roster db + CRDT projection. ck-10: the roster context shares the grant store's SQLite file, as in
+        // production (one local-node.db), so the admission's conferred grant commits in the roster save.
+        var rosterFactory = search.RosterFactory;
         await using (var ctx = await rosterFactory.CreateDbContextAsync())
-            await ctx.Database.EnsureCreatedAsync();
+            await ctx.Database.MigrateAsync();
 
         var founder = new IdentityFor(founderSigner ?? NewIdentity(FounderPartyId).Signer);
         var genesis = MemberRoster.Genesis(Team, FounderPartyId, founder.Signer, Verifier, Now, Guid.NewGuid());
         var roster = new NodeTeamRoster(genesis);
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            crdtSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier, founder.Signer,
+            new YDotNetCrdtEngine(), rosterFactory, Verifier, founder.Signer,
             NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);
 
@@ -440,6 +478,7 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
             Anchor = TeamTrustAnchor.FromRoster(genesis),
             AdmissionFactory = admissionFactory,
             SodAudit = sodAudit,
+            Search = search,
         };
     }
 
@@ -464,20 +503,6 @@ public sealed class PairingTokenGatedAdmitterTests : IAsyncLifetime
         var sp = services.BuildServiceProvider();
         _providers.Add(sp);
         return sp.GetRequiredService<IDbContextFactory<NodeLocalAdmissionDbContext>>();
-    }
-
-    private IDbContextFactory<NodeLocalRosterDbContext> NewRosterFactory(out ServiceProvider sp)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), $"harborline-pairing-gated-roster-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        _dirs.Add(dir);
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddDbContextFactory<NodeLocalRosterDbContext>(
-            opt => opt.UseSqlite($"Data Source={Path.Combine(dir, "roster.db")};Pooling=False"));
-        services.AddSingleton<ICrdtEngine, YDotNetCrdtEngine>();
-        sp = services.BuildServiceProvider();
-        return sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
     }
 
     private static NodeIdentity DeriveTeamScopedIdentity(Guid teamId)

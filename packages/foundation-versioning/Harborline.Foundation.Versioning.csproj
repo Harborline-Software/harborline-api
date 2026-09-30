@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Versioning</RootNamespace>
     <Description>Foundation-tier substrate for cross-version Harborline federation handshake (ADR 0028-A6+A7). Hosts VersionVector + PluginVersionVectorEntry + VersionVectorVerdict primitives, ICompatibilityRelation 6-rule engine, IVersionVectorExchange two-phase verdict-commit handshake, and IVersionVectorIncompatibility audit-emission with A7.4 dedup. In-memory reference implementations. Audit integrates with kernel-audit per ADR 0049 via 2 new AuditEventType discriminators (VersionVectorIncompatibilityRejected, LegacyDeviceReconnected).</Description>
     <PackageTags>harborline;foundation;versioning;federation;handshake;adr-0028</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.MissionSpace</RootNamespace>
     <Description>Foundation-tier substrate for the runtime mission-envelope negotiation protocol (ADR 0062 + A1). Hosts MissionEnvelope (10-dimension snapshot) + EnvelopeChange + FeatureVerdict + 5-value DegradationKind taxonomy + IFeatureGate/IDimensionProbe/IFeatureBespokeProbe contracts + IMissionEnvelopeProvider central coordinator + IFeatureForceEnableSurface operator-only override + LocalizedString + 9 new AuditEventType discriminators. Canonical-load-bearing for the W#33 §7.2 cohort.</Description>
     <PackageTags>harborline;foundation;mission-space;feature-gate;adr-0062</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

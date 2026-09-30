@@ -9,7 +9,7 @@
          in this package — scaffolded ahead of consumer wiring. Remove this suppression once
          consumers wire the keys via IStringLocalizer indexer or GetString. Follow-up: wire
          ui-core SharedResource consumers. -->
-    <NoWarn>CS1591;HARBORLINE_API_I18N_002</NoWarn>
+    <NoWarn>$(NoWarn);HARBORLINE_API_I18N_002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

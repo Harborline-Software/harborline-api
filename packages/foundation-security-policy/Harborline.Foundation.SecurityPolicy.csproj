@@ -8,7 +8,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Description>Tenant-configurable security policy substrate per ADR 0068 (MFA, device attestation, audit retention, key rotation, recovery contact). PR 1: data-model records + enums. Validation pipeline + audit event types ship in subsequent PRs.</Description>
     <PackageTags>security;policy;mfa;attestation;retention;tenant;harborline;foundation</PackageTags>
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
