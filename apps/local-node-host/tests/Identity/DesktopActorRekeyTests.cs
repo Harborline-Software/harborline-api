@@ -58,6 +58,26 @@ public sealed class DesktopActorRekeyTests
         Assert.NotEmpty(asked);
     }
 
+    [Fact(DisplayName = "ck-4: an unbound request context keeps desktop authority on the desktop plane and never lends it to a device-plane request")]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_device_plane_request_never_borrows_the_desktop_operators_grants()
+    {
+        using var node = KeyPair.Generate();
+        var (active, _) = await ActiveAsync();
+        var plane = new ActiveTeamAuthorizationContext(
+            active, new InMemoryTeamRegistry(), new FixedTimeProvider(At), FounderRoster(node), new Ed25519Signer(node),
+            TestAuthorization.Gate(_ => true, _ => { }));
+        var context = new Harborline.Api.LocalNodeHost.Health.WebSession.SelectedSessionTenantContext(
+            new FailClosedSelectedSessionPermissionResolver(), plane);
+
+        // Desktop plane (no bound web principal, no device): the operator's grant stands.
+        Assert.True(context.HasPermission(TeamRolePermissions.RecordsRead));
+
+        // Device plane: no selected principal is bound, and the desktop operator's grants are not lent.
+        using (Harborline.Api.LocalNodeHost.Data.Audit.NodeCallerAttributionScope.EnterDevice("device-ck4", Tenant.Value, "device-principal"))
+            Assert.False(context.HasPermission(TeamRolePermissions.RecordsRead));
+    }
+
     [Fact]
     [Trait("PlanCard", "294-s3b")]
     public void A_desktop_request_with_no_session_principal_is_attributed_to_the_founders_canonical_principal()
@@ -129,6 +149,24 @@ public sealed class DesktopActorRekeyTests
             Assert.Equal(rekeyedVersion, (await context.Grants.AsNoTracking()
                 .SingleAsync(row => row.SourceReference == NodeOperatorSource)).OwnerVersion);
         }
+    }
+
+    [Fact]
+    [Trait("PlanCard", "294-s3b")]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_local_grant_row_with_no_retired_epoch_row_is_still_rekeyed_to_the_desktop_actor()
+    {
+        await using var store = await NodeStore.CreateAsync();
+        await SeedRetiredRowsAsync(store, withEpochRow: false);
+        using var node = KeyPair.Generate();
+        await using var provider = SeedServices(FounderRoster(node), new Ed25519Signer(node), store.Factory);
+
+        await StartSeedAsync(provider);
+
+        await using var context = store.CreateContext();
+        Assert.False(await context.Grants.AnyAsync(row => row.SubjectId == Retired));
+        Assert.Equal(Founder, (await context.Grants.AsNoTracking()
+            .SingleAsync(row => row.SourceReference == NodeOperatorSource)).SubjectId);
     }
 
     [Fact]
@@ -221,7 +259,7 @@ public sealed class DesktopActorRekeyTests
     }
 
     /// <summary>The rows the pre-slice seed wrote: the node-operator holding and its epoch, keyed "local".</summary>
-    private static async Task SeedRetiredRowsAsync(NodeStore store)
+    private static async Task SeedRetiredRowsAsync(NodeStore store, bool withEpochRow = true)
     {
         var installer = new ActorId("installer:authorization-definition-seed");
         var grant = new AccessGrant(
@@ -233,12 +271,13 @@ public sealed class DesktopActorRekeyTests
             At);
         await using var context = store.CreateContext();
         context.Grants.Add(NodeEfGrantStore.ToRow(grant, NodeOperatorSource));
-        context.GrantAuthorizationEpochs.Add(new GrantAuthorizationEpochRow
-        {
-            TenantId = Tenant.Value,
-            PrincipalId = Retired,
-            AuthorizationEpoch = 1,
-        });
+        if (withEpochRow)
+            context.GrantAuthorizationEpochs.Add(new GrantAuthorizationEpochRow
+            {
+                TenantId = Tenant.Value,
+                PrincipalId = Retired,
+                AuthorizationEpoch = 1,
+            });
         await context.SaveChangesAsync();
     }
 

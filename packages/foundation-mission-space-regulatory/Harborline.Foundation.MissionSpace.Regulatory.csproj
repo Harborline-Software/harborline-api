@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.MissionSpace.Regulatory</RootNamespace>
     <Description>Foundation-tier substrate for runtime regulatory policy evaluation (ADR 0064 + A1). Hosts JurisdictionProbe + IPolicyEvaluator + IDataResidencyEnforcer + ISanctionsScreener + composite-confidence probe with tie-breaker (user-declaration &gt; tenant-config &gt; IP-geo) + Bridge-tier DataResidencyEnforcerMiddleware (HTTP 451 RFC 7725) + ScreeningPolicy.AdvisoryOnly opt-out + 10 new AuditEventType constants. Reader caution: Harborline does not provide legal advice; this substrate is not a substitute for qualified counsel. Phase 1 substrate-only deployments are NOT regulatory-compliant by virtue of the substrate alone.</Description>
     <PackageTags>harborline;foundation;mission-space;regulatory;policy;adr-0064</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

@@ -10,7 +10,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Host process, not a library: no XML-doc generation, no missing-comment warnings. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <UserSecretsId>sunfish-local-node-host</UserSecretsId>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;tools/**</DefaultItemExcludes>
     <!-- PublishReadyToRun=false: R2R (crossgen2) is a startup-latency optimisation

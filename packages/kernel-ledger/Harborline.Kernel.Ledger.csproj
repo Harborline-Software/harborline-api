@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Kernel.Ledger</RootNamespace>
     <Description>Harborline kernel §12 event-sourced double-entry ledger subsystem. Posting engine with lease-coordinated idempotency, CQRS balance/statement projections, and period closing with adjustment-account routing. The log is the source of truth; projections are rebuilt from the event stream.</Description>
     <PackageTags>harborline;kernel;ledger;double-entry;event-sourced;cqrs</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

@@ -195,6 +195,38 @@ public sealed class AccountingSummaryRouteTests : IAsyncLifetime
         Assert.Equal(0m, doc.GetProperty("income").GetDecimal());
     }
 
+    [Fact(DisplayName = "T-909 ck-9: the summary's current month comes from the host clock, and an explicit day overrides it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Summary_month_follows_the_host_clock_unless_a_day_is_given()
+    {
+        var chartId = new ChartOfAccountsId(await SeedChartAsync());
+        var revenue = await AccountIdByCodeAsync(chartId, "4100");
+        var cash = await AccountIdByCodeAsync(chartId, "1100");
+        await using (var ctx = await _factory.CreateDbContextAsync())
+        {
+            ctx.Set<JournalEntry>().Add(PostedEntry(chartId, new DateOnly(2020, 2, 10), "rev", [
+                new JournalEntryLine(cash, 400m, 0m),
+                new JournalEntryLine(revenue, 0m, 400m),
+            ]));
+            await ctx.SaveChangesAsync();
+        }
+        var service = new NodeAccountingSummaryService(
+            _factory, NodeTestActiveTeam.Accessor, new FixedClock(new DateTimeOffset(2020, 2, 15, 12, 0, 0, TimeSpan.Zero)));
+
+        var clockMonth = await service.GetSummaryAsync();
+        var givenMonth = await service.GetSummaryAsync(new DateOnly(2021, 5, 1));
+
+        Assert.Equal("2020-02", clockMonth.Period);
+        Assert.Equal(400m, clockMonth.Income);
+        Assert.Equal("2021-05", givenMonth.Period);
+        Assert.Equal(0m, givenMonth.Income);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     [Fact(DisplayName = "Outstanding: pre-seed returns an empty list")]
     public async Task Outstanding_PreSeed_Empty()
     {

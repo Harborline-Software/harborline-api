@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Migration</RootNamespace>
     <Description>Foundation-tier substrate for cross-form-factor migration semantics (ADR 0028-A5+A8). Hosts FormFactorProfile + HardwareTierChangeEvent + DerivedSurface primitives, IFormFactorMigrationService contract with sequestration-over-deletion semantics (Invariant DLF: data-loss-vs-feature-loss), ISequestrationStore for the sequestration partition, MigrationAuditPayloads factory, and 10 new AuditEventType discriminators. In-memory reference implementations.</Description>
     <PackageTags>harborline;foundation;migration;form-factor;invariant-dlf;adr-0028</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

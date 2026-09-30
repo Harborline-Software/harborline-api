@@ -144,9 +144,11 @@ public sealed class BootstrapEstablishesOnceTests : IAsyncLifetime
                 .ConferAdmissionGrantAsync(
                     ActiveTeamTenantContext.ProjectTenantId(genesisTeam),
                     BootResult.Operator.Value,
-                    BootResult.Operator.Value,
+                    // The party that signed this node's admission (the node itself at genesis).
+                    roster.Current.Find(BootResult.Operator.Value)!.Admission.AdmittedByPartyId,
                     PermissionCompositions.Owner,
-                    DateTimeOffset.UnixEpoch);
+                    DateTimeOffset.UnixEpoch,
+                    AdmissionConferralAuthority.SignedAdmission(roster.Current));
         }
         await provider.GetRequiredService<MultiTeamBootstrapHostedService>()
             .StartAsync(CancellationToken.None);

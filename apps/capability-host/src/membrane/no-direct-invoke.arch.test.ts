@@ -277,12 +277,24 @@ function bypassOffenders(roots: string[]): string[] {
   return offenders
 }
 
+/**
+ * T-987: the bypass scan parses every scanned file with the TypeScript compiler, so on a starved
+ * runner it outlives vitest's 5000 ms default. It failed that way on verify-windows-hosted (run
+ * 36588417357). Measured on Linux, 4 cores with 48 stress-ng CPU burners, the whole capability suite
+ * in a CPU-quota cgroup, cold vite cache: 137-204 ms alone and unloaded; 2695 ms at a 0.5-core quota;
+ * 4994 ms at 0.25; 8699 ms at 0.15, where it went red with "Test timed out in 5000ms". This file alone
+ * at a 0.05-core quota took 8900-10406 ms over 23 runs (red on every base run). 30 s is about 2.9 times
+ * the worst of those. It is a hang guard only: nothing here is a timing assertion, and
+ * the scan is synchronous, so vitest can only report the overrun after the parse returns.
+ */
+const FULL_PARSE_TIMEOUT_MS = 30_000
+
 describe('no-direct-invoke arch-test (ADR 0134 P0 / SEC-A1 — the invoke chokepoint is structural)', () => {
   it('no capability-host FACE calls the raw shell.invoke outside the secureInvoke chokepoint', () => {
     // Every face that reaches the raw shell invoke must do it INSIDE secureInvoke's
     // executor — so authenticate → authorize → SEC-2 → SEC-3 → execute always runs.
     expect(bypassOffenders(SCANNED_ROOTS)).toEqual([])
-  })
+  }, FULL_PARSE_TIMEOUT_MS)
 
   it('at least one face DOES route through the chokepoint (the guard is wired, not vacuous)', () => {
     // Guards against a vacuous pass: if NOTHING called secureInvoke, the bypass scan

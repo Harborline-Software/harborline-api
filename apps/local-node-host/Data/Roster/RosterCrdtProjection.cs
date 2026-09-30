@@ -9,6 +9,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Sync.Application;
+using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -265,7 +266,8 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
     /// T-986: stages rows (the change's compensating-control audit) on the roster context before the one save
     /// that writes the record, so they commit together or not at all; a fault it throws leaves the record
     /// unwritten. A publish of a record already in the roster list, identically, stages nothing:
-    /// that change already committed.
+    /// that change already committed. ck-10: it runs inside an open transaction on the roster context, which
+    /// another context may join (<c>NodeEfAuthorizationConfigurationStore.ConferAdmissionGrantWithinAsync</c>).
     /// </param>
     public async Task PublishLocalAsync(
         RosterRecordCrdtState record,
@@ -326,8 +328,17 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
             }
 
             if (stageWithRecord is not null)
-                await stageWithRecord(ctx, ct).ConfigureAwait(false);
-            if (ctx.ChangeTracker.HasChanges())
+            {
+                // ck-10: the staged rows may be another context's writes joined to this one's transaction (an
+                // admission's conferred grant), so the stage and the save run inside one explicit transaction.
+                await HomeEpochFenceTransaction.RunAsync(ctx, async () =>
+                {
+                    await stageWithRecord(ctx, ct).ConfigureAwait(false);
+                    if (ctx.ChangeTracker.HasChanges())
+                        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                }, ct).ConfigureAwait(false);
+            }
+            else if (ctx.ChangeTracker.HasChanges())
                 await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 

@@ -55,11 +55,12 @@ namespace Harborline.Api.LocalNodeHost.Enrollment;
 /// <para>
 /// <b>Post-admit sequence (steps 3–6, identical to the proven <see cref="WireEnrollmentAdmitter"/> tail).</b> After
 /// the bridge records the signed, genesis-rooted admission (token id + mint-session evidence bound in — R1.2), this
-/// wires the admitted peer's transport + DM keys into A's trust map (<see cref="NodeTeamRoster.AdmitPeer"/>),
 /// publishes the signed admission to the roster-sync doctype (<see cref="RosterCrdtProjection.PublishLocalAsync"/> —
-/// the X-Wing key rides the SIGNED admission, harvested on convergence), records the SoD compensating-control audit
-/// event with mode <c>web-pairing</c>, and builds the A→B bootstrap response
-/// (<see cref="WireEnrollment.BuildResponse"/>).
+/// the X-Wing key rides the SIGNED admission, harvested on convergence) with the SoD compensating-control audit
+/// event (mode <c>web-pairing</c>) and the admitted party's conferred grant staged in the same transaction, then,
+/// only once that commit succeeds, wires the admitted peer's transport + DM keys into A's trust map
+/// (<see cref="NodeTeamRoster.TryAdmitPeer"/>) and builds the A→B bootstrap response
+/// (<see cref="WireEnrollment.BuildResponse"/>). A refused save leaves no roster record, no grant and no trust.
 /// </para>
 /// <para>
 /// <b>F4 — every refusal is ONE opaque outcome.</b> <see cref="AdmitAsync"/> returns a coarse
@@ -273,11 +274,8 @@ internal sealed class PairingTokenGatedAdmitter
 
         var newRoster = wire.Roster;
 
-        // (6) Post-admit step 3 — wire the admitted peer's TRANSPORT + DM keys into A's trust map. The X-Wing key is
-        //     NOT wired here: it rides the SIGNED admission and is harvested from the chain-validated roster on
-        //     convergence (the C5-X model), exactly as in WireEnrollmentAdmitter.
-        if (!_roster.TryAdmitPeer(
-                binding.Anchor, newRoster, request.JoiningPartyId, joiningTransportKey, joiningDmKey))
+        // (6) The live roster must still be the one the decision was anchored to before anything commits.
+        if (_roster.Resolve(binding.Anchor) is null)
         {
             _diag.AdmitOutcome(accepted: false, "token_team_changed", request.JoiningPartyId);
             return PairingAdmitOutcome.Refuse("token_team_changed");
@@ -287,22 +285,29 @@ internal sealed class PairingTokenGatedAdmitter
         //     FromAdmission derives the wire DM + X-Wing fields from the SIGNED admission, so both ride to peers.
         var newAdmission = newRoster.EnumerateAdmissions()
             .FirstOrDefault(a => string.Equals(a.PartyId, request.JoiningPartyId, StringComparison.Ordinal));
-        if (newAdmission is not null)
+        if (newAdmission is null)
         {
-            // (8) Post-admit step 5 — SoD compensating-control audit. Mode "web-pairing" so the audit trail
-            //     distinguishes a web-admitted-member device pairing from a plain invite. T-986: it is staged on
-            //     the roster record's own save, so the admission and its signed audit commit together or not at
-            //     all; an audit fault throws here and the admission record is not written.
-            // Ticket 293 slice 5 — the set the bridge CONFERRED on this admission (signed into the admission and
-            // staged as the party's own grant), carried back on the outcome. The roster cannot answer this: since
-            // slice 3b2 a replicated member carries no permission set, so reading it back would audit an empty set.
-            var grantedPermissions = bridgeOutcome.ConferredPermissions?.Permissions ?? Array.Empty<string>();
-            var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
-                ?? request.JoiningPrincipalPublicKey;
-            var correlationId = System.Diagnostics.Activity.Current?.Id;
-            await _projection.PublishLocalAsync(
-                RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
-                stageWithRecord: (write, token) => _sodAudit.Within(write).RecordMemberAdmittedAsync(
+            _diag.AdmitOutcome(accepted: false, "enrollment_refused", request.JoiningPartyId);
+            return PairingAdmitOutcome.Refuse("enrollment_refused");
+        }
+        // (8) Post-admit step 5 — SoD compensating-control audit. Mode "web-pairing" so the audit trail
+        //     distinguishes a web-admitted-member device pairing from a plain invite. T-986: it is staged on
+        //     the roster record's own save, so the admission and its signed audit commit together or not at
+        //     all; an audit fault throws here and the admission record is not written.
+        // Ticket 293 slice 5 — the set the bridge CONFERRED on this admission (signed into the admission and
+        // staged as the party's own grant), carried back on the outcome. The roster cannot answer this: since
+        // slice 3b2 a replicated member carries no permission set, so reading it back would audit an empty set.
+        var grantedPermissions = bridgeOutcome.ConferredPermissions?.Permissions ?? Array.Empty<string>();
+        var admittedPublicKey = newRoster.PublicKeyOf(request.JoiningPartyId)?.ToBase64Url()
+            ?? request.JoiningPrincipalPublicKey;
+        var correlationId = System.Diagnostics.Activity.Current?.Id;
+        // ck-10: the admitted party's grant is conferred through the conferral pipeline INSIDE this save's
+        // transaction, so the roster record, its audit and the grant commit together or not at all.
+        await _projection.PublishLocalAsync(
+            RosterRecordCrdtState.FromAdmission(newAdmission, joiningTransportKey, joiningDmKey), ct,
+            stageWithRecord: async (write, token) =>
+            {
+                await _sodAudit.Within(write).RecordMemberAdmittedAsync(
                     tenantId: new TenantId(binding.Membership.TenantId),
                     teamId: newRoster.TeamId.ToString("D"),
                     admitterPartyId: _admitterPartyId,
@@ -311,8 +316,20 @@ internal sealed class PairingTokenGatedAdmitter
                     grantedPermissions: grantedPermissions.ToArray(),
                     admissionMode: "web-pairing",
                     correlationId: correlationId,
-                    ct: token))
-                .ConfigureAwait(false);
+                    ct: token).ConfigureAwait(false);
+                await bridgeOutcome.ConferGrantAsync(write, token).ConfigureAwait(false);
+            })
+            .ConfigureAwait(false);
+
+        // (8b) Only after the commit — wire the admitted peer's TRANSPORT + DM keys into A's trust map. The X-Wing
+        //     key is NOT wired here: it rides the SIGNED admission and is harvested from the chain-validated roster
+        //     on convergence (the C5-X model), exactly as in WireEnrollmentAdmitter. A roster that changed after the
+        //     commit leaves the committed admission untrusted in memory until the roster rebuild (fail-closed).
+        if (!_roster.TryAdmitPeer(
+                binding.Anchor, newRoster, request.JoiningPartyId, joiningTransportKey, joiningDmKey))
+        {
+            _diag.AdmitOutcome(accepted: false, "token_team_changed", request.JoiningPartyId);
+            return PairingAdmitOutcome.Refuse("token_team_changed");
         }
 
         // (9) Post-admit step 6 — build the A→B bootstrap response (A's team-scoped transport key resolved in step 4;

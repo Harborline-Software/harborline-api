@@ -10,6 +10,21 @@ namespace Harborline.Api.LocalNodeHost.Tests.Sync;
 
 public sealed class DeltaStreamDeadlineTests
 {
+    /// <summary>
+    /// T-987: how long the test waits for the named deadline error, under the two-ceiling convention
+    /// (<see cref="LoadCeiling"/>). The wait covers the handshake plus the 1 s deadline, which the
+    /// daemon arms on the real clock (<c>CancelAfter</c>) once the handshake completes, so a fake clock
+    /// cannot drive it. The quiet ceiling keeps the original 3 s. The busy ceiling is derived, not tuned:
+    /// a working daemon emits the error no later than the 30 s connect timeout (which bounds connect and
+    /// handshake) plus the 1 s deadline, so 45 s lies past every on-time arrival. With the thread pool
+    /// starved, the base test timed out 5 of 5 runs; the error's continuation alone reached the test
+    /// 20-25 s late; under that load the fixed test passed 20 of 20 in 24.7-28.6 s. The handler takes only <see cref="ErrorCode.DeltaStreamDeadlineExceeded"/>, so no
+    /// other failure can satisfy the wait, and a daemon that never names the deadline still fails.
+    /// </summary>
+    private static readonly TimeSpan DeadlineErrorCeiling = LoadCeiling.Pick(
+        quiet: TimeSpan.FromSeconds(3),
+        busy: TimeSpan.FromSeconds(45));
+
     [Fact]
     public async Task StalledDeltaStream_EmitsNamedDeadlineError()
     {
@@ -49,7 +64,7 @@ public sealed class DeltaStreamDeadlineTests
         };
 
         var push = daemon.TriggerPushAsync(OutboundSyncLane.Background, CancellationToken.None);
-        var observed = await deadlineError.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var observed = await deadlineError.Task.WaitAsync(DeadlineErrorCeiling);
 
         Assert.Equal(GossipFrameType.GossipError, observed.FrameType);
         Assert.Contains("delta stream deadline", observed.Summary, StringComparison.OrdinalIgnoreCase);

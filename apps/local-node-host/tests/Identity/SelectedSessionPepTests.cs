@@ -242,6 +242,41 @@ public sealed class SelectedSessionPepTests
         Assert.Null(permissions);
     }
 
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task An_epoch_advance_landing_while_the_roster_loads_publishes_no_permissions()
+    {
+        // The grant authority bumps the principal's epoch between the resolver's first and final reads.
+        var resolver = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()),
+            PermissionSet.Of("records:read"), epoch: new SequencedEpochReader(1, 2));
+
+        Assert.Null(await resolver.Resolver.ResolveAsync(resolver.Principal));
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_session_whose_pinned_grant_is_gone_is_not_carried_by_another_live_grant()
+    {
+        // No epoch advance: the pinned-grant check is the fence that must hold on its own.
+        var resolver = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()),
+            PermissionSet.Of("records:read"), pinAnAbsentGrant: true);
+
+        Assert.Null(await resolver.Resolver.ResolveAsync(resolver.Principal));
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-11")]
+    public async Task A_closure_the_gate_refuses_in_full_is_unavailable_not_an_empty_session()
+    {
+        // The gate reads the principal as ejected while the session's own edge lookup finds no ejection.
+        var resolver = await BuildResolverAsync(new MutableRosterReader(FounderOnlyRoster()),
+            PermissionSet.Of("records:read"),
+            new InMemoryRoleVocabulary([AccessGrantAuthorizationSeed.MemberDefinition]),
+            gateRoster: new AuthorizationRosterInputs("principal-deferred", Member: false, Ejected: true));
+
+        Assert.Null(await resolver.Resolver.ResolveAsync(resolver.Principal));
+    }
+
     [Fact(DisplayName = "an unbound context fails closed")]
     public void No_Principal_Is_Denied()
     {
@@ -250,6 +285,23 @@ public sealed class SelectedSessionPepTests
 
         Assert.False(context.HasPermission("records:read"));
     }
+
+    [Fact(DisplayName = "ck-4: a bound request context refuses a second principal and keeps the first tenant")]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void Second_Bind_Is_Refused_And_The_First_Tenant_Stands()
+    {
+        var context = new SelectedSessionTenantContext(new FailClosedSelectedSessionPermissionResolver());
+        Assert.Equal(string.Empty, context.UserId); // an unbound context attributes to no one
+        context.Bind(RequestPrincipal("tenant-first"));
+
+        Assert.Throws<InvalidOperationException>(() => context.Bind(RequestPrincipal("tenant-second")));
+        Assert.Equal(new TenantId("tenant-first"), context.Tenant!.Id);
+    }
+
+    private static SelectedSessionRequestPrincipal RequestPrincipal(string tenant) =>
+        new("selected-account", new TenantId(tenant), new PrincipalUserId("selected-holder"),
+            new CanonicalPartyReference("selected-party"), "membership", 1,
+            [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
 
     [Fact(DisplayName = "25-member roster rebuild timing is recorded")]
     public async Task TwentyFive_Member_Roster_Rebuild_Is_Measured()
@@ -516,7 +568,10 @@ public sealed class SelectedSessionPepTests
         SelectedSessionRequestPrincipal Principal)> BuildResolverAsync(
         IVerifiedTenantRosterReader rosterReader,
         PermissionSet permissions,
-        IRoleVocabularyReader? roles = null)
+        IRoleVocabularyReader? roles = null,
+        ISelectedSessionAuthorizationEpochReader? epoch = null,
+        AuthorizationRosterInputs? gateRoster = null,
+        bool pinAnAbsentGrant = false)
     {
         var tenant = new TenantId(TeamId.ToString("D"));
         var grants = TestInMemoryAuthorizationStores.GrantStore();
@@ -525,16 +580,18 @@ public sealed class SelectedSessionPepTests
             tenant,
             RoleGrant(grantId, tenant, new ActorId("principal-deferred")),
             expectedOwnerVersion: 0);
+        // The session pins a grant the store does not hold, at the owner version the live grant carries.
+        var pinned = pinAnAbsentGrant ? GrantId.New() : grantId;
 
         return (
             new SelectedSessionPermissionResolver(
                 rosterReader,
                 grants,
-                new FixedEpochReader(),
+                epoch ?? new FixedEpochReader(),
                 new FixedTimeProvider(Now),
                 NullLogger<SelectedSessionPermissionResolver>.Instance,
                 TestAuthorization.ConferredGate(principal =>
-                    principal.Value == "principal-deferred" ? permissions : PermissionSet.Empty), roles: roles),
+                    principal.Value == "principal-deferred" ? permissions : PermissionSet.Empty, gateRoster), roles: roles),
             new SelectedSessionRequestPrincipal(
                 "account-deferred",
                 tenant,
@@ -542,7 +599,7 @@ public sealed class SelectedSessionPepTests
                 new CanonicalPartyReference("party-deferred"),
                 "membership-deferred",
                 1,
-                [new PinnedGrantOwnerVersion(grantId.ToString(), 1)],
+                [new PinnedGrantOwnerVersion(pinned.ToString(), 1)],
                 1,
                 "session-deferred",
                 "coordination-deferred"));
@@ -563,6 +620,17 @@ public sealed class SelectedSessionPepTests
             throw new VerifiedTenantRosterRefusedException(
                 VerifiedTenantRosterRefusal.Tampered,
                 "test roster refusal");
+    }
+
+    private sealed class SequencedEpochReader(params long[] epochs) : ISelectedSessionAuthorizationEpochReader
+    {
+        private int _reads;
+
+        public Task<long?> ReadAsync(
+            TenantId tenantId,
+            string principalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<long?>(epochs[Math.Min(_reads++, epochs.Length - 1)]);
     }
 
     private sealed class FixedEpochReader : ISelectedSessionAuthorizationEpochReader

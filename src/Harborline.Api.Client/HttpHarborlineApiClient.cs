@@ -4,11 +4,19 @@ using Harborline.Api.Contracts;
 
 namespace Harborline.Api.Client;
 
+/// <summary>
+/// Production transport adapter that sends each <see cref="HarborlineApiRequest"/> over HTTP and maps a
+/// non-success status to a <see cref="HarborlineProblem"/> instead of throwing.
+/// </summary>
+/// <param name="httpClient">The client that carries requests; its <see cref="HttpClient.BaseAddress"/> resolves relative routes.</param>
 public sealed class HttpHarborlineApiClient(HttpClient httpClient) : IHarborlineApiClient, IHarborlineRuntimeAdapter
 {
+    /// <inheritdoc />
     public string AdapterName => "Harborline.Api.Client.Http";
+    /// <inheritdoc />
     public HarborlineAdapterSafety Safety => HarborlineAdapterSafety.ProductionCapable;
 
+    /// <inheritdoc />
     public async ValueTask<HarborlineApiResponse> SendAsync(
         HarborlineApiRequest request,
         CancellationToken cancellationToken = default)

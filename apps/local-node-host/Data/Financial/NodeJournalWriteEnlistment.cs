@@ -18,7 +18,7 @@ public static class NodeWriteInvariants
     /// <summary>Co-commits recurring-invoice occurrence idempotency.</summary>
     public static WriteInvariant RecurringInvoice { get; } = new("recurring-invoice");
 
-    /// <summary>Co-commits the issued-invoice status transition.</summary>
+    /// <summary>Co-commits the invoice status transition (Issued on issue, Voided on void) with its journal entry.</summary>
     public static WriteInvariant IssuedInvoice { get; } = new("issued-invoice");
 }
 

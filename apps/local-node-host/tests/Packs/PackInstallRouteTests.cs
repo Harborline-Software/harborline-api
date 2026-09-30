@@ -367,6 +367,23 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
         Assert.NotNull(_store.GetActive(NodeTenantFor(), "acme.base"));
     }
 
+
+    [Fact(DisplayName = "T-909 ck-1: install names the compiled-shape refusal ahead of a standards-catalog refusal authored before it")]
+    [Trait("Holds", "kernel-core-ck-1")]
+    public async Task Install_names_the_compiled_shape_refusal_ahead_of_an_earlier_standards_catalog_refusal()
+    {
+        var packBytes = await ExportAsync(CompiledShapeClaimAfterStandardsPackBody());
+        var before = CatalogueHash();
+
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute, packBytes);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(PackInstallCodes.RefusedCompiledShapeReplacement, refusal.GetProperty("code").GetString());
+        Assert.Equal("/contents/1/contentBase64", refusal.GetProperty("pointer").GetString());
+        Assert.Equal(before, CatalogueHash());
+    }
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private async Task<byte[]> ExportAsync(object body)
@@ -433,6 +450,23 @@ public sealed class PackInstallRouteTests : IAsyncLifetime
     };
 
     // A tenant pack whose second item re-declares the compiled Record Type shape by its canonical key.
+    // A tenant pack whose standards catalog comes first and whose record type then claims a compiled shape.
+    private static object CompiledShapeClaimAfterStandardsPackBody() => new
+    {
+        key = "acme.bootstrap-standards",
+        version = "1.0.0",
+        name = "Bootstrap claim after standards",
+        description = "a standards catalog, then a record type keyed as a compiled bootstrap shape",
+        scopeTier = "Vertical",
+        contents = new object[]
+        {
+            new { key = "standards", kind = "StandardsCatalog", version = "1.0.0", content = new { } },
+            new { key = "Record-Type", kind = "RecordType", version = "1.0.0", content = new { @sealed = true } },
+        },
+        dependencies = Array.Empty<object>(),
+        capabilityRequirements = Array.Empty<string>(),
+    };
+
     private static object CompiledShapeClaimPackBody() => new
     {
         key = "acme.bootstrap",

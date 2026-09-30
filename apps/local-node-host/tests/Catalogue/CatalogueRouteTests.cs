@@ -201,6 +201,22 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         Assert.Equal([8, 12, 15], compiled.Select(entry => entry.GetProperty("members").GetArrayLength()).Order());
     }
 
+    [Fact(DisplayName = "T-909 ck-1: with the platform seed active, the compiled shapes still come first, in the platform's declared order")]
+    [Trait("Holds", "kernel-core-ck-1")]
+    public async Task Compiled_shapes_precede_the_platform_seed_types_in_declared_order()
+    {
+        await _platformPreload.PreloadAsync(_tenantA, CancellationToken.None);
+
+        var types = await _client.GetFromJsonAsync<JsonElement>(CatalogueRoutes.TypesRoute);
+
+        var entries = types.EnumerateArray().ToArray();
+        Assert.True(entries.Length > CompiledBootstrapCatalogue.Shapes.Count);
+        Assert.Equal(
+            CompiledBootstrapCatalogue.Shapes.Select(shape => shape.Identity.Value),
+            entries.Take(CompiledBootstrapCatalogue.Shapes.Count).Select(entry =>
+                entry.TryGetProperty("identity", out var identity) ? identity.GetString() : null));
+    }
+
     [Fact(DisplayName = "T-909 ck-1: the platform pack cannot replace a compiled shape through the preload's install path")]
     public async Task Platform_preload_cannot_replace_a_compiled_shape()
     {

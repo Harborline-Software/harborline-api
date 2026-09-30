@@ -8,10 +8,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Description>SPINE-2 (ADR 0140 D2) field/section aspect governance — the tag→policy resolver, the fail-closed publish-time admission validator, the four PEPs (Store/Read/Export/EraseSubject), and the greenfield bridges (class→AuditEventClass, eligible-set residency, legal-hold registry, retention→shred scheduler) + IConsentGate + Mask. Orchestration over the BUILT crypto-shred / encrypt / retain / reside / audit primitives — it composes them, it does not re-implement them.</Description>
     <PackageTags>governance;policy;classification;pii;retention;residency;crypto-shred;forms;spine-2;harborline;foundation</PackageTags>
-    <!-- CS1591 suppressed at package level (matches sibling foundation-* packages):
-         GenerateDocumentationFile is on repo-wide; public surface is documented but
-         seed-data / params need not each carry a doc comment to keep the 0/0 build. -->
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

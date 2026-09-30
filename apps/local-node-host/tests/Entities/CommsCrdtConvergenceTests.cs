@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Crypto;
@@ -84,7 +85,8 @@ public sealed class CommsCrdtConvergenceTests : IAsyncLifetime
 
     private Task<Replica> NewReplicaAsync(string name) => NewReplicaAsync(name, rosterBinding: null);
 
-    private async Task<Replica> NewReplicaAsync(string name, Func<string, PrincipalId?>? rosterBinding)
+    private async Task<Replica> NewReplicaAsync(
+        string name, Func<string, PrincipalId?>? rosterBinding, ILogger<CommsCrdtProjection>? logger = null)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"harborline-comms-crdt-{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -105,7 +107,7 @@ public sealed class CommsCrdtConvergenceTests : IAsyncLifetime
             sp.GetRequiredService<ICrdtEngine>(),
             factory,
             Verifier,
-            NullLogger<CommsCrdtProjection>.Instance,
+            logger ?? NullLogger<CommsCrdtProjection>.Instance,
             rosterBinding);
 
         var replica = new Replica { Name = name, Dir = dir, Sp = sp, Factory = factory, Projection = projection };
@@ -343,6 +345,29 @@ public sealed class CommsCrdtConvergenceTests : IAsyncLifetime
         Assert.DoesNotContain(dstLog, m => m.MessageId == garbage.MessageId);
     }
 
+    [Fact(DisplayName = "T-909 ck-9: a peer message whose authored instant does not parse is dropped once, logged for its instant, and the rest of the delta lands")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Peer_message_with_an_unparseable_instant_is_dropped_once_and_the_rest_lands()
+    {
+        var logger = new RecordingLogger();
+        var src = await NewReplicaAsync("src");
+        var dst = await NewReplicaAsync("dst", rosterBinding: null, logger);
+
+        // Pushed straight onto src's CRDT list (no local EF write), ahead of a legitimate message.
+        var signed = await CommsMessageFactory.CreateSignedAsync(
+            Alice.Signer, Alice.PartyId, Tenant, "undated", DateTimeOffset.UtcNow);
+        var undated = signed with { MessageId = Guid.NewGuid().ToString("D"), AuthoredAtIso = "not-an-instant" };
+        src.Projection.AppendLocal(undated);
+        var good = await AppendAsync(src, Alice, "legit message", DateTimeOffset.UtcNow);
+
+        await SyncAsync(src, dst);
+
+        var dstLog = await ReadLogAsync(dst);
+        Assert.Equal(good.MessageId, Assert.Single(dstLog).MessageId);
+        var dropped = Assert.Single(logger.Warnings, warning => warning.Contains(undated.MessageId, StringComparison.Ordinal));
+        Assert.Contains("authored instant does not parse", dropped, StringComparison.Ordinal);
+    }
+
     // ── Test 5c: FORGE-PROOF ATTRIBUTION — the foreign-party forgery is now REJECTED (#1277 B1b CLOSED) ───
     // THE PAYOFF OF THE ROSTER (enrollment Phase A). An attacker signs a FRESH message with their OWN key while
     // stamping a VICTIM's partyId. PRE-enrollment this PASSED (the signature is valid for the attacker's stamped
@@ -457,5 +482,17 @@ public sealed class CommsCrdtConvergenceTests : IAsyncLifetime
 
         // And the hydrated list still verifies authorship (the signed identity round-tripped through EF).
         Assert.All(fresh.Snapshot(), m => Assert.True(CommsMessageFactory.VerifyAuthorship(m, Verifier)));
+    }
+
+    private sealed class RecordingLogger : ILogger<CommsCrdtProjection>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Warnings { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (level >= LogLevel.Warning) Warnings.Enqueue(formatter(state, exception));
+        }
     }
 }

@@ -42,7 +42,7 @@ public sealed class InvoicePostingService : IInvoicePostingService
         _numbering = numbering ?? throw new ArgumentNullException(nameof(numbering));
         _tax = tax ?? throw new ArgumentNullException(nameof(tax));
         _journals = journals ?? throw new ArgumentNullException(nameof(journals));
-        _journalStore = journalStore; // optional; enables marking the original JE as Reversed on void
+        _journalStore = journalStore; // optional; lets IssueAsync find a legacy stranded issue entry
         _events = events ?? new NoopDomainEventPublisher();
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
@@ -216,17 +216,18 @@ public sealed class InvoicePostingService : IInvoicePostingService
         if (invoice is null)
             return new VoidResult(null, null, VoidError.UnknownInvoice, $"Invoice '{invoiceId.Value}' does not exist or is tombstoned.");
 
+        // Idempotent: a retried void (e.g. after a crash that hid the first response) returns the first result.
+        if (invoice.Status == InvoiceStatus.Voided && invoice.VoidedByEntryId is { } priorReversalId)
+            return new VoidResult(invoice, priorReversalId, VoidError.None, "Already voided; no-op.");
+
         if (invoice.Status is not (InvoiceStatus.Issued or InvoiceStatus.PartiallyPaid))
             return new VoidResult(invoice, null, VoidError.InvalidStatusForVoid,
                 $"Cannot void invoice in status '{invoice.Status}'. Only Issued / PartiallyPaid are voidable.");
 
-        if (invoice.JournalEntryId is null)
+        if (invoice.JournalEntryId is not { } issueEntryId)
             return new VoidResult(invoice, null, VoidError.NoJournalEntryToReverse, "Invoice has no source journal entry to reverse.");
 
-        // Build the reversal: same accounts, debits/credits swapped.
-        // We synthesize from invoice fields rather than fetching the original
-        // JE — the JE store is available as an optional dep; if wired it is
-        // used to mark the original as Reversed after posting.
+        // Build the reversal: same accounts, debits/credits swapped, synthesized from the invoice fields.
         var jeLines = new List<JournalEntryLine>(invoice.Lines.Count + 2)
         {
             new(invoice.ArAccountId, debit: 0m, credit: invoice.Total),
@@ -241,6 +242,7 @@ public sealed class InvoicePostingService : IInvoicePostingService
             jeLines.Add(new JournalEntryLine(invoice.ArAccountId, debit: 0m, credit: invoice.TaxTotal));
         }
 
+        var sourceReference = $"invoice-void:{invoice.Id.Value}";
         var reversal = new JournalEntry(
             id: JournalEntryId.NewId(),
             tenantId: CurrentTenantId,
@@ -248,54 +250,46 @@ public sealed class InvoicePostingService : IInvoicePostingService
             memo: $"Void invoice {invoice.InvoiceNumber}: {reason}",
             lines: jeLines,
             createdAtUtc: now,
-            sourceReference: $"invoice-void:{invoice.Id.Value}")
+            sourceReference: sourceReference)
         {
             ChartId = invoice.ChartId,
             SourceKind = JournalEntrySource.Invoice,
+            // DES-0029 ck-6: the store transitions the issue entry Posted -> Reversed in the reversal's save.
+            ReversalOf = issueEntryId,
         };
-
-        var postResult = await _journals.PostAsync(
-            reversal,
-            authority,
-            cancellationToken).ConfigureAwait(false);
-        if (!postResult.IsSuccess)
-            return new VoidResult(invoice, null, VoidError.JournalRejected, postResult.Detail);
-
-        // ck-6 replay: a retry after a crash between this JE's commit and the record's is answered with the
-        // FIRST posting (source-reference dedupe). Use the persisted entry's id, never this attempt's draft id.
-        var postedId = postResult.Entry!.Id;
-
-        // Mark the original JE as Reversed (reverse-not-delete invariant, F-89-A / P3).
-        // This sets Status=Reversed + ReversedBy FK so the GL read model counts both entries
-        // (original Posted→Reversed + reversal Posted) and nets to zero — and prevents the
-        // original from being reversed a second time. Mirrors the pattern in
-        // HandleReverseJournalEntryAsync. Only applied when _journalStore is injected; the
-        // production SQLite path will unconditionally wire it via DI.
-        if (_journalStore is InMemoryJournalStore inMemoryStore
-            && invoice.JournalEntryId is { } originalJeId)
-        {
-            var originalEntry = inMemoryStore.Snapshot(CurrentTenantId)
-                .FirstOrDefault(e => e.Id.Equals(originalJeId));
-            if (originalEntry is not null)
-            {
-                inMemoryStore.ReplaceEntry(CurrentTenantId, originalEntry with
-                {
-                    Status     = JournalEntryStatus.Reversed,
-                    ReversedBy = postedId,
-                });
-            }
-        }
 
         var voided = invoice with
         {
             Status = InvoiceStatus.Voided,
-            VoidedByEntryId = postedId,
+            VoidedByEntryId = reversal.Id,
             Balance = 0m,
             UpdatedAtUtc = now,
             UpdatedBy = actor,
             Version = invoice.Version + 1,
         };
-        await _invoices.UpsertAsync(CurrentTenantId, voided, authority.At, cancellationToken).ConfigureAwait(false);
+
+        // DES-0029 ck-6: the voided invoice is staged onto the reversal's transaction by the invoice status
+        // adapter (the issue path's scope), so the void, the Posted -> Reversed transition, the reversing entry
+        // and its audit row commit together or not at all.
+        PostResult postResult;
+        using (IssuedInvoiceWriteScope.Enter(new PendingIssuedInvoiceUpdate(CurrentTenantId, voided, sourceReference)))
+        {
+            postResult = await _journals.PostAsync(
+                reversal,
+                authority,
+                cancellationToken).ConfigureAwait(false);
+        }
+        if (!postResult.IsSuccess)
+            return new VoidResult(invoice, null, VoidError.JournalRejected, postResult.Detail);
+
+        // A reversal committed by an earlier, non-atomic build is answered by the source-reference dedupe
+        // without a save; repair only the invoice record, pointing it at that first posting.
+        var postedId = postResult.Entry!.Id;
+        if (!postedId.Equals(reversal.Id))
+        {
+            voided = voided with { VoidedByEntryId = postedId };
+            await _invoices.UpsertAsync(CurrentTenantId, voided, authority.At, cancellationToken).ConfigureAwait(false);
+        }
 
         await PublishAsync(
             AccountsReceivableEventNames.InvoiceVoided,

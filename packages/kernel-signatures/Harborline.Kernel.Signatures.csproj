@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Kernel.Signatures</RootNamespace>
     <Description>Harborline kernel signature-capture substrate (ADR 0054). Captures legally-binding signature events with content-hash binding, append-only revocation log, UETA/E-SIGN consent gate, and pluggable device-attestation surface. Sibling to kernel-audit + kernel-security. W#21 Phase 1 ships the contract surface + InMemory implementations; native iOS PencilKit + CryptoKit integration deferred to W#23 (iOS Field-Capture App).</Description>
     <PackageTags>harborline;kernel;signatures;ueta;e-sign;adr-0054</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

@@ -7,7 +7,6 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <!-- Phase-1 migration accommodation; match Harborline.Api.Foundation pattern. -->
-    <NoWarn>CS1591</NoWarn>
     <Description>MSBuild tasks for round-tripping .resx &lt;-&gt; XLIFF 2.0 per the Harborline Global-First UX spec Section 3A.</Description>
     <!-- Package the .targets + DLL into a NuGet build directory. -->
     <BuildOutputTargetFolder>tasks</BuildOutputTargetFolder>

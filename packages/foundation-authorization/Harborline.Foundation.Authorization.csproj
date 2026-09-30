@@ -13,7 +13,7 @@
          availability via the former api tenancy facade (retired by T-537). Per fleet-conventions
          §"NU1510 — keep the PackageRef, suppress the warning"; reference
          template shipyard commit b4475df. -->
-    <NoWarn>CS1591;NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

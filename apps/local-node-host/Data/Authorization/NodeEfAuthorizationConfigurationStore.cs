@@ -17,6 +17,7 @@ using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.Kernel.Runtime;
 
 namespace Harborline.Api.LocalNodeHost.Data.Authorization;
 
@@ -25,7 +26,8 @@ public sealed record AdmissionGrantNarrowing(AccessGrant Reissued, AccessGrant R
 
 public sealed class NodeEfAuthorizationConfigurationStore(
     IDbContextFactory<NodeLocalSearchDbContext> factory,
-    IRoleVocabularyReader vocabulary)
+    IRoleVocabularyReader vocabulary,
+    IWritePipelineObserver? pipelineObserver = null)
     : AuthorizationConfigurationStateReader, IAuthorizationConfigurationStore, IAuthorizationDefinitionReader,
         IAuthorizationDefinitionCatalogueReader, IHistoricalAuthorizationConfigurationReader, IPackProjectionParticipant,
         IAuditingAuthorizationConfigurationStore
@@ -52,133 +54,116 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             : action();
 
     /// <summary>
-    /// ADR 0066 clause 3 — the ONE derivation from a live admission to a durable grant.
-    /// The grant is keyed on the ROSTER PARTY ID: that is the actor id the roster plane's own reads use
-    /// (<c>AdminTeamAccessAuthority.ListMembersAsync</c> asks the gate for
-    /// <c>InstallRootPermissionsAsync(new ActorId(rosterMember.PartyId), ...)</c>), so the gate's reader
-    /// finds it under exactly the key the roster edge is addressed by. Since ticket 294 slice 2a that key
-    /// IS the canonical tenant principal id, so both planes look THE GRANT up under one key. (That is a claim
-    /// about the grant lookup only — a roster EDGE lookup keyed on the People CanonicalPartyReference would
-    /// still miss, which is why ticket 293 slice 4 fix 4 moved the selected-session PEP onto this key too.)
-    /// Staged only — the caller's SaveChanges inside its own fence commits it, so a conferral failure
-    /// aborts the caller's unit of work rather than leaving a half state.
+    /// Confer one LIVE admission's grant under one fence with its own commit. What it writes is a grant of the
+    /// admission's OWN per-admission role carrying the permission set the admission signed, anchored to that
+    /// admission. It is NOT the web-plane membership grant — <see cref="InitialGrantIssuanceService"/> writes that
+    /// one, at invitation acceptance, under the same subject key and at the same scope — and it OUTLIVES it:
+    /// revoking the membership grant leaves the admitted party's signed authority standing. The grant is keyed on
+    /// the ROSTER PARTY ID, the actor id the roster plane's own reads use, which since ticket 294 slice 2a IS the
+    /// canonical tenant principal id. Returns null when this admission's grant already exists; idempotent on
+    /// (tenant, admitted party), so a second admission of the same party mints no rival. The live conferral does
+    /// NOT advance the admitted principal's authorization epoch: that principal's web session has just had its
+    /// pins verified by the admission itself, and bumping the epoch underneath them would refuse the second
+    /// admission of the same party "grant_unavailable" instead of "already_member" (fail-closed in direction: a
+    /// cached closure keeps the narrower pre-conferral set). The caller treats a throw as an admission failure:
+    /// the roster write it guards must not be published.
+    /// ck-10: the conferral runs the six ADR 0038 stages (<see cref="AuthorizationDefinitionWriter"/>), and its
+    /// commit stage stages the definitions, the grant and the audit in this fence.
     /// </summary>
-    internal async Task<AccessGrant> StageAdmissionGrantAsync(
-        NodeLocalSearchDbContext db,
-        TenantId tenant,
-        Guid id,
-        string admittedPartyId,
-        string admittedByPartyId,
-        PermissionSet permissions,
-        DateTimeOffset issuedAt,
-        Guid nonce,
-        GrantRevocation? revocation,
-        string sourceReference,
-        CancellationToken ct,
-        bool advanceEpoch = true)
-    {
-        var role = new RoleReference(RoleVocabularies.Domain, AdmissionRolePrefix + id.ToString("N"));
-        var roleDefinition = AccessGrantAuthorizationSeed.AdmissionMigrationRole(id, tenant);
-        var admissionVocabulary = new InMemoryRoleVocabulary([roleDefinition]);
-        await EnsureRoleAsync(db, role, ct, admissionVocabulary).ConfigureAwait(false);
-        foreach (var permission in permissions.Permissions)
-        {
-            var operation = AuthorizationOperation.Parse(permission);
-            var definition = new AuthorizationCapabilityDefinition(
-                new(StableId(id.ToString("D") + ":" + permission)), AccessGrantAuthorizationSeed.PackageId,
-                1, operation, new PermissionAtom(operation, ScopeExpression.Parse("/")), RoleBindingSet.From([role]));
-            var write = await AuthorizationDefinitionWriter.ValidateAdmissionMigrationAsync(
-                definition, tenant, issuedAt, admissionVocabulary, ct).ConfigureAwait(false);
-            await StageWriteAsync(db, write, ct, admissionVocabulary).ConfigureAwait(false);
-        }
-
-        var actor = new ActorId(admittedPartyId);
-        var granter = new ActorId(admittedByPartyId);
-        var grant = new AccessGrant(new GrantId(id), tenant, actor, role, ScopeExpression.Parse("/"),
-            GrantResidency.Cache, new GrantValidity(issuedAt), GranterKind.Person, granter,
-            issuedAt, new GrantProvenance(GrantSourceKind.Manual,
-                new GrantReason(GrantReasonCodes.Manual, nonce.ToString("D")), granter),
-            issuedAt, revocation is null ? GrantStatus.Active : GrantStatus.Revoked, revocation);
-        db.Grants.Add(NodeEfGrantStore.ToRow(grant, sourceReference));
-        // A live conferral must NOT advance the admitted principal's authorization epoch. The admitted principal's web session has just had its
-        // (grant owner-version, authorization epoch) pins verified by the admission itself, and bumping the
-        // epoch underneath them invalidates the very pins that authorized the admission: the second admission
-        // of the same party then refuses "grant_unavailable" instead of "already_member", and a revoked
-        // party's re-enrollment is over-blocked. Not advancing is fail-CLOSED in direction — a cached
-        // closure snapshot keeps the narrower pre-conferral set, never a wider one.
-        if (advanceEpoch)
-            await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, actor, ct).ConfigureAwait(false);
-        return grant;
-    }
-
-    /// <summary>
-    /// Confer one LIVE admission's grant under one fence with its own commit. What it writes is a grant of the admission's OWN per-admission role carrying
-    /// the permission set the admission signed, anchored to that admission. It is NOT the web-plane membership
-    /// grant — <see cref="InitialGrantIssuanceService"/> writes that one, at invitation acceptance, under the
-    /// same subject key and at the same scope — and it OUTLIVES it: revoking the membership grant leaves the
-    /// admitted party's signed authority standing. Returns null when this admission's grant already exists;
-    /// idempotent on (tenant, admitted party), so a second admission of the same party mints no rival. Unlike
-    /// the live conferral does NOT advance the admitted principal's authorization epoch (see
-    /// <c>StageAdmissionGrantAsync</c>). The caller treats a throw as an admission failure: the roster write it
-    /// guards must not be published.
-    /// </summary>
-    public async Task<AccessGrant?> ConferAdmissionGrantAsync(
+    internal Task<AccessGrant?> ConferAdmissionGrantAsync(
         TenantId tenant,
         string admittedPartyId,
         string admittedByPartyId,
         PermissionSet permissions,
         DateTimeOffset at,
+        AdmissionConferralAuthority authority,
+        CancellationToken ct = default) =>
+        ConferCoreAsync(null, tenant, admittedPartyId, admittedByPartyId, permissions, at, authority, ct);
+
+    /// <summary>
+    /// ck-10: the live conferral inside the transaction that saves the admission's roster record. The conferral
+    /// joins <paramref name="within"/>'s connection and open transaction (one SQLite database), so the roster
+    /// record, its audit, the grant, its definitions and the conferral's audit commit together or not at all.
+    /// </summary>
+    internal Task<AccessGrant?> ConferAdmissionGrantWithinAsync(
+        DbContext within,
+        TenantId tenant,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset at,
+        AdmissionConferralAuthority authority,
         CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(within);
+        return ConferCoreAsync(within, tenant, admittedPartyId, admittedByPartyId, permissions, at, authority, ct);
+    }
+
+    private async Task<AccessGrant?> ConferCoreAsync(
+        DbContext? within,
+        TenantId tenant,
+        string admittedPartyId,
+        string admittedByPartyId,
+        PermissionSet permissions,
+        DateTimeOffset at,
+        AdmissionConferralAuthority authority,
+        CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedPartyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(admittedByPartyId);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(authority);
         using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await using var db = await CreateContextAsync(ct).ConfigureAwait(false);
-        return await HomeEpochFenceTransaction.RunAsync(db, async () =>
+        if (within is not null) await JoinAsync(db, within, ct).ConfigureAwait(false);
+        async Task<AccessGrant?> ConferAsync()
         {
             var id = StableId(tenant.Value + ":admission:" + admittedPartyId);
-            var key = id.ToString("D");
-            if (await db.Grants.AsNoTracking().AnyAsync(row => row.GrantId == key, ct).ConfigureAwait(false))
-                return (AccessGrant?)null;
-            var grant = await StageAdmissionGrantAsync(
-                db, tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id, null,
-                "roster-admission:" + key, ct, advanceEpoch: false).ConfigureAwait(false);
-            // DES-0029 ck-6: the conferral's audit commits in this fence with the grant and its definitions.
-            NodeAuditOutbox.StageSystem(db, AdmissionGrantConferredEventType, tenant, at, new ActorId(admittedByPartyId),
-                new Dictionary<string, string?>(StringComparer.Ordinal)
-                {
-                    ["grantId"] = key,
-                    ["admittedParty"] = admittedPartyId,
-                    ["permissions"] = string.Join(",", permissions.Permissions.Order(StringComparer.Ordinal)),
-                });
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return grant;
-        }, ct).ConfigureAwait(false);
+            return await AuthorizationDefinitionWriter.ConferAdmissionAsync(
+                new AdmissionConferral(tenant, id, admittedPartyId, admittedByPartyId, permissions, at, id,
+                    "roster-admission:" + id.ToString("D")),
+                authority, new ConferralUnit(this, db), pipelineObserver, ct).ConfigureAwait(false);
+        }
+        return within is null
+            ? await HomeEpochFenceTransaction.RunAsync(db, ConferAsync, ct).ConfigureAwait(false)
+            : await ConferAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Moves <paramref name="db"/> onto <paramref name="within"/>'s connection and open transaction.</summary>
+    private static async Task JoinAsync(NodeLocalSearchDbContext db, DbContext within, CancellationToken ct)
+    {
+        var transaction = within.Database.CurrentTransaction?.GetDbTransaction()
+            ?? throw new InvalidOperationException("An admission conferral joins the roster write's open transaction.");
+        // A second database cannot share this commit (the PackProjectionSqliteUnit.Join rule).
+        if (!string.Equals(db.Database.GetConnectionString(), within.Database.GetConnectionString(), StringComparison.Ordinal))
+            throw new InvalidOperationException("An admission conferral must share the roster write's SQLite database.");
+        var own = db.Database.GetDbConnection();
+        await own.CloseAsync().ConfigureAwait(false);
+        db.Database.SetDbConnection(within.Database.GetDbConnection(), contextOwnsConnection: false);
+        await own.DisposeAsync().ConfigureAwait(false);
+        await db.Database.UseTransactionAsync(transaction, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Ticket 362 — an administrator narrows a member's admission-conferred grant as ONE unit of work:
     /// the wider grant is revoked and a narrower one is appended on the SAME subject key, scope and role
-    /// derivation (<see cref="StageAdmissionGrantAsync"/> — the one derivation
-    /// <see cref="ConferAdmissionGrantAsync"/> routes through, so nothing derives an admission grant twice),
-    /// inside one BEGIN IMMEDIATE fence committed by a single SaveChanges. A failure anywhere rolls both
-    /// legs back, so the member is never left holding both sets or neither. Returns null when the grant is
-    /// not a live install-root grant of this tenant.
+    /// derivation (the conferral pipeline <see cref="ConferAdmissionGrantAsync"/> also runs, so nothing derives
+    /// an admission grant twice), inside one BEGIN IMMEDIATE fence committed by a single SaveChanges. A failure
+    /// anywhere rolls both legs back, so the member is never left holding both sets or neither. Returns null
+    /// when the grant is not a live install-root grant of this tenant.
     /// </summary>
-    /// <summary>The per-admission role-name prefix this one derivation mints (and only it).</summary>
-    private const string AdmissionRolePrefix = "roster-admission-";
-
     internal async Task<AdmissionGrantNarrowing?> NarrowAdmissionGrantAsync(
         TenantId tenant,
         GrantId current,
         PermissionSet narrowed,
         GrantRevocation revocation,
         Guid correlationId,
+        AuthorizationDecision admittedDecision,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(narrowed);
         ArgumentNullException.ThrowIfNull(revocation);
+        var authority = AdmissionConferralAuthority.Narrowing(admittedDecision, current);
         using var projectionLease = PackProjectionActivationBarrier.Read(ct);
         await using var db = await CreateContextAsync(ct).ConfigureAwait(false);
         AdmissionGrantNarrowing? result = null;
@@ -200,14 +185,9 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             if (existing.Status == GrantStatus.Revoked
                 || existing.Scope != ScopeExpression.Parse("/")
                 || existing.Role.Vocabulary != RoleVocabularies.Domain
-                || !existing.Role.Name.StartsWith(AdmissionRolePrefix, StringComparison.Ordinal)) return;
+                || !existing.Role.Name.StartsWith(AccessGrantAuthorizationSeed.AdmissionRolePrefix, StringComparison.Ordinal)) return;
             var at = revocation.RevokedAt;
             var id = StableId(tenant.Value + ":narrowed:" + key + ":" + correlationId.ToString("D"));
-            var reissued = await StageAdmissionGrantAsync(
-                    db, tenant, id, existing.Subject.Value, revocation.RevokedBy.Value, narrowed, at,
-                    correlationId, revocation: null, "member-narrowed:" + id.ToString("D"), ct,
-                    advanceEpoch: false)
-                .ConfigureAwait(false);
             var revoked = existing with { Status = GrantStatus.Revoked, Revocation = revocation };
             db.Entry(row).CurrentValues.SetValues(
                 NodeEfGrantStore.ToRow(revoked, row.SourceReference, checked(row.OwnerVersion + 1)));
@@ -216,13 +196,19 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             // member's pins — the opposite of the live admission conferral, which must not, because there
             // the pins being bumped are the ones that authorized the admission itself (293 s4 fix 4).
             await NodeEfGrantStore.AdvanceEpochAsync(db, tenant, existing.Subject, ct).ConfigureAwait(false);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            // The reissue's commit stage saves the revoked leg and the epoch with it, in this fence.
+            var reissued = await AuthorizationDefinitionWriter.ConferAdmissionAsync(
+                    new AdmissionConferral(tenant, id, existing.Subject.Value, revocation.RevokedBy.Value, narrowed,
+                        at, correlationId, "member-narrowed:" + id.ToString("D")),
+                    authority, new ConferralUnit(this, db), pipelineObserver, ct)
+                .ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The narrowed reissue already exists.");
             result = new AdmissionGrantNarrowing(reissued, revoked);
         }, ct).ConfigureAwait(false);
         return result;
     }
 
-    private static Guid StableId(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes(value)).AsSpan(0, 16));
+    private static Guid StableId(string value) => AdmissionConferral.StableId(value);
 
     public override async ValueTask<AuthorizationConfigurationState> ReadStateAsync(
         AuthorizationCapabilityDefinitionId definitionId, TenantId? tenantId = null, CancellationToken ct = default)
@@ -620,6 +606,50 @@ public sealed class NodeEfAuthorizationConfigurationStore(
             operation,
             new PermissionAtom(operation, ScopeExpression.Parse(row.ScopeValue)),
             RoleBindingSet.From(roles));
+    }
+
+    /// <summary>
+    /// ck-10: the caller's open fence as the conferral pipeline sees it. Commit stages each sealed definition,
+    /// the grant and the conferral's audit into that one context and saves them together, so the fence commits
+    /// all of them or none.
+    /// </summary>
+    private sealed class ConferralUnit(NodeEfAuthorizationConfigurationStore store, NodeLocalSearchDbContext db)
+        : IAdmissionConferralUnit
+    {
+        public async ValueTask<bool> GrantExistsAsync(GrantId grant, CancellationToken ct)
+        {
+            var key = grant.ToString();
+            return await db.Grants.AsNoTracking().AnyAsync(row => row.GrantId == key, ct).ConfigureAwait(false);
+        }
+
+        public async ValueTask<long> DefinitionRevisionAsync(AuthorizationCapabilityDefinitionId definition, CancellationToken ct)
+        {
+            var key = definition.Value.ToString();
+            return await db.AuthorizationDefinitions.Where(row => row.DefinitionId == key)
+                .MaxAsync(row => (long?)row.Revision, ct).ConfigureAwait(false) ?? 0;
+        }
+
+        public async ValueTask CommitAsync(ValidatedAdmissionConferral conferral, CancellationToken ct)
+        {
+            var grant = conferral.Grant;
+            await store.EnsureRoleAsync(db, grant.Role, ct, conferral.Roles).ConfigureAwait(false);
+            foreach (var write in conferral.Definitions)
+                await store.StageWriteAsync(db, write, ct, conferral.Roles).ConfigureAwait(false);
+            db.Grants.Add(NodeEfGrantStore.ToRow(grant, conferral.SourceReference));
+            var body = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["grantId"] = grant.GrantId.ToString(),
+                ["admittedParty"] = grant.Subject.Value,
+                ["permissions"] = string.Join(",", conferral.Definitions
+                    .Select(write => write.Definition!.Operation.Value).Order(StringComparer.Ordinal)),
+            };
+            if (conferral.Decision is { } decision)
+                NodeAuditOutbox.StageAuthorized(db, AdmissionGrantConferredEventType, decision, body);
+            else
+                NodeAuditOutbox.StageSystem(db, AdmissionGrantConferredEventType, grant.TenantId, grant.GrantedAt,
+                    grant.GrantedBy, body);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
     }
 }
 
