@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "0f30804948db81590c1032b88da9e18ad1dea0d6",
-  "recordedAt": "2026-09-29 (T-978: platform main commit 0f308049, the merge of platform PR 203 (ck-7 S5, Forms submit refuses budget and static-work overruns and commits nothing). It consumes every platform PR merged since a23afe32: 185 (T-902 Kernel Core survivors), 187 (T-525 workflow admission refuses an unknown capability), 181 (T-909 slice 3 + T-889), 190 (T-525 invoice approve ledger:post decision), 189 (T-572 slice 3 contract window), 191 (T-572 required-Contract architecture test), 194 (T-772 work-proof pins), 195 (ck-2 S1 KernelPackageClosure), 192 (T-525 auto-post ledger:post decision), 196 (ck-7 non-string var paths), 197 (CI Phase-4 gate on Ubuntu), 198 (ck-2 S7 released packages carry their pinned dependency closure), 199 (T-889 actor survivors), 200 (ck-7 refuse unsupplied caller, clock and record_type roots) and 193 (T-978 platform: RecordWriteRules, the Records Rules stage this PR consumes through a new Harborline.Foundation.RuleEngine host reference). The move itself caused no host break: the solution builds in Release and the host suite passes unchanged. No producer was added or removed; every producer identity/assembly pair is unchanged.)",
+  "commit": "db469dc92a7a6a1b67a9dcfba0fa9f7e700cbd7d",
+  "recordedAt": "2026-09-30 (T-738: platform main commit db469dc9, the merge of platform PR 221 (brace-expansion 5.0.12 override). It brings in platform PR 212 (T-738 one content-kind and pillar registry with Reserved values and a drift gate), which the api half of T-738 needs, and every other platform PR merged since 0f308049: 204 (T-772 Stryker.NET byte-count and member-name bounds), 205 (T-902 Kernel Core remainder), 209 (T-606 S1 Booking claims a Bookable), 184 (minor-and-patch dependency group), 201 (ui-shared-conformance failing-case evidence), 214 (T-491 S1 Scheduling definitions carry semantic-version heads), 213 (T-528 S1 execution runtime substrate), 208 (T-740 part 1 Rules editor refusals), 207 (T-615 S2 Records field kinds and value domains), 211 (T-493 S7 Taxonomy in the shared versioned-definition store), 210 (T-580 layout tests name DES-0052 ids), 216 (T-424 XML docs on packable packages), 215 (T-601 data exchange editors conform) and 206 (T-489 S4a ReportDefinition measure references). PR 213 adds one producer, Harborline.Foundation.ExecutionRuntime; every other producer identity/assembly pair is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -28,6 +28,7 @@
     "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
     "Harborline.Foundation.Definitions": "Harborline.Foundation.Definitions.dll",
     "Harborline.Foundation.Documents": "Harborline.Foundation.Documents.dll",
+    "Harborline.Foundation.ExecutionRuntime": "Harborline.Foundation.ExecutionRuntime.dll",
     "Harborline.Foundation.FieldRuntime": "Harborline.Foundation.FieldRuntime.dll",
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
     "Harborline.Foundation.Forms.Engine": "Harborline.Foundation.Forms.Engine.dll",
