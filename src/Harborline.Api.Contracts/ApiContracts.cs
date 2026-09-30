@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Harborline.Api.Contracts;
 
 /// <summary>Identifies the tenant and user on whose behalf an API request runs.</summary>
-/// <param name="TenantId">The non-empty tenant identifier.</param><param name="UserId">The non-empty user identifier.</param>
+/// <param name="TenantId">A tenant identifier containing at least one non-whitespace character.</param><param name="UserId">A user identifier containing at least one non-whitespace character.</param>
 public sealed record HarborlineRequestContext(string TenantId, string UserId)
 {
     /// <summary>Validates both identity components and returns this context.</summary>
@@ -16,7 +16,7 @@ public sealed record HarborlineRequestContext(string TenantId, string UserId)
 }
 
 /// <summary>Describes an API operation, its caller, and its optional JSON body.</summary>
-/// <param name="Method">The non-empty HTTP method.</param><param name="Route">An application path beginning with '/'.</param><param name="Context">The caller identity context.</param><param name="Body">The optional request payload.</param>
+/// <param name="Method">An HTTP method containing at least one non-whitespace character.</param><param name="Route">An application path beginning with '/'.</param><param name="Context">The caller identity context.</param><param name="Body">The optional request payload.</param>
 public sealed record HarborlineApiRequest(
     string Method,
     string Route,
