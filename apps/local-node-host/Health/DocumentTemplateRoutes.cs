@@ -191,6 +191,14 @@ public static class DocumentTemplateRoutes
                 return Results.BadRequest(new { error = templateError });
             }
 
+            // T-572 S5 (ck-8; T-572 Q4/Q6): issuing renders a stored template, so it refuses an out-of-window
+            // contract exactly as render does. An inline draft body is a report, not a write (DES-0022 §10
+            // ruling 17) and stays unchecked.
+            if (string.IsNullOrWhiteSpace(body.Template) && StoredContractRefusal(template) is { } refused)
+            {
+                return Results.Conflict(refused);
+            }
+
             var tenantId = NodeTenant.Resolve(activeTeam);
             var invoice = await invoices.GetAsync(tenantId, new InvoiceId(body.InvoiceId!), admittedAt, ct).ConfigureAwait(false);
             if (invoice is null)

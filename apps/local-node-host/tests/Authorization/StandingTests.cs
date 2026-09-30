@@ -14,7 +14,9 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Environments;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
@@ -34,7 +36,7 @@ public sealed class StandingTests
         var definition = HandlerRule();
 
         var json = JsonSerializer.Serialize(definition);
-        var roundTripped = JsonSerializer.Deserialize<StandingRuleDefinition>(json);
+        var roundTripped = StandingRuleDefinitionJson.Deserialize(json, JsonSerializerOptions.Default);
 
         Assert.NotNull(roundTripped);
         Assert.Equal(definition.RuleId, roundTripped.RuleId);
@@ -43,39 +45,39 @@ public sealed class StandingTests
         Assert.Equal(definition.RecordType, roundTripped.RecordType);
         Assert.Equal(definition.Predicate.Expression, roundTripped.Predicate.Expression);
         Assert.Equal(["handler_id"], roundTripped!.InputFields);
-        Assert.Equal(RuleTier.JsonLogic, roundTripped.Predicate.Tier);
+        Assert.Equal(Harborline.Contracts.Forms.RuleTier.JsonLogic, roundTripped.Predicate.Tier);
     }
 
     [Fact]
-    public void StandingEvaluator_ComputesFromRecordFieldsAndEmitsRuleEvidence()
+    public async Task StandingEvaluator_ComputesFromRecordFieldsAndEmitsRuleEvidence()
     {
         var evaluator = new StandingEvaluator();
         var record = new StandingRecord(
+            "matter-1",
             "matter",
             new Dictionary<string, JsonNode?> { ["handler_id"] = "person-7" });
 
-        var result = evaluator.Evaluate(record, ActInstant, [HandlerRule()]);
+        var result = await evaluator.EvaluateSetAsync(
+            AllowAll, [record], AllowRecord, [HandlerRule()], StandingAdmission, ActInstant, 0, 1);
 
-        Assert.Equal([new StandingReference("handler")], result.Standings);
-        var evidence = Assert.Single(result.Evidence);
-        Assert.True(evidence.CarriesStanding);
-        Assert.Equal("matter.handler", evidence.RuleId);
-        Assert.Equal("1.0.0", evidence.RuleVersion);
-        Assert.Equal(ActInstant, evidence.Instant);
-        Assert.Equal("person-7", evidence.InputFieldValues["handler_id"]!.GetValue<string>());
+        var decision = Assert.Single(Assert.Single(result.Page).Decisions);
+        Assert.Equal([new StandingReference("handler")], result.Page[0].Standings);
+        Assert.True(decision.Carries);
+        Assert.Equal("matter.handler", decision.RuleId);
+        Assert.Equal("1.0.0", decision.RuleVersion);
+        Assert.Null(decision.RefusalCode);
 
-        var repeated = evaluator.Evaluate(record, ActInstant, [HandlerRule()]);
-        Assert.Equal(result.Standings, repeated.Standings);
-        Assert.Equal(
-            JsonSerializer.Serialize(result.Evidence),
-            JsonSerializer.Serialize(repeated.Evidence));
+        var repeated = await evaluator.EvaluateSetAsync(
+            AllowAll, [record], AllowRecord, [HandlerRule()], StandingAdmission, ActInstant, 0, 1);
+        Assert.Equal(JsonSerializer.Serialize(result.Page), JsonSerializer.Serialize(repeated.Page));
     }
 
     [Fact]
-    public void StandingEvaluator_RecordAndRuleChangesAlterTheNextVerdict()
+    public async Task StandingEvaluator_RecordAndRuleChangesAlterTheNextVerdict()
     {
         var evaluator = new StandingEvaluator();
         var matching = new StandingRecord(
+            "matter-1",
             "matter",
             new Dictionary<string, JsonNode?> { ["handler_id"] = "person-7" });
         var changedRecord = matching with
@@ -84,12 +86,54 @@ public sealed class StandingTests
         };
         var changedRule = HandlerRule("person-8", version: "1.1.0");
 
-        Assert.Contains(new StandingReference("handler"),
-            evaluator.Evaluate(matching, ActInstant, [HandlerRule()]).Standings);
-        Assert.Empty(evaluator.Evaluate(changedRecord, ActInstant, [HandlerRule()]).Standings);
-        var afterRuleChange = evaluator.Evaluate(changedRecord, ActInstant, [changedRule]);
+        var original = await EvaluateAsync(evaluator, matching, HandlerRule());
+        var changed = await EvaluateAsync(evaluator, changedRecord, HandlerRule());
+        var afterRuleChange = await EvaluateAsync(evaluator, changedRecord, changedRule);
+        Assert.Contains(new StandingReference("handler"), original.Standings);
+        Assert.Empty(changed.Standings);
         Assert.Contains(new StandingReference("handler"), afterRuleChange.Standings);
-        Assert.Equal("1.1.0", Assert.Single(afterRuleChange.Evidence).RuleVersion);
+        Assert.Equal("1.1.0", Assert.Single(afterRuleChange.Decisions).RuleVersion);
+    }
+
+    [Fact]
+    public async Task StandingEvaluator_RefusesAnUnadmittedEvaluation()
+    {
+        var result = await new StandingEvaluator().EvaluateSetAsync(
+            AllowAll,
+            [new StandingRecord("matter-1", "matter", new Dictionary<string, JsonNode?> { ["handler_id"] = "person-7" })],
+            AllowRecord,
+            [HandlerRule()],
+            null,
+            ActInstant,
+            0,
+            1);
+
+        var decision = Assert.Single(Assert.Single(result.Page).Decisions);
+        Assert.False(decision.Carries);
+        Assert.Equal(BorrowerEnvironmentAdmission.NotAdmitted, decision.RefusalCode);
+    }
+
+    [Fact]
+    public async Task StandingStore_ReplaysIdenticalContentAndRefusesDivergentContentAtOneVersion()
+    {
+        var store = new InMemoryStandingRuleDefinitionStore();
+        await store.RegisterAsync(HandlerRule());
+        await store.RegisterAsync(HandlerRule());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.RegisterAsync(HandlerRule("person-8")).AsTask());
+        var kept = await store.GetAsync("matter.handler", "1.0.0");
+        Assert.Equal(HandlerRule().Predicate.Expression, kept!.Predicate.Expression);
+    }
+
+    [Fact]
+    public void StandingRuleDefinitionJson_RefusesContentWithoutAStanding()
+    {
+        var json = JsonSerializer.Serialize(HandlerRule());
+        var withoutStanding = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+        withoutStanding.Remove("Standing");
+
+        Assert.Throws<JsonException>(() =>
+            StandingRuleDefinitionJson.Deserialize(withoutStanding.ToJsonString(), JsonSerializerOptions.Default));
     }
 
     [Fact]
@@ -191,25 +235,44 @@ public sealed class StandingTests
     private static StandingRuleDefinition HandlerRule(
         string person = "person-7",
         string version = "1.0.0") => new(
-            RuleId: "matter.handler",
-            RuleVersion: version,
-            Standing: new StandingReference("handler"),
-            RecordType: "matter",
-            InputFields: ["handler_id"],
-            Predicate: new RuleDefinition(
-                new DefinitionEnvelope<string, string, TenantId, string?>(
-                    "matter.handler",
-                    version,
-                    new TenantId("bbbbbbbb-0000-0000-0000-000000000219"),
-                    CascadeLayer.Pack,
-                    Provenance: null,
-                    Array.Empty<DefinitionRequirement>(),
-                    Contract: null),
-                RuleTier.JsonLogic,
-                RuleScope.Schema,
-                string.Empty,
-                $$"""{"==":[{"var":"handler_id"},"{{person}}"]}""",
-                RuleActionKind.Validate));
+            "matter.handler",
+            version,
+            new StandingReference("handler"),
+            "matter",
+            ["handler_id"],
+            new Harborline.Contracts.Forms.RuleDefinition
+            {
+                Id = "matter.handler",
+                Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
+                Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+                ScopeTarget = string.Empty,
+                Expression = $$"""{"==":[{"var":"handler_id"},"{{person}}"]}""",
+                Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+            });
+
+    private static readonly RulesCapabilityCheck AllowAll = (_, _) => ValueTask.FromResult(true);
+
+    private static readonly EvaluationAdmission StandingAdmission = BorrowerEnvironmentAdmission.Admit(
+        new BorrowerEnvironmentDeclaration(
+            "standing-tests",
+            BorrowerEnvironmentAdmission.Grammar,
+            new Dictionary<string, string> { ["field"] = "record field" },
+            ["var", "=="],
+            [BorrowerEnvironmentAdmission.FieldRead],
+            "missing-field-reads-null",
+            "test-clock",
+            "utc",
+            Enum.GetValues<EvaluationPhase>().ToDictionary(phase => phase, phase => phase == EvaluationPhase.Run),
+            "deterministic")).For(EvaluationPhase.Run);
+
+    private static ValueTask<bool> AllowRecord(StandingRecord _, CancellationToken __) => ValueTask.FromResult(true);
+
+    private static async ValueTask<StandingRowOutcome> EvaluateAsync(
+        StandingEvaluator evaluator,
+        StandingRecord record,
+        StandingRuleDefinition rule)
+        => Assert.Single((await evaluator.EvaluateSetAsync(
+            AllowAll, [record], AllowRecord, [rule], StandingAdmission, ActInstant, 0, 1)).Page);
 
     private static string SchemaWithProperties(params string[] properties)
     {

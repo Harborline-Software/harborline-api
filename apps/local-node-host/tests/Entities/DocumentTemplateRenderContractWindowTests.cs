@@ -1,16 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Blobs;
@@ -30,9 +20,15 @@ using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Blocks.BuilderDefinitions;
-
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
-
 using DefinitionContractVersion = Harborline.Foundation.Definitions.DefinitionContractVersion;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
@@ -48,6 +44,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
 {
     private const string RenderRoute = "/api/local-node/document-templates/render";
+    private const string IssueRoute = "/api/local-node/document-templates/issue";
     private const string TemplateVersion = "1.0.0";
     private const string OutOfWindow = "definition.contract.out_of_window";
 
@@ -171,6 +168,38 @@ public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
             new { templateKey = UndeclaredKey, templateVersion = TemplateVersion });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Theory(DisplayName = "T-572 S5: issue refuses a stored template whose contract is outside the window with 409 at stage render, before any record is read")]
+    [Trait("Holds", "kernel-core-ck-8")]
+    [InlineData(2, 0)]
+    [InlineData(1, 1)]
+    [InlineData(0, 0)]
+    [InlineData(0, 9)]
+    public async Task Issue_refuses_a_stored_template_whose_contract_is_outside_the_window(int major, int minor)
+    {
+        using var response = await _client.PostAsJsonAsync(IssueRoute,
+            new { templateKey = KeyFor(major, minor), templateVersion = TemplateVersion, invoiceId = "inv-absent" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("render", body.GetProperty("stage").GetString());
+        var refusal = Assert.Single(body.GetProperty("refusals").EnumerateArray());
+        Assert.Equal(OutOfWindow, refusal.GetProperty("code").GetString());
+        Assert.Equal($"{KeyFor(major, minor)}@{TemplateVersion}", refusal.GetProperty("target").GetString());
+    }
+
+    [Fact(DisplayName = "T-572 S5: issue does not refuse a stored template inside the window (it proceeds past the window check)")]
+    [Trait("Holds", "kernel-core-ck-8")]
+    public async Task Issue_does_not_refuse_a_stored_template_inside_the_window()
+    {
+        var window = PlatformPackageSeed.ContractWindow;
+
+        using var response = await _client.PostAsJsonAsync(IssueRoute,
+            new { templateKey = KeyFor(window.Major, window.Minor), templateVersion = TemplateVersion, invoiceId = "inv-absent" });
+
+        // The fixture has no invoice schema, so the lookup past the window check faults; only the 409 matters here.
+        Assert.NotEqual(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     private const string UndeclaredKey = "test.contract.undeclared";

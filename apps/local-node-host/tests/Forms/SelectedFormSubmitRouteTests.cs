@@ -119,6 +119,60 @@ public sealed partial class FormsRouteTests
         Assert.Single(rows);
     }
 
+    [Fact(DisplayName = "T-909 ck-9 K3: the selected-session submit refuses a past effective-from by name and commits nothing")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Selected_submit_refuses_a_past_effective_from_by_name_and_commits_nothing()
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        var skewed = DateTimeOffset.UtcNow.AddDays(-30).ToString("O");
+        using var request = SelectedSubmit();
+        request.Content = JsonContent.Create(new Dictionary<string, string>
+        {
+            ["station"] = "Marina",
+            ["result"] = "PASS",
+            ["inspector"] = skewed,
+            ["captured_at"] = skewed,
+        });
+
+        using var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        var minted = new List<AuditRecord>();
+        await foreach (var row in _app.Services.GetRequiredService<IAuditTrail>().QueryAsync(
+            new AuditQuery(TenantA, new AuditEventType("Forms.InstanceMinted")))) minted.Add(row);
+        Assert.Empty(minted);
+    }
+
+    [Fact(DisplayName = "T-909 ck-9 K3: the selected-session submit ignores a skewed captured_at and stamps the server clock")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Selected_submit_ignores_a_skewed_captured_at_and_stamps_the_server_clock()
+    {
+        _selected = new SelectedSessionRequestPrincipal("account", TenantA,
+            new PrincipalUserId("form-holder"), new CanonicalPartyReference("party"),
+            "membership", 1, [new PinnedGrantOwnerVersion("grant", 1)], 1, "session", "coordination");
+        using var request = SelectedSubmit();
+        request.Content = JsonContent.Create(new Dictionary<string, string>
+        {
+            ["station"] = "Marina",
+            ["result"] = "PASS",
+            ["captured_at"] = DateTimeOffset.UtcNow.AddDays(-30).ToString("O"),
+        });
+        var before = DateTimeOffset.UtcNow;
+
+        using var response = await _client.SendAsync(request);
+
+        var after = DateTimeOffset.UtcNow;
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var instance = EntityId.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("instanceId").GetString()!);
+        var entity = await _app.Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>().GetAsync(instance);
+        var stamped = Assert.IsType<Harborline.Api.Foundation.Assets.Entities.EntityBinding>(entity?.Binding).SubmittedAt;
+        Assert.InRange(stamped, before, after);
+    }
+
     [Theory]
     [InlineData(false, true, HttpStatusCode.Forbidden)]
     [InlineData(true, false, HttpStatusCode.Forbidden)]
@@ -138,6 +192,8 @@ public sealed partial class FormsRouteTests
     {
         public string? RequiredPermission(FormDefinitionId form) =>
             form.Value == FormId || form.Value == OpenFormId ? "members:manage" : null;
+        // K3: the test form's optional text field stands in for a dated form's effective-from.
+        public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "inspector" : null;
         public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) => OperatorRoles;
     }
 
