@@ -616,7 +616,7 @@ public sealed record PackRefusalDto(string Code, string Pointer, string? Target 
 
 /// <summary>
 /// The app's supported definition-contract window in DES-0006 §1's <c>contract</c> shape. It reports the
-/// platform package seed's declaration and is not a second carrier of it (T-724 ruling 89).
+/// platform package seed's declaration and is not a second declaration of it (T-724 ruling 89).
 /// </summary>
 /// <param name="AppMajor">The app's current contract major.</param>
 /// <param name="AppMinor">The app's current contract minor.</param>

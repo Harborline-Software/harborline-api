@@ -11,7 +11,8 @@ namespace Harborline.Api.Foundation.Packs.Install.Compatibility;
 /// executable projection (<see cref="PackContentKind.Layout"/>, <see cref="PackContentKind.Resource"/> and
 /// <see cref="PackContentKind.Bookable"/>), per DES-0029 kernel-core-ck-8 and DES-0014 C10 (T-572 slice 4).
 /// The window is the platform package seed's (<see cref="PlatformPackageSeed.ContractWindow"/>), the sole
-/// carrier ruled by T-648; the comparison is the platform's shared <see cref="DefinitionContractWindow.Check"/>.
+/// canonical declaration ruled by T-648; the comparison is the platform's shared
+/// <see cref="DefinitionContractWindow.Check"/>.
 /// </summary>
 public static class PackContractWindowCheck
 {
