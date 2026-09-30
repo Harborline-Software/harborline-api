@@ -1,0 +1,197 @@
+
+   _____ _              _               _   _ ______ _______ ÿ
+  / ____| |            | |             | \ | |  ____|__   __|ÿ
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |   ÿ
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |   ÿ
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |   ÿ
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|   ÿ
+                   __/ |                                     ÿ
+                  |___/                                      ÿ
+
+
+Version: 5.0.0
+
+[09:10:55 INF] Analysis starting.
+[09:10:55 INF] Analyzing 1 test project(s).
+[09:11:02 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj. Using analysis results: net11.0
+[09:11:02 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj. Using analysis results: net11.0
+[09:11:03 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[09:11:03 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:04 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[09:11:04 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:04 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[09:11:04 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:04 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[09:11:04 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:05 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[09:11:05 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:05 WRN] Analysis of project ..\..\..\packages\foundation\Harborline.Foundation.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:05 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[09:11:05 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:05 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[09:11:05 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:07 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[09:11:07 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:07 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:08 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[09:11:08 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[09:11:09 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:09 WRN] Analysis of project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[09:11:09 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:09 WRN] Analysis of project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[09:11:09 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:09 WRN] Analysis of project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:10 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[09:11:10 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:10 WRN] Analysis of project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:10 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[09:11:10 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:10 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[09:11:10 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:10 WRN] Analysis of project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[09:11:11 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[09:11:11 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[09:11:11 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:11 WRN] Analysis of project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[09:11:11 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[09:11:12 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:12 WRN] Analysis of project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[09:11:12 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:13 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[09:11:13 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:13 WRN] Analysis of project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:13 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[09:11:13 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:13 WRN] Analysis of project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:13 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:13 WRN] Analysis of project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:13 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[09:11:13 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:13 WRN] Analysis of project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:14 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[09:11:14 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[09:11:15 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[09:11:15 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[09:11:16 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:16 WRN] Analysis of project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[09:11:16 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[09:11:17 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[09:11:17 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:17 WRN] Analysis of project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[09:11:17 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:17 WRN] Analysis of project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:18 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[09:11:19 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[09:11:19 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:20 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[09:11:20 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:20 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[09:11:20 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:20 WRN] Analysis of project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:23 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[09:11:23 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:23 WRN] Analysis of project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:26 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[09:11:26 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:26 WRN] Analysis of project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:26 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[09:11:26 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:26 WRN] Analysis of project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:27 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[09:11:27 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:28 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[09:11:28 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:28 WRN] Analysis of project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:28 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[09:11:28 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:29 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[09:11:29 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:30 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[09:11:30 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:30 WRN] Analysis of project ..\Harborline.LocalNodeHost.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:31 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[09:11:31 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:31 WRN] Analysis of project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:32 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[09:11:32 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:32 WRN] Analysis of project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:35 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[09:11:35 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:38 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[09:11:38 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:38 WRN] Analysis of project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[09:11:40 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:40 WRN] Analysis of project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[09:11:42 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Trying again with a nuget restore.
+[09:11:44 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[09:11:44 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:44 WRN] Analysis of project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:46 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[09:11:46 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:46 WRN] Analysis of project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:49 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Use '--diag' option to have the build log.
+[09:11:49 WRN] Analysis of project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj succeeded but simulated build failed; Stryker may fail later.
+[09:11:49 INF] Picking net11.0 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. 
+[09:11:52 INF] Found project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj to mutate.
+[09:11:52 INF] Analysis complete.
+[09:11:52 INF] Building test project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests\tests.csproj (1/1)
+[09:11:52 INF] Building project tests.csproj using dotnet build tests.csproj -c Debug --property:Platform=AnyCPU (directory C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests.)
+[09:12:54 INF] Number of tests found: 1482 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Initial test run started.
+[09:22:34 INF] 843 mutants created
+[09:22:34 INF] Capture mutant coverage using 'CoverageBasedTest' mode.
+[09:28:38 INF] 73    mutants got status CompileError. Reason: Mutant caused compile errors
+[09:28:38 INF] 4     mutants got status NoCoverage.   Reason: Not covered by any test.
+[09:28:38 INF] 22    mutants got status Ignored.      Reason: Removed by block already covered filter
+[09:28:38 INF] 544   mutants got status Ignored.      Reason: Removed by mutate filter
+[09:28:38 INF] 643   total mutants are skipped for the above mentioned reasons
+[09:28:38 INF] 200   total mutants will be tested
+
+Killed:   187
+Survived:  13
+Timeout:    0
+Errors:    0
+
+Your json report has been generated at:
+file://C:/Projects/Harborline/harborline-api/.codex/worktrees/r4-t984api/.stryke
+r/tests-scoped-AuthorizationGate.cs/reports/mutation-report.json
+[10:15:03 INF] Time Elapsed 01:04:07.2451257
+[10:15:03 INF] The final mutation score is 91.67 %
+scoped run: 3848 s, .stryker/tests-scoped-AuthorizationGate.cs/reports/mutation-report.json
+C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\AuthorizationGate.cs: score 91.67 {"Killed":187,"Ignored":22,"Survived":13,"NoCoverage":4,"CompileError":6}
+  41 Survived String mutation: ""
+  42 Survived Boolean mutation: true
+  68 Survived String mutation: ""
+  72 Survived Boolean mutation: true
+  91 Survived Boolean mutation: true
+  144 Survived Boolean mutation: true
+  175 NoCoverage Statement mutation: ;
+  175 NoCoverage String mutation: ""
+  205 NoCoverage Linq method mutation (Any() to All()): atoms.All
+  205 NoCoverage Equality mutation: atom.Operation.Value != permission
+  223 Survived Boolean mutation: true
+  224 Survived Statement mutation: ;
+  232 Survived Null coalescing mutation (remove left): "authorization.grant.attenuation_failed"
+  278 Survived String mutation: $""
+  292 Survived String mutation: ""
+  301 Survived String mutation: ""
+  336 Survived String mutation: ""

@@ -1,0 +1,26 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.32]     a live grant authorizes the deferred-admission principal when no roster admission exists [FAIL]
+  Failed a live grant authorizes the deferred-admission principal when no roster admission exists [1 ms]
+  Error Message:
+   Assert.NotNull() Failure: Value is null
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Deferred_Admission_With_Live_Grant_Is_Allowed() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 205
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:02.40]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable [20 ms]
+  Error Message:
+   Assert.NotNull() Failure: Value is null
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 37
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:02.47]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection [1 ms]
+  Error Message:
+   Assert.NotNull() Failure: Value is null
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 57
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck11-276-absence-refuses.trx
+
+Failed!  - Failed:     3, Passed:    18, Skipped:     0, Total:    21, Duration: 574 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

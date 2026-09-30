@@ -1,0 +1,12 @@
+diff --git a/apps/local-node-host/Data/Identity/NodeOperatorIdentity.cs b/apps/local-node-host/Data/Identity/NodeOperatorIdentity.cs
+index e551e047..c1ac718f 100644
+--- a/apps/local-node-host/Data/Identity/NodeOperatorIdentity.cs
++++ b/apps/local-node-host/Data/Identity/NodeOperatorIdentity.cs
+@@ -31,6 +31,5 @@ public sealed class NodeOperatorIdentity(NodeTeamRoster? roster = null, IOperati
+     /// <summary>The roster party bound to <paramref name="signer"/>'s key, live or ejected; null when none.</summary>
+     /// <remarks>Admissions retain revoked keys, so an ejected node party still resolves and reads as ejected.</remarks>
+     internal static string? PartyOf(MemberRoster roster, IOperationSigner signer) =>
+-        roster.Members.FirstOrDefault(member => member.PublicKey.Equals(signer.IssuerId))?.PartyId
+-        ?? roster.EnumerateAdmissions().FirstOrDefault(member => member.PublicKey.Equals(signer.IssuerId))?.PartyId;
++        roster.Members.FirstOrDefault(member => member.PublicKey.Equals(signer.IssuerId))?.PartyId;
+ }

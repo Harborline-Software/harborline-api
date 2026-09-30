@@ -1,0 +1,67 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="00a6bfa1-cc9b-43ce-8fa4-e59cc483d03e" name="Chris@DESKTOP-UMT08RN 2026-09-30 07:53:50" runUser="DESKTOP-UMT08RN\Chris" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-30T07:53:50.3224562-04:00" queuing="2026-09-30T07:53:50.3224563-04:00" start="2026-09-30T07:53:47.9779923-04:00" finish="2026-09-30T07:53:50.3300965-04:00" />
+  <TestSettings name="default" id="fcc7829e-1940-4415-acd5-045354a4ce88">
+    <Deployment runDeploymentRoot="Chris_DESKTOP-UMT08RN_2026-09-30_07_53_50" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="1496962f-e0b0-4da2-b975-bde6ce62ef74" testId="0a45d06c-80b2-ead5-b94b-ec2dfdaea44b" testName="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: True)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0067313" startTime="2026-09-30T07:53:50.1590290-04:00" endTime="2026-09-30T07:53:50.1896084-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1496962f-e0b0-4da2-b975-bde6ce62ef74">
+      <Output>
+        <ErrorInfo>
+          <Message>System.InvalidOperationException : Nullable object must have a value.</Message>
+          <StackTrace>   at System.Nullable`1.get_Value()&#xD;
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.DesktopActor(MemberRoster roster, IOperationSigner node) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 31&#xD;
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(Boolean presentDesktopActor) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 50&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="7c4803f6-95a6-444f-b81b-1ca3a6b7ec01" testId="c1a31888-1c51-e644-202b-009bcc17c928" testName="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key" computerName="DESKTOP-UMT08RN" duration="00:00:00.0038112" startTime="2026-09-30T07:53:50.1972829-04:00" endTime="2026-09-30T07:53:50.1973606-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7c4803f6-95a6-444f-b81b-1ca3a6b7ec01" />
+    <UnitTestResult executionId="ecfb1fa5-eebe-44e9-8722-153ce89c40a7" testId="050b623c-70dc-99d1-c50c-f1a0f38609eb" testName="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: False)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0986395" startTime="2026-09-30T07:53:50.0403951-04:00" endTime="2026-09-30T07:53:50.1479817-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ecfb1fa5-eebe-44e9-8722-153ce89c40a7" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="c1a31888-1c51-e644-202b-009bcc17c928">
+      <Execution id="7c4803f6-95a6-444f-b81b-1ca3a6b7ec01" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests" name="The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: True)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="0a45d06c-80b2-ead5-b94b-ec2dfdaea44b">
+      <Execution id="1496962f-e0b0-4da2-b975-bde6ce62ef74" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests" name="An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: False)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="050b623c-70dc-99d1-c50c-f1a0f38609eb">
+      <Execution id="ecfb1fa5-eebe-44e9-8722-153ce89c40a7" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests" name="An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="0a45d06c-80b2-ead5-b94b-ec2dfdaea44b" executionId="1496962f-e0b0-4da2-b975-bde6ce62ef74" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c1a31888-1c51-e644-202b-009bcc17c928" executionId="7c4803f6-95a6-444f-b81b-1ca3a6b7ec01" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="050b623c-70dc-99d1-c50c-f1a0f38609eb" executionId="ecfb1fa5-eebe-44e9-8722-153ce89c40a7" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="3" executed="3" passed="2" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.0+05679a7ab5 (64-bit .NET 11.0.0-rc.1.26425.128)&#xD;
+[xUnit.net 00:00:00.54]   Discovering: Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.30]   Discovered:  Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.34]   Starting:    Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.52]       System.InvalidOperationException : Nullable object must have a value.&#xD;
+[xUnit.net 00:00:01.52]       Stack Trace:&#xD;
+[xUnit.net 00:00:01.52]            at System.Nullable`1.get_Value()&#xD;
+[xUnit.net 00:00:01.52]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs(31,0): at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.DesktopActor(MemberRoster roster, IOperationSigner node)&#xD;
+[xUnit.net 00:00:01.52]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs(50,0): at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(Boolean presentDesktopActor)&#xD;
+[xUnit.net 00:00:01.52]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:01.53]   Finished:    Harborline.Api.LocalNodeHost.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:53:50.1926278-04:00">
+        <Text>[xUnit.net 00:00:01.52]     Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: True) [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

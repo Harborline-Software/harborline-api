@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Identity/SelectedSessionPermissionResolver.cs b/apps/local-node-host/Data/Identity/SelectedSessionPermissionResolver.cs
+index 4c7e988d..162e2fb4 100644
+--- a/apps/local-node-host/Data/Identity/SelectedSessionPermissionResolver.cs
++++ b/apps/local-node-host/Data/Identity/SelectedSessionPermissionResolver.cs
+@@ -141,7 +141,7 @@ internal sealed class SelectedSessionPermissionResolver : ISelectedSessionPermis
+             var inputs = EffectiveMemberPermissions.Read(roster, gatePrincipal.Value, gatePrincipal);
+             // Ticket 294 bullet 3 — roster ABSENCE is not ejection. A subject with no edge (the pre-edge web
+             // invitee) falls through to its grants; an ejected subject is denied here and on every plane.
+-            if (inputs.Ejected) return null;
++            if (inputs.Ejected || !inputs.Member) return null;
+             var allowed = new List<string>();
+             var authority = new AuthorizationWriteContext(gatePrincipal, principal.TenantId, evaluatedAt);
+             var candidates = await _gate.InstallRootPermissionsAsync(

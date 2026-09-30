@@ -1,0 +1,27 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:01.64]     Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_node_signer_without_a_roster_has_no_operator [FAIL]
+[xUnit.net 00:00:01.65]     Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_roster_without_a_node_signer_has_no_operator [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_node_signer_without_a_roster_has_no_operator [< 1 ms]
+  Error Message:
+   System.NullReferenceException : Object reference not set to an instance of an object.
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.get_Principal() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\Data\Identity\NodeOperatorIdentity.cs:line 23
+   at Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_node_signer_without_a_roster_has_no_operator() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\NodeOperatorIdentityTests.cs:line 34
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_roster_without_a_node_signer_has_no_operator [< 1 ms]
+  Error Message:
+   System.NullReferenceException : Object reference not set to an instance of an object.
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.<>c__DisplayClass7_0.<PartyOf>b__0(RosterMember member) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\Data\Identity\NodeOperatorIdentity.cs:line 34
+   at System.Linq.Enumerable.TryGetFirst[TSource](IEnumerable`1 source, Func`2 predicate, Boolean& found)
+   at System.Linq.Enumerable.FirstOrDefault[TSource](IEnumerable`1 source, Func`2 predicate)
+   at Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.PartyOf(MemberRoster roster, IOperationSigner signer) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\Data\Identity\NodeOperatorIdentity.cs:line 34
+   at Harborline.Api.LocalNodeHost.Data.Identity.NodeOperatorIdentity.get_Principal() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\Data\Identity\NodeOperatorIdentity.cs:line 23
+   at Harborline.Api.LocalNodeHost.Tests.Identity.NodeOperatorIdentityTests.A_roster_without_a_node_signer_has_no_operator() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\NodeOperatorIdentityTests.cs:line 25
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+Results File: C:\hl-r4t984\manual\ck11-operator-23-or.trx
+
+Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 59 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

@@ -1,0 +1,13 @@
+diff --git a/packages/foundation-authorization/AuthorizationGate.cs b/packages/foundation-authorization/AuthorizationGate.cs
+index 36ffee55..ef96d2b0 100644
+--- a/packages/foundation-authorization/AuthorizationGate.cs
++++ b/packages/foundation-authorization/AuthorizationGate.cs
+@@ -121,7 +121,7 @@ public sealed class AuthorizationGate(
+                 RequiredPermissions = PermissionSet.Empty,
+             },
+             // A caller cannot manufacture a kernel denial code. Only the attenuation read below may set it.
+-            GrantRefusal = null,
++            // mutated: GrantRefusal = null removed
+         };
+ 
+         var resolution = new List<AuthorizationResolutionStep>(4)

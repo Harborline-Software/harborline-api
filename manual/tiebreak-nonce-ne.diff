@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs b/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
+index 69aa529f..f2a74e02 100644
+--- a/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
++++ b/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
+@@ -1079,7 +1079,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
+             .Select(s => s.ToRevocationOrNull()).OfType<MemberRevocationRecord>()
+             .Where(r => orderTime(r.Signed.Signature, r.Signed.IssuedAt) < at
+                 || (orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at && (r.Signed.Nonce.CompareTo(nonce) < 0
+-                    || (r.Signed.Nonce == nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
++                    || (r.Signed.Nonce != nonce && string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) < 0))));
+         var authority = _rosterAuthority?.Invoke();
+         // `at` is this record's bounded order time (above) - the instant its eligibility is judged at, and the
+         // instant the admitter's grant authority is read at. Deterministic on every node; no clock read here.

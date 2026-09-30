@@ -1,0 +1,40 @@
+2026-09-30T07:31:14-04:00 control test-exit=0 Passed!  - Failed:     0, Passed:   101, Skipped:     0, Total:   101, Duration: 4 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:32:37-04:00 ck11-246-lookup-null test-exit=0 Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3, Duration: 119 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:34:44-04:00 ck11-276-absence-refuses test-exit=1 Failed!  - Failed:     3, Passed:    18, Skipped:     0, Total:    21, Duration: 574 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:37:51-04:00 ck11-276-285-ejection-removed test-exit=1 Failed!  - Failed:     3, Passed:    18, Skipped:     0, Total:    21, Duration: 277 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:39:03-04:00 ck5-t519-m2-grantrefusal test-exit=1 Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 169 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:40:17-04:00 ck5-t975-tenant-152 test-exit=1 Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 1 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:41:06-04:00 ck5-t975-tenant-201 test-exit=1 Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:42:16-04:00 ck5-t975-tenant-283 test-exit=1 Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 1 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:44:44-04:00 ck5-t975-tenant-564 test-exit=1 Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:46:22-04:00 ck3-t974-sched-219 test-exit=1 Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:47:44-04:00 ck3-t974-sched-277 test-exit=1 Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:49:32-04:00 ck3-t974-forms-170 test-exit=1 Failed!  - Failed:     1, Passed:     1, Skipped:     0, Total:     2, Duration: 1 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:49:33-04:00 DONE
+2026-09-30T07:51:54-04:00 ck11-246-partyof-null test-exit=1 Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 159 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:53:50-04:00 ck11-246-no-retained-admissions test-exit=1 Failed!  - Failed:     1, Passed:     2, Skipped:     0, Total:     3, Duration: 156 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T07:53:50-04:00 DONE2
+2026-09-30T08:27:25-04:00 rekey-audit-control test-exit=0 Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:27:55-04:00 rekey-audit-grantId test-exit=0 Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:28:32-04:00 rekey-audit-fromSubject test-exit=0 Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:29:09-04:00 rekey-audit-toSubject test-exit=0 Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:29:10-04:00 DONE-REKEY
+2026-09-30T08:44:37-04:00 tiebreak-nonce-ne run1 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 5 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:44:46-04:00 tiebreak-nonce-ne run2 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 4 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:44:55-04:00 tiebreak-nonce-ne run3 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 5 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:45:52-04:00 tiebreak-ordinal-gt run1 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 4 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:45:58-04:00 tiebreak-ordinal-gt run2 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:46:07-04:00 tiebreak-ordinal-gt run3 Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 5 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T08:46:07-04:00 DONE-TIEBREAK
+2026-09-30T09:12:38-04:00 ck3-t974-payroll-108-and Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T09:12:38-04:00 DONE-PAYROLL
+2026-09-30T09:16:01-04:00 ck11-preinsert-1117-owner Failed!  - Failed:     1, Passed:    26, Skipped:     0, Total:    27, Duration: 4 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T09:16:01-04:00 DONE-OWNER
+2026-09-30T09:22:37-04:00 focused Passed!  - Failed:     0, Passed:  1849, Skipped:    18, Total:  1867, Duration: 4 m 7 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T09:22:38-04:00 DONE-FOCUSED
+2026-09-30T10:31:39-04:00 rekey-eventtype-control Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 4 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T10:32:21-04:00 rekey-eventtype-empty Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 6 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T10:32:22-04:00 DONE-EVENTTYPE
+2026-09-30T10:44:51-04:00 note: first operator-23 attempt did not compile (nullable); retried with null-forgiving operators
+2026-09-30T10:46:03-04:00 ck11-operator-23-or Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 59 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)
+2026-09-30T10:46:03-04:00 DONE-OPERATOR

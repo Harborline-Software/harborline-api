@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+index d50713e4..070faa91 100644
+--- a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
++++ b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+@@ -53,7 +53,7 @@ internal static class RetiredDesktopActorRekey
+                 NodeAuditOutbox.StageSystem(ctx, RekeyedEventType, new TenantId(row.TenantId), at, holder,
+                     new Dictionary<string, string?>(StringComparer.Ordinal)
+                     {
+-                        ["grantId"] = row.GrantId,
++                        
+                         ["fromSubject"] = NodeOperatorIdentity.RetiredDesktopActor,
+                         ["toSubject"] = holder.Value,
+                     });

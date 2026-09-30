@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="ec61c6f9-16a7-4603-982c-3bd1bf6fef9c" name="Chris@DESKTOP-UMT08RN 2026-09-30 07:47:42" runUser="DESKTOP-UMT08RN\Chris" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-30T07:47:42.8993315-04:00" queuing="2026-09-30T07:47:42.8993317-04:00" start="2026-09-30T07:47:36.9925609-04:00" finish="2026-09-30T07:47:43.9864414-04:00" />
+  <TestSettings name="default" id="249c53f3-9d40-4957-9ab5-7ba6bcc68cee">
+    <Deployment runDeploymentRoot="Chris_DESKTOP-UMT08RN_2026-09-30_07_47_42" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="09fb61d1-8411-4bd8-a9ad-3194d8a057f8" testId="9c47d23c-057b-d491-fbf0-f642f4e60ec5" testName="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: &quot;id&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0478246" startTime="2026-09-30T07:47:42.8901451-04:00" endTime="2026-09-30T07:47:43.0758440-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="09fb61d1-8411-4bd8-a9ad-3194d8a057f8">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure: Values differ&#xD;
+Expected: BadRequest&#xD;
+Actual:   OK</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs:line 519&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="e1c7f70d-7dbf-46c4-93fa-f9a050190d15" testId="fc92dfd2-f74d-52d4-e594-04b149d94550" testName="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: &quot;id&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0951147" startTime="2026-09-30T07:47:43.7424421-04:00" endTime="2026-09-30T07:47:43.9037087-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e1c7f70d-7dbf-46c4-93fa-f9a050190d15" />
+    <UnitTestResult executionId="3863e84e-8b23-4698-ba0f-ee84032ea320" testId="a90c2af0-6a12-8985-e307-467fc3e69e3e" testName="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: &quot;eventId&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.7096256" startTime="2026-09-30T07:47:40.9191832-04:00" endTime="2026-09-30T07:47:42.8659358-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3863e84e-8b23-4698-ba0f-ee84032ea320">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure: Values differ&#xD;
+Expected: BadRequest&#xD;
+Actual:   OK</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs:line 519&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="c6d7850f-0b72-4598-add7-99a3ff17b367" testId="7ef3cd44-b2cd-c3f0-a0c2-440a2974eb8b" testName="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: &quot;eventId&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.4256097" startTime="2026-09-30T07:47:43.0818461-04:00" endTime="2026-09-30T07:47:43.7411034-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c6d7850f-0b72-4598-add7-99a3ff17b367" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: &quot;eventId&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="a90c2af0-6a12-8985-e307-467fc3e69e3e">
+      <Execution id="3863e84e-8b23-4698-ba0f-ee84032ea320" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests" name="Event_create_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: &quot;id&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="fc92dfd2-f74d-52d4-e594-04b149d94550">
+      <Execution id="e1c7f70d-7dbf-46c4-93fa-f9a050190d15" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests" name="Appointment_booking_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: &quot;id&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="9c47d23c-057b-d491-fbf0-f642f4e60ec5">
+      <Execution id="09fb61d1-8411-4bd8-a9ad-3194d8a057f8" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests" name="Event_create_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: &quot;eventId&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="7ef3cd44-b2cd-c3f0-a0c2-440a2974eb8b">
+      <Execution id="c6d7850f-0b72-4598-add7-99a3ff17b367" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests" name="Appointment_booking_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="9c47d23c-057b-d491-fbf0-f642f4e60ec5" executionId="09fb61d1-8411-4bd8-a9ad-3194d8a057f8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="fc92dfd2-f74d-52d4-e594-04b149d94550" executionId="e1c7f70d-7dbf-46c4-93fa-f9a050190d15" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="a90c2af0-6a12-8985-e307-467fc3e69e3e" executionId="3863e84e-8b23-4698-ba0f-ee84032ea320" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="7ef3cd44-b2cd-c3f0-a0c2-440a2974eb8b" executionId="c6d7850f-0b72-4598-add7-99a3ff17b367" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="4" executed="4" passed="2" failed="2" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.01] xUnit.net VSTest Adapter v4.0.0+05679a7ab5 (64-bit .NET 11.0.0-rc.1.26425.128)&#xD;
+[xUnit.net 00:00:01.68]   Discovering: Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:02.46]   Discovered:  Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:02.51]   Starting:    Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:04.54]       Assert.Equal() Failure: Values differ&#xD;
+[xUnit.net 00:00:04.54]       Expected: BadRequest&#xD;
+[xUnit.net 00:00:04.54]       Actual:   OK&#xD;
+[xUnit.net 00:00:04.54]       Stack Trace:&#xD;
+[xUnit.net 00:00:04.54]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs(519,0): at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(String key)&#xD;
+[xUnit.net 00:00:04.54]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:04.74]       Assert.Equal() Failure: Values differ&#xD;
+[xUnit.net 00:00:04.74]       Expected: BadRequest&#xD;
+[xUnit.net 00:00:04.74]       Actual:   OK&#xD;
+[xUnit.net 00:00:04.74]       Stack Trace:&#xD;
+[xUnit.net 00:00:04.74]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs(519,0): at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(String key)&#xD;
+[xUnit.net 00:00:04.74]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:05.58]   Finished:    Harborline.Api.LocalNodeHost.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:47:42.8702265-04:00">
+        <Text>[xUnit.net 00:00:04.54]     Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: "eventId") [FAIL]</Text>
+      </RunInfo>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:47:43.0799430-04:00">
+        <Text>[xUnit.net 00:00:04.74]     Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Event_create_refuses_a_client_supplied_record_id(key: "id") [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

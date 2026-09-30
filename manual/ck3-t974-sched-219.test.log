@@ -1,0 +1,23 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:04.61]     Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: "eventId") [FAIL]
+[xUnit.net 00:00:04.82]     Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: "id") [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: "eventId") [582 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: BadRequest
+Actual:   OK
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs:line 901
+--- End of stack trace from previous location ---
+  Failed Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(key: "id") [98 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: BadRequest
+Actual:   OK
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Scheduling.SchedulingDefinitionRouteTests.Appointment_booking_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Scheduling\SchedulingDefinitionRouteTests.cs:line 901
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck3-t974-sched-219.trx
+
+Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

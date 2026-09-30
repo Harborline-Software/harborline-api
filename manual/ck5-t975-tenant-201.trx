@@ -1,0 +1,105 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="fe39d8d3-fa72-4704-868a-ee7f2572729a" name="Chris@DESKTOP-UMT08RN 2026-09-30 07:41:05" runUser="DESKTOP-UMT08RN\Chris" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-30T07:41:05.5371307-04:00" queuing="2026-09-30T07:41:05.5371309-04:00" start="2026-09-30T07:41:02.0335056-04:00" finish="2026-09-30T07:41:06.3437132-04:00" />
+  <TestSettings name="default" id="b53de14e-a4cf-49ee-859e-6871b1b3540c">
+    <Deployment runDeploymentRoot="Chris_DESKTOP-UMT08RN_2026-09-30_07_41_05" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="9fa12472-77da-45ac-900c-02de975b9eea" testId="fd64c781-d529-968d-6479-574f7df85859" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs" computerName="DESKTOP-UMT08RN" duration="00:00:00.9063909" startTime="2026-09-30T07:41:03.9231870-04:00" endTime="2026-09-30T07:41:04.9047695-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9fa12472-77da-45ac-900c-02de975b9eea">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure: Values differ&#xD;
+Expected: OK&#xD;
+Actual:   Forbidden</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs:line 136&#xD;
+   at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs:line 145&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="66c70640-1c85-4a77-9a33-55772d330e4d" testId="52099964-77ac-6403-ef12-26bba699e665" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form(formState: &quot;draft&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0739924" startTime="2026-09-30T07:41:05.5546130-04:00" endTime="2026-09-30T07:41:05.6391463-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="66c70640-1c85-4a77-9a33-55772d330e4d" />
+    <UnitTestResult executionId="f5da7381-06fc-4f5c-b498-6a7ab5559e45" testId="78bc9a27-945f-ab60-ae7d-89c8350111f7" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Allowed_write_still_refuses_an_unavailable_bound_form(formState: &quot;missing&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.1492429" startTime="2026-09-30T07:41:04.9191284-04:00" endTime="2026-09-30T07:41:05.0594716-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f5da7381-06fc-4f5c-b498-6a7ab5559e45" />
+    <UnitTestResult executionId="b6621a5f-36f6-465b-9492-45092f8c1bad" testId="ca3ab777-89e0-0536-c7c8-ab8bf136e408" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Allowed_write_still_refuses_an_unavailable_bound_form(formState: &quot;draft&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.1405590" startTime="2026-09-30T07:41:05.0609593-04:00" endTime="2026-09-30T07:41:05.2055919-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b6621a5f-36f6-465b-9492-45092f8c1bad" />
+    <UnitTestResult executionId="d93b905e-222f-420c-a0e1-1db737aeb16e" testId="12713236-7518-0d19-06c2-0ebc62be7d1e" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.A_grant_to_the_attribution_party_cannot_authorize_the_selected_principal" computerName="DESKTOP-UMT08RN" duration="00:00:00.1096339" startTime="2026-09-30T07:41:06.0068628-04:00" endTime="2026-09-30T07:41:06.1345375-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d93b905e-222f-420c-a0e1-1db737aeb16e" />
+    <UnitTestResult executionId="1f9ddf01-1aaa-4d60-a85b-521ce18ba55a" testId="a8f1b496-d77a-09b4-8a69-e943df218304" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Canonical_principal_grant_authorizes_while_party_remains_record_author(differentActiveTenant: True)" computerName="DESKTOP-UMT08RN" duration="00:00:00.2159587" startTime="2026-09-30T07:41:05.6394099-04:00" endTime="2026-09-30T07:41:05.8663695-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1f9ddf01-1aaa-4d60-a85b-521ce18ba55a" />
+    <UnitTestResult executionId="9f16ed29-8771-4ee5-858c-d4dd852fa9a1" testId="8ccb7b2d-60bd-cedb-05a0-2d6f0ff1e023" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Canonical_principal_grant_authorizes_while_party_remains_record_author(differentActiveTenant: False)" computerName="DESKTOP-UMT08RN" duration="00:00:00.1391182" startTime="2026-09-30T07:41:05.8666194-04:00" endTime="2026-09-30T07:41:06.0065779-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9f16ed29-8771-4ee5-858c-d4dd852fa9a1" />
+    <UnitTestResult executionId="242e5749-ded0-4c4f-9082-05873b4be79b" testId="d9f867c5-11a4-713b-7b9c-65d60d981522" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form(formState: &quot;missing&quot;)" computerName="DESKTOP-UMT08RN" duration="00:00:00.3471788" startTime="2026-09-30T07:41:05.2060338-04:00" endTime="2026-09-30T07:41:05.5544240-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="242e5749-ded0-4c4f-9082-05873b4be79b" />
+    <UnitTestResult executionId="8eb7cacc-eded-4c86-ab28-520578e877f6" testId="6ef04459-59c8-c878-3bd6-8dcba95f1f1d" testName="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Edge_write_decides_in_the_selected_tenant_when_the_active_team_differs" computerName="DESKTOP-UMT08RN" duration="00:00:00.1147668" startTime="2026-09-30T07:41:06.1348129-04:00" endTime="2026-09-30T07:41:06.2539799-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="8eb7cacc-eded-4c86-ab28-520578e877f6" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Canonical_principal_grant_authorizes_while_party_remains_record_author(differentActiveTenant: True)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="a8f1b496-d77a-09b4-8a69-e943df218304">
+      <Execution id="1f9ddf01-1aaa-4d60-a85b-521ce18ba55a" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Canonical_principal_grant_authorizes_while_party_remains_record_author" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form(formState: &quot;draft&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="52099964-77ac-6403-ef12-26bba699e665">
+      <Execution id="66c70640-1c85-4a77-9a33-55772d330e4d" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Allowed_write_still_refuses_an_unavailable_bound_form(formState: &quot;missing&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="78bc9a27-945f-ab60-ae7d-89c8350111f7">
+      <Execution id="f5da7381-06fc-4f5c-b498-6a7ab5559e45" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Allowed_write_still_refuses_an_unavailable_bound_form" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="fd64c781-d529-968d-6479-574f7df85859">
+      <Execution id="9fa12472-77da-45ac-900c-02de975b9eea" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Allowed_write_still_refuses_an_unavailable_bound_form(formState: &quot;draft&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="ca3ab777-89e0-0536-c7c8-ab8bf136e408">
+      <Execution id="b6621a5f-36f6-465b-9492-45092f8c1bad" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Allowed_write_still_refuses_an_unavailable_bound_form" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Edge_write_decides_in_the_selected_tenant_when_the_active_team_differs" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="6ef04459-59c8-c878-3bd6-8dcba95f1f1d">
+      <Execution id="8eb7cacc-eded-4c86-ab28-520578e877f6" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Edge_write_decides_in_the_selected_tenant_when_the_active_team_differs" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Canonical_principal_grant_authorizes_while_party_remains_record_author(differentActiveTenant: False)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="8ccb7b2d-60bd-cedb-05a0-2d6f0ff1e023">
+      <Execution id="9f16ed29-8771-4ee5-858c-d4dd852fa9a1" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Canonical_principal_grant_authorizes_while_party_remains_record_author" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form(formState: &quot;missing&quot;)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="d9f867c5-11a4-713b-7b9c-65d60d981522">
+      <Execution id="242e5749-ded0-4c4f-9082-05873b4be79b" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="Denied_write_does_not_resolve_or_disclose_an_unavailable_bound_form" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.A_grant_to_the_attribution_party_cannot_authorize_the_selected_principal" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="12713236-7518-0d19-06c2-0ebc62be7d1e">
+      <Execution id="d93b905e-222f-420c-a0e1-1db737aeb16e" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests" name="A_grant_to_the_attribution_party_cannot_authorize_the_selected_principal" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="fd64c781-d529-968d-6479-574f7df85859" executionId="9fa12472-77da-45ac-900c-02de975b9eea" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="52099964-77ac-6403-ef12-26bba699e665" executionId="66c70640-1c85-4a77-9a33-55772d330e4d" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="78bc9a27-945f-ab60-ae7d-89c8350111f7" executionId="f5da7381-06fc-4f5c-b498-6a7ab5559e45" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ca3ab777-89e0-0536-c7c8-ab8bf136e408" executionId="b6621a5f-36f6-465b-9492-45092f8c1bad" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="12713236-7518-0d19-06c2-0ebc62be7d1e" executionId="d93b905e-222f-420c-a0e1-1db737aeb16e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="a8f1b496-d77a-09b4-8a69-e943df218304" executionId="1f9ddf01-1aaa-4d60-a85b-521ce18ba55a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8ccb7b2d-60bd-cedb-05a0-2d6f0ff1e023" executionId="9f16ed29-8771-4ee5-858c-d4dd852fa9a1" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d9f867c5-11a4-713b-7b9c-65d60d981522" executionId="242e5749-ded0-4c4f-9082-05873b4be79b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="6ef04459-59c8-c878-3bd6-8dcba95f1f1d" executionId="8eb7cacc-eded-4c86-ab28-520578e877f6" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="9" executed="9" passed="8" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.0+05679a7ab5 (64-bit .NET 11.0.0-rc.1.26425.128)&#xD;
+[xUnit.net 00:00:00.52]   Discovering: Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.28]   Discovered:  Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.32]   Starting:    Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:02.33]       Assert.Equal() Failure: Values differ&#xD;
+[xUnit.net 00:00:02.33]       Expected: OK&#xD;
+[xUnit.net 00:00:02.33]       Actual:   Forbidden&#xD;
+[xUnit.net 00:00:02.33]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.33]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs(136,0): at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs()&#xD;
+[xUnit.net 00:00:02.33]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs(145,0): at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs()&#xD;
+[xUnit.net 00:00:02.33]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:03.69]   Finished:    Harborline.Api.LocalNodeHost.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:41:04.9075078-04:00">
+        <Text>[xUnit.net 00:00:02.33]     Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

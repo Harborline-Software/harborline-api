@@ -1,0 +1,23 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:01.94]     Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: True) [FAIL]
+[xUnit.net 00:00:01.94]     Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(presentDesktopActor: True) [2 ms]
+  Error Message:
+   System.InvalidOperationException : Nullable object must have a value.
+  Stack Trace:
+     at System.Nullable`1.get_Value()
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.DesktopActor(MemberRoster roster, IOperationSigner node) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 31
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.An_ejected_node_party_is_refused_when_the_desktop_actor_asks_the_production_gate(Boolean presentDesktopActor) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 50
+--- End of stack trace from previous location ---
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key [1 ms]
+  Error Message:
+   System.InvalidOperationException : Nullable object must have a value.
+  Stack Trace:
+     at System.Nullable`1.get_Value()
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.DesktopActor(MemberRoster roster, IOperationSigner node) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 31
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRosterIdentityTests.The_desktop_actor_reads_the_live_roster_edge_bound_to_this_nodes_key() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRosterIdentityTests.cs:line 70
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck11-246-partyof-null.trx
+
+Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: 159 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

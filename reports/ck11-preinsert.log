@@ -1,0 +1,673 @@
+
+   _____ _              _               _   _ ______ _______ ÿ
+  / ____| |            | |             | \ | |  ____|__   __|ÿ
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |   ÿ
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |   ÿ
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |   ÿ
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|   ÿ
+                   __/ |                                     ÿ
+                  |___/                                      ÿ
+
+
+Version: 5.0.0
+
+[08:27:55 INF] Analysis starting.
+[08:27:55 INF] Analyzing 1 test project(s).
+[08:28:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj. Using analysis results: net11.0
+[08:28:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj. Using analysis results: net11.0
+[08:28:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[08:28:09 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[08:28:11 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[08:28:11 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:11 WRN] Analysis of project ..\..\..\packages\foundation\Harborline.Foundation.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[08:28:11 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[08:28:11 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[08:28:11 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[08:28:12 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:14 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[08:28:14 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:14 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[08:28:16 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:16 WRN] Analysis of project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[08:28:16 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[08:28:16 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:16 WRN] Analysis of project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:16 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[08:28:16 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:16 WRN] Analysis of project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[08:28:17 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:17 WRN] Analysis of project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[08:28:17 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[08:28:17 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:17 WRN] Analysis of project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[08:28:17 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[08:28:17 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:18 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[08:28:18 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:18 WRN] Analysis of project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:18 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[08:28:18 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[08:28:19 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:19 WRN] Analysis of project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[08:28:19 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:19 WRN] Analysis of project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:22 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[08:28:22 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:22 WRN] Analysis of project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:22 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[08:28:22 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:23 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[08:28:23 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:23 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[08:28:23 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:23 WRN] Analysis of project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:23 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[08:28:23 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:24 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:24 WRN] Analysis of project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:25 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[08:28:25 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:25 WRN] Analysis of project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:25 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[08:28:25 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:25 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[08:28:25 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:25 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[08:28:25 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[08:28:25 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:25 WRN] Analysis of project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:25 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:26 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[08:28:26 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:26 WRN] Analysis of project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:26 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[08:28:26 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:27 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[08:28:27 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:27 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:28 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[08:28:28 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:28 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[08:28:28 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:28 WRN] Analysis of project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:29 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[08:28:29 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:29 WRN] Analysis of project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:29 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[08:28:29 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:29 WRN] Analysis of project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:29 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[08:28:29 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:29 WRN] Analysis of project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:30 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[08:28:30 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:30 WRN] Analysis of project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:30 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[08:28:30 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:31 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[08:28:31 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:31 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[08:28:31 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:31 WRN] Analysis of project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:31 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[08:28:31 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:32 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[08:28:32 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:32 WRN] Analysis of project ..\Harborline.LocalNodeHost.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:32 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[08:28:32 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:34 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[08:28:34 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:34 WRN] Analysis of project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:35 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[08:28:35 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:35 WRN] Analysis of project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:35 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[08:28:35 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:35 WRN] Analysis of project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:36 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[08:28:36 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Trying again with a nuget restore.
+[08:28:39 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[08:28:39 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:39 WRN] Analysis of project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[08:28:40 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:40 WRN] Analysis of project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:44 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Use '--diag' option to have the build log.
+[08:28:44 WRN] Analysis of project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj succeeded but simulated build failed; Stryker may fail later.
+[08:28:44 INF] Picking net11.0 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. 
+[08:28:47 INF] Found project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj to mutate.
+[08:28:47 INF] Analysis complete.
+[08:28:47 INF] Building test project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests\tests.csproj (1/1)
+[08:28:47 INF] Building project tests.csproj using dotnet build tests.csproj -c Debug --property:Platform=AnyCPU (directory C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests.)
+[08:29:34 INF] Number of tests found: 27 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Initial test run started.
+[08:29:40 WRN] 1 tests are failing. Stryker will continue but outcome will be impacted.
+[08:31:17 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 349:23) with id: CS0165, message: Use of unassigned local variable 'concreteReader' (Source code: concreteReader)
+[08:31:17 INF] Safe Mode! Stryker will remove all mutations in EnsureShippingAuditIdentity and mark them as 'compile error'.
+[08:31:18 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLiveInvoiceApprovalContext.cs resulted in a compile error (at 112:12) with id: CS1620, message: Argument 2 must be passed with the 'ref' keyword (Source code: (StrykerqbUQW2sfYQR8Blw.MutantControl.IsActive(29366)?            $"" :            $"Issue invoice {state.InvoiceId}: Debit {state.DebitAccount} {amount}; " ) +
+            (StrykerqbUQW2sfYQR8Blw.MutantControl.IsActive(29367)?            $"":            $"Credit {state.CreditAccount} {amount} ({state.Memo})."))
+[08:31:18 INF] Safe Mode! Stryker will remove all mutations in RenderPostingPreview and mark them as 'compile error'.
+[08:31:27 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 99:24) with id: CS0165, message: Use of unassigned local variable 'observed' (Source code: observed)
+[08:31:27 INF] Safe Mode! Stryker will remove all mutations in ValidateLocalNodeTechnicalRegistrationEvidence and mark them as 'compile error'.
+[08:31:27 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\FounderTenantMembershipAttachService.cs resulted in a compile error (at 383:16) with id: CS0165, message: Use of unassigned local variable 'status' (Source code: status)
+[08:31:27 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[08:31:27 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeRecurringScheduleSource.cs resulted in a compile error (at 168:12) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[08:31:27 INF] Safe Mode! Stryker will remove all mutations in AddDefinitionTriggersAsync and mark them as 'compile error'.
+[08:31:28 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackInstallRoutes.cs resulted in a compile error (at 92:8) with id: CS0165, message: Use of unassigned local variable 'reconciler' (Source code: reconciler)
+[08:31:28 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 68:27) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in ValidateRecordAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 86:13) with id: CS0165, message: Use of unassigned local variable 'form' (Source code: form)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 98:37) with id: CS0165, message: Use of unassigned local variable 'bound' (Source code: bound)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InitialGrantIssuanceService.cs resulted in a compile error (at 131:26) with id: CS0165, message: Use of unassigned local variable 'epochs' (Source code: epochs)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in IssueWithEpochAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\VerifiedTenantRosterReader.cs resulted in a compile error (at 75:28) with id: CS0165, message: Use of unassigned local variable 'teamId' (Source code: teamId)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in ReadCoreAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLedgerPostingEffect.cs resulted in a compile error (at 92:31) with id: CS0165, message: Use of unassigned local variable 'verifyingPosting' (Source code: verifyingPosting)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in Build and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Enrollment\PairingTokenGatedAdmitter.cs resulted in a compile error (at 263:19) with id: CS0165, message: Use of unassigned local variable 'bridgeOutcome' (Source code: bridgeOutcome)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in AdmitAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\FormsDevSeeder.cs resulted in a compile error (at 176:57) with id: CS0165, message: Use of unassigned local variable 'decision' (Source code: decision)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormSubmissionResultReader.cs resulted in a compile error (at 25:21) with id: CS0165, message: Use of unassigned local variable 'entity' (Source code: entity)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 61:20) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[08:31:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 67:17) with id: CS0165, message: Use of unassigned local variable 'disposition' (Source code: disposition)
+[08:31:35 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 165:63) with id: CS0165, message: Use of unassigned local variable 'schemaRoot' (Source code: schemaRoot)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in ToContentAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 290:31) with id: CS0165, message: Use of unassigned local variable 'childSchema' (Source code: childSchema)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in FindProperty and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 483:24) with id: CS0165, message: Use of unassigned local variable 'currentTeamId' (Source code: currentTeamId)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in ReconcileLocallyMintedGenesisAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 855:33) with id: CS0165, message: Use of unassigned local variable 'administrators' (Source code: administrators)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in ReconcileAdministratorRemovalsAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Generation\Cli\CapabilityKgGenerateCliClient.cs resulted in a compile error (at 116:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\BruteForce\BruteForceKnnEngine.cs resulted in a compile error (at 120:54) with id: CS0165, message: Use of unassigned local variable 'plaintext' (Source code: plaintext)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in KnnAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\Cli\CapabilityKgCliClient.cs resulted in a compile error (at 114:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\NodeVecIndexer.cs resulted in a compile error (at 218:20) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in IndexArtifactAsync and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackWorkflowAdmissionAdapter.cs resulted in a compile error (at 139:45) with id: CS0165, message: Use of unassigned local variable 'model' (Source code: model)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in Admit and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\LlmProxyRoutes.cs resulted in a compile error (at 79:19) with id: CS0165, message: Use of unassigned local variable 'upstreamResp' (Source code: upstreamResp)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\LocalNodeKeyHierarchy.cs resulted in a compile error (at 66:12) with id: CS0165, message: Use of unassigned local variable 'storeDek' (Source code: storeDek)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in Resolve and mark them as 'compile error'.
+[08:31:41 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Program.cs resulted in a compile error (at 365:9) with id: CS0165, message: Use of unassigned local variable 'rootSeed' (Source code: rootSeed)
+[08:31:41 INF] Safe Mode! Stryker will remove all mutations in RunAsync and mark them as 'compile error'.
+[08:31:47 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeExecutableEndpointRegistry.cs resulted in a compile error (at 104:35) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[08:31:47 INF] Safe Mode! Stryker will remove all mutations in Seal and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 151:29) with id: CS0165, message: Use of unassigned local variable 'overlay' (Source code: overlay)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 159:37) with id: CS0165, message: Use of unassigned local variable 'fieldOverlay' (Source code: fieldOverlay)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 174:36) with id: CS0165, message: Use of unassigned local variable 'array' (Source code: array)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 177:124) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\DurableGenesisIdentity.cs resulted in a compile error (at 54:13) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeKgActionApprovalContext.cs resulted in a compile error (at 110:22) with id: CS0165, message: Use of unassigned local variable 'je' (Source code: je)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in BuildExecuteEffect and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:45) with id: CS0165, message: Use of unassigned local variable 'name' (Source code: name)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:51) with id: CS0165, message: Use of unassigned local variable 'location' (Source code: location)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 52:19) with id: CS0165, message: Use of unassigned local variable 'document' (Source code: document)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[08:31:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 62:20) with id: CS0165, message: Use of unassigned local variable 'commands' (Source code: commands)
+[08:31:48 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[08:31:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\BackupRestore\NodeRehostService.cs resulted in a compile error (at 203:16) with id: CS0165, message: Use of unassigned local variable 'expected' (Source code: expected)
+[08:31:58 INF] Safe Mode! Stryker will remove all mutations in VerifyContentHashes and mark them as 'compile error'.
+[08:31:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\AssetRegistry\SpatialFramePiiFieldSealer.cs resulted in a compile error (at 168:43) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[08:31:58 INF] Safe Mode! Stryker will remove all mutations in UnsealAsync and mark them as 'compile error'.
+[08:31:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 187:36) with id: CS0165, message: Use of unassigned local variable 'items' (Source code: items)
+[08:31:59 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[08:31:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 191:33) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[08:31:59 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[08:31:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\ConnectDeviceRoutes.cs resulted in a compile error (at 135:14) with id: CS0165, message: Use of unassigned local variable 'outcome' (Source code: outcome)
+[08:31:59 INF] Safe Mode! Stryker will remove all mutations in ConnectAsync and mark them as 'compile error'.
+[08:31:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Layout\LayoutDenialGateLog.cs resulted in a compile error (at 145:60) with id: CS0165, message: Use of unassigned local variable 'denial' (Source code: denial)
+[08:31:59 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[08:32:07 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InstallationTenantCandidateLocator.cs resulted in a compile error (at 146:16) with id: CS0165, message: Use of unassigned local variable 'membership' (Source code: membership)
+[08:32:07 INF] Safe Mode! Stryker will remove all mutations in ListForAccountAsync and mark them as 'compile error'.
+[08:32:07 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormDefinitionRoutes.cs resulted in a compile error (at 1024:32) with id: CS0165, message: Use of unassigned local variable 'explicitValue' (Source code: explicitValue)
+[08:32:07 INF] Safe Mode! Stryker will remove all mutations in ResolvePiiSensitivities and mark them as 'compile error'.
+[08:32:45 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 370:16) with id: CS0165, message: Use of unassigned local variable 'parsed' (Source code: parsed)
+[08:32:45 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[08:32:45 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 390:36) with id: CS0165, message: Use of unassigned local variable 'keyElement' (Source code: keyElement)
+[08:32:45 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[08:32:45 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 460:30) with id: CS0165, message: Use of unassigned local variable 'entries' (Source code: entries)
+[08:32:45 INF] Safe Mode! Stryker will remove all mutations in Closure and mark them as 'compile error'.
+[08:32:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackSeedProjector.cs resulted in a compile error (at 5382:8) with id: CS0165, message: Use of unassigned local variable 'authoredNode' (Source code: authoredNode)
+[08:32:50 INF] Safe Mode! Stryker will remove all mutations in BuildExpectedWorkflowAuthored and mark them as 'compile error'.
+[08:33:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 120:17) with id: CS0165, message: Use of unassigned local variable 'fields' (Source code: fields)
+[08:33:01 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[08:33:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 123:20) with id: CS0165, message: Use of unassigned local variable 'meta' (Source code: meta)
+[08:33:01 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[08:33:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 126:32) with id: CS0165, message: Use of unassigned local variable 'sections' (Source code: sections)
+[08:33:01 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[08:33:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 131:33) with id: CS0165, message: Use of unassigned local variable 'names' (Source code: names)
+[08:33:01 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[08:33:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 339:15) with id: CS0165, message: Use of unassigned local variable 'type' (Source code: type)
+[08:33:08 INF] Safe Mode! Stryker will remove all mutations in InputKind and mark them as 'compile error'.
+[08:33:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 292:38) with id: CS0165, message: Use of unassigned local variable 'metadata' (Source code: metadata)
+[08:33:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[08:33:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:24) with id: CS0165, message: Use of unassigned local variable 'formId' (Source code: formId)
+[08:33:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[08:33:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:45) with id: CS0165, message: Use of unassigned local variable 'version' (Source code: version)
+[08:33:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[08:33:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 313:54) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[08:33:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[08:33:23 INF] 47313 mutants created
+[08:33:23 INF] Capture mutant coverage using 'CoverageBasedTest' mode.
+[08:33:29 INF] 6     mutants got status CompileError. Reason: Could not be injected in code.
+[08:33:29 INF] 5862  mutants got status CompileError. Reason: Mutant caused compile errors
+[08:33:29 INF] 207   mutants got status NoCoverage.   Reason: Not covered by any test.
+[08:33:29 INF] 81    mutants got status Ignored.      Reason: Removed by block already covered filter
+[08:33:29 INF] 40836 mutants got status Ignored.      Reason: Removed by mutate filter
+[08:33:29 INF] 46992 total mutants are skipped for the above mentioned reasons
+[08:33:29 INF] 321   total mutants will be tested
+
+Killed:   134
+Survived: 161
+Timeout:   26
+Errors:    0
+
+Your json report has been generated at:
+file://C:/Projects/Harborline/harborline-api/.codex/worktrees/r4-t984api/.stryke
+r/tests-scoped-RosterCrdtProjection.cs/reports/mutation-report.json
+[08:40:57 INF] Time Elapsed 00:13:01.7063361
+[08:40:57 INF] The final mutation score is 30.30 %
+scoped run: 783 s, .stryker/tests-scoped-RosterCrdtProjection.cs/reports/mutation-report.json
+C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs: score 30.3 {"Ignored":81,"Survived":161,"CompileError":154,"NoCoverage":207,"Killed":134,"Timeout":26}
+  103 Survived Statement mutation: ;
+  174 Survived Statement mutation: ;
+  192 NoCoverage AddAssignmentExpression to SubtractAssignmentExpression mutation: _projection.LocalDeltaProduced -= value
+  193 NoCoverage SubtractAssignmentExpression to AddAssignmentExpression mutation: _projection.LocalDeltaProduced += value
+  215 Survived Statement mutation: ;
+  218 Survived Boolean mutation: true
+  219 Survived Linq method mutation (ThenBy() to ThenByDescending()): ctx.Set<NodeRosterRecord>()                 .OrderBy(r => r.IssuedAtUtc).ThenByD
+  219 Survived Linq method mutation (OrderBy() to OrderByDescending()): ctx.Set<NodeRosterRecord>()                 .OrderByDescending
+  222 Survived Boolean mutation: true
+  223 Survived Linq method mutation (FirstOrDefault() to First()): rows.First
+  223 Survived Equality mutation: row.WireFormatVersion == RosterWireFormat.CurrentVersion
+  225 NoCoverage Statement mutation: ;
+  228 NoCoverage String mutation: $""
+  232 Survived Statement mutation: ;
+  234 Survived Boolean mutation: true
+  235 Survived Statement mutation: ;
+  235 Survived Boolean mutation: true
+  237 Survived Statement mutation: ;
+  242 NoCoverage Equality mutation: ex is not JsonException or VerifiedTenantRosterRefusedException
+  244 NoCoverage Statement mutation: ;
+  244 NoCoverage String mutation: ""
+  244 NoCoverage Boolean mutation: true
+  247 NoCoverage Equality mutation: ex is OperationCanceledException
+  249 NoCoverage Statement mutation: ;
+  249 NoCoverage String mutation: ""
+  249 NoCoverage Boolean mutation: true
+  277 Survived Statement mutation: ;
+  293 NoCoverage Statement mutation: ;
+  296 Survived Boolean mutation: true
+  299 Survived Equality mutation: r.Id != record.RecordId
+  299 Survived Boolean mutation: true
+  306 Survived Statement mutation: ;
+  312 Survived LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(                     existingRow.TransportPublicKeyB64Url ?? strin
+  313 Survived Null coalescing mutation (remove left): string.Empty
+  313 NoCoverage String mutation: "Stryker was here!"
+  314 Survived Null coalescing mutation (remove left): string.Empty
+  314 NoCoverage String mutation: "Stryker was here!"
+  315 Survived LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(                     existingRow.DmPublicKeyB64Url ?? string.Empty
+  316 Survived Null coalescing mutation (remove left): string.Empty
+  316 NoCoverage String mutation: "Stryker was here!"
+  317 Survived Null coalescing mutation (remove left): string.Empty
+  317 NoCoverage String mutation: "Stryker was here!"
+  319 Survived LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(                     existingRow.XWingPublicKeyB64Url ?? string.Em
+  320 Survived Null coalescing mutation (remove left): string.Empty
+  320 NoCoverage String mutation: "Stryker was here!"
+  321 Survived Null coalescing mutation (remove left): string.Empty
+  321 NoCoverage String mutation: "Stryker was here!"
+  322 Survived Logical mutation: transportDiffers \|\| dmDiffers && xwingDiffers
+  322 Survived Negate expression: !(transportDiffers \|\| dmDiffers \|\| xwingDiffers)
+  322 Survived Logical mutation: transportDiffers && dmDiffers
+  324 NoCoverage Null coalescing mutation (remove left): string.Empty
+  324 NoCoverage String mutation: "Stryker was here!"
+  325 NoCoverage Null coalescing mutation (remove left): string.Empty
+  325 NoCoverage String mutation: "Stryker was here!"
+  326 NoCoverage Null coalescing mutation (remove left): string.Empty
+  326 NoCoverage String mutation: "Stryker was here!"
+  334 NoCoverage Statement mutation: ;
+  336 NoCoverage Statement mutation: ;
+  336 NoCoverage Boolean mutation: true
+  337 NoCoverage Negate expression: !(ctx.ChangeTracker.HasChanges())
+  338 NoCoverage Statement mutation: ;
+  338 NoCoverage Boolean mutation: true
+  339 NoCoverage Boolean mutation: true
+  341 Survived Negate expression: !(ctx.ChangeTracker.HasChanges())
+  342 Survived Statement mutation: ;
+  342 Survived Boolean mutation: true
+  388 NoCoverage Equality mutation: ownTeamId != Guid.Empty
+  389 NoCoverage String mutation: ""
+  395 NoCoverage Statement mutation: ;
+  398 NoCoverage Boolean mutation: true
+  402 NoCoverage Boolean mutation: true
+  405 NoCoverage Equality mutation: r.TeamId != ownTeamIdString
+  407 NoCoverage Boolean mutation: true
+  408 NoCoverage Equality mutation: rows.Count >= 0
+  408 NoCoverage Negate expression: !(rows.Count > 0)
+  410 NoCoverage Statement mutation: ;
+  411 NoCoverage Statement mutation: ;
+  411 NoCoverage Boolean mutation: true
+  415 NoCoverage Equality mutation: removed < 0
+  415 NoCoverage Equality mutation: removed >= 0
+  415 NoCoverage Negate expression: !(removed > 0)
+  417 NoCoverage Statement mutation: ;
+  418 NoCoverage String mutation: ""
+  419 NoCoverage String mutation: ""
+  421 NoCoverage Statement mutation: ;
+  497 NoCoverage Logical mutation: record.Kind != RosterRecordKind.Admission             && !record.IsGenesis
+  497 NoCoverage Equality mutation: record.Kind == RosterRecordKind.Admission
+  498 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: record.IsGenesis
+  500 NoCoverage Equality mutation: recordTeamId != currentTeamId
+  501 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(record.PartyId, currentPartyId, StringComparison.Ordinal)
+  502 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(record.PublicKeyB64Url, currentPublicKeyText, StringComparison.Ord
+  503 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(record.AdmittedByPartyId, currentPartyId, StringComparison.Ordinal
+  504 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(record.AdmittedByPublicKey, currentPublicKeyText, StringComparison
+  506 NoCoverage Boolean mutation: true
+  510 NoCoverage Equality mutation: admission is null
+  540 Survived LogicalNotExpression to un-LogicalNotExpression mutation: result.Succeeded
+  542 NoCoverage Statement mutation: ;
+  543 NoCoverage String mutation: ""
+  546 Survived Boolean mutation: true
+  571 NoCoverage Statement mutation: ;
+  571 NoCoverage Boolean mutation: true
+  572 NoCoverage Statement mutation: ;
+  583 Survived Boolean mutation: true
+  587 Survived Boolean mutation: true
+  592 Survived Statement mutation: ;
+  592 Survived Boolean mutation: true
+  600 Survived Boolean mutation: true
+  602 Survived Boolean mutation: true
+  611 Survived Null coalescing mutation (remove left): string.Empty
+  611 NoCoverage String mutation: "Stryker was here!"
+  612 Survived Logical mutation: !string.Equals(row.TransportPublicKeyB64Url ?? string.Empty, carried, StringComp
+  612 Survived Negate expression: !(!string.Equals(row.TransportPublicKeyB64Url ?? string.Empty, carried, StringCo
+  612 Survived LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(row.TransportPublicKeyB64Url ?? string.Empty, carried, StringCompa
+  612 Survived Null coalescing mutation (remove left): string.Empty
+  612 NoCoverage String mutation: "Stryker was here!"
+  613 NoCoverage Equality mutation: carried.Length < 0
+  613 NoCoverage Equality mutation: carried.Length >= 0
+  616 NoCoverage Boolean mutation: false
+  620 Survived Null coalescing mutation (remove left): string.Empty
+  620 NoCoverage String mutation: "Stryker was here!"
+  621 Survived Logical mutation: !string.Equals(row.XWingPublicKeyB64Url ?? string.Empty, carriedXWing, StringCom
+  621 Survived Negate expression: !(!string.Equals(row.XWingPublicKeyB64Url ?? string.Empty, carriedXWing, StringC
+  621 Survived LogicalNotExpression to un-LogicalNotExpression mutation: string.Equals(row.XWingPublicKeyB64Url ?? string.Empty, carriedXWing, StringComp
+  621 Survived Null coalescing mutation (remove left): string.Empty
+  621 NoCoverage String mutation: "Stryker was here!"
+  622 NoCoverage Equality mutation: carriedXWing.Length < 0
+  622 NoCoverage Equality mutation: carriedXWing.Length >= 0
+  625 NoCoverage Boolean mutation: false
+  632 Survived Statement mutation: ;
+  634 Survived Equality mutation: toInsert.Count >= 0
+  643 Survived Boolean mutation: true
+  645 NoCoverage Equality mutation: ex is OperationCanceledException
+  647 NoCoverage Statement mutation: ;
+  647 NoCoverage String mutation: ""
+  647 NoCoverage Boolean mutation: true
+  648 NoCoverage Statement mutation: ;
+  650 Survived Statement mutation: ;
+  657 Survived Conditional (true) mutation: (true?null :await VerifiedTenantRosterReader.ReadGenesisAsync(                  
+  658 NoCoverage Boolean mutation: true
+  660 Survived LogicalNotExpression to un-LogicalNotExpression mutation: rejectedIds.Contains(s.RecordId)
+  662 Survived Boolean mutation: true
+  668 Survived Statement mutation: ;
+  668 Survived Boolean mutation: true
+  669 Survived Statement mutation: ;
+  669 Survived Boolean mutation: true
+  671 Survived Equality mutation: ex is not JsonException or VerifiedTenantRosterRefusedException
+  673 Survived Statement mutation: ;
+  673 Survived String mutation: ""
+  673 Survived Boolean mutation: true
+  675 NoCoverage Equality mutation: ex is OperationCanceledException
+  677 NoCoverage Statement mutation: ;
+  677 NoCoverage String mutation: ""
+  677 NoCoverage Boolean mutation: true
+  687 NoCoverage String mutation: ""
+  688 NoCoverage Conditional (true) mutation: (true?"The roster insert failed; the node has not converged." :"The roster rebui
+  688 NoCoverage Conditional (false) mutation: (false?"The roster insert failed; the node has not converged." :"The roster rebu
+  688 NoCoverage Equality mutation: code != "roster.insert.failed"
+  688 NoCoverage String mutation: ""
+  688 NoCoverage String mutation: ""
+  689 NoCoverage String mutation: ""
+  691 Survived Conditional (true) mutation: (true?RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal :code)
+  691 Survived Conditional (false) mutation: (false?RosterReceiveAttestationSigning.WireFormatUnsupportedRefusal :code)
+  691 Survived Equality mutation: cause is not VerifiedTenantRosterRefusedException             {                 
+  697 Survived String mutation: ""
+  698 Survived String mutation: ""
+  700 Survived Linq method mutation (FirstOrDefault() to First()): .Current.EnumerateAdmissions().First
+  701 Survived String mutation: ""
+  701 Survived String mutation: ""
+  702 Survived Conditional (true) mutation: (true?TenantId.System :new TenantId(evidence.TeamId))
+  702 Survived Conditional (false) mutation: (false?TenantId.System :new TenantId(evidence.TeamId))
+  702 Survived Equality mutation: evidence is not null
+  703 Survived Null coalescing mutation (remove left): DateTimeOffset.UnixEpoch
+  705 Survived Statement mutation: ;
+  707 Survived Logical mutation: _auditedRebuildFailure?.Report == report && audit is null
+  707 Survived Negate expression: !(_auditedRebuildFailure?.Report == report \|\| audit is null)
+  707 Survived Equality mutation: _auditedRebuildFailure?.Report != report
+  707 Survived Equality mutation: audit is not null
+  707 Survived Statement mutation: ;
+  708 NoCoverage Equality mutation: await audit.RecordAsync(report, refusal.Permission, refusal.Actor, refusal.Tenan
+  709 NoCoverage Boolean mutation: true
+  717 NoCoverage Boolean mutation: true
+  720 Survived Statement mutation: ;
+  834 NoCoverage Equality mutation: a is null
+  836 NoCoverage Statement mutation: ;
+  837 NoCoverage Equality mutation: a.TransportPublicKey is not { Length: > 0 }
+  837 NoCoverage Equality mutation: >= 0
+  856 NoCoverage Equality mutation: r is null
+  856 NoCoverage Statement mutation: ;
+  862 NoCoverage Conditional (true) mutation: (true?admissions :admissions.Where(a => !a.Admission.IsGenesis             \|\| 
+  862 NoCoverage Conditional (false) mutation: (false?admissions :admissions.Where(a => !a.Admission.IsGenesis             \|\|
+  862 NoCoverage Equality mutation: anchor is not null
+  862 NoCoverage Logical mutation: !a.Admission.IsGenesis             && a.Admission.Signature == anchor.Admission.
+  862 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: a.Admission.IsGenesis
+  863 NoCoverage Equality mutation: a.Admission.Signature != anchor.Admission.Signature
+  869 NoCoverage Statement mutation: ;
+  870 NoCoverage Logical mutation: accepted.Contains(a.Admission.Signature)                      \|\| RosterSigning
+  880 NoCoverage Statement mutation: ;
+  909 NoCoverage Conditional (true) mutation: (true?(PrincipalId?)null :_nodeRoster.Current.PublicKeyOf(liveGenesisParty))
+  909 NoCoverage Conditional (false) mutation: (false?(PrincipalId?)null :_nodeRoster.Current.PublicKeyOf(liveGenesisParty))
+  909 NoCoverage String mutation: (liveGenesisParty!=null)
+  909 NoCoverage String mutation: (liveGenesisParty!="")
+  913 NoCoverage Logical mutation: ownSigningKey is not null             \|\| rebuilt.Members.Any(m =>             
+  913 NoCoverage Equality mutation: ownSigningKey is null
+  914 NoCoverage Linq method mutation (Any() to All()): rebuilt.Members.All
+  917 NoCoverage Logical mutation: bound is not null \|\| bound.Value.Equals(ownSigningKey.Value)
+  917 NoCoverage Equality mutation: bound is null
+  920 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: nodeIsMemberOfRebuilt
+  922 NoCoverage Statement mutation: ;
+  940 NoCoverage Negate expression: !(liveMemberParties.Contains(party))
+  941 NoCoverage Block removal mutation: {}
+  955 NoCoverage Equality mutation: signedDmKey is not { Length: > 0 }
+  955 NoCoverage Equality mutation: >= 0
+  956 NoCoverage Block removal mutation: {}
+  972 NoCoverage Equality mutation: signedXWingKey is not { Length: > 0 }
+  972 NoCoverage Equality mutation: >= 0
+  973 NoCoverage Block removal mutation: {}
+  977 NoCoverage Statement mutation: ;
+  990 Survived Linq method mutation (ThenBy() to ThenByDescending()): tenant.DistinctBy(s => s.RecordId).OrderBy(s => s.Kind)                 .ThenBy(
+  990 Survived Linq method mutation (ThenBy() to ThenByDescending()): tenant.DistinctBy(s => s.RecordId).OrderBy(s => s.Kind)                 .ThenByD
+  990 Survived Linq method mutation (OrderBy() to OrderByDescending()): tenant.DistinctBy(s => s.RecordId).OrderByDescending
+  994 Survived Boolean mutation: true
+  997 Survived Equality mutation: anchor is not null
+  997 Survived Equality mutation: pending.Count(s => s.IsGenesis && s.ToAdmissionOrNull() is { } a                
+  1010 Survived Conditional (true) mutation: (true?candidate.ToAdmissionOrNull() :null)
+  1011 Survived Boolean mutation: false
+  1016 Survived Equality mutation: pending.Count >= 0
+  1020 Survived Conditional (false) mutation: (false?GenesisRefusal(candidate).Report :new AuthorizationRefusal(code, "Roster 
+  1020 Survived String mutation: ""
+  1021 Survived String mutation: ""
+  1022 Survived String mutation: ""
+  1023 Survived String mutation: ""
+  1026 Survived Conditional (true) mutation: (true?Permission.MembersRevoke :Permission.MembersAdmit)
+  1026 Survived Conditional (false) mutation: (false?Permission.MembersRevoke :Permission.MembersAdmit)
+  1026 Survived Equality mutation: candidate.Kind != RosterRecordKind.Revocation
+  1038 Survived Logical mutation: !Guid.TryParse(candidate.TeamId, out var tenant) \|\| string.IsNullOrWhiteSpace(
+  1038 Survived Logical mutation: !Guid.TryParse(candidate.TeamId, out var tenant) && string.IsNullOrWhiteSpace(ca
+  1039 NoCoverage String mutation: ""
+  1041 NoCoverage String mutation: ""
+  1044 Survived Equality mutation: >= 0
+  1048 NoCoverage String mutation: ""
+  1051 Survived Null coalescing mutation (remove left): "roster.record.receive_attestation_invalid"
+  1062 NoCoverage String mutation: ""
+  1066 Survived Linq method mutation (Append() to Prepend()): incoming.Select(s => s.ToAdmissionOrNull()).OfType<MemberAdmissionRecord>()     
+  1070 Survived String mutation: ""
+  1080 Survived Equality mutation: orderTime(r.Signed.Signature, r.Signed.IssuedAt) <= at
+  1081 Survived Logical mutation: orderTime(r.Signed.Signature, r.Signed.IssuedAt) == at \|\| (r.Signed.Nonce.Comp
+  1081 Survived Equality mutation: r.Signed.Nonce.CompareTo(nonce) <= 0
+  1082 Survived Logical mutation: r.Signed.Nonce == nonce \|\| string.CompareOrdinal(r.Signed.Signature, candidate
+  1082 Survived Equality mutation: r.Signed.Nonce != nonce
+  1082 Survived Equality mutation: string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) > 0
+  1082 Survived Equality mutation: string.CompareOrdinal(r.Signed.Signature, candidate.SignatureB64Url) <= 0
+  1089 Survived Conditional (false) mutation: (false?Permission.MembersAdmit :Permission.MembersRevoke)
+  1106 NoCoverage Linq method mutation (FirstOrDefault() to First()): .Current.EnumerateAdmissions()             .First
+  1108 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: string.IsNullOrWhiteSpace(party)
+  1108 NoCoverage String mutation: (party!=null)
+  1108 NoCoverage String mutation: (party!="")
+  1108 NoCoverage String mutation: (party.Trim()!="")
+  1109 NoCoverage Negate expression: !(string.Equals(record.AdmittedByPublicKey, key.ToBase64Url(), StringComparison.
+  1111 NoCoverage Statement mutation: ;
+  1111 NoCoverage String mutation: ""
+  1119 Survived String mutation: ""
+  1139 Survived Logical mutation: !r.Report.Code.StartsWith("roster.genesis.", StringComparison.Ordinal)          
+  1139 Survived LogicalNotExpression to un-LogicalNotExpression mutation: r.Report.Code.StartsWith("roster.genesis.", StringComparison.Ordinal)
+  1139 Survived String mutation: ""
+  1140 Survived Linq method mutation (Any() to All()): snapshot.All
+  1140 Survived Equality mutation: s.RecordId != r.RecordId
+  1142 NoCoverage Logical mutation: s.Kind == RosterRecordKind.Admission && s.IsGenesis                          && 
+  1142 NoCoverage Logical mutation: s.Kind == RosterRecordKind.Admission && s.IsGenesis                          \|\
+  1142 NoCoverage Logical mutation: s.Kind == RosterRecordKind.Admission \|\| s.IsGenesis
+  1142 NoCoverage Equality mutation: s.Kind != RosterRecordKind.Admission
+  1143 NoCoverage Logical mutation: s.TeamId != anchor.TeamId && s.SignatureB64Url != anchor.Admission.Signature
+  1143 NoCoverage Equality mutation: s.TeamId == anchor.TeamId
+  1143 NoCoverage Equality mutation: s.SignatureB64Url == anchor.Admission.Signature
+  1144 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: IsLocallyMintedStaleGenesis(s, _nodeRoster!.Current.TeamId,                     
+  1146 NoCoverage Statement mutation: ;
+  1149 Survived Linq method mutation (First() to FirstOrDefault()): group.FirstOrDefault
+  1151 Survived Statement mutation: ;
+  1155 Survived LogicalNotExpression to un-LogicalNotExpression mutation: previousReports.Any(r => r.Code == refusal.Report.Code && r.Diagnostic == refusa
+  1155 Survived Linq method mutation (Any() to All()): previousReports.All
+  1155 Survived Logical mutation: r.Code == refusal.Report.Code \|\| r.Diagnostic == refusal.Report.Diagnostic
+  1155 Survived Equality mutation: r.Code != refusal.Report.Code
+  1155 Survived Equality mutation: r.Diagnostic != refusal.Report.Diagnostic
+  1156 Survived Statement mutation: ;
+  1156 Survived String mutation: ""
+  1160 Survived Boolean mutation: true
+  1161 Survived Statement mutation: ;
+  1166 NoCoverage Equality mutation: audit is null
+  1166 NoCoverage Statement mutation: ;
+  1167 NoCoverage Boolean mutation: true
+  1174 NoCoverage Equality mutation: refusals is not null
+  1174 NoCoverage Statement mutation: ;
+  1175 NoCoverage Linq method mutation (SingleOrDefault() to Single()): .Current.EnumerateAdmissions().Single
+  1176 NoCoverage Logical mutation: s.Kind == RosterRecordKind.Admission && s.IsGenesis                      \|\| s.
+  1176 NoCoverage Logical mutation: s.Kind == RosterRecordKind.Admission \|\| s.IsGenesis
+  1176 NoCoverage Equality mutation: s.Kind != RosterRecordKind.Admission
+  1177 NoCoverage Equality mutation: s.SignatureB64Url == localGenesis?.Admission.Signature
+  1178 NoCoverage Statement mutation: ;
+  1183 NoCoverage Equality mutation: candidate.TeamId == _nodeRoster.Current.TeamId.ToString("D")
+  1183 NoCoverage String mutation: ""
+  1185 Survived Conditional (false) mutation: (false?"roster.genesis.foreign_tenant" :"roster.genesis.duplicate")
+  1185 NoCoverage String mutation: ""
+  1185 Survived String mutation: ""
+  1186 Survived Conditional (true) mutation: (true?"The candidate belongs to a foreign tenant; the local roster is retained."
+  1186 Survived Conditional (false) mutation: (false?"The candidate belongs to a foreign tenant; the local roster is retained.
+  1186 NoCoverage String mutation: ""
+  1187 Survived String mutation: ""
+  1188 Survived Conditional (true) mutation: (true?"Use the data directory and tenant configuration belonging to this install
+  1188 Survived Conditional (false) mutation: (false?"Use the data directory and tenant configuration belonging to this instal
+  1188 NoCoverage String mutation: ""
+  1189 Survived String mutation: ""
+  1190 Survived String mutation: ""
+  1198 NoCoverage String mutation: ""
+  1199 NoCoverage String mutation: $""
+  1200 NoCoverage String mutation: ""
+  1239 Survived SubtractAssignmentExpression to AddAssignmentExpression mutation: _records.Changed += _changedHandler
+  1262 Survived Equality mutation: index > Records.Count
+  1272 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1272 NoCoverage String mutation: "Stryker was here!"
+  1273 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1273 NoCoverage String mutation: "Stryker was here!"
+  1276 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1276 NoCoverage String mutation: "Stryker was here!"
+  1277 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1277 NoCoverage String mutation: "Stryker was here!"
+  1280 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1280 NoCoverage String mutation: "Stryker was here!"
+  1281 NoCoverage Null coalescing mutation (remove left): string.Empty
+  1281 NoCoverage String mutation: "Stryker was here!"
+  1284 NoCoverage Conditional (true) mutation: (true?IdenticalRecord :index)
+  1284 NoCoverage Conditional (false) mutation: (false?IdenticalRecord :index)
+  1284 NoCoverage Logical mutation: transportSame && dmSame && xwingSame \|\| receiptSame
+  1284 NoCoverage Logical mutation: transportSame && dmSame \|\| xwingSame
+  1284 NoCoverage Logical mutation: transportSame \|\| dmSame
+  1301 Survived Equality mutation: replaceIndex > 0
+  1301 Survived Equality mutation: replaceIndex <= 0
+  1301 Survived Negate expression: !(replaceIndex < 0)
+  1304 Survived Statement mutation: ;
+  1307 NoCoverage Statement mutation: ;
+  1309 NoCoverage Logical mutation: replaceIndex < Records.Count \|\| Records.RemoveAt(replaceIndex)
+  1309 NoCoverage Negate expression: !(replaceIndex < Records.Count && Records.RemoveAt(replaceIndex))
+  1309 NoCoverage Equality mutation: replaceIndex > Records.Count
+  1309 NoCoverage Equality mutation: replaceIndex <= Records.Count
+  1311 NoCoverage Statement mutation: ;
+  1315 NoCoverage Statement mutation: ;
+  1323 NoCoverage Statement mutation: ;
+  1325 NoCoverage Arithmetic mutation: Records.Count + 1
+  1325 NoCoverage Equality mutation: index < 0
+  1325 NoCoverage Equality mutation: index > 0
+  1325 NoCoverage PostDecrementExpression to PostIncrementExpression mutation: index++
+  1328 NoCoverage Logical mutation: record is not null && predicate(record) \|\| Records.RemoveAt(index)
+  1328 NoCoverage Negate expression: !(record is not null && predicate(record) && Records.RemoveAt(index))
+  1328 NoCoverage Logical mutation: record is not null \|\| predicate(record)
+  1328 NoCoverage Equality mutation: record is null
+  1330 NoCoverage Statement mutation: ;
+  1330 NoCoverage PostIncrementExpression to PostDecrementExpression mutation: removed--
+  1339 Survived Equality mutation: _suppressChanges < 0
+  1341 Survived Boolean mutation: false
+  1342 Survived Statement mutation: ;
+  1350 Survived Statement mutation: ;
+  1350 Survived PostIncrementExpression to PostDecrementExpression mutation: _suppressChanges--
+  1357 Survived Statement mutation: ;
+  1357 Survived PostDecrementExpression to PostIncrementExpression mutation: _suppressChanges++
+  1358 Survived Logical mutation: _suppressChanges == 0 \|\| _changedWhileSuppressed
+  1358 Survived Negate expression: !(_suppressChanges == 0 && _changedWhileSuppressed)
+  1358 Survived Equality mutation: _suppressChanges != 0
+  1360 Survived Boolean mutation: true
+  1361 Survived Statement mutation: ;
+  1367 NoCoverage String mutation: ""

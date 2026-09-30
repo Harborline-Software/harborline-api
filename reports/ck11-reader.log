@@ -1,0 +1,309 @@
+
+   _____ _              _               _   _ ______ _______ ÿ
+  / ____| |            | |             | \ | |  ____|__   __|ÿ
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |   ÿ
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |   ÿ
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |   ÿ
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|   ÿ
+                   __/ |                                     ÿ
+                  |___/                                      ÿ
+
+
+Version: 5.0.0
+
+[07:25:26 INF] Analysis starting.
+[07:25:26 INF] Analyzing 1 test project(s).
+[07:25:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj. Using analysis results: net11.0
+[07:25:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[07:25:47 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Trying again with a nuget restore.
+[07:25:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj. Using analysis results: net11.0
+[07:25:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[07:25:53 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Trying again with a nuget restore.
+[07:25:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[07:25:54 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:25:54 WRN] Analysis of project ..\..\..\packages\foundation\Harborline.Foundation.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:25:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[07:25:54 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Trying again with a nuget restore.
+[07:25:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[07:25:54 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Trying again with a nuget restore.
+[07:25:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[07:25:54 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Trying again with a nuget restore.
+[07:25:55 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[07:25:55 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:02 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[07:26:02 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:02 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:05 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[07:26:05 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:07 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[07:26:07 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:07 WRN] Analysis of project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[07:26:09 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:09 WRN] Analysis of project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:09 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[07:26:09 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:09 WRN] Analysis of project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:10 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[07:26:10 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:10 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[07:26:10 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:10 WRN] Analysis of project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[07:26:11 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:11 WRN] Analysis of project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[07:26:11 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[07:26:12 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:13 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[07:26:13 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:13 WRN] Analysis of project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[07:26:15 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[07:26:17 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:17 WRN] Analysis of project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[07:26:17 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:17 WRN] Analysis of project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[07:26:19 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:20 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[07:26:20 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:20 WRN] Analysis of project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:28 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[07:26:28 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:30 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[07:26:30 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:30 WRN] Analysis of project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:31 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[07:26:31 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:34 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:34 WRN] Analysis of project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[07:26:42 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[07:26:42 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:42 WRN] Analysis of project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[07:26:45 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:45 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:49 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[07:26:49 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:49 WRN] Analysis of project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[07:26:51 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:26:51 WRN] Analysis of project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:26:57 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[07:26:57 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:59 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[07:26:59 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Trying again with a nuget restore.
+[07:26:59 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[07:26:59 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:00 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[07:27:00 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:01 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[07:27:01 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:01 WRN] Analysis of project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:06 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[07:27:06 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:06 WRN] Analysis of project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[07:27:11 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:11 WRN] Analysis of project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:11 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[07:27:11 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:11 WRN] Analysis of project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[07:27:12 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:12 WRN] Analysis of project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[07:27:15 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:15 WRN] Analysis of project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:17 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[07:27:17 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:18 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[07:27:18 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[07:27:19 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:19 WRN] Analysis of project ..\Harborline.LocalNodeHost.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:19 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[07:27:19 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:20 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[07:27:20 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:24 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[07:27:24 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:24 WRN] Analysis of project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:37 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[07:27:37 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:37 WRN] Analysis of project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:37 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[07:27:37 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:37 WRN] Analysis of project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[07:27:40 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Trying again with a nuget restore.
+[07:27:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[07:27:40 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:40 WRN] Analysis of project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:43 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:43 WRN] Analysis of project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[07:27:45 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:27:45 WRN] Analysis of project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:27:45 INF] Picking net11.0 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. 
+[07:27:49 INF] Found project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj to mutate.
+[07:27:49 INF] Analysis complete.
+[07:27:49 INF] Building test project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests\tests.csproj (1/1)
+[07:27:49 INF] Building project tests.csproj using dotnet build tests.csproj -c Debug --property:Platform=AnyCPU (directory C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests.)
+[07:31:18 INF] Number of tests found: 72 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Initial test run started.
+[07:34:30 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 349:23) with id: CS0165, message: Use of unassigned local variable 'concreteReader' (Source code: concreteReader)
+[07:34:30 INF] Safe Mode! Stryker will remove all mutations in EnsureShippingAuditIdentity and mark them as 'compile error'.
+[07:34:31 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLiveInvoiceApprovalContext.cs resulted in a compile error (at 112:12) with id: CS1620, message: Argument 2 must be passed with the 'ref' keyword (Source code: (StrykerA0k1o9qUCWSQjeV.MutantControl.IsActive(29366)?            $"" :            $"Issue invoice {state.InvoiceId}: Debit {state.DebitAccount} {amount}; " ) +
+            (StrykerA0k1o9qUCWSQjeV.MutantControl.IsActive(29367)?            $"":            $"Credit {state.CreditAccount} {amount} ({state.Memo})."))
+[07:34:31 INF] Safe Mode! Stryker will remove all mutations in RenderPostingPreview and mark them as 'compile error'.
+[07:35:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 99:24) with id: CS0165, message: Use of unassigned local variable 'observed' (Source code: observed)
+[07:35:01 INF] Safe Mode! Stryker will remove all mutations in ValidateLocalNodeTechnicalRegistrationEvidence and mark them as 'compile error'.
+[07:35:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\FounderTenantMembershipAttachService.cs resulted in a compile error (at 383:16) with id: CS0165, message: Use of unassigned local variable 'status' (Source code: status)
+[07:35:01 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[07:35:01 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeRecurringScheduleSource.cs resulted in a compile error (at 168:12) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[07:35:01 INF] Safe Mode! Stryker will remove all mutations in AddDefinitionTriggersAsync and mark them as 'compile error'.
+[07:35:02 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackInstallRoutes.cs resulted in a compile error (at 92:8) with id: CS0165, message: Use of unassigned local variable 'reconciler' (Source code: reconciler)
+[07:35:02 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[07:35:49 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 68:27) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[07:35:49 INF] Safe Mode! Stryker will remove all mutations in ValidateRecordAsync and mark them as 'compile error'.
+[07:35:49 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 86:13) with id: CS0165, message: Use of unassigned local variable 'form' (Source code: form)
+[07:35:49 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[07:35:49 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 98:37) with id: CS0165, message: Use of unassigned local variable 'bound' (Source code: bound)
+[07:35:49 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[07:35:49 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InitialGrantIssuanceService.cs resulted in a compile error (at 131:26) with id: CS0165, message: Use of unassigned local variable 'epochs' (Source code: epochs)
+[07:35:49 INF] Safe Mode! Stryker will remove all mutations in IssueWithEpochAsync and mark them as 'compile error'.
+[07:35:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\VerifiedTenantRosterReader.cs resulted in a compile error (at 75:28) with id: CS0165, message: Use of unassigned local variable 'teamId' (Source code: teamId)
+[07:35:50 INF] Safe Mode! Stryker will remove all mutations in ReadCoreAsync and mark them as 'compile error'.
+[07:35:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLedgerPostingEffect.cs resulted in a compile error (at 92:31) with id: CS0165, message: Use of unassigned local variable 'verifyingPosting' (Source code: verifyingPosting)
+[07:35:50 INF] Safe Mode! Stryker will remove all mutations in Build and mark them as 'compile error'.
+[07:35:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Enrollment\PairingTokenGatedAdmitter.cs resulted in a compile error (at 263:19) with id: CS0165, message: Use of unassigned local variable 'bridgeOutcome' (Source code: bridgeOutcome)
+[07:35:50 INF] Safe Mode! Stryker will remove all mutations in AdmitAsync and mark them as 'compile error'.
+[07:35:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\FormsDevSeeder.cs resulted in a compile error (at 176:57) with id: CS0165, message: Use of unassigned local variable 'decision' (Source code: decision)
+[07:35:50 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[07:35:51 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormSubmissionResultReader.cs resulted in a compile error (at 25:21) with id: CS0165, message: Use of unassigned local variable 'entity' (Source code: entity)
+[07:35:51 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:35:51 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 61:20) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[07:35:51 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[07:35:51 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 67:17) with id: CS0165, message: Use of unassigned local variable 'disposition' (Source code: disposition)
+[07:35:51 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 165:63) with id: CS0165, message: Use of unassigned local variable 'schemaRoot' (Source code: schemaRoot)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in ToContentAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 290:31) with id: CS0165, message: Use of unassigned local variable 'childSchema' (Source code: childSchema)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in FindProperty and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 483:24) with id: CS0165, message: Use of unassigned local variable 'currentTeamId' (Source code: currentTeamId)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in ReconcileLocallyMintedGenesisAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 855:33) with id: CS0165, message: Use of unassigned local variable 'administrators' (Source code: administrators)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in ReconcileAdministratorRemovalsAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Generation\Cli\CapabilityKgGenerateCliClient.cs resulted in a compile error (at 116:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\BruteForce\BruteForceKnnEngine.cs resulted in a compile error (at 120:54) with id: CS0165, message: Use of unassigned local variable 'plaintext' (Source code: plaintext)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in KnnAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\Cli\CapabilityKgCliClient.cs resulted in a compile error (at 114:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[07:35:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\NodeVecIndexer.cs resulted in a compile error (at 218:20) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[07:35:59 INF] Safe Mode! Stryker will remove all mutations in IndexArtifactAsync and mark them as 'compile error'.
+[07:36:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackWorkflowAdmissionAdapter.cs resulted in a compile error (at 139:45) with id: CS0165, message: Use of unassigned local variable 'model' (Source code: model)
+[07:36:00 INF] Safe Mode! Stryker will remove all mutations in Admit and mark them as 'compile error'.
+[07:36:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\LlmProxyRoutes.cs resulted in a compile error (at 79:19) with id: CS0165, message: Use of unassigned local variable 'upstreamResp' (Source code: upstreamResp)
+[07:36:00 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[07:36:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\LocalNodeKeyHierarchy.cs resulted in a compile error (at 66:12) with id: CS0165, message: Use of unassigned local variable 'storeDek' (Source code: storeDek)
+[07:36:00 INF] Safe Mode! Stryker will remove all mutations in Resolve and mark them as 'compile error'.
+[07:36:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Program.cs resulted in a compile error (at 365:9) with id: CS0165, message: Use of unassigned local variable 'rootSeed' (Source code: rootSeed)
+[07:36:00 INF] Safe Mode! Stryker will remove all mutations in RunAsync and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeExecutableEndpointRegistry.cs resulted in a compile error (at 104:35) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in Seal and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 151:29) with id: CS0165, message: Use of unassigned local variable 'overlay' (Source code: overlay)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 159:37) with id: CS0165, message: Use of unassigned local variable 'fieldOverlay' (Source code: fieldOverlay)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 174:36) with id: CS0165, message: Use of unassigned local variable 'array' (Source code: array)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 177:124) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\DurableGenesisIdentity.cs resulted in a compile error (at 54:13) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:36:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeKgActionApprovalContext.cs resulted in a compile error (at 110:22) with id: CS0165, message: Use of unassigned local variable 'je' (Source code: je)
+[07:36:09 INF] Safe Mode! Stryker will remove all mutations in BuildExecuteEffect and mark them as 'compile error'.
+[07:36:10 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:45) with id: CS0165, message: Use of unassigned local variable 'name' (Source code: name)
+[07:36:10 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[07:36:10 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:51) with id: CS0165, message: Use of unassigned local variable 'location' (Source code: location)
+[07:36:10 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[07:36:10 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 52:19) with id: CS0165, message: Use of unassigned local variable 'document' (Source code: document)
+[07:36:10 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[07:36:10 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 62:20) with id: CS0165, message: Use of unassigned local variable 'commands' (Source code: commands)
+[07:36:10 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[07:36:19 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\BackupRestore\NodeRehostService.cs resulted in a compile error (at 203:16) with id: CS0165, message: Use of unassigned local variable 'expected' (Source code: expected)
+[07:36:19 INF] Safe Mode! Stryker will remove all mutations in VerifyContentHashes and mark them as 'compile error'.
+[07:36:19 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\AssetRegistry\SpatialFramePiiFieldSealer.cs resulted in a compile error (at 168:43) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[07:36:19 INF] Safe Mode! Stryker will remove all mutations in UnsealAsync and mark them as 'compile error'.
+[07:36:19 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 187:36) with id: CS0165, message: Use of unassigned local variable 'items' (Source code: items)
+[07:36:19 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[07:36:19 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 191:33) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[07:36:19 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[07:36:20 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\ConnectDeviceRoutes.cs resulted in a compile error (at 135:14) with id: CS0165, message: Use of unassigned local variable 'outcome' (Source code: outcome)
+[07:36:20 INF] Safe Mode! Stryker will remove all mutations in ConnectAsync and mark them as 'compile error'.
+[07:36:20 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Layout\LayoutDenialGateLog.cs resulted in a compile error (at 145:60) with id: CS0165, message: Use of unassigned local variable 'denial' (Source code: denial)
+[07:36:20 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:36:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InstallationTenantCandidateLocator.cs resulted in a compile error (at 146:16) with id: CS0165, message: Use of unassigned local variable 'membership' (Source code: membership)
+[07:36:34 INF] Safe Mode! Stryker will remove all mutations in ListForAccountAsync and mark them as 'compile error'.
+[07:36:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormDefinitionRoutes.cs resulted in a compile error (at 1024:32) with id: CS0165, message: Use of unassigned local variable 'explicitValue' (Source code: explicitValue)
+[07:36:34 INF] Safe Mode! Stryker will remove all mutations in ResolvePiiSensitivities and mark them as 'compile error'.
+[07:38:28 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 370:16) with id: CS0165, message: Use of unassigned local variable 'parsed' (Source code: parsed)
+[07:38:28 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[07:38:28 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 390:36) with id: CS0165, message: Use of unassigned local variable 'keyElement' (Source code: keyElement)
+[07:38:28 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[07:38:28 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 460:30) with id: CS0165, message: Use of unassigned local variable 'entries' (Source code: entries)
+[07:38:28 INF] Safe Mode! Stryker will remove all mutations in Closure and mark them as 'compile error'.
+[07:38:36 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackSeedProjector.cs resulted in a compile error (at 5382:8) with id: CS0165, message: Use of unassigned local variable 'authoredNode' (Source code: authoredNode)
+[07:38:36 INF] Safe Mode! Stryker will remove all mutations in BuildExpectedWorkflowAuthored and mark them as 'compile error'.
+[07:38:56 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 120:17) with id: CS0165, message: Use of unassigned local variable 'fields' (Source code: fields)
+[07:38:56 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:38:56 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 123:20) with id: CS0165, message: Use of unassigned local variable 'meta' (Source code: meta)
+[07:38:56 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:38:56 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 126:32) with id: CS0165, message: Use of unassigned local variable 'sections' (Source code: sections)
+[07:38:56 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:38:56 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 131:33) with id: CS0165, message: Use of unassigned local variable 'names' (Source code: names)
+[07:38:56 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:39:06 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 339:15) with id: CS0165, message: Use of unassigned local variable 'type' (Source code: type)
+[07:39:06 INF] Safe Mode! Stryker will remove all mutations in InputKind and mark them as 'compile error'.
+[07:39:16 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 292:38) with id: CS0165, message: Use of unassigned local variable 'metadata' (Source code: metadata)
+[07:39:16 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:39:16 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:24) with id: CS0165, message: Use of unassigned local variable 'formId' (Source code: formId)
+[07:39:16 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:39:16 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:45) with id: CS0165, message: Use of unassigned local variable 'version' (Source code: version)
+[07:39:16 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:39:16 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 313:54) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[07:39:16 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:39:29 INF] 47313 mutants created
+[07:39:29 INF] Capture mutant coverage using 'CoverageBasedTest' mode.
+[07:40:11 INF] 6     mutants got status CompileError. Reason: Could not be injected in code.
+[07:40:11 INF] 5862  mutants got status CompileError. Reason: Mutant caused compile errors
+[07:40:11 INF] 3     mutants got status Ignored.      Reason: Removed by block already covered filter
+[07:40:11 INF] 41433 mutants got status Ignored.      Reason: Removed by mutate filter
+[07:40:11 INF] 47304 total mutants are skipped for the above mentioned reasons
+[07:40:11 INF] 9     total mutants will be tested
+[07:41:34 INF] Runner 7: Retrying the test session.
+[07:41:34 INF] Runner 4: Retrying the test session.
+
+Killed:   5
+Survived: 3
+Timeout:  1
+Errors:  0
+
+Your json report has been generated at:
+file://C:/Projects/Harborline/harborline-api/.codex/worktrees/r4-t984api/.stryke
+r/tests-scoped-NodeAuthorizationRosterConstraintReader.cs/reports/mutation-repor
+t.json
+[07:42:13 INF] Time Elapsed 00:16:46.6263996
+[07:42:13 INF] The final mutation score is 66.67 %
+scoped run: 1009 s, .stryker/tests-scoped-NodeAuthorizationRosterConstraintReader.cs/reports/mutation-report.json
+C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\NodeAuthorizationRosterConstraintReader.cs: score 66.67 {"Ignored":3,"Survived":3,"Killed":5,"CompileError":2,"Timeout":1}
+  24 Survived Boolean mutation: true
+  25 Survived Boolean mutation: true
+  43 Survived Block removal mutation: {}

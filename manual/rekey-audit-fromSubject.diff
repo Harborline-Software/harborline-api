@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+index d50713e4..ad8b9723 100644
+--- a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
++++ b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+@@ -54,7 +54,7 @@ internal static class RetiredDesktopActorRekey
+                     new Dictionary<string, string?>(StringComparer.Ordinal)
+                     {
+                         ["grantId"] = row.GrantId,
+-                        ["fromSubject"] = NodeOperatorIdentity.RetiredDesktopActor,
++                        
+                         ["toSubject"] = holder.Value,
+                     });
+                 await NodeEfGrantStore.AdvanceEpochAsync(ctx, new TenantId(row.TenantId), holder, ct)

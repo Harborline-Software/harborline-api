@@ -1,0 +1,32 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:01.46]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: False) [FAIL]
+[xUnit.net 00:00:01.46]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: True) [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: False) [4 ms]
+  Error Message:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(Boolean liveCanonicalEdge) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 177
+--- End of stack trace from previous location ---
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: True) [2 ms]
+  Error Message:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(Boolean liveCanonicalEdge) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 177
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:01.51]     T-294 b3: the same live grant is refused once the subject's roster edge is ejected [FAIL]
+  Failed T-294 b3: the same live grant is refused once the subject's roster edge is ejected [3 ms]
+  Error Message:
+   Assert.Null() Failure: Value is not null
+Expected: null
+Actual:   {deferred:read}
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Subject_With_The_Same_Live_Grant_Is_Refused() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 230
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck11-276-285-ejection-removed.trx
+
+Failed!  - Failed:     3, Passed:    18, Skipped:     0, Total:    21, Duration: 277 ms - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

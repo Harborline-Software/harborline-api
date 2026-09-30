@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="934176a0-a063-4b0c-b859-fd7c17b69509" name="Chris@DESKTOP-UMT08RN 2026-09-30 07:49:31" runUser="DESKTOP-UMT08RN\Chris" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-30T07:49:31.7156821-04:00" queuing="2026-09-30T07:49:31.7156822-04:00" start="2026-09-30T07:49:28.1542436-04:00" finish="2026-09-30T07:49:31.7195434-04:00" />
+  <TestSettings name="default" id="1bac07c6-5d0e-4e68-a375-14200855fef6">
+    <Deployment runDeploymentRoot="Chris_DESKTOP-UMT08RN_2026-09-30_07_49_31" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="7ab21b85-1f55-4609-95aa-d4648c1fb999" testId="2ea635b0-391d-b59e-7564-1f700986120c" testName="selected submit: a client-supplied instanceId is refused 400 with no write, and omission mints a server id (T-974)" computerName="DESKTOP-UMT08RN" duration="00:00:00.4874440" startTime="2026-09-30T07:49:30.1820423-04:00" endTime="2026-09-30T07:49:31.3790922-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7ab21b85-1f55-4609-95aa-d4648c1fb999" />
+    <UnitTestResult executionId="6cf873a8-40be-457a-9bfb-5c38d22e1afc" testId="fcae5cad-add0-ab52-6a93-74d39e6714b1" testName="submit: a client-supplied instanceId is refused 400 with no write, and omission mints a server id (T-974)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0979954" startTime="2026-09-30T07:49:31.3910469-04:00" endTime="2026-09-30T07:49:31.6014365-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="6cf873a8-40be-457a-9bfb-5c38d22e1afc">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure: Values differ&#xD;
+Expected: BadRequest&#xD;
+Actual:   Created</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Forms.FormsRouteTests.Submit_refuses_a_client_supplied_record_id() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Forms\FormsRouteTests.RecordId.cs:line 34&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="submit: a client-supplied instanceId is refused 400 with no write, and omission mints a server id (T-974)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="fcae5cad-add0-ab52-6a93-74d39e6714b1">
+      <Execution id="6cf873a8-40be-457a-9bfb-5c38d22e1afc" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Forms.FormsRouteTests" name="Submit_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+    <UnitTest name="selected submit: a client-supplied instanceId is refused 400 with no write, and omission mints a server id (T-974)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="2ea635b0-391d-b59e-7564-1f700986120c">
+      <Execution id="7ab21b85-1f55-4609-95aa-d4648c1fb999" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Forms.FormsRouteTests" name="Selected_submit_refuses_a_client_supplied_record_id" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="2ea635b0-391d-b59e-7564-1f700986120c" executionId="7ab21b85-1f55-4609-95aa-d4648c1fb999" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="fcae5cad-add0-ab52-6a93-74d39e6714b1" executionId="6cf873a8-40be-457a-9bfb-5c38d22e1afc" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="2" executed="2" passed="1" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.0+05679a7ab5 (64-bit .NET 11.0.0-rc.1.26425.128)&#xD;
+[xUnit.net 00:00:00.54]   Discovering: Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.28]   Discovered:  Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.34]   Starting:    Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:02.79]       Assert.Equal() Failure: Values differ&#xD;
+[xUnit.net 00:00:02.79]       Expected: BadRequest&#xD;
+[xUnit.net 00:00:02.79]       Actual:   Created&#xD;
+[xUnit.net 00:00:02.79]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.80]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Forms\FormsRouteTests.RecordId.cs(34,0): at Harborline.Api.LocalNodeHost.Tests.Forms.FormsRouteTests.Submit_refuses_a_client_supplied_record_id()&#xD;
+[xUnit.net 00:00:02.80]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:02.80]   Finished:    Harborline.Api.LocalNodeHost.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:49:31.6038380-04:00">
+        <Text>[xUnit.net 00:00:02.79]     submit: a client-supplied instanceId is refused 400 with no write, and omission mints a server id (T-974) [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

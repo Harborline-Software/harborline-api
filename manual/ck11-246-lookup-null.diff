@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Identity/NodeAuthorizationRosterConstraintReader.cs b/apps/local-node-host/Data/Identity/NodeAuthorizationRosterConstraintReader.cs
+index 99d60725..ec5d9835 100644
+--- a/apps/local-node-host/Data/Identity/NodeAuthorizationRosterConstraintReader.cs
++++ b/apps/local-node-host/Data/Identity/NodeAuthorizationRosterConstraintReader.cs
+@@ -33,7 +33,7 @@ public sealed class NodeAuthorizationRosterConstraintReader(
+             // A People binding is attribution, not the existence of the signed roster fact. Grants may
+             // intentionally name an unattributed principal, and the roster can still prove that principal's
+             // live edge (or its absence) directly. Only an unreadable roster makes the derivation absent.
+-            var partyId = party?.PartyId.Value ?? principal.Value;
++            var partyId = principal.Value;
+             return EffectiveMemberPermissions.Read(roster, partyId, principal) with
+             {
+                 RegistryMember = registryMember,

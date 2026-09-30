@@ -1,0 +1,205 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="63412a59-45c3-459d-9c87-d2a881d95d73" name="Chris@DESKTOP-UMT08RN 2026-09-30 07:34:42" runUser="DESKTOP-UMT08RN\Chris" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-30T07:34:42.6001043-04:00" queuing="2026-09-30T07:34:42.6001047-04:00" start="2026-09-30T07:34:39.3850640-04:00" finish="2026-09-30T07:34:43.3806098-04:00" />
+  <TestSettings name="default" id="d79be867-ee1b-4a91-91d6-efe3bc93c636">
+    <Deployment runDeploymentRoot="Chris_DESKTOP-UMT08RN_2026-09-30_07_34_42" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="80537a10-a727-47e3-9250-c3442de674fc" testId="bd4b04bc-1096-7e5b-2961-c080f79d02d6" testName="a narrowed conferred grant is denied without an authorization epoch advance" computerName="DESKTOP-UMT08RN" duration="00:00:00.0302831" startTime="2026-09-30T07:34:42.5604523-04:00" endTime="2026-09-30T07:34:42.5999569-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="80537a10-a727-47e3-9250-c3442de674fc" />
+    <UnitTestResult executionId="508e6133-a7ff-46d5-ab59-c91a62875a2e" testId="5a997fc8-c181-7886-a8bf-1ffa03f78f59" testName="an unbound context fails closed" computerName="DESKTOP-UMT08RN" duration="00:00:00.0004458" startTime="2026-09-30T07:34:42.4881668-04:00" endTime="2026-09-30T07:34:42.4882115-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="508e6133-a7ff-46d5-ab59-c91a62875a2e" />
+    <UnitTestResult executionId="64b340aa-56bb-4520-9ef0-dac3646da6ff" testId="7702b53e-2d21-6bc7-70ba-57396686154d" testName="ck-4: a bound request context refuses a second principal and keeps the first tenant" computerName="DESKTOP-UMT08RN" duration="00:00:00.0061295" startTime="2026-09-30T07:34:42.4842079-04:00" endTime="2026-09-30T07:34:42.4842733-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="64b340aa-56bb-4520-9ef0-dac3646da6ff" />
+    <UnitTestResult executionId="ea1da966-7d6f-49e9-86a8-fd4830478093" testId="7f584651-c32d-870b-7183-0bc22ce19518" testName="records:read follows the conferred grant, not the pinned grant bundle" computerName="DESKTOP-UMT08RN" duration="00:00:00.0462971" startTime="2026-09-30T07:34:42.3892052-04:00" endTime="2026-09-30T07:34:42.4223651-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ea1da966-7d6f-49e9-86a8-fd4830478093" />
+    <UnitTestResult executionId="9e8a3e9e-cf0a-4829-ad8c-c48d6336e825" testId="1f65df35-3425-833e-ea33-5f43cc216699" testName="an ejected roster member never falls back to the grant bundle without an authorization epoch advance" computerName="DESKTOP-UMT08RN" duration="00:00:00.0377507" startTime="2026-09-30T07:34:42.6045118-04:00" endTime="2026-09-30T07:34:42.6254566-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9e8a3e9e-cf0a-4829-ad8c-c48d6336e825" />
+    <UnitTestResult executionId="e6ffde4f-6527-4731-8148-2071cc1b1238" testId="bf8f85fc-0e0d-fbec-ff58-c7db17d41aae" testName="T-294 b3: the same live grant is refused once the subject's roster edge is ejected" computerName="DESKTOP-UMT08RN" duration="00:00:00.0016176" startTime="2026-09-30T07:34:42.4852590-04:00" endTime="2026-09-30T07:34:42.4880373-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e6ffde4f-6527-4731-8148-2071cc1b1238" />
+    <UnitTestResult executionId="a342530a-340b-492a-9939-31c644c647f8" testId="f526c90e-5403-cdf3-69da-705f6627bb19" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable" computerName="DESKTOP-UMT08RN" duration="00:00:00.0209893" startTime="2026-09-30T07:34:42.5360655-04:00" endTime="2026-09-30T07:34:42.5590992-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a342530a-340b-492a-9939-31c644c647f8">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.NotNull() Failure: Value is null</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 37&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="05542249-5cb4-488a-8138-22ae22309e8e" testId="291d1391-323c-1ab1-0e14-2892f6f854e6" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: False)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0037101" startTime="2026-09-30T07:34:42.4232361-04:00" endTime="2026-09-30T07:34:42.4261015-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="05542249-5cb4-488a-8138-22ae22309e8e" />
+    <UnitTestResult executionId="f6ab6751-53f8-4a70-b7b1-30f2361ff86c" testId="a948560a-e0f4-b805-0378-d462839567a6" testName="a narrowed conferred grant is denied after the authorization epoch advances" computerName="DESKTOP-UMT08RN" duration="00:00:00.0019459" startTime="2026-09-30T07:34:42.6257791-04:00" endTime="2026-09-30T07:34:42.6286713-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f6ab6751-53f8-4a70-b7b1-30f2361ff86c" />
+    <UnitTestResult executionId="b56a4a6e-9e98-444c-a60f-b8be45751a99" testId="e840cb3d-f28c-b689-3ab3-0b64805842dd" testName="a refused roster denies and never falls back to the live grant" computerName="DESKTOP-UMT08RN" duration="00:00:00.0014794" startTime="2026-09-30T07:34:42.4845870-04:00" endTime="2026-09-30T07:34:42.4851287-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b56a4a6e-9e98-444c-a60f-b8be45751a99" />
+    <UnitTestResult executionId="bc6363d0-46cf-4603-ad3a-66c1134d256d" testId="998efa16-8abe-9f69-36b1-c5355de9a319" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.A_session_whose_pinned_grant_is_gone_is_not_carried_by_another_live_grant" computerName="DESKTOP-UMT08RN" duration="00:00:00.0008853" startTime="2026-09-30T07:34:42.4784105-04:00" endTime="2026-09-30T07:34:42.4784596-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="bc6363d0-46cf-4603-ad3a-66c1134d256d" />
+    <UnitTestResult executionId="cf0a6711-3b2d-42ef-ad39-db0995204712" testId="c9e6247c-b676-a0be-df46-42e96205212d" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.A_closure_the_gate_refuses_in_full_is_unavailable_not_an_empty_session" computerName="DESKTOP-UMT08RN" duration="00:00:00.0118768" startTime="2026-09-30T07:34:42.4395478-04:00" endTime="2026-09-30T07:34:42.4515877-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="cf0a6711-3b2d-42ef-ad39-db0995204712" />
+    <UnitTestResult executionId="01636100-d5e1-4b9c-89ed-cba4521a640b" testId="38de8258-f14c-dce2-2b48-ca3b344397dc" testName="25-member roster rebuild timing is recorded" computerName="DESKTOP-UMT08RN" duration="00:00:00.3118347" startTime="2026-09-30T07:34:42.0545776-04:00" endTime="2026-09-30T07:34:42.3767003-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="01636100-d5e1-4b9c-89ed-cba4521a640b">
+      <Output>
+        <StdOut>25-member cryptographic roster rebuild: 4.84 ms</StdOut>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="d2b8a1f1-5a9d-4eb0-bcc1-f2d4ad69afce" testId="e2f11bc8-254b-39f7-515d-d5f042d6822c" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs(allowed: True)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0388268" startTime="2026-09-30T07:34:42.4883190-04:00" endTime="2026-09-30T07:34:42.5262093-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d2b8a1f1-5a9d-4eb0-bcc1-f2d4ad69afce" />
+    <UnitTestResult executionId="b7239b23-56f7-48d9-88f4-829722d69a5e" testId="1d31213a-8095-cfa8-0fc6-a7d7bed95d3f" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: True)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0102357" startTime="2026-09-30T07:34:42.4262300-04:00" endTime="2026-09-30T07:34:42.4364018-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b7239b23-56f7-48d9-88f4-829722d69a5e" />
+    <UnitTestResult executionId="6fbc3d9f-5293-478b-9662-4556ed699282" testId="883948e5-935d-2324-95f1-08ecaf08737a" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection" computerName="DESKTOP-UMT08RN" duration="00:00:00.0014763" startTime="2026-09-30T07:34:42.6288696-04:00" endTime="2026-09-30T07:34:42.6292629-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="6fbc3d9f-5293-478b-9662-4556ed699282">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.NotNull() Failure: Value is null</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 57&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="537588b5-5e5a-4835-933c-6a1393afed5b" testId="583d4aa5-e060-1f84-8357-01f6cb8fbb48" testName="two members in one tenant resolve only their own conferred sets" computerName="DESKTOP-UMT08RN" duration="00:00:00.0056536" startTime="2026-09-30T07:34:42.4844184-04:00" endTime="2026-09-30T07:34:42.4844655-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="537588b5-5e5a-4835-933c-6a1393afed5b" />
+    <UnitTestResult executionId="45753d08-1a1a-4df0-9b4a-be8e3e9ffd43" testId="4b6be2a0-5718-b572-2ccd-2068b4f51415" testName="a revoked grant denies even while the roster edge still has the permission" computerName="DESKTOP-UMT08RN" duration="00:00:00.0068484" startTime="2026-09-30T07:34:42.4518079-04:00" endTime="2026-09-30T07:34:42.4584904-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="45753d08-1a1a-4df0-9b4a-be8e3e9ffd43" />
+    <UnitTestResult executionId="34b4bce0-3647-4032-a527-b257d4007f10" testId="2a3b01f2-5d85-39dd-2a16-ec99b621050b" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.An_epoch_advance_landing_while_the_roster_loads_publishes_no_permissions" computerName="DESKTOP-UMT08RN" duration="00:00:00.0027570" startTime="2026-09-30T07:34:42.4366065-04:00" endTime="2026-09-30T07:34:42.4392494-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="34b4bce0-3647-4032-a527-b257d4007f10" />
+    <UnitTestResult executionId="3ffe4ea1-f408-4512-a0d0-db6ba703fe49" testId="e2242577-0620-8ba7-6857-7c8897757428" testName="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs(allowed: False)" computerName="DESKTOP-UMT08RN" duration="00:00:00.0095674" startTime="2026-09-30T07:34:42.5264707-04:00" endTime="2026-09-30T07:34:42.5358417-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3ffe4ea1-f408-4512-a0d0-db6ba703fe49" />
+    <UnitTestResult executionId="2ad8b3c4-68e4-41d9-b819-f62a2cee0f5a" testId="8f76eab1-516e-da98-0527-0b5fc59fec39" testName="a live grant authorizes the deferred-admission principal when no roster admission exists" computerName="DESKTOP-UMT08RN" duration="00:00:00.0013354" startTime="2026-09-30T07:34:42.4586524-04:00" endTime="2026-09-30T07:34:42.4726695-04:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2ad8b3c4-68e4-41d9-b819-f62a2cee0f5a">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.NotNull() Failure: Value is null</Message>
+          <StackTrace>   at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Deferred_Admission_With_Live_Grant_Is_Allowed() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs:line 205&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="a revoked grant denies even while the roster edge still has the permission" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="4b6be2a0-5718-b572-2ccd-2068b4f51415">
+      <Execution id="45753d08-1a1a-4df0-9b4a-be8e3e9ffd43" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Revoked_Grant_Is_Denied_Despite_Roster_Lag" />
+    </UnitTest>
+    <UnitTest name="ck-4: a bound request context refuses a second principal and keeps the first tenant" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="7702b53e-2d21-6bc7-70ba-57396686154d">
+      <Execution id="64b340aa-56bb-4520-9ef0-dac3646da6ff" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Second_Bind_Is_Refused_And_The_First_Tenant_Stands" />
+    </UnitTest>
+    <UnitTest name="records:read follows the conferred grant, not the pinned grant bundle" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="7f584651-c32d-870b-7183-0bc22ce19518">
+      <Execution id="ea1da966-7d6f-49e9-86a8-fd4830478093" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Member_With_Permission_Is_Allowed_And_Member_Without_It_Is_Denied" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: True)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="1d31213a-8095-cfa8-0fc6-a7d7bed95d3f">
+      <Execution id="b7239b23-56f7-48d9-88f4-829722d69a5e" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party" />
+    </UnitTest>
+    <UnitTest name="a narrowed conferred grant is denied after the authorization epoch advances" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="a948560a-e0f4-b805-0378-d462839567a6">
+      <Execution id="f6ab6751-53f8-4a70-b7b1-30f2361ff86c" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Narrowing_And_Epoch_Bump_Denies" />
+    </UnitTest>
+    <UnitTest name="an ejected roster member never falls back to the grant bundle without an authorization epoch advance" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="1f65df35-3425-833e-ea33-5f43cc216699">
+      <Execution id="9e8a3e9e-cf0a-4829-ad8c-c48d6336e825" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Ejected_Member_Without_Epoch_Bump_Denies" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.A_closure_the_gate_refuses_in_full_is_unavailable_not_an_empty_session" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="c9e6247c-b676-a0be-df46-42e96205212d">
+      <Execution id="cf0a6711-3b2d-42ef-ad39-db0995204712" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="A_closure_the_gate_refuses_in_full_is_unavailable_not_an_empty_session" />
+    </UnitTest>
+    <UnitTest name="a narrowed conferred grant is denied without an authorization epoch advance" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="bd4b04bc-1096-7e5b-2961-c080f79d02d6">
+      <Execution id="80537a10-a727-47e3-9250-c3442de674fc" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Narrowing_Without_Epoch_Bump_Denies" />
+    </UnitTest>
+    <UnitTest name="25-member roster rebuild timing is recorded" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="38de8258-f14c-dce2-2b48-ca3b344397dc">
+      <Execution id="01636100-d5e1-4b9c-89ed-cba4521a640b" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="TwentyFive_Member_Roster_Rebuild_Is_Measured" />
+    </UnitTest>
+    <UnitTest name="an unbound context fails closed" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="5a997fc8-c181-7886-a8bf-1ffa03f78f59">
+      <Execution id="508e6133-a7ff-46d5-ab59-c91a62875a2e" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="No_Principal_Is_Denied" />
+    </UnitTest>
+    <UnitTest name="a live grant authorizes the deferred-admission principal when no roster admission exists" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="8f76eab1-516e-da98-0527-0b5fc59fec39">
+      <Execution id="2ad8b3c4-68e4-41d9-b819-f62a2cee0f5a" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Deferred_Admission_With_Live_Grant_Is_Allowed" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.A_session_whose_pinned_grant_is_gone_is_not_carried_by_another_live_grant" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="998efa16-8abe-9f69-36b1-c5355de9a319">
+      <Execution id="bc6363d0-46cf-4603-ad3a-66c1134d256d" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="A_session_whose_pinned_grant_is_gone_is_not_carried_by_another_live_grant" />
+    </UnitTest>
+    <UnitTest name="a refused roster denies and never falls back to the live grant" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="e840cb3d-f28c-b689-3ab3-0b64805842dd">
+      <Execution id="b56a4a6e-9e98-444c-a60f-b8be45751a99" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Refused_Roster_Does_Not_Use_Deferred_Grant_Fallback" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party(liveCanonicalEdge: False)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="291d1391-323c-1ab1-0e14-2892f6f854e6">
+      <Execution id="05542249-5cb4-488a-8138-22ae22309e8e" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Ejected_Gate_Principal_Is_Refused_When_Session_Presents_Canonical_Party" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="f526c90e-5403-cdf3-69da-705f6627bb19">
+      <Execution id="a342530a-340b-492a-9939-31c644c647f8" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.An_epoch_advance_landing_while_the_roster_loads_publishes_no_permissions" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="2a3b01f2-5d85-39dd-2a16-ec99b621050b">
+      <Execution id="34b4bce0-3647-4032-a527-b257d4007f10" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="An_epoch_advance_landing_while_the_roster_loads_publishes_no_permissions" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="883948e5-935d-2324-95f1-08ecaf08737a">
+      <Execution id="6fbc3d9f-5293-478b-9662-4556ed699282" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs(allowed: True)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="e2f11bc8-254b-39f7-515d-d5f042d6822c">
+      <Execution id="d2b8a1f1-5a9d-4eb0-bcc1-f2d4ad69afce" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs" />
+    </UnitTest>
+    <UnitTest name="two members in one tenant resolve only their own conferred sets" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="583d4aa5-e060-1f84-8357-01f6cb8fbb48">
+      <Execution id="537588b5-5e5a-4835-933c-6a1393afed5b" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Members_Do_Not_Bleed_Permissions_Across_Sessions" />
+    </UnitTest>
+    <UnitTest name="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs(allowed: False)" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="e2242577-0620-8ba7-6857-7c8897757428">
+      <Execution id="3ffe4ea1-f408-4512-a0d0-db6ba703fe49" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="SelectedSessionSite_RecordsTheGateDecisionWithRosterInputs" />
+    </UnitTest>
+    <UnitTest name="T-294 b3: the same live grant is refused once the subject's roster edge is ejected" storage="c:\projects\harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\debug\net11.0\harborline.api.localnodehost.tests.dll" id="bf8f85fc-0e0d-fbec-ff58-c7db17d41aae">
+      <Execution id="e6ffde4f-6527-4731-8148-2071cc1b1238" />
+      <TestMethod codeBase="C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests" name="Ejected_Subject_With_The_Same_Live_Grant_Is_Refused" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="bd4b04bc-1096-7e5b-2961-c080f79d02d6" executionId="80537a10-a727-47e3-9250-c3442de674fc" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="5a997fc8-c181-7886-a8bf-1ffa03f78f59" executionId="508e6133-a7ff-46d5-ab59-c91a62875a2e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="7702b53e-2d21-6bc7-70ba-57396686154d" executionId="64b340aa-56bb-4520-9ef0-dac3646da6ff" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="7f584651-c32d-870b-7183-0bc22ce19518" executionId="ea1da966-7d6f-49e9-86a8-fd4830478093" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="1f65df35-3425-833e-ea33-5f43cc216699" executionId="9e8a3e9e-cf0a-4829-ad8c-c48d6336e825" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="bf8f85fc-0e0d-fbec-ff58-c7db17d41aae" executionId="e6ffde4f-6527-4731-8148-2071cc1b1238" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f526c90e-5403-cdf3-69da-705f6627bb19" executionId="a342530a-340b-492a-9939-31c644c647f8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="291d1391-323c-1ab1-0e14-2892f6f854e6" executionId="05542249-5cb4-488a-8138-22ae22309e8e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="a948560a-e0f4-b805-0378-d462839567a6" executionId="f6ab6751-53f8-4a70-b7b1-30f2361ff86c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e840cb3d-f28c-b689-3ab3-0b64805842dd" executionId="b56a4a6e-9e98-444c-a60f-b8be45751a99" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="998efa16-8abe-9f69-36b1-c5355de9a319" executionId="bc6363d0-46cf-4603-ad3a-66c1134d256d" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c9e6247c-b676-a0be-df46-42e96205212d" executionId="cf0a6711-3b2d-42ef-ad39-db0995204712" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="38de8258-f14c-dce2-2b48-ca3b344397dc" executionId="01636100-d5e1-4b9c-89ed-cba4521a640b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e2f11bc8-254b-39f7-515d-d5f042d6822c" executionId="d2b8a1f1-5a9d-4eb0-bcc1-f2d4ad69afce" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="1d31213a-8095-cfa8-0fc6-a7d7bed95d3f" executionId="b7239b23-56f7-48d9-88f4-829722d69a5e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="883948e5-935d-2324-95f1-08ecaf08737a" executionId="6fbc3d9f-5293-478b-9662-4556ed699282" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="583d4aa5-e060-1f84-8357-01f6cb8fbb48" executionId="537588b5-5e5a-4835-933c-6a1393afed5b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4b6be2a0-5718-b572-2ccd-2068b4f51415" executionId="45753d08-1a1a-4df0-9b4a-be8e3e9ffd43" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2a3b01f2-5d85-39dd-2a16-ec99b621050b" executionId="34b4bce0-3647-4032-a527-b257d4007f10" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e2242577-0620-8ba7-6857-7c8897757428" executionId="3ffe4ea1-f408-4512-a0d0-db6ba703fe49" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8f76eab1-516e-da98-0527-0b5fc59fec39" executionId="2ad8b3c4-68e4-41d9-b819-f62a2cee0f5a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="21" executed="21" passed="18" failed="3" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v4.0.0+05679a7ab5 (64-bit .NET 11.0.0-rc.1.26425.128)&#xD;
+[xUnit.net 00:00:00.94]   Discovering: Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.77]   Discovered:  Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:01.86]   Starting:    Harborline.Api.LocalNodeHost.Tests&#xD;
+[xUnit.net 00:00:02.32]       Assert.NotNull() Failure: Value is null&#xD;
+[xUnit.net 00:00:02.32]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.32]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs(205,0): at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Deferred_Admission_With_Live_Grant_Is_Allowed()&#xD;
+[xUnit.net 00:00:02.32]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:02.40]       Assert.NotNull() Failure: Value is null&#xD;
+[xUnit.net 00:00:02.41]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.41]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs(37,0): at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable()&#xD;
+[xUnit.net 00:00:02.41]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:02.47]       Assert.NotNull() Failure: Value is null&#xD;
+[xUnit.net 00:00:02.47]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.48]         C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\SelectedSessionPepTests.cs(57,0): at Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection()&#xD;
+[xUnit.net 00:00:02.48]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:02.48]   Finished:    Harborline.Api.LocalNodeHost.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:34:42.4761524-04:00">
+        <Text>[xUnit.net 00:00:02.32]     a live grant authorizes the deferred-admission principal when no roster admission exists [FAIL]</Text>
+      </RunInfo>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:34:42.9164112-04:00">
+        <Text>[xUnit.net 00:00:02.40]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Known_powerless_role_resolves_empty_while_unknown_role_is_unavailable [FAIL]</Text>
+      </RunInfo>
+      <RunInfo computerName="DESKTOP-UMT08RN" outcome="Error" timestamp="2026-09-30T07:34:43.1007699-04:00">
+        <Text>[xUnit.net 00:00:02.47]     Harborline.Api.LocalNodeHost.Tests.Identity.SelectedSessionPepTests.Powerless_role_rejects_stale_cookie_and_accepts_fresh_epoch_selection [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

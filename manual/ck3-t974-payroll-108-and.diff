@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Health/PayrollRoutes.cs b/apps/local-node-host/Health/PayrollRoutes.cs
+index 32b39287..387e8e80 100644
+--- a/apps/local-node-host/Health/PayrollRoutes.cs
++++ b/apps/local-node-host/Health/PayrollRoutes.cs
+@@ -105,7 +105,7 @@ public static class PayrollRoutes
+             if (body is null)
+                 return Results.BadRequest(new { detail = "request_body_required" });
+             // T-974: the server mints this record's id; a caller-constructed one is refused, never coerced.
+-            if (body.Id is not null || body.EmployeeId is not null)
++            if (body.Id is not null && body.EmployeeId is not null)
+                 return Results.BadRequest(new { code = "request.record-id-not-accepted" });
+             if (string.IsNullOrWhiteSpace(body.PartyId))
+                 return Results.BadRequest(new { detail = "party_id_required" });

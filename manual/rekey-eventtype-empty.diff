@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+index d50713e4..29cc4493 100644
+--- a/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
++++ b/apps/local-node-host/Data/Authorization/RetiredDesktopActorRekey.cs
+@@ -21,7 +21,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Authorization;
+ internal static class RetiredDesktopActorRekey
+ {
+     /// <summary>The event type a rekeyed grant subject is recorded under.</summary>
+-    internal static readonly AuditEventType RekeyedEventType = new("AuthorizationGrantSubjectRekeyed");
++    internal static readonly AuditEventType RekeyedEventType = new("");
+ 
+     /// <summary>Rekeys every retired row to <paramref name="nodeOperator"/>; returns how many grants moved.</summary>
+     /// <exception cref="InvalidOperationException">

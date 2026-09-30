@@ -1,0 +1,23 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:04.10]     POST employee: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)(key: "id") [FAIL]
+  Failed POST employee: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)(key: "id") [1 s]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: BadRequest
+Actual:   Created
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Entities.PayrollRouteTests.CreateEmployee_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Entities\PayrollRouteTests.cs:line 182
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:04.80]     POST employee: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)(key: "employeeId") [FAIL]
+  Failed POST employee: a client-supplied record id is refused 400 with no write, and omission mints a server id (T-974)(key: "employeeId") [396 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: BadRequest
+Actual:   Created
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.Entities.PayrollRouteTests.CreateEmployee_refuses_a_client_supplied_record_id(String key) in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Entities\PayrollRouteTests.cs:line 182
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck3-t974-payroll-108-and.trx
+
+Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

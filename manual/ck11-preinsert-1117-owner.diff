@@ -1,0 +1,13 @@
+diff --git a/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs b/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
+index 69aa529f..51d18988 100644
+--- a/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
++++ b/apps/local-node-host/Data/Roster/RosterCrdtProjection.cs
+@@ -1114,7 +1114,7 @@ public sealed class RosterCrdtProjection : IDeltaProducer, IDeltaStateVectorProv
+     // The chain root's authority is its genesis self-admission; every other party's comes from the grant store.
+     private static PermissionSet AuthorityFor(
+         MemberRoster chain, IRosterAuthority? authority, string partyId, DateTimeOffset at) =>
+-        string.Equals(partyId, chain.GenesisPartyId, StringComparison.Ordinal)
++        true
+             ? PermissionCompositions.Owner
+             : authority?.PermissionsFor(chain.TeamId.ToString("D"), partyId, at) ?? PermissionSet.Empty;
+ 

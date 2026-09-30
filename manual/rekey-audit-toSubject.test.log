@@ -1,0 +1,15 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:04.54]     Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects [3 s]
+  Error Message:
+   System.Collections.Generic.KeyNotFoundException : The given key 'toSubject' was not present in the dictionary.
+  Stack Trace:
+     at System.Collections.Generic.Dictionary`2.get_Item(TKey key)
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 3 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

@@ -1,0 +1,15 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.33]     Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs [906 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: OK
+Actual:   Forbidden
+  Stack Trace:
+     at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs:line 136
+   at Harborline.Api.LocalNodeHost.Tests.AssetRegistry.PackBoundSelectedPrincipalTests.Type_writes_decide_in_the_selected_tenant_when_the_active_team_differs() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\AssetRegistry\PackBoundSelectedPrincipalTests.cs:line 145
+--- End of stack trace from previous location ---
+Results File: C:\hl-r4t984\manual\ck5-t975-tenant-201.trx
+
+Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 2 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

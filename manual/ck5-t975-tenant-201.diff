@@ -1,0 +1,15 @@
+diff --git a/apps/local-node-host/Health/AssetRegistryRoutes.cs b/apps/local-node-host/Health/AssetRegistryRoutes.cs
+index 72082b71..dfb80299 100644
+--- a/apps/local-node-host/Health/AssetRegistryRoutes.cs
++++ b/apps/local-node-host/Health/AssetRegistryRoutes.cs
+@@ -198,8 +198,8 @@ public static class AssetRegistryRoutes
+         // untouched); a tenant greenfield type is updated in place. Never mutates a shared seed.
+         app.MapPut($"{RouteBase}/types/{{id}}", async (string id, TypeUpsertBody body, HttpContext http, CancellationToken ct) =>
+         {
+-            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+-                ?? NodeTenant.Resolve(activeTeam);
++            var tenant = 
++                NodeTenant.Resolve(activeTeam);
+             var typeId = new EntityTypeId(id);
+             var authority = RequestAuthorization.Authority(http, tenant, clock);
+             var denied = await RequestAuthorization.RefusalAsync(

@@ -1,0 +1,15 @@
+diff --git a/apps/local-node-host/Health/AssetRegistryRoutes.cs b/apps/local-node-host/Health/AssetRegistryRoutes.cs
+index 72082b71..cc17fdaa 100644
+--- a/apps/local-node-host/Health/AssetRegistryRoutes.cs
++++ b/apps/local-node-host/Health/AssetRegistryRoutes.cs
+@@ -149,8 +149,8 @@ public static class AssetRegistryRoutes
+         // POST /types — create a tenant's own greenfield type (never an override; use PUT to edit a seed).
+         app.MapPost($"{RouteBase}/types", async (TypeUpsertBody body, HttpContext http, CancellationToken ct) =>
+         {
+-            var tenant = http.Features.Get<SelectedSessionRequestPrincipal>()?.TenantId
+-                ?? NodeTenant.Resolve(activeTeam);
++            var tenant = 
++                NodeTenant.Resolve(activeTeam);
+             // T-975: type definitions are package-authored records. The generated or supplied type id is
+             // the act's target, and this decision happens before every validation or registry read.
+             var typeId = body is null || string.IsNullOrWhiteSpace(body.Id)

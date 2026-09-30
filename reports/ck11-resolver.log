@@ -1,0 +1,462 @@
+
+   _____ _              _               _   _ ______ _______ ÿ
+  / ____| |            | |             | \ | |  ____|__   __|ÿ
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |   ÿ
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |   ÿ
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |   ÿ
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|   ÿ
+                   __/ |                                     ÿ
+                  |___/                                      ÿ
+
+
+Version: 5.0.0
+
+[07:42:17 INF] Analysis starting.
+[07:42:17 INF] Analyzing 1 test project(s).
+[07:42:32 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj. Using analysis results: net11.0
+[07:42:32 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj. Using analysis results: net11.0
+[07:42:33 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[07:42:33 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:36 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[07:42:36 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:36 WRN] Analysis of project ..\..\..\packages\foundation\Harborline.Foundation.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:36 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[07:42:36 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:37 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[07:42:37 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:38 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[07:42:38 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:38 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[07:42:38 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[07:42:40 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:44 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[07:42:44 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:44 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[07:42:47 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[07:42:47 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:47 WRN] Analysis of project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[07:42:48 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:48 WRN] Analysis of project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[07:42:48 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:48 WRN] Analysis of project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:49 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[07:42:49 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:49 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[07:42:49 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:49 WRN] Analysis of project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:50 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[07:42:50 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:50 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[07:42:50 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[07:42:51 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:52 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[07:42:52 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:52 WRN] Analysis of project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:52 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[07:42:52 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:52 WRN] Analysis of project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[07:42:53 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:53 WRN] Analysis of project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[07:42:53 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:53 WRN] Analysis of project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[07:42:54 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:54 WRN] Analysis of project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:55 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[07:42:55 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:55 WRN] Analysis of project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:55 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[07:42:55 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:56 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[07:42:56 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:57 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[07:42:57 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:57 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[07:42:57 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:57 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:57 WRN] Analysis of project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:42:59 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[07:42:59 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Trying again with a nuget restore.
+[07:42:59 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[07:42:59 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:42:59 WRN] Analysis of project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:02 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[07:43:02 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:02 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[07:43:02 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:03 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:03 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[07:43:03 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:03 WRN] Analysis of project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:04 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[07:43:04 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:04 WRN] Analysis of project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:06 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[07:43:06 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:06 WRN] Analysis of project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:06 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[07:43:06 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:07 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[07:43:07 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[07:43:12 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[07:43:12 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:12 WRN] Analysis of project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[07:43:12 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:12 WRN] Analysis of project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:12 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[07:43:12 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:12 WRN] Analysis of project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:13 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[07:43:13 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:13 WRN] Analysis of project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:14 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[07:43:14 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:14 WRN] Analysis of project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:14 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[07:43:14 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:14 WRN] Analysis of project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:14 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[07:43:14 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[07:43:15 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:15 WRN] Analysis of project ..\Harborline.LocalNodeHost.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[07:43:15 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:15 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[07:43:15 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:18 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[07:43:18 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:18 WRN] Analysis of project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:20 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[07:43:20 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:20 WRN] Analysis of project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:22 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[07:43:22 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:22 WRN] Analysis of project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:22 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[07:43:22 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Trying again with a nuget restore.
+[07:43:27 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[07:43:27 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:27 WRN] Analysis of project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:30 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Use '--diag' option to have the build log.
+[07:43:30 WRN] Analysis of project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj succeeded but simulated build failed; Stryker may fail later.
+[07:43:33 INF] Picking net11.0 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. 
+[07:43:40 INF] Found project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj to mutate.
+[07:43:40 INF] Analysis complete.
+[07:43:40 INF] Building test project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests\tests.csproj (1/1)
+[07:43:40 INF] Building project tests.csproj using dotnet build tests.csproj -c Debug --property:Platform=AnyCPU (directory C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\tests.)
+[07:46:21 INF] Number of tests found: 30 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Harborline.LocalNodeHost.csproj. Initial test run started.
+[07:50:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 349:23) with id: CS0165, message: Use of unassigned local variable 'concreteReader' (Source code: concreteReader)
+[07:50:23 INF] Safe Mode! Stryker will remove all mutations in EnsureShippingAuditIdentity and mark them as 'compile error'.
+[07:50:26 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLiveInvoiceApprovalContext.cs resulted in a compile error (at 112:12) with id: CS1620, message: Argument 2 must be passed with the 'ref' keyword (Source code: (StrykerwaFWHYxZcwowPJh.MutantControl.IsActive(29366)?            $"" :            $"Issue invoice {state.InvoiceId}: Debit {state.DebitAccount} {amount}; " ) +
+            (StrykerwaFWHYxZcwowPJh.MutantControl.IsActive(29367)?            $"":            $"Credit {state.CreditAccount} {amount} ({state.Memo})."))
+[07:50:26 INF] Safe Mode! Stryker will remove all mutations in RenderPostingPreview and mark them as 'compile error'.
+[07:50:44 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeTechnicalRegistrationEvidence.cs resulted in a compile error (at 99:24) with id: CS0165, message: Use of unassigned local variable 'observed' (Source code: observed)
+[07:50:44 INF] Safe Mode! Stryker will remove all mutations in ValidateLocalNodeTechnicalRegistrationEvidence and mark them as 'compile error'.
+[07:50:44 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\FounderTenantMembershipAttachService.cs resulted in a compile error (at 383:16) with id: CS0165, message: Use of unassigned local variable 'status' (Source code: status)
+[07:50:44 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[07:50:44 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeRecurringScheduleSource.cs resulted in a compile error (at 168:12) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[07:50:44 INF] Safe Mode! Stryker will remove all mutations in AddDefinitionTriggersAsync and mark them as 'compile error'.
+[07:50:46 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackInstallRoutes.cs resulted in a compile error (at 92:8) with id: CS0165, message: Use of unassigned local variable 'reconciler' (Source code: reconciler)
+[07:50:46 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[07:50:57 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 68:27) with id: CS0165, message: Use of unassigned local variable 'record' (Source code: record)
+[07:50:57 INF] Safe Mode! Stryker will remove all mutations in ValidateRecordAsync and mark them as 'compile error'.
+[07:50:57 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 86:13) with id: CS0165, message: Use of unassigned local variable 'form' (Source code: form)
+[07:50:57 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[07:50:57 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Entities\RecordWriteRulesValidator.cs resulted in a compile error (at 98:37) with id: CS0165, message: Use of unassigned local variable 'bound' (Source code: bound)
+[07:50:57 INF] Safe Mode! Stryker will remove all mutations in BoundAsync and mark them as 'compile error'.
+[07:50:57 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InitialGrantIssuanceService.cs resulted in a compile error (at 131:26) with id: CS0165, message: Use of unassigned local variable 'epochs' (Source code: epochs)
+[07:50:57 INF] Safe Mode! Stryker will remove all mutations in IssueWithEpochAsync and mark them as 'compile error'.
+[07:50:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\VerifiedTenantRosterReader.cs resulted in a compile error (at 75:28) with id: CS0165, message: Use of unassigned local variable 'teamId' (Source code: teamId)
+[07:50:58 INF] Safe Mode! Stryker will remove all mutations in ReadCoreAsync and mark them as 'compile error'.
+[07:50:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeLedgerPostingEffect.cs resulted in a compile error (at 92:31) with id: CS0165, message: Use of unassigned local variable 'verifyingPosting' (Source code: verifyingPosting)
+[07:50:58 INF] Safe Mode! Stryker will remove all mutations in Build and mark them as 'compile error'.
+[07:50:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Enrollment\PairingTokenGatedAdmitter.cs resulted in a compile error (at 263:19) with id: CS0165, message: Use of unassigned local variable 'bridgeOutcome' (Source code: bridgeOutcome)
+[07:50:58 INF] Safe Mode! Stryker will remove all mutations in AdmitAsync and mark them as 'compile error'.
+[07:50:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\FormsDevSeeder.cs resulted in a compile error (at 176:57) with id: CS0165, message: Use of unassigned local variable 'decision' (Source code: decision)
+[07:50:58 INF] Safe Mode! Stryker will remove all mutations in StartAsync and mark them as 'compile error'.
+[07:50:58 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormSubmissionResultReader.cs resulted in a compile error (at 25:21) with id: CS0165, message: Use of unassigned local variable 'entity' (Source code: entity)
+[07:50:58 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:50:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 61:20) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[07:50:59 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[07:50:59 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PreAuthOperationalRouteFence.cs resulted in a compile error (at 67:17) with id: CS0165, message: Use of unassigned local variable 'disposition' (Source code: disposition)
+[07:50:59 INF] Safe Mode! Stryker will remove all mutations in InstallPreAuthOperational and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 165:63) with id: CS0165, message: Use of unassigned local variable 'schemaRoot' (Source code: schemaRoot)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in ToContentAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackFormDefinitionContent.cs resulted in a compile error (at 290:31) with id: CS0165, message: Use of unassigned local variable 'childSchema' (Source code: childSchema)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in FindProperty and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 483:24) with id: CS0165, message: Use of unassigned local variable 'currentTeamId' (Source code: currentTeamId)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in ReconcileLocallyMintedGenesisAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\RosterCrdtProjection.cs resulted in a compile error (at 855:33) with id: CS0165, message: Use of unassigned local variable 'administrators' (Source code: administrators)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in ReconcileAdministratorRemovalsAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Generation\Cli\CapabilityKgGenerateCliClient.cs resulted in a compile error (at 116:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\BruteForce\BruteForceKnnEngine.cs resulted in a compile error (at 120:54) with id: CS0165, message: Use of unassigned local variable 'plaintext' (Source code: plaintext)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in KnnAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\Cli\CapabilityKgCliClient.cs resulted in a compile error (at 114:12) with id: CS0165, message: Use of unassigned local variable 'result' (Source code: result)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in InvokeAsync and mark them as 'compile error'.
+[07:51:08 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Search\Vector\NodeVecIndexer.cs resulted in a compile error (at 218:20) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[07:51:08 INF] Safe Mode! Stryker will remove all mutations in IndexArtifactAsync and mark them as 'compile error'.
+[07:51:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\PackWorkflowAdmissionAdapter.cs resulted in a compile error (at 139:45) with id: CS0165, message: Use of unassigned local variable 'model' (Source code: model)
+[07:51:09 INF] Safe Mode! Stryker will remove all mutations in Admit and mark them as 'compile error'.
+[07:51:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\LlmProxyRoutes.cs resulted in a compile error (at 79:19) with id: CS0165, message: Use of unassigned local variable 'upstreamResp' (Source code: upstreamResp)
+[07:51:09 INF] Safe Mode! Stryker will remove all mutations in Map and mark them as 'compile error'.
+[07:51:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\LocalNodeKeyHierarchy.cs resulted in a compile error (at 66:12) with id: CS0165, message: Use of unassigned local variable 'storeDek' (Source code: storeDek)
+[07:51:09 INF] Safe Mode! Stryker will remove all mutations in Resolve and mark them as 'compile error'.
+[07:51:09 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Program.cs resulted in a compile error (at 365:9) with id: CS0165, message: Use of unassigned local variable 'rootSeed' (Source code: rootSeed)
+[07:51:09 INF] Safe Mode! Stryker will remove all mutations in RunAsync and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Capabilities\LocalNodeExecutableEndpointRegistry.cs resulted in a compile error (at 104:35) with id: CS0165, message: Use of unassigned local variable 'routeEndpoint' (Source code: routeEndpoint)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in Seal and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 151:29) with id: CS0165, message: Use of unassigned local variable 'overlay' (Source code: overlay)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 159:37) with id: CS0165, message: Use of unassigned local variable 'fieldOverlay' (Source code: fieldOverlay)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in ValidateReleasedFormText and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 174:36) with id: CS0165, message: Use of unassigned local variable 'array' (Source code: array)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 177:124) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in ValidateTitledArray and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Roster\DurableGenesisIdentity.cs resulted in a compile error (at 54:13) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:51:23 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Workflow\NodeKgActionApprovalContext.cs resulted in a compile error (at 110:22) with id: CS0165, message: Use of unassigned local variable 'je' (Source code: je)
+[07:51:23 INF] Safe Mode! Stryker will remove all mutations in BuildExecuteEffect and mark them as 'compile error'.
+[07:51:24 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:45) with id: CS0165, message: Use of unassigned local variable 'name' (Source code: name)
+[07:51:24 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[07:51:24 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\LocalNodeLanTransport.cs resulted in a compile error (at 552:51) with id: CS0165, message: Use of unassigned local variable 'location' (Source code: location)
+[07:51:24 INF] Safe Mode! Stryker will remove all mutations in ResolveCertificate and mark them as 'compile error'.
+[07:51:24 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 52:19) with id: CS0165, message: Use of unassigned local variable 'document' (Source code: document)
+[07:51:24 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[07:51:24 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\NodeCommandRequests.cs resulted in a compile error (at 62:20) with id: CS0165, message: Use of unassigned local variable 'commands' (Source code: commands)
+[07:51:24 INF] Safe Mode! Stryker will remove all mutations in Use and mark them as 'compile error'.
+[07:51:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\BackupRestore\NodeRehostService.cs resulted in a compile error (at 203:16) with id: CS0165, message: Use of unassigned local variable 'expected' (Source code: expected)
+[07:51:34 INF] Safe Mode! Stryker will remove all mutations in VerifyContentHashes and mark them as 'compile error'.
+[07:51:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\AssetRegistry\SpatialFramePiiFieldSealer.cs resulted in a compile error (at 168:43) with id: CS0165, message: Use of unassigned local variable 'envelope' (Source code: envelope)
+[07:51:34 INF] Safe Mode! Stryker will remove all mutations in UnsealAsync and mark them as 'compile error'.
+[07:51:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 187:36) with id: CS0165, message: Use of unassigned local variable 'items' (Source code: items)
+[07:51:34 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[07:51:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PlatformPackPreloadHostedService.cs resulted in a compile error (at 191:33) with id: CS0165, message: Use of unassigned local variable 'item' (Source code: item)
+[07:51:34 INF] Safe Mode! Stryker will remove all mutations in ValidateFormItems and mark them as 'compile error'.
+[07:51:34 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\WebSession\ConnectDeviceRoutes.cs resulted in a compile error (at 135:14) with id: CS0165, message: Use of unassigned local variable 'outcome' (Source code: outcome)
+[07:51:34 INF] Safe Mode! Stryker will remove all mutations in ConnectAsync and mark them as 'compile error'.
+[07:51:35 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Layout\LayoutDenialGateLog.cs resulted in a compile error (at 145:60) with id: CS0165, message: Use of unassigned local variable 'denial' (Source code: denial)
+[07:51:35 INF] Safe Mode! Stryker will remove all mutations in ReadAsync and mark them as 'compile error'.
+[07:51:48 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Identity\InstallationTenantCandidateLocator.cs resulted in a compile error (at 146:16) with id: CS0165, message: Use of unassigned local variable 'membership' (Source code: membership)
+[07:51:48 INF] Safe Mode! Stryker will remove all mutations in ListForAccountAsync and mark them as 'compile error'.
+[07:51:49 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\FormDefinitionRoutes.cs resulted in a compile error (at 1024:32) with id: CS0165, message: Use of unassigned local variable 'explicitValue' (Source code: explicitValue)
+[07:51:49 INF] Safe Mode! Stryker will remove all mutations in ResolvePiiSensitivities and mark them as 'compile error'.
+[07:57:39 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 370:16) with id: CS0165, message: Use of unassigned local variable 'parsed' (Source code: parsed)
+[07:57:39 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[07:57:39 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 390:36) with id: CS0165, message: Use of unassigned local variable 'keyElement' (Source code: keyElement)
+[07:57:39 INF] Safe Mode! Stryker will remove all mutations in Convert and mark them as 'compile error'.
+[07:57:39 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\Configuration\ReleasedPackInstaller.cs resulted in a compile error (at 460:30) with id: CS0165, message: Use of unassigned local variable 'entries' (Source code: entries)
+[07:57:39 INF] Safe Mode! Stryker will remove all mutations in Closure and mark them as 'compile error'.
+[07:57:47 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\PackSeedProjector.cs resulted in a compile error (at 5382:8) with id: CS0165, message: Use of unassigned local variable 'authoredNode' (Source code: authoredNode)
+[07:57:47 INF] Safe Mode! Stryker will remove all mutations in BuildExpectedWorkflowAuthored and mark them as 'compile error'.
+[07:58:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 120:17) with id: CS0165, message: Use of unassigned local variable 'fields' (Source code: fields)
+[07:58:00 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:58:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 123:20) with id: CS0165, message: Use of unassigned local variable 'meta' (Source code: meta)
+[07:58:00 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:58:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 126:32) with id: CS0165, message: Use of unassigned local variable 'sections' (Source code: sections)
+[07:58:00 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:58:00 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Health\CatalogueFieldSourceAdmission.cs resulted in a compile error (at 131:33) with id: CS0165, message: Use of unassigned local variable 'names' (Source code: names)
+[07:58:00 INF] Safe Mode! Stryker will remove all mutations in ParseContent and mark them as 'compile error'.
+[07:58:07 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 339:15) with id: CS0165, message: Use of unassigned local variable 'type' (Source code: type)
+[07:58:07 INF] Safe Mode! Stryker will remove all mutations in InputKind and mark them as 'compile error'.
+[07:58:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 292:38) with id: CS0165, message: Use of unassigned local variable 'metadata' (Source code: metadata)
+[07:58:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:58:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:24) with id: CS0165, message: Use of unassigned local variable 'formId' (Source code: formId)
+[07:58:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:58:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 310:45) with id: CS0165, message: Use of unassigned local variable 'version' (Source code: version)
+[07:58:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:58:14 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api\apps\local-node-host\Data\PackProjection\HostViewKindDescriptorRegistry.cs resulted in a compile error (at 313:54) with id: CS0165, message: Use of unassigned local variable 'stored' (Source code: stored)
+[07:58:14 INF] Safe Mode! Stryker will remove all mutations in AdmitRequestsAsync and mark them as 'compile error'.
+[07:58:41 INF] 47313 mutants created
+[07:58:41 INF] Capture mutant coverage using 'CoverageBasedTest' mode.
+[07:58:50 INF] 6     mutants got status CompileError. Reason: Could not be injected in code.
+[07:58:50 INF] 5862  mutants got status CompileError. Reason: Mutant caused compile errors
+[07:58:50 INF] 8     mutants got status NoCoverage.   Reason: Not covered by any test.
+[07:58:50 INF] 7     mutants got status Ignored.      Reason: Removed by block already covered filter
+[07:58:50 INF] 41372 mutants got status Ignored.      Reason: Removed by mutate filter
+[07:58:50 INF] 47255 total mutants are skipped for the above mentioned reasons
+[07:58:50 INF] 58    total mutants will be tested
+[08:00:03 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 412
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 555
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:00:04 INF] Runner 5: Retrying the test session.
+[08:00:29 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 555
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:00:29 INF] Runner 0: Retrying the test session.
+[08:00:29 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:00:30 INF] Runner 4: Retrying the test session.
+[08:01:15 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:01:16 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:01:16 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:01:16 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.SendMessage(String messageType) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 248
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:01:17 INF] Runner 5: Retrying the test session.
+[08:01:17 INF] Runner 4: Retrying the test session.
+[08:01:19 INF] Runner 3: Retrying the test session.
+[08:02:31 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:02:31 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:02:31 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:03:01 INF] Runner 0: Retrying the test session.
+[08:03:11 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 105804 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:11 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 105624 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:32 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 92416 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:33 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 80944 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:33 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 90808 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:33 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 108384 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:03:35 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 81496 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:04:01 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 69608 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:04:01 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 16492 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:04:01 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 48800 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:05:17 ERR] Stryker failed to connect to vstest.console with error: C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 102832 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+[08:05:17 ERR] An error occurred during the mutation test run 
+
+
+Stryker failed to connect to vstest.console
+
+
+Inner Exception: 
+C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 105804 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.WaitForConnection() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 1068
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EnsureInitialized() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 1025
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.InitializeExtensions(IEnumerable`1 pathToAdditionalExtensions) in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 193
+   at Stryker.TestRunner.VsTest.VsTestContextInformation.BuildVsTestWrapper(String runnerId, String controlVariable) in /_/src/Stryker.TestRunner.VsTest/VsTestContextInformation.cs:line 112
+[08:05:17 ERR] Exception when disposing Runner 2
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 448
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 569
+   at Stryker.TestRunner.VsTest.VsTestRunner.Dispose(Boolean disposing) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 417
+[08:05:18 ERR] Exception when disposing Runner 7
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 448
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 569
+   at Stryker.TestRunner.VsTest.VsTestRunner.Dispose(Boolean disposing) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 417
+[08:05:19 ERR] Exception when disposing Runner 1
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 448
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 569
+   at Stryker.TestRunner.VsTest.VsTestRunner.Dispose(Boolean disposing) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 417
+[08:05:19 WRN] Error while cancelling VsTest session.
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.CancelTestRun() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 414
+   at Stryker.TestRunner.VsTest.VsTestRunner.<>c__DisplayClass18_0.<TestMultipleMutants>g__HandleUpdate|0(IRunResults handler) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 141
+[08:05:19 ERR] Exception when disposing Runner 4
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 448
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 569
+   at Stryker.TestRunner.VsTest.VsTestRunner.Dispose(Boolean disposing) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 417
+[08:05:19 ERR] Exception when disposing Runner 6
+System.ObjectDisposedException: Cannot access a closed Stream.
+   at System.IO.BufferedStream.Write(ReadOnlySpan`1 buffer)
+   at System.IO.BinaryWriter.Write(String value)
+   at Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.SocketCommunicationManager.WriteAndFlushToChannel(String rawMessage) in /_/src/Microsoft.TestPlatform.CommunicationUtilities/SocketCommunicationManager.cs:line 410
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleRequestSender.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleRequestSender.cs:line 448
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EndSession() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 569
+   at Stryker.TestRunner.VsTest.VsTestRunner.Dispose(Boolean disposing) in /_/src/Stryker.TestRunner.VsTest/VsTestRunner.cs:line 417
+[08:05:19 INF] Time Elapsed 00:23:02.0747732
+Unhandled exception. 
+
+Stryker failed to connect to vstest.console
+
+
+Inner Exception: 
+C:\Program Files\dotnet\dotnet.exe process failed to connect to vstest.console process after 90 seconds. When the timeout happened, the process 105804 -vstest.console was still running. This most often happens because of machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout.
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.WaitForConnection() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 1068
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.EnsureInitialized() in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 1025
+   at Microsoft.TestPlatform.VsTestConsole.TranslationLayer.VsTestConsoleWrapper.InitializeExtensions(IEnumerable`1 pathToAdditionalExtensions) in /_/src/Microsoft.TestPlatform.VsTestConsole.TranslationLayer/VsTestConsoleWrapper.cs:line 193
+   at Stryker.TestRunner.VsTest.VsTestContextInformation.BuildVsTestWrapper(String runnerId, String controlVariable) in /_/src/Stryker.TestRunner.VsTest/VsTestContextInformation.cs:line 112
+
+scoped run: 1383 s, .stryker/tests-scoped-SelectedSessionPermissionResolver.cs/reports/mutation-report.json
+FAIL no json report (Stryker exited 3762504530)

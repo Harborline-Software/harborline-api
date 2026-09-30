@@ -1,0 +1,16 @@
+Test run for C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\bin\Debug\net11.0\Harborline.Api.LocalNodeHost.Tests.dll (.NETCoreApp,Version=v11.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:08.09]     Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects [FAIL]
+  Failed Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects [6 s]
+  Error Message:
+   System.InvalidOperationException : Sequence contains no elements.
+  Stack Trace:
+     at Microsoft.EntityFrameworkCore.Query.ShapedQueryCompilingExpressionVisitor.SingleAsync[TSource](IAsyncEnumerable`1 asyncEnumerable, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Query.ShapedQueryCompilingExpressionVisitor.SingleAsync[TSource](IAsyncEnumerable`1 asyncEnumerable, CancellationToken cancellationToken)
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 184
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+   at Harborline.Api.LocalNodeHost.Tests.Identity.DesktopActorRekeyTests.The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects() in C:\Projects\Harborline\harborline-api\.codex\worktrees\r4-t984api-manual\apps\local-node-host\tests\Identity\DesktopActorRekeyTests.cs:line 190
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 6 s - Harborline.Api.LocalNodeHost.Tests.dll (net11.0)

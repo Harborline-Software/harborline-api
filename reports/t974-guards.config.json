@@ -1,0 +1,44 @@
+{
+  "stryker-config": {
+    "project": "Harborline.LocalNodeHost.csproj",
+    "since": {
+      "enabled": false
+    },
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "reporters": [
+      "json",
+      "progress"
+    ],
+    "mutate": [
+      "**/Health/AccountingPeriodRoutes.cs{4237..4367}",
+      "**/Health/BankAccountRoutes.cs{10501..10631}",
+      "**/Health/BillRoutes.cs{10511..10640}",
+      "**/Health/CalendarCollectionRoutes.cs{4447..4577}",
+      "**/Health/ChartOfAccountsManagementRoutes.cs{8739..8868}",
+      "**/Health/ChartOfAccountsRoutes.cs{4080..4237}",
+      "**/Health/CommsRoutes.cs{17768..17921}",
+      "**/Health/CommsRoutes.cs{21823..21976}",
+      "**/Health/ConsentRecordRoutes.cs{5272..5402}",
+      "**/Health/ContactRoutes.cs{12499..12660}",
+      "**/Health/DocumentRoutes.cs{9233..9407}",
+      "**/Health/DocumentTemplateRoutes.cs{8658..8818}",
+      "**/Health/FormsRoutes.cs{8046..8196}",
+      "**/Health/InvoiceRoutes.cs{13425..13554}",
+      "**/Health/LeaseRoutes.cs{3948..4104}",
+      "**/Health/MaintenanceRoutes.cs{5267..5423}",
+      "**/Health/PayrollRoutes.cs{6494..6654}",
+      "**/Health/PayrollRoutes.cs{10262..10420}",
+      "**/Health/PropertyRoutes.cs{4554..4710}",
+      "**/Health/RecurringInvoiceRoutes.cs{7435..7597}",
+      "**/Health/RecurringInvoiceRoutes.cs{11695..11856}",
+      "**/Health/SchedulingDefinitionRoutes.cs{12110..12273}",
+      "**/Health/SchedulingDefinitionRoutes.cs{15863..16026}",
+      "**/Health/WebSession/SelectedFormSubmitRoutes.cs{3861..4011}"
+    ],
+    "test-case-filter": "FullyQualifiedName~refuses_a_client_supplied_record_id"
+  }
+}
