@@ -5,12 +5,13 @@
   "sourcePin": "PENDING",
   "recordedAt": "2026-09-27T21:53:47Z",
   "totals": {
-    "total": 4537,
-    "passed": 4516,
+    "total": 4538,
+    "passed": 4517,
     "failed": 0,
     "notExecuted": 21
   },
   "policy": [
+    "T-691 draft-path regression: FormDefinitionRouteTests adds one passing fact, the draft PUT with a malformed section role answering a non-disclosing 422. The existing T-691 PUT fact keeps its display name and now shares a helper with the new one. No test is removed or skipped, so the tuple moves from 4537/4516 to 4538/4517, pending Windows CI confirmation.",
     "T-735 PR 236: Layout HTTP denial reader and drain wiring add four passing host facts: LayoutCompositionTests (one), LayoutDenialDrainDaemonTests (one), and LayoutDenialRouteTests (two). The four LocalNodeTechnicalRegistrationEvidenceTests theory cases remain in place, but their display-name expectedActors arguments move from 26/31 to 27/32 for the new always-active drain. Branch Windows exact-clone run 36333802894 measured the four-case delta; merged over main's 4533/4512 baseline, the provisional tuple is 4537 total, 4516 passed, zero failed and 21 skipped, pending Windows CI confirmation.",
     "T-565 PR 235: the named transport-rule and destination-classification admission steps add two passing PackCapabilityCompatibilityTests cases. No test is removed or skipped. Windows CI run 36280778335 observed 4509 cases against the 4507-case base; current main adds two independent T-691 cases, so the merged count is 4511. The same CI run found that the new PackInstaller calls moved three reviewed navigation call sites down seven lines; their exact inventory is updated in this PR. The merged count remains provisional until CI measures this head.",
     "T-737 (PR 232) follow-up: CodeRabbit review comments 4113220972 and 5327922061. 4113220972 found DropSummaryOnlyApplicatorErrors compared a candidate error's evaluation path against the applicator's OWN evaluation path rather than its subtree root, so an unrelated deeper failure anywhere in the schema could silence a root-level applicator failure; fixed to compare against `{EvaluationPath}/{Code}`. Adds one case, SchemaValidationErrorFlatteningTests.An_unrelated_nested_failure_does_not_silence_a_root_level_applicator_failure (verified red against the prior compare, green after the fix), over the 4513/4492 base from this same PR's first CodeRabbit round. 5327922061 strengthened PackFormBindingRoundTripTests.Layout_and_Booking_definitions_round_trip_headlessly to assert the activated pack's SeedItems directly instead of only CLI exit codes; no case added or removed by that change. A native Windows exact-clone at commit e0079517 measured 4514 total, 4493 passed, zero failed and 21 skipped, with newFailures empty. Provisional until the Windows CI measurement on the merged head confirms it.",
