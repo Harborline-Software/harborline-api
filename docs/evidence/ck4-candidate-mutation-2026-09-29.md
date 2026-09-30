@@ -62,14 +62,14 @@ Each hand mutation was applied in the candidate worktree, the named tests were r
 | T-537 M3 | `Id = principal.TenantId` replaced by a fixed tenant (line 49) | `Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts` | 1 of 1 failed |
 | T-537 switch | `if (false && candidate is null)` at `WebTenantSwitchAuthority.cs:367`, with `candidate?.DisplayLabel ?? targetTenantId` at :392 so the mutant compiles | `WebTenantSwitchAuthorityTests` | 1 of 3 failed: `Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written` |
 
-## Gap closed after the re-run (M3, )
+## Gap closed after the re-run (M3, `SelectedSessionTenantContext.cs`)
 
-The M3 re-run left the unbound-context authority branch untested. Two tests now pin it, tagged :
+The M3 re-run left the unbound-context authority branch untested. Two tests now pin it, tagged `Holds=kernel-core-ck-4`:
 
-- : an unbound context attributes to no one (empty ), a second  is refused, and the first tenant stands. It kills the bind-once  removal (line 42) and the unbound  default (line 80).
-- : over an allow-all desktop plane, the unbound context grants on the desktop plane and refuses inside a device-plane scope. It kills line 94 (negate , a device-plane request would borrow the operator's grants), line 98 (device plane returns true) and line 102 (desktop  inverted). Each was applied by hand, turned the test red, and was restored.
+- `SelectedSessionPepTests.Second_Bind_Is_Refused_And_The_First_Tenant_Stands`: an unbound context attributes to no one (empty `UserId`), a second `Bind` is refused, and the first tenant stands. It kills the bind-once `throw` removal (line 42) and the unbound `UserId` default (line 80).
+- `DesktopActorRekeyTests.A_device_plane_request_never_borrows_the_desktop_operators_grants`: over an allow-all desktop plane, the unbound context grants on the desktop plane and refuses inside a device-plane scope. It kills line 94 (negate `HasBoundWebPrincipal`: a device-plane request would borrow the operator's grants), line 98 (device plane returns true) and line 102 (desktop `== true` inverted). Each was applied by hand, turned the test red, and was restored.
 
-Scoped Stryker.NET on the file with filter  at the candidate plus these tests: **63.16%** (12 killed, 4 survived, 3 no-coverage; was 15.78% in the first re-run), report SHA-256 . Remaining: line 39 and 91  removals (a null still ends in an exception), line 43 message text, line 64  (equivalent in the host), line 68  in the cancellation catch and line 71 the fault catch body (both leave  null, so every check fails closed).
+Scoped Stryker.NET on the file with filter `FullyQualifiedName~SelectedSession|FullyQualifiedName~DesktopActorRekeyTests` at the candidate plus these tests: **63.16%** (12 killed, 4 survived, 3 no-coverage; was 15.78% in the first re-run), report SHA-256 `db19198896ac4b1a8af60064c86a03663f2aaaafe3ee6979cce57ea9794147df`. Remaining: lines 39 and 91 `ThrowIfNull` removals (a null still ends in an exception), line 43 message text, line 64 `ConfigureAwait` (equivalent in the host), line 68 `throw;` in the cancellation catch and line 71 the fault-catch body (both leave `_permissions` null, so every check fails closed).
 
 ## Slice baselines
 
