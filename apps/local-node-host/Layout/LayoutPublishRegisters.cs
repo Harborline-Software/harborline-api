@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Blocks.LayoutRuntime;
 using Harborline.Contracts.Fields;
 using ContractRuleActionKind = Harborline.Contracts.Forms.RuleActionKind;
 using ContractRuleDefinition = Harborline.Contracts.Forms.RuleDefinition;
@@ -29,9 +30,10 @@ public sealed record LayoutPublishRegisterOptions(
     bool SupplyValidationRules = true);
 
 /// <summary>
-/// T-733 publish-time Layout host seam. It binds the node's released controls and validation rules,
-/// plus pack-declared pages and record fields, before platform admission runs. T-735 will compose this
-/// seam into the HTTP/DI publication route; it is deliberately usable in-process now.
+/// T-733 Layout host seam. It binds the node's released controls and validation rules, plus
+/// pack-declared pages and record fields, before platform admission runs at publish and before the
+/// platform resolver derives a plan at render, so both stages judge a surface against one set of
+/// registers. T-735 will compose this seam into the HTTP/DI routes; it is deliberately usable in-process now.
 /// </summary>
 public sealed class LayoutPublishRegisters(
     LayoutPublishState state,
@@ -92,6 +94,17 @@ public sealed class LayoutPublishRegisters(
     /// <summary>Runs the platform's one publish-time admission path against the host-built registers.</summary>
     public void ValidateForPublish(LayoutDefinition definition, ILayoutAccess author)
         => LayoutDefinitionAdmission.ValidateForPublish(definition, Build(), author);
+
+    /// <summary>
+    /// The render-time half of the seam: the platform's published-surface resolver over
+    /// <paramref name="store"/>, holding the same registers <see cref="Build"/> supplies at publish.
+    /// A persisted body naming a control, page or validation rule these registers lack is refused
+    /// with <c>layout.persisted_body_invalid</c>, its refusals on the inner exception, before any plan
+    /// is derived; pack page citations flow against the supplied page register.
+    /// </summary>
+    /// <param name="store">The shared definition store the published surface is read from.</param>
+    public LayoutPublishedSurfaceResolver RenderResolver(IVersionedDefinitionStore store)
+        => new(store, registers: Build());
 
     private static readonly ContractRuleDefinition[] ReleasedValidationRules =
     [
