@@ -163,6 +163,40 @@ public sealed class KernelClockIntegrationTests
             () => NodeRosterRecord.FromCrdtState(roster)).Message, StringComparison.Ordinal);
     }
 
+    [Fact(DisplayName = "T-909 ck-9 K3: the grant form refuses a past effective-from by name and commits nothing")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Access_grant_form_refuses_a_past_effective_from_by_name_and_commits_nothing()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+        var skewed = FrozenAt.AddDays(-30);
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: skewed, capturedAt: skewed);
+
+        Assert.True(status == HttpStatusCode.Forbidden, $"{status}: {body}");
+        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+    }
+
+    [Fact(DisplayName = "T-909 ck-9 K3: the grant form stamps the server clock, never a skewed captured_at")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Access_grant_form_stamps_the_server_clock_not_a_skewed_captured_at()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: FrozenAt, capturedAt: FrozenAt.AddDays(-30));
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+    }
+
+    private const string AccessGrantRecipient = "principal-k3-recipient";
+
     [Fact]
     public async Task ProductionComposition_SuppliesTheFormSubmitActClock_PinnedToTheAdmittedInstant()
     {
@@ -374,6 +408,7 @@ public sealed class KernelClockIntegrationTests
                 case "definition-publish":
                 case "form-definition-publish":
                 case "scheduling-draft-save":
+                case "access-grant":
                     await SeedOperatorGrantAsync();
                     break;
                 case "form-definition-restore":
@@ -579,6 +614,30 @@ public sealed class KernelClockIntegrationTests
             var entity = await Services.GetRequiredService<Harborline.Api.Foundation.Assets.Entities.IEntityStore>()
                 .GetAsync(instance);
             return [Assert.IsType<Harborline.Api.Foundation.Assets.Entities.EntityBinding>(entity?.Binding).SubmittedAt];
+        }
+
+        // K3: the preloaded Access pack's grant form, the one live route that takes a client effective-from.
+        internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
+            DateTimeOffset effectiveFrom, DateTimeOffset capturedAt)
+        {
+            using var client = Client();
+            using var response = await client.PostAsJsonAsync(
+                $"{FormsRoutes.RouteBase}/access.grant-a-role/submit",
+                new Dictionary<string, string>
+                {
+                    ["person"] = AccessGrantRecipient, ["role"] = "administrator", ["scope"] = "/",
+                    ["residency"] = "cache", ["effectiveFrom"] = effectiveFrom.ToString("O"), ["effectiveTo"] = "",
+                    ["reason"] = "manual", ["captured_at"] = capturedAt.ToString("O"),
+                });
+            var text = await response.Content.ReadAsStringAsync();
+            return (response.StatusCode, text.Length == 0 ? default : JsonDocument.Parse(text).RootElement.Clone());
+        }
+
+        internal async Task<IReadOnlyList<AccessGrant>> AccessGrantsForAsync(string subject)
+        {
+            var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
+            var grants = await Services.GetRequiredService<IGrantStore>().SnapshotAsync(tenant);
+            return grants.Where(grant => grant.Subject.Value == subject).ToList();
         }
 
         internal async Task<DateTimeOffset[]> FormDefinitionRestoreAsync()
