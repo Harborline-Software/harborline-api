@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Kernel.Audit;
@@ -37,6 +38,11 @@ namespace Harborline.Api.LocalNodeHost.Enrollment;
 /// replaces the earlier fail-safe-but-loud append after the change, which a restart or an append fault lost.
 /// </para>
 /// <para>
+/// <b>Bound with the admitting decision (T-1000).</b> A change a request decision allowed (a roster revocation)
+/// binds with <see cref="AuthorizedEnrollmentWrite"/>: the entry is stamped at the decided instant, carries the
+/// decision's actor, target, act and captured authority, and carries the change's reason.
+/// </para>
+/// <para>
 /// <b>Unbound, it refuses.</b> The composed singleton is not bound to any change. Recording through it
 /// throws, so a caller that forgets <see cref="Within"/> fails loudly instead of recording nothing.
 /// </para>
@@ -46,27 +52,39 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorder : IEnrollme
     private readonly IOperationSigner _signer;
     private readonly TimeProvider _time;
     private readonly DbContext? _write;
+    private readonly AuthorizedEnrollmentWrite? _authorized;
 
     /// <summary>
     /// Construct over the node's operation signer (attributes the audit envelope to the node principal) and the
     /// clock that stamps each record. Bind it to a change with <see cref="Within"/> before recording.
     /// </summary>
     public KernelAuditEnrollmentCompensatingControlRecorder(IOperationSigner signer, TimeProvider time)
-        : this(signer, time, write: null)
+        : this(signer, time, write: null, authorized: null)
     {
     }
 
-    private KernelAuditEnrollmentCompensatingControlRecorder(IOperationSigner signer, TimeProvider time, DbContext? write)
+    private KernelAuditEnrollmentCompensatingControlRecorder(
+        IOperationSigner signer, TimeProvider time, DbContext? write, AuthorizedEnrollmentWrite? authorized)
     {
         _signer = signer ?? throw new ArgumentNullException(nameof(signer));
         _time = time ?? throw new ArgumentNullException(nameof(time));
         _write = write;
+        _authorized = authorized;
     }
 
-    /// <inheritdoc />
-    public IEnrollmentCompensatingControlRecorder Within(object write) => write is DbContext db
-        ? new KernelAuditEnrollmentCompensatingControlRecorder(_signer, _time, db)
-        : throw new ArgumentException("The enrollment audit joins an EF DbContext write.", nameof(write));
+    /// <summary>
+    /// This recorder, bound to <paramref name="write"/>: a <see cref="DbContext"/> whose one save commits the
+    /// change, or an <see cref="AuthorizedEnrollmentWrite"/> that adds the decision that allowed it. What the
+    /// bound recorder records is staged on that context and commits with the change or not at all.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="write"/> is neither.</exception>
+    public IEnrollmentCompensatingControlRecorder Within(object write) => write switch
+    {
+        AuthorizedEnrollmentWrite authorized => new KernelAuditEnrollmentCompensatingControlRecorder(
+            _signer, _time, authorized.Write, authorized),
+        DbContext db => new KernelAuditEnrollmentCompensatingControlRecorder(_signer, _time, db, authorized: null),
+        _ => throw new ArgumentException("The enrollment audit joins an EF DbContext write.", nameof(write)),
+    };
 
     /// <inheritdoc />
     public ValueTask RecordMemberAdmittedAsync(
@@ -116,7 +134,28 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorder : IEnrollme
     {
         var write = _write ?? throw new InvalidOperationException(
             $"The enrollment audit of {eventType.Value} must join the change it records: bind the recorder with Within.");
-        await NodeAuditOutbox.StageSignedAsync(write, _signer, tenantId, eventType, _time.GetUtcNow(), body, ct)
+        if (_authorized is not { } authorized)
+        {
+            await NodeAuditOutbox.StageSignedAsync(write, _signer, tenantId, eventType, _time.GetUtcNow(), body, ct)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // The act read the clock once, at its decision (ticket 216); the entry records that instant.
+        var entry = new Dictionary<string, object?>(body, StringComparer.Ordinal);
+        if (authorized.Reason is { } reason) entry["reason"] = reason;
+        await NodeAuditOutbox.StageSignedAsync(
+                write, _signer, tenantId, eventType, authorized.Decision.DecidedAt, entry, ct, authorized.Decision)
             .ConfigureAwait(false);
     }
 }
+
+/// <summary>
+/// T-1000: the write an enrollment recorder binds to when a request decision allowed the change: the context whose
+/// one save commits the roster record, the decision, and the change's reason. Passed to
+/// <see cref="IEnrollmentCompensatingControlRecorder.Within"/>.
+/// </summary>
+/// <param name="Write">The context whose one save commits the change and its staged audit entry.</param>
+/// <param name="Decision">The allowed decision; the entry records its instant, actor, target, act and authority.</param>
+/// <param name="Reason">A stable, log-safe reason code stored in the entry body as <c>reason</c>; none when null.</param>
+public sealed record AuthorizedEnrollmentWrite(DbContext Write, AuthorizationDecision Decision, string? Reason = null);

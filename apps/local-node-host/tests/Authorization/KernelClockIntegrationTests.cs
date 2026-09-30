@@ -12,6 +12,7 @@ using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.CapabilityAdmission.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
@@ -191,7 +192,8 @@ public sealed class KernelClockIntegrationTests
 
     [Theory]
     [InlineData("roster-projection", true, true, 0, 0)]
-    [InlineData("roster-audit", false, true, 0, 0)]
+    // T-1000: the MemberRevoked entry is staged in the roster save, so its fault rolls the revocation back.
+    [InlineData("roster-audit", true, true, 0, 0)]
     [InlineData("grant-store", false, true, 1, 0)]
     [InlineData("grant-audit", false, false, 1, 0)]
     public async Task ProductionComposition_AdminRevocation_IsPrefixSafeAndResumable_AfterEveryBoundary(
@@ -228,10 +230,8 @@ public sealed class KernelClockIntegrationTests
     [InlineData("projection", true, false)]
     [InlineData("adoption", false, false)]
     [InlineData("adoption", true, false)]
-    [InlineData("audit-query", false, false)]
-    [InlineData("audit-query", true, false)]
-    [InlineData("audit-append", false, false)]
-    [InlineData("audit-append", true, false)]
+    [InlineData("audit-stage", false, false)]
+    [InlineData("audit-stage", true, false)]
     [InlineData("restart", false, true)]
     [InlineData("restart", true, true)]
     public async Task ProductionComposition_ConcurrentRosterRevocations_LinearizeTheWholeAggregate(
@@ -1021,9 +1021,20 @@ public sealed class KernelClockIntegrationTests
                 return;
             }
 
+            if (step == "roster-audit")
+            {
+                // T-1000: the MemberRevoked entry is staged in the roster save, so the fault is its append there.
+                await using var outbox = await _searchFactory.CreateDbContextAsync();
+                await outbox.Database.ExecuteSqlRawAsync("""
+                    CREATE TRIGGER fail_t1000_roster_audit BEFORE INSERT ON search_audit_outbox
+                    WHEN NEW.event_type = 'MemberRevoked'
+                    BEGIN SELECT RAISE(ABORT, 'T-1000 roster audit fault'); END;
+                    """);
+                return;
+            }
+
             var eventType = step switch
             {
-                "roster-audit" => AuditEventType.MemberRevoked,
                 "grant-audit" => AuditEventType.CapabilityRevoked,
                 _ => throw new ArgumentOutOfRangeException(nameof(step)),
             };
@@ -1046,6 +1057,11 @@ public sealed class KernelClockIntegrationTests
                 await using var grants = await _searchFactory.CreateDbContextAsync();
                 await grants.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS fail_ticket_238_grant;");
             }
+            else if (step == "roster-audit")
+            {
+                await using var outbox = await _searchFactory.CreateDbContextAsync();
+                await outbox.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS fail_t1000_roster_audit;");
+            }
         }
 
         internal RevocationInterleavingBarrier InstallConcurrentRevocationBarrier(string interleaving)
@@ -1064,11 +1080,10 @@ public sealed class KernelClockIntegrationTests
                         new BarrierProjection(
                             Services.GetRequiredService<IRosterRevocationProjection>(), barrier, interleaving));
                     break;
-                case "audit-query":
-                case "audit-append":
-                    ReplaceDependency<IAuthorizedAuditTrail>(owner,
-                        new BarrierAuditTrail(
-                            Services.GetRequiredService<IAuthorizedAuditTrail>(), barrier, interleaving));
+                case "audit-stage":
+                    ReplaceDependency<IEnrollmentCompensatingControlRecorder>(owner,
+                        new BarrierRecorder(
+                            Services.GetRequiredService<IEnrollmentCompensatingControlRecorder>(), barrier));
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(interleaving));
@@ -1185,6 +1200,9 @@ public sealed class KernelClockIntegrationTests
             bool distinctTargets,
             int expectedAudits = 1)
         {
+            // T-1000: the roster revocation stages its MemberRevoked entry in the roster save; the outbox
+            // delivers it, so deliver what is owed before reading the trail.
+            await Services.GetRequiredService<NodeAuditOutbox>().DrainAsync();
             var parties = distinctTargets
                 ? new[]
                 {
@@ -1253,6 +1271,9 @@ public sealed class KernelClockIntegrationTests
             int expectedMemberAudits,
             int expectedCapabilityAudits)
         {
+            // T-1000: the roster revocation stages its MemberRevoked entry in the roster save; the outbox
+            // delivers it, so deliver what is owed before reading the trail.
+            await Services.GetRequiredService<NodeAuditOutbox>().DrainAsync();
             await using var grants = await _searchFactory.CreateDbContextAsync();
             var targetId = Assert.IsType<string>(_identityTargetGrantId);
             var grantLive = (await grants.Grants.AsNoTracking().SingleAsync(row => row.GrantId == targetId))
@@ -1301,6 +1322,9 @@ public sealed class KernelClockIntegrationTests
 
         private async Task AssertRevocationAuditsShareAuthorityAsync()
         {
+            // T-1000: the roster revocation stages its MemberRevoked entry in the roster save; the outbox
+            // delivers it, so deliver what is owed before reading the trail.
+            await Services.GetRequiredService<NodeAuditOutbox>().DrainAsync();
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var records = new List<AuditRecord>();
             await foreach (var record in Services.GetRequiredService<IAuditTrail>()
@@ -1476,43 +1500,50 @@ public sealed class KernelClockIntegrationTests
     {
         public async Task PublishLocalAsync(
             RosterRecordCrdtState record,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord)
         {
             if (interleaving == "projection") await barrier.ArriveAsync(cancellationToken);
-            await inner.PublishLocalAsync(record, cancellationToken);
+            await inner.PublishLocalAsync(record, cancellationToken, stageWithRecord);
             if (interleaving == "adoption") await barrier.ArriveAsync(cancellationToken);
         }
 
         public IReadOnlyList<RosterRecordCrdtState> Snapshot() => inner.Snapshot();
     }
 
-    private sealed class BarrierAuditTrail(
-        IAuthorizedAuditTrail inner,
-        RevocationInterleavingBarrier barrier,
-        string interleaving) : IAuthorizedAuditTrail
+    /// <summary>T-1000: arrives at the barrier where the revocation stages its MemberRevoked entry, inside the roster save.</summary>
+    private sealed class BarrierRecorder(
+        IEnrollmentCompensatingControlRecorder inner,
+        RevocationInterleavingBarrier barrier) : IEnrollmentCompensatingControlRecorder
     {
-        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) =>
-            inner.AppendAsync(record, ct);
+        public IEnrollmentCompensatingControlRecorder Within(object write) =>
+            new BarrierRecorder(inner.Within(write), barrier);
 
-        public async ValueTask AppendAuthorizedAsync(
-            AuditRecord record,
-            AuthorizationDecision decision,
-            CancellationToken ct = default,
-            SeparationOfDutyDecision? approval = null)
+        public ValueTask RecordMemberAdmittedAsync(
+            TenantId tenantId, string teamId, string admitterPartyId, string admittedPartyId,
+            string admittedPublicKeyBase64Url, IReadOnlyList<string> grantedPermissions, string admissionMode,
+            string? correlationId = null, CancellationToken ct = default) =>
+            inner.RecordMemberAdmittedAsync(tenantId, teamId, admitterPartyId, admittedPartyId,
+                admittedPublicKeyBase64Url, grantedPermissions, admissionMode, correlationId, ct);
+
+        public async ValueTask RecordMemberRevokedAsync(
+            TenantId tenantId, string teamId, string revokerPartyId, string revokedPartyId,
+            string? correlationId = null, CancellationToken ct = default)
         {
-            if (interleaving == "audit-append" && record.EventType == AuditEventType.MemberRevoked)
-                await barrier.ArriveAsync(ct);
-            await inner.AppendAuthorizedAsync(record, decision, ct, approval);
+            await barrier.ArriveAsync(ct);
+            await inner.RecordMemberRevokedAsync(tenantId, teamId, revokerPartyId, revokedPartyId, correlationId, ct);
         }
 
-        public async IAsyncEnumerable<AuditRecord> QueryAsync(
-            AuditQuery query,
-            [EnumeratorCancellation] CancellationToken ct = default)
-        {
-            if (interleaving == "audit-query" && query.EventType == AuditEventType.MemberRevoked)
-                await barrier.ArriveAsync(ct);
-            await foreach (var record in inner.QueryAsync(query, ct)) yield return record;
-        }
+        public ValueTask RecordPermissionsGrantedAsync(
+            TenantId tenantId, string teamId, string granterPartyId, string targetPartyId,
+            IReadOnlyList<string> resultingPermissions, string? correlationId = null, CancellationToken ct = default) =>
+            inner.RecordPermissionsGrantedAsync(
+                tenantId, teamId, granterPartyId, targetPartyId, resultingPermissions, correlationId, ct);
+
+        public ValueTask RecordOwnershipTransferredAsync(
+            TenantId tenantId, string teamId, string fromPartyId, string toPartyId,
+            string? correlationId = null, CancellationToken ct = default) =>
+            inner.RecordOwnershipTransferredAsync(tenantId, teamId, fromPartyId, toPartyId, correlationId, ct);
     }
 
     private sealed class MutableHostClock(DateTimeOffset now) : TimeProvider

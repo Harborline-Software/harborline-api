@@ -38,6 +38,10 @@ public sealed class CompromisedDeviceResponseCompositionTests
             sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>(),
             TimeProvider.System,
             sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
+        // T-1000 — the revocation authority records its MemberRevoked audit through the enrollment recorder in the
+        // roster save, so the recorder is a prerequisite too (production: AddEnrollmentCompensatingControlAudit).
+        services.AddSingleton<Harborline.Api.Foundation.IdentityAtlas.Enrollment.IEnrollmentCompensatingControlRecorder>(
+            Harborline.Api.Foundation.IdentityAtlas.Enrollment.NullEnrollmentCompensatingControlRecorder.Instance);
         services.AddSingleton(TimeProvider.System);
         services.AddNodeRoster();
 

@@ -3,6 +3,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Authorization.SeparationOfDuty;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Crdt;
 using Harborline.Api.Kernel.Crdt.Backends;
@@ -67,7 +68,8 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
                 new NodeRosterMemberRevocationAuthority(
                     liveRoster, new RosterRevocationProjection(projection), founderSigner, verifier, audit,
                     new NodeAdministratorAuthority(
-                        factory, TimeProvider.System, TestAuthorization.AllowGate())));
+                        factory, TimeProvider.System, TestAuthorization.AllowGate()),
+                    NullEnrollmentCompensatingControlRecorder.Instance));
             var revokedAt = DateTimeOffset.UnixEpoch.AddMinutes(2);
             var decision = TestAuthorization.AllowedDecision(
                 new TenantId(teamId.ToString("D")), "stolen-node", "members",
@@ -80,7 +82,8 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
                 decision);
 
             Assert.False(liveRoster.Current.Contains("stolen-node"));
-            Assert.Same(decision, Assert.Single(audit.Decisions));
+            // T-1000: the audit is staged in the roster save (RevocationEnrollmentAuditTests), never appended after it.
+            Assert.Empty(audit.Decisions);
             await using var reopened = await factory.CreateDbContextAsync();
             var row = Assert.Single(await reopened.RosterRecords
                 .Where(item => item.Kind == (int)RosterRecordKind.Revocation)
@@ -140,7 +143,8 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             var publisher = new NodeRosterCompromisedDeviceRevocationPublisher(
                 new NodeRosterMemberRevocationAuthority(
                     liveRoster, new RosterRevocationProjection(projection), founderSigner, verifier,
-                    new CapturingAuthorizedAuditTrail(), administrators));
+                    new CapturingAuthorizedAuditTrail(), administrators,
+                    NullEnrollmentCompensatingControlRecorder.Instance));
             var revokedAt = DateTimeOffset.UnixEpoch.AddMinutes(2);
             var decision = TestAuthorization.AllowedDecision(
                 new TenantId(team), "stolen-node", "members",
@@ -215,7 +219,7 @@ public sealed class NodeRosterCompromisedDeviceRevocationPublisherTests
             var publisher = new NodeRosterCompromisedDeviceRevocationPublisher(
                 new NodeRosterMemberRevocationAuthority(
                     liveRoster, new RosterRevocationProjection(projection), founderSigner, verifier,
-                    auditTrail, administrators));
+                    auditTrail, administrators, NullEnrollmentCompensatingControlRecorder.Instance));
             var revokedAt = DateTimeOffset.UnixEpoch.AddMinutes(2);
             var decision = TestAuthorization.AllowedDecision(
                 new TenantId(team), "operator-a", "members",

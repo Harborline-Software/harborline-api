@@ -107,6 +107,19 @@ public sealed class NodeAuditOutbox(
     /// context whose one save commits the change it records. Nothing is saved here; a signing fault throws, so
     /// the change fails with it rather than committing unaudited.
     /// </summary>
+    /// <param name="write">The context whose one save commits the change; the entry is added to it, not saved.</param>
+    /// <param name="signer">Signs the envelope now; a signing fault throws before anything is staged.</param>
+    /// <param name="tenant">The tenant the entry is recorded under.</param>
+    /// <param name="eventType">The event the entry records.</param>
+    /// <param name="occurredAt">The instant the entry records; with <paramref name="decision"/> it must be the decided instant.</param>
+    /// <param name="body">The entry body that is signed and stored.</param>
+    /// <param name="ct">Cancels the signing.</param>
+    /// <param name="decision">
+    /// T-1000: the decision that allowed the change, when a request decision allowed it. Its authority is captured
+    /// now against the entry's header (<see cref="CapturedAuditAuthority.Capture"/>), and the entry carries its
+    /// actor, target and act, so the delivered record is the one an authorized append would have written. A
+    /// header the decision does not match throws, so the change fails rather than committing a wrong entry.
+    /// </param>
     /// <returns>The staged entry's audit id.</returns>
     public static async ValueTask<Guid> StageSignedAsync(
         DbContext write,
@@ -115,11 +128,16 @@ public sealed class NodeAuditOutbox(
         AuditEventType eventType,
         DateTimeOffset occurredAt,
         IReadOnlyDictionary<string, object?> body,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        AuthorizationDecision? decision = null)
     {
         ArgumentNullException.ThrowIfNull(write);
         ArgumentNullException.ThrowIfNull(signer);
         ArgumentNullException.ThrowIfNull(body);
+        var request = decision?.Request;
+        var snapshot = request is null
+            ? null
+            : CapturedAuditAuthority.Capture(tenant, request.Principal, occurredAt, request.Target, request.Act, decision!);
         var nonce = Guid.NewGuid();
         var payload = await signer.SignAsync(new AuditPayload(body), occurredAt, nonce, ct).ConfigureAwait(false);
         var id = Guid.NewGuid();
@@ -132,6 +150,12 @@ public sealed class NodeAuditOutbox(
             Nonce = nonce.ToString("D"),
             BodyJson = JsonSerializer.Serialize(body),
             SignedPayloadJson = NodeAuditRecordJson.WritePayload(payload),
+            Actor = request?.Principal.Value,
+            TargetKind = request?.Target.RecordKind,
+            TargetId = request?.Target.RecordId,
+            TargetScope = request?.Target.Scope.Value,
+            Act = request?.Act.ToString(),
+            AuthoritySnapshotJson = snapshot is null ? null : JsonSerializer.Serialize(snapshot),
         });
         return id;
     }

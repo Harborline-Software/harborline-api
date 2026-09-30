@@ -5,9 +5,9 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Enrollment;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
-using Harborline.Api.Kernel.Audit.Payloads;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
 using Harborline.Api.LocalNodeHost.Enrollment;
@@ -48,28 +48,49 @@ internal interface INodeRosterMemberRevocationAuthority
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>The roster projection surface the member-revocation authority writes and reads through.</summary>
 internal interface IRosterRevocationProjection
 {
-    Task PublishLocalAsync(RosterRecordCrdtState record, CancellationToken cancellationToken);
+    /// <summary>
+    /// Persists and publishes <paramref name="record"/>. <paramref name="stageWithRecord"/> stages rows on the roster
+    /// context before the one save that writes the record, so they commit together or not at all; a fault it throws
+    /// leaves the record unwritten (<see cref="RosterCrdtProjection.PublishLocalAsync"/>).
+    /// </summary>
+    Task PublishLocalAsync(
+        RosterRecordCrdtState record,
+        CancellationToken cancellationToken,
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord);
+
+    /// <summary>The converged roster records, in list order.</summary>
     IReadOnlyList<RosterRecordCrdtState> Snapshot();
 }
 
 internal sealed class RosterRevocationProjection(RosterCrdtProjection inner) : IRosterRevocationProjection
 {
-    public Task PublishLocalAsync(RosterRecordCrdtState record, CancellationToken cancellationToken) =>
-        inner.PublishLocalAsync(record, cancellationToken);
+    public Task PublishLocalAsync(
+        RosterRecordCrdtState record,
+        CancellationToken cancellationToken,
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord) =>
+        inner.PublishLocalAsync(record, cancellationToken, stageWithRecord);
 
     public IReadOnlyList<RosterRecordCrdtState> Snapshot() => inner.Snapshot();
 }
 
 /// <summary>One decision-bearing authority for every locally-originated roster revocation.</summary>
+/// <remarks>
+/// T-1000 (DES-0029 kernel-core-ck-6): the revocation's <see cref="AuditEventType.MemberRevoked"/> entry is staged
+/// through <paramref name="recorder"/>, bound to the roster save and the admitted decision, so the roster record and
+/// its audit commit together or neither does. An append or signing fault refuses the revocation and writes no roster
+/// record. The committed entry reaches the trail through the audit outbox's drain; delivery is not durability.
+/// </remarks>
 internal sealed class NodeRosterMemberRevocationAuthority(
     NodeTeamRoster roster,
     IRosterRevocationProjection projection,
     IOperationSigner signer,
     IOperationVerifier verifier,
     IAuthorizedAuditTrail audit,
-    NodeAdministratorAuthority administrators) : INodeRosterMemberRevocationAuthority
+    NodeAdministratorAuthority administrators,
+    IEnrollmentCompensatingControlRecorder recorder) : INodeRosterMemberRevocationAuthority
 {
     private static readonly AuthorizationOperation MembersManage =
         AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
@@ -129,47 +150,29 @@ internal sealed class NodeRosterMemberRevocationAuthority(
                     "The roster revocation could not write its administrator removal: " + removal.Code);
             }
 
-            RosterRecordCrdtState? state;
             if (current.Contains(revokedPartyId))
             {
                 var (afterRevocation, signedRevocation) = current.SignRevoke(
                     revokedByPartyId, signer, revokedPartyId, verifier, admittedDecision.DecidedAt, Guid.NewGuid());
-                state = RosterRecordCrdtState.FromRevocation(signedRevocation);
-                await projection.PublishLocalAsync(state, cancellationToken).ConfigureAwait(false);
+                var state = RosterRecordCrdtState.FromRevocation(signedRevocation);
+                await projection.PublishLocalAsync(state, cancellationToken, (write, token) =>
+                    recorder.Within(new AuthorizedEnrollmentWrite(write, admittedDecision, reason))
+                        .RecordMemberRevokedAsync(
+                            tenant, state.TeamId, revokedByPartyId, revokedPartyId, correlationId, token))
+                    .ConfigureAwait(false);
                 roster.AdoptSyncedRoster(afterRevocation);
-            }
-            else
-            {
-                state = projection.Snapshot().LastOrDefault(record =>
-                    record.Kind == RosterRecordKind.Revocation
-                    && string.Equals(record.TeamId, tenant.Value, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(record.PartyId, revokedPartyId, StringComparison.Ordinal)
-                    && string.Equals(record.AdmittedByPartyId, revokedByPartyId, StringComparison.Ordinal)
-                    && record.ToRevocationOrNull() is not null);
-                if (state is null) return null;
+                return ToEvidence(state);
             }
 
-            await foreach (var existing in audit.QueryAsync(
-                               new AuditQuery(tenant, AuditEventType.MemberRevoked), cancellationToken)
-                               .ConfigureAwait(false))
-            {
-                if (existing.Target == reaction.Target)
-                    return ToEvidence(state);
-            }
-
-            var body = new Dictionary<string, object?>(new EnrollmentCompensatingControlPayloads.MemberRevokedPayload(
-                tenant, state.TeamId, revokedByPartyId, revokedPartyId, correlationId).ToBody())
-            {
-                ["reason"] = reason,
-            };
-            var signedAudit = await signer.SignAsync(
-                new AuditPayload(body), admittedDecision.DecidedAt, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
-            await audit.AppendAuthorizedAsync(new AuditRecord(
-                Guid.NewGuid(), tenant, AuditEventType.MemberRevoked, admittedDecision.DecidedAt, signedAudit,
-                ImmutableArray<AttestingSignature>.Empty, Actor: admittedDecision.Request.Principal,
-                Target: reaction.Target, Act: reaction.Act), admittedDecision, cancellationToken).ConfigureAwait(false);
-
-            return ToEvidence(state);
+            // A replay of a revocation that already committed: its audit committed in the same save, so there is
+            // nothing to record again.
+            var committed = projection.Snapshot().LastOrDefault(record =>
+                record.Kind == RosterRecordKind.Revocation
+                && string.Equals(record.TeamId, tenant.Value, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(record.PartyId, revokedPartyId, StringComparison.Ordinal)
+                && string.Equals(record.AdmittedByPartyId, revokedByPartyId, StringComparison.Ordinal)
+                && record.ToRevocationOrNull() is not null);
+            return committed is null ? null : ToEvidence(committed);
         }
         finally
         {
