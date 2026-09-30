@@ -362,6 +362,7 @@ internal static class PackInstallRoutes
                     packKey = outcome.PackKey,
                     version = outcome.Version,
                     error = outcome.Error,
+                    dependents = outcome.Dependents ?? [],
                 });
             }
 

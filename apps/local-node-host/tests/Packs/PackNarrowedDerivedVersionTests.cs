@@ -458,6 +458,7 @@ public sealed class PackNarrowedDerivedVersionTests : IAsyncLifetime
 
             var install = Installer.Install(export.FileBytes!, Context);
             Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));
+            PlatformPackTestPreload.Activate(_store, Tenant);
             var activation = Installer.Activate(Tenant, PackKey, packVersion, Now.AddMinutes(_activationCount++), "test-operator");
             Assert.True(activation.Activated, $"{activation.Error}: {activation.Detail}");
         }

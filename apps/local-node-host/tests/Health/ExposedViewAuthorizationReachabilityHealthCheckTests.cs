@@ -28,6 +28,7 @@ using Harborline.Api.LocalNodeHost.Health;
 using Xunit;
 
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Health;
 
@@ -119,6 +120,7 @@ public sealed class ExposedViewAuthorizationReachabilityHealthCheckTests
     {
         var (_, active) = await ViewAndPackAsync(exposes: [ViewKey], capability: null);
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, Tenant);
         var draft = active with { Lifecycle = PackLifecycleState.Draft };
         store.Commit(new PackInstallTransaction(
             Tenant, draft, new PackInstallWatermark(draft.PackKey, draft.Version, new Dictionary<string, int>()),

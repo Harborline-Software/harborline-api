@@ -65,6 +65,7 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
             failure == "platform" ? ["packs.pillar.future"] : null);
         CommitActivePack(store, "pack.c", AssetSeed("restore.c", "Last"));
         Assert.Equal(3, store.ListInstalled(Tenant).Count(p => p.Lifecycle == PackLifecycleState.Active));
+        PlatformPackTestPreload.Activate(store, Tenant);
         var audit = new InMemoryPackInstallAudit();
         var gate = Authorization.TestAuthorization.Gate(request =>
         {
@@ -97,7 +98,7 @@ public sealed class PackBootReprojectionCompatibilityTests : IDisposable
             && entry.Message.Contains(reason, StringComparison.Ordinal));
         Assert.Contains(logger.Messages, entry => entry.Level == LogLevel.Information
             && entry.Message.Contains("pending", StringComparison.Ordinal)
-            && entry.Message.Contains("2 active packs restored, 1 refused", StringComparison.Ordinal));
+            && entry.Message.Contains("3 active packs restored, 1 refused", StringComparison.Ordinal));
     }
 
     private sealed class RestoreLogger : ILogger<PackSeedProjectionHostedService>
