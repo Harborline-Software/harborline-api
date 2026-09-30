@@ -313,6 +313,7 @@ public sealed class ChannelFeedRouteTests
             var root = previewRoot ?? GoldenDogfoodFeed.PinnedRoot();
             var codec = new PackFileCodec();
             var sharedStore = store ?? new InMemoryPackInstallStore();
+            if (sharedStore is IPackInstallMutationStore mutable) PlatformPackTestPreload.Activate(mutable, TeamTenant);
             var installer = new PackInstaller(
                 new PackVerifier(new Harborline.Api.Foundation.Crypto.Ed25519Verifier(), codec),
                 sharedStore,

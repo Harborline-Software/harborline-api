@@ -23,6 +23,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.Assets.Registry.Services;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Definitions;
 
@@ -152,6 +153,7 @@ public sealed class DefinitionEnvelopeRoundTripTests
         var packBytes = Assert.IsType<byte[]>(exported.FileBytes);
 
         var targetPackStore = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(targetPackStore, tenant);
         var trustStore = new InMemoryPackTrustStore(
         [
             new PackTrustRoot(TrustScope.OwnRoster, keyPair.PrincipalId, 1, TrustRootStatus.Current),

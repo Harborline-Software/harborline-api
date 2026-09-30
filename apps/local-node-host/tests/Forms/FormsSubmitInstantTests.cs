@@ -4,6 +4,7 @@ using System.Text.Json;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,7 +57,9 @@ public sealed class FormsSubmitInstantTests : IAsyncLifetime
             Harborline.Api.Foundation.Recovery.Crypto.TenantKeyProviderFieldEncryptor>();
         builder.Services.AddTestAuthorizationGate().AddTestNodeForms();
         builder.Services.AddFrozenKernelClock(_clock);
+        builder.Services.AddHttpContextAccessor();
         _app = builder.Build();
+        _clock.Requests = _app.Services.GetRequiredService<IHttpContextAccessor>();
 
         var schema = await _app.Services.GetRequiredService<ISchemaRegistry>().RegisterAsync(
             """
@@ -144,6 +147,10 @@ public sealed class FormsSubmitInstantTests : IAsyncLifetime
         private int _readsBeforeMidnight;
         public int Reads { get; private set; }
 
+        // Only the submit request's own reads count: the host's background services also read the kernel clock, and
+        // counting their reads shifted which read fell before midnight (T-987).
+        public IHttpContextAccessor? Requests { get; set; }
+
         public void Arm(int readsBeforeMidnight)
         {
             _armed = true;
@@ -153,7 +160,7 @@ public sealed class FormsSubmitInstantTests : IAsyncLifetime
 
         public override DateTimeOffset GetUtcNow()
         {
-            if (!_armed) return beforeMidnight;
+            if (!_armed || Requests?.HttpContext is null) return beforeMidnight;
             Reads++;
             return Reads <= _readsBeforeMidnight ? beforeMidnight : beforeMidnight.AddSeconds(2);
         }

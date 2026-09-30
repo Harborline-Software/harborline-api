@@ -42,6 +42,7 @@ using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Entities;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -1204,6 +1205,7 @@ public sealed class AuthorizationWriteStageTests
         var at = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
         using var signer = KeyPair.Generate();
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, tenant);
         var pack = new InstalledPack(
             "retired-pack", "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft,
             Array.Empty<PackSeedItem>(), new Dictionary<string, int>(), at,

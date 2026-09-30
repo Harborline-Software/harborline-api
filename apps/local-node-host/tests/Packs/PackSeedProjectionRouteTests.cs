@@ -122,6 +122,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         _activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "General Co"));
 
         _packStore = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(_packStore, NodeTenant.Resolve(_activeTeam));
         var admission = new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator());
         _installer = new PackInstaller(verifier, _packStore, admission, new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
@@ -433,7 +434,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId)));
         Assert.Equal(
             PackLifecycleState.Draft,
-            Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+            Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey).Lifecycle);
     }
 
     [Fact(DisplayName = "394: a malformed third content item returns its stable code and a resolvable export pointer")]
@@ -544,7 +545,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         var refusal = Assert.Single(response.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(formId, refusal.GetProperty("contentKey").GetString());
         Assert.Equal(PackSeedProjector.FormPinnedTupleConflictCode, refusal.GetProperty("code").GetString());
-        Assert.Equal(PackKey, Assert.Single(_packStore.ListInstalled(tenant)).PackKey);
+        Assert.Equal(PackKey, Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey).PackKey);
         Assert.Null(await _forms.GetCurrentPublishedAsync(new DefinitionAddress(tenant, formId)));
     }
 
@@ -800,7 +801,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Empty(projection.Refusals);
         await Assert.ThrowsAsync<WorkflowDefinitionNotFoundException>(
             async () => await _workflows.GetAsync(new DefinitionCoordinates(tenant, workflowKey, "1.0.0")));
-        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey).Lifecycle);
     }
 
     [Fact(DisplayName = "an inadmissible workflow refuses activation with its localizable code and leaves the pack Draft")]
@@ -823,7 +824,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             Assert.Equal("WorkflowDefinition", refusal.GetProperty("contentKind").GetString());
             Assert.Equal(WorkflowAdmissionCodes.ActionUnclassified, refusal.GetProperty("code").GetString());
         }
-        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey).Lifecycle);
         await Assert.ThrowsAsync<WorkflowDefinitionNotFoundException>(
             async () => await _workflows.GetAsync(new DefinitionCoordinates(tenant, workflowKey, workflowVersion)));
     }
@@ -859,7 +860,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         Assert.Equal(WorkflowDefinitionStatus.Draft, existing.Status);
         Assert.Equal("pack-author", existing.Authored.GetProperty("owner").GetProperty("scheme").GetString());
         Assert.Equal("ignored", existing.Authored.GetProperty("provenance").GetString());
-        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant)).Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey).Lifecycle);
     }
 
     [Fact(DisplayName = "an already-published workflow owned by another pack refuses instead of resuming")]
@@ -1232,7 +1233,7 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
         IdentityRef owner,
         string packSourceId = PackKey)
     {
-        var installed = Assert.Single(_packStore.ListInstalled(tenant));
+        var installed = Assert.Single(_packStore.ListInstalled(tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey);
         var item = Assert.Single(installed.SeedItems);
         Assert.True(
             PackFormDefinitionContent.TryParse(item.ParseContent(), out var request, out var parseError),

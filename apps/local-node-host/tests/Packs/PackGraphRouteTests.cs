@@ -26,6 +26,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 
@@ -76,6 +77,7 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
         var activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Graph Co"));
 
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, NodeTenant.Resolve(activeTeam));
         var admission = new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator());
         var installer = new PackInstaller(verifier, store, admission, new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());
@@ -124,7 +126,8 @@ public sealed class PackGraphRouteTests : IAsyncLifetime
         var root = doc.RootElement;
 
         Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("installStateFingerprint").GetString()));
-        var apps = root.GetProperty("apps").EnumerateArray().ToList();
+        var apps = root.GetProperty("apps").EnumerateArray()
+            .Where(app => app.GetProperty("packKey").GetString() != PlatformPackTestPreload.PackKey).ToList();
         Assert.Equal(2, apps.Count);
 
         var fleet = Assert.Single(apps, a => a.GetProperty("packKey").GetString() == "fleet-ops");

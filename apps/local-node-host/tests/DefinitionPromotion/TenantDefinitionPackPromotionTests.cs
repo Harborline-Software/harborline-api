@@ -20,6 +20,7 @@ using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Compose;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -116,6 +117,7 @@ public sealed class TenantDefinitionPackPromotionTests
         var packBytes = Assert.IsType<byte[]>(exported.FileBytes);
 
         var nodeBPackStore = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(nodeBPackStore, tenant);
         var trustStore = new InMemoryPackTrustStore(
         [
             new PackTrustRoot(TrustScope.OwnRoster, keyPair.PrincipalId, 1, TrustRootStatus.Current),
