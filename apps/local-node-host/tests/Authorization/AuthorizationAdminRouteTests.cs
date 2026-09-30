@@ -15,7 +15,8 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Forms.Models;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.IdentityAtlas;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
@@ -485,24 +486,20 @@ public sealed class AuthorizationAdminRouteTests : IAsyncLifetime
             role);
 
     private static StandingRuleDefinition HandlerRule() => new(
-        RuleId: "matter.handler",
-        RuleVersion: "1.0.0",
-        Standing: new StandingReference("handler"),
-        RecordType: "matter",
-        InputFields: ["handler_id", "unmapped"],
-        Predicate: new RuleDefinition(
-            new DefinitionEnvelope<string, string, TenantId, string?>(
-                "matter.handler",
-                "1.0.0",
-                new TenantId("bbbbbbbb-0000-0000-0000-000000000220"),
-                CascadeLayer.Pack,
-                Provenance: null,
-                Array.Empty<DefinitionRequirement>()),
-            RuleTier.JsonLogic,
-            RuleScope.Schema,
-            string.Empty,
-            "{\"and\":[{\"==\":[{\"var\":\"handler_id\"},\"person-7\"]},{\"==\":[{\"var\":\"unmapped\"},\"yes\"]}]}",
-            RuleActionKind.Validate));
+        "matter.handler",
+        "1.0.0",
+        new StandingReference("handler"),
+        "matter",
+        ["handler_id", "unmapped"],
+        new Harborline.Contracts.Forms.RuleDefinition
+        {
+            Id = "matter.handler",
+            Tier = Harborline.Contracts.Forms.RuleTier.JsonLogic,
+            Scope = Harborline.Contracts.Forms.RuleScope.Schema,
+            ScopeTarget = string.Empty,
+            Expression = "{\"and\":[{\"==\":[{\"var\":\"handler_id\"},\"person-7\"]},{\"==\":[{\"var\":\"unmapped\"},\"yes\"]}]}",
+            Action = Harborline.Contracts.Forms.RuleActionKind.Validate,
+        });
 
     private static string SchemaWithProperties(params string[] properties)
     {

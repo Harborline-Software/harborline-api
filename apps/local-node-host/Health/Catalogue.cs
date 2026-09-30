@@ -21,7 +21,8 @@ using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.ReportDefinitions;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.Foundation.ScheduleDefinitions;
 using Harborline.Api.Foundation.Taxonomy.Services;
 using Harborline.Api.Foundation.ViewDefinitions;
@@ -567,12 +568,12 @@ public sealed class CatalogueRegistries(
     {
         try
         {
-            var expected = JsonSerializer.Deserialize<StandingRuleDefinition>(item.CanonicalJson, Json);
+            var expected = StandingRuleDefinitionJson.Deserialize(item.CanonicalJson, Json);
             return expected is not null && JsonElement.DeepEquals(
                 JsonSerializer.SerializeToElement(rule, Json), JsonSerializer.SerializeToElement(expected, Json));
         }
         catch (Exception exception) when (exception is JsonException or ArgumentException
-            or Harborline.Api.Foundation.RuleEngine.Compilation.RuleCompilationException) { return false; }
+            or Harborline.Foundation.RuleEngine.Compilation.RuleCompilationException) { return false; }
     }
 
     // The registry has no revision/timestamp for authored asset types; the envelope leaves those unknown.
