@@ -112,7 +112,62 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
         await UpsertAsync(ctx, calendarEvent, ct).ConfigureAwait(false);
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         // Any OTHER resource on the claim (a participant beside the claimed one) moves too.
-        await BumpEpochsAsync(ctx, calendarEvent, ct, except: key).ConfigureAwait(false);
+        await BumpEpochsAsync(ctx, calendarEvent, ct, except: [key]).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <see cref="SaveIfCapacityUnchangedAsync"/> widened to a set inside ONE transaction: each
+    /// expected resource runs the same conditional advance, and any miss rolls the whole transaction
+    /// back, so no epoch moves and no event is written. Every event is then upserted in that same
+    /// transaction (T-606).
+    /// </remarks>
+    public async Task<bool> SaveAllIfCapacityUnchangedAsync(
+        TenantId tenantId,
+        IReadOnlyList<CalendarEvent> calendarEvents,
+        IReadOnlyDictionary<ParticipantRef, long> expectedEpochs,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(calendarEvents);
+        ArgumentNullException.ThrowIfNull(expectedEpochs);
+        if (calendarEvents.Any(e => e.TenantId != tenantId))
+            throw new ArgumentException("Every event must belong to the claiming tenant.", nameof(calendarEvents));
+        var tenant = tenantId.Value;
+
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        var advancedKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (resource, expectedEpoch) in expectedEpochs)
+        {
+            var key = EpochKey(resource);
+            // The same compare-and-set statement as SaveIfCapacityUnchangedAsync.
+            var advanced = await ctx.Database.ExecuteSqlAsync(
+                $"""
+                 INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch)
+                 SELECT {tenant}, {key}, 1
+                   WHERE {expectedEpoch} = 0
+                      OR EXISTS (SELECT 1 FROM calendar_capacity_epochs
+                                 WHERE tenant_id = {tenant} AND resource = {key})
+                 ON CONFLICT(tenant_id, resource) DO UPDATE
+                   SET epoch = calendar_capacity_epochs.epoch + 1
+                   WHERE calendar_capacity_epochs.epoch = {expectedEpoch}
+                 """, ct).ConfigureAwait(false);
+            if (advanced != 1)
+            {
+                await tx.RollbackAsync(ct).ConfigureAwait(false);
+                return false;
+            }
+            advancedKeys.Add(key);
+        }
+
+        foreach (var calendarEvent in calendarEvents)
+            await UpsertAsync(ctx, calendarEvent, ct).ConfigureAwait(false);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        foreach (var calendarEvent in calendarEvents)
+            await BumpEpochsAsync(ctx, calendarEvent, ct, except: advancedKeys).ConfigureAwait(false);
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return true;
     }
@@ -201,15 +256,15 @@ public sealed class NodeEfCalendarEventStore : ICalendarEventStore
     /// <summary>
     /// Move the epoch of every resource the event occupies — the headline resource and every
     /// participant, which is the set the free/busy occupancy gather treats as "on the event" —
-    /// skipping <paramref name="except"/>, whose epoch a conditional commit has already advanced.
+    /// skipping every key in <paramref name="except"/>, whose epochs a conditional commit has already advanced.
     /// </summary>
     private static async Task BumpEpochsAsync(
-        NodeLocalCalendarDbContext ctx, CalendarEvent calendarEvent, CancellationToken ct, string? except = null)
+        NodeLocalCalendarDbContext ctx, CalendarEvent calendarEvent, CancellationToken ct, IReadOnlyCollection<string>? except = null)
     {
         var tenant = calendarEvent.TenantId.Value;
         foreach (var key in Occupied(calendarEvent).Select(EpochKey).Distinct(StringComparer.Ordinal))
         {
-            if (string.Equals(key, except, StringComparison.Ordinal)) continue;
+            if (except?.Contains(key) == true) continue;
             await ctx.Database.ExecuteSqlAsync(
                 $"""
                  INSERT INTO calendar_capacity_epochs (tenant_id, resource, epoch) VALUES ({tenant}, {key}, 1)

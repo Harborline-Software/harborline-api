@@ -86,6 +86,7 @@ public sealed class UnsupportedPackContentKindInstallTests
 
             Assert.True(outcome.Installed);
             Assert.Equal(PackInstallVerdict.WouldInstall, outcome.Preview.Verdict);
+            PlatformPackTestPreload.Activate(store, Tenant);
             var activation = installer.Activate(Tenant, outcome.PackKey, outcome.Version, Now, "test-operator");
             Assert.True(activation.Activated);
 

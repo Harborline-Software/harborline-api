@@ -24,6 +24,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using Xunit;
 
@@ -464,6 +465,7 @@ public sealed class ReportDefinitionPackProjectionTests
                 Principal: "test-operator"));
         Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));
 
+        PlatformPackTestPreload.Activate(store, tenant);
         var activation = installer.Activate(
             tenant,
             install.PackKey,

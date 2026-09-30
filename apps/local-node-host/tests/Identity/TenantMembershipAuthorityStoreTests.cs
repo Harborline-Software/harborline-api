@@ -215,6 +215,98 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
         Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
     }
 
+    /// <summary>
+    /// ck-4 tenant-slice triage (2026-09-30), mutants 13780 and 13785: the document binding is the only
+    /// place a partition's store proves the authority it reads is its own. Nothing downstream compares
+    /// the membership's tenant with the partition that returned it, so a partition resolved onto another
+    /// tenant's store would list that tenant's memberships as usable here, silently.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_tenant_store_refuses_an_authority_document_written_for_another_tenant()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var owningTenant = Guid.NewGuid().ToString("D");
+        await FinalizeOneMembershipAsync(Authority(database.Store, owningTenant), owningTenant);
+
+        var otherTenant = Authority(database.Store, Guid.NewGuid().ToString("D"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            otherTenant.GetMembershipAsync("account-1", CancellationToken.None));
+        Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
+    }
+
+    /// <summary>
+    /// ck-4 tenant-slice triage (2026-09-30), mutant 14025: a document that is bound to this tenant and
+    /// whose audit chain and receipts are internally consistent must still refuse a membership row that
+    /// names another tenant. The digests cannot catch it (the row's own digest covers the foreign tenant
+    /// id), so the per-row tenant check is the only defence against serving another tenant's membership.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_membership_row_naming_another_tenant_is_refused_even_when_the_document_is_consistent()
+    {
+        await using var database = await TenantStoreDatabase.CreateAsync();
+        var foreignTenant = Guid.NewGuid().ToString("D");
+        var servedTenant = Guid.NewGuid().ToString("D");
+        await FinalizeOneMembershipAsync(Authority(database.Store, foreignTenant), foreignTenant);
+
+        // Rebind the document, its audit chain and its receipts to the served tenant; the membership row
+        // and its finalized intent still name the foreign tenant.
+        var document = System.Text.Json.Nodes.JsonNode.Parse(
+            await database.Store.GetAsync(AuthorityKey, CancellationToken.None))!;
+        document["tenantId"] = servedTenant;
+        var previous = InstallationAuditIntegrity.ZeroHash;
+        var hashes = new Dictionary<long, string>();
+        foreach (var envelope in document["auditEnvelopes"]!.AsArray().OrderBy(item => (long)item!["sequence"]!))
+        {
+            envelope!["previousHash"] = previous;
+            var sequence = (long)envelope["sequence"]!;
+            previous = InstallationAuditIntegrity.Hash(
+                servedTenant,
+                sequence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                (string)envelope["correlationId"]!,
+                (string)envelope["eventType"]!,
+                (string)envelope["accountId"]!,
+                (string)envelope["actorAccountId"]!,
+                (string)envelope["authorityEvidenceDigest"]!,
+                (string)envelope["membershipId"]!,
+                (string)envelope["previousHash"]!,
+                (string)envelope["payloadDigest"]!,
+                envelope["occurredAtUtc"]!.GetValue<DateTimeOffset>().ToUnixTimeMilliseconds()
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture));
+            envelope["envelopeHash"] = previous;
+            hashes[sequence] = previous;
+        }
+        document["auditHeadHash"] = previous;
+        foreach (var intent in document["intents"]!.AsArray())
+        {
+            var receipt = intent!["finalizationReceipt"]!;
+            receipt["tenantId"] = servedTenant;
+            receipt["auditHeadHash"] = hashes[(long)receipt["auditSequence"]!];
+        }
+        await database.Store.SetAsync(
+            AuthorityKey,
+            System.Text.Encoding.UTF8.GetBytes(document.ToJsonString()),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Authority(database.Store, servedTenant).GetMembershipAsync("account-1", CancellationToken.None));
+        Assert.StartsWith("identity.tenant_authority_invalid:", exception.Message);
+    }
+
+    private static async Task FinalizeOneMembershipAsync(
+        EncryptedTenantMembershipAuthorityStore authority,
+        string tenantId)
+    {
+        await authority.PrepareAsync(
+            "command-1", "fingerprint-1", "account-1", ActorAccountId, AuthorityEvidenceDigest,
+            Mutation(tenantId), FixedNow,
+            CancellationToken.None);
+        await authority.FinalizeAsync(
+            "command-1", "fingerprint-1", FixedNow.AddSeconds(1), CancellationToken.None);
+    }
+
     [Fact]
     public async Task Representative_Growth_Remains_Bounded_Well_Below_The_Four_Mib_Ceiling()
     {

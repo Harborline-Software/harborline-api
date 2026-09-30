@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 using NSubstitute;
@@ -110,6 +111,26 @@ public sealed class FounderTenantMembershipAttachTests
         Assert.Equal(firstGrant, replayedGrant);
     }
 
+    /// <summary>
+    /// ck-4 tenant-slice triage (2026-09-30), mutant at FounderTenantMembershipAttachService line 158:
+    /// on a host whose active team is not the genesis team, the attach must refuse before it writes a
+    /// Party binding, tenant grant, or membership into the genesis tenant. Deleting the guard returned
+    /// Attached and left the founder with Administrator authority in a tenant the host is not serving.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Founder_attach_on_a_host_serving_another_team_refuses_and_writes_no_tenant_authority()
+    {
+        await using var fixture = await AttachFixture.CreateAsync(activeTeamDiverged: true);
+
+        Assert.Equal(
+            FounderTenantMembershipAttachStatus.TenantDiverged,
+            await fixture.Service.RunAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            await fixture.Grants.SnapshotAsync(fixture.Tenant),
+            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+    }
+
     private sealed class AttachFixture : IAsyncDisposable
     {
         private readonly string _homePath;
@@ -145,7 +166,7 @@ public sealed class FounderTenantMembershipAttachTests
         public IGrantStore Grants { get; }
         public FounderTenantMembershipAttachService Service { get; }
 
-        public static async Task<AttachFixture> CreateAsync()
+        public static async Task<AttachFixture> CreateAsync(bool activeTeamDiverged = false)
         {
             var team = new TeamId(Guid.NewGuid());
             var tenant = ActiveTeamTenantContext.ProjectTenantId(team);
@@ -236,7 +257,7 @@ public sealed class FounderTenantMembershipAttachTests
                 redemption,
                 partyReader,
                 Substitute.For<IPartyWriteService>(),
-                new InactiveTeamAccessor(),
+                activeTeamDiverged ? new DivergedTeamAccessor() : new InactiveTeamAccessor(),
                 new GenesisTeamIdProvider(team),
                 new FounderRosterPartyProvider(rosterPartyId),
                 time);
@@ -325,6 +346,23 @@ public sealed class FounderTenantMembershipAttachTests
             new ActiveTeamChangedEventArgs(null, null));
     }
 
+    /// <summary>A host serving a team that is not the genesis team.</summary>
+    private sealed class DivergedTeamAccessor : IActiveTeamAccessor
+    {
+        public TeamContext? Active { get; } = new(
+            new TeamId(Guid.NewGuid()),
+            "Non-genesis team",
+            new ServiceCollection().BuildServiceProvider(),
+            TimeProvider.System);
+
+        public Task SetActiveAsync(TeamId teamId, CancellationToken ct) => Task.CompletedTask;
+        public event EventHandler<ActiveTeamChangedEventArgs>? ActiveChanged;
+
+        private void KeepEvent() => ActiveChanged?.Invoke(
+            this,
+            new ActiveTeamChangedEventArgs(null, null));
+    }
+
     private sealed class AlwaysLeaseCoordinator : ILeaseCoordinator
     {
         private readonly ConcurrentDictionary<string, Lease> _held = new(StringComparer.Ordinal);
@@ -359,20 +397,4 @@ public sealed class FounderTenantMembershipAttachTests
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
-
-    // NOT COVERED HERE, deliberately and with the reason stated: the tenant-divergence guard's
-    // BEHAVIOUR. Constructing FounderTenantMembershipAttachService requires non-null
-    // InstallationIdentityCoordinatorService and InitialGrantIssuanceService, both `sealed`, so they
-    // cannot be substituted and the guard cannot be driven through RunAsync without standing up their
-    // real dependency graphs.
-    //
-    // An earlier revision of this file "covered" it by comparing enum members and claimed that made
-    // the guard un-deletable. It did not — Enum.IsDefined on a compile-time-known member is always
-    // true, and two distinct members always differ — so deleting the guard left it green while its
-    // docstring said otherwise. That is the tests-agree-with-themselves failure this PR closes
-    // elsewhere, and a false claim of coverage is worse than an admitted gap: it tells the next
-    // author the guard is protected when it is not.
-    //
-    // Carded rather than faked. The real test drives the composed host over HTTP and asserts select
-    // refuses on a diverged-team configuration; that also needs the host-config question settled.
 }

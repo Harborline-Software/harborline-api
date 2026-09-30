@@ -28,6 +28,7 @@ using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Audit;
 
@@ -316,6 +317,7 @@ public sealed class AuthoritySnapshotTests
         var recorded = new RecordingPackInstallAudit();
         var gateCalls = 0;
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, Tenant);
         var codec = new PackFileCodec();
         var installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),
@@ -620,7 +622,7 @@ public sealed class AuthoritySnapshotTests
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.DeactivateCore(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String,System.DateTimeOffset,System.String,Harborline.Api.Foundation.Packs.Install.PackProjectionAuthority&): Harborline.Api.Foundation.Packs.Install.PackDeactivationOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditRefused(Harborline.Api.Foundation.Packs.Install.PackInstallContext,Harborline.Api.Foundation.Packs.Install.PackInstallPreview,System.Nullable`1[Harborline.Api.Foundation.Crypto.PrincipalId],Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditActivationRefusal(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String,System.DateTimeOffset,System.String,System.String,System.String,Harborline.Api.Foundation.Authorization.AuthorizationDecision,Harborline.Api.Foundation.Packs.Install.PackInstallRefusal): Harborline.Api.Foundation.Packs.Install.PackActivationOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
-            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditDeactivationRefusal(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String,System.DateTimeOffset,System.String,System.String,Harborline.Api.Foundation.Authorization.AuthorizationDecision): Harborline.Api.Foundation.Packs.Install.PackDeactivationOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
+            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditDeactivationRefusal(Harborline.Foundation.Assets.Common.TenantId,System.String,System.String,System.DateTimeOffset,System.String,System.String,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Collections.Generic.IReadOnlyList`1[System.String]): Harborline.Api.Foundation.Packs.Install.PackDeactivationOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             // T-644: evidence publication after the durable configuration switch carries the one point-of-use
             // decision that admitted the switch; no second decision is taken for the audit append.
             "apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget.CompareAndSwapAsync(Harborline.Blocks.BuilderDefinitions.ConfigurationActivationRequest,Harborline.Api.Foundation.Authorization.AuthorizationWriteContext,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Blocks.BuilderDefinitions.ConfigurationActivationOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
