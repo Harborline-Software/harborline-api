@@ -26,12 +26,6 @@ public sealed class WritePipelineExecutorFenceTests
     [
         ("apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget.CompareAndSwapAsync",
             "S5 configuration activation"),
-        ("apps/local-node-host/Data/Entities/NodeEntityWriter.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter.CreateWithReceiptAsync",
-            "S2 record create"),
-        ("apps/local-node-host/Data/Entities/NodeEntityWriter.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter.DeleteAsync",
-            "S2 record delete"),
-        ("apps/local-node-host/Data/Entities/NodeEntityWriter.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter.UpdateAsync",
-            "S2 record update"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator+<>c__DisplayClass_0.<ReparentAsync>b__0",
             "S3 hierarchy reparent"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ApplyMergeAsync",
@@ -117,6 +111,35 @@ public sealed class WritePipelineExecutorFenceTests
         // The authorization configuration writer and the admission conferral commit from a KernelWrite.
         Assert.Contains(onExecutor, key => key.Contains("AuthorizationDefinitionWriter+ConfigurationWrite.CommitAsync", StringComparison.Ordinal));
         Assert.Contains(onExecutor, key => key.Contains("AuthorizationDefinitionWriter+ConferralWrite.CommitAsync", StringComparison.Ordinal));
+        // ck-10 S2: the generic record create, update and delete commit from a KernelWrite.
+        foreach (var write in new[] { "RecordCreate", "RecordUpdate", "RecordDelete" })
+            Assert.Contains(onExecutor, key => key.Contains($"NodeEntityWriter+{write}.CommitAsync", StringComparison.Ordinal));
+    }
+
+    [Fact(DisplayName = "ck-10 fence: the record writer commits only from its KernelWrite commit stages, EF saves included")]
+    public void RecordWriterCommitsOnlyFromItsCommitStages()
+    {
+        // The legal-entity create persists through EF, which the shared sink set does not cover, so this
+        // writer's EF saves are sinks here too: a save moved out of a commit stage reds this check.
+        static bool InWriter(Type type)
+        {
+            for (var current = type; current is not null; current = current.DeclaringType)
+                if (current == typeof(Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter)) return true;
+            return false;
+        }
+        static bool Sink(MethodBase target) => IsCommitSink(target)
+            || (target.Name.StartsWith("SaveChanges", StringComparison.Ordinal)
+                && typeof(Microsoft.EntityFrameworkCore.DbContext).IsAssignableFrom(target.DeclaringType));
+
+        var assembly = typeof(Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter).Assembly;
+        var stages = CommitStages([assembly]);
+        var sites = RawMutationPortSymbolInventoryTests.DiscoverCalls([assembly], Sink, InWriter);
+
+        Assert.True(sites.All(site => stages.Contains(site.Symbol)),
+            "The record writer commits outside a KernelWrite commit stage:\n"
+            + string.Join("\n", sites.Where(site => !stages.Contains(site.Symbol)).Select(Describe)));
+        foreach (var write in new[] { "LegalEntityCreate", "RecordCreate", "RecordUpdate", "RecordDelete" })
+            Assert.Contains(sites, site => site.Symbol.Contains($"NodeEntityWriter+{write}.CommitAsync(", StringComparison.Ordinal));
     }
 
     [Fact(DisplayName = "ck-10 fence: a planted bypass outside the writer is caught by every check")]
@@ -137,12 +160,7 @@ public sealed class WritePipelineExecutorFenceTests
 
     private static (string[] OnExecutor, string[] Off) Classify(Assembly[] assemblies, Func<Type, bool>? typeFilter = null)
     {
-        var commitStages = assemblies.SelectMany(Types)
-            .Where(IsKernelWrite)
-            .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-            .Where(method => method.Name == "CommitAsync")
-            .Select(MethodSignatureSymbol.Format)
-            .ToHashSet(StringComparer.Ordinal);
+        var commitStages = CommitStages(assemblies);
         var sites = RawMutationPortSymbolInventoryTests.DiscoverCalls(assemblies, IsCommitSink, typeFilter);
         string Key(RawMutationPortSymbolInventoryTests.CallSite site) =>
             $"{site.Path}|{site.Symbol[..site.Symbol.IndexOf('(', StringComparison.Ordinal)]}";
@@ -150,6 +168,14 @@ public sealed class WritePipelineExecutorFenceTests
             [.. sites.Where(site => commitStages.Contains(site.Symbol)).Select(Key).Distinct().Order(StringComparer.Ordinal)],
             [.. sites.Where(site => !commitStages.Contains(site.Symbol)).Select(Key).Distinct().Order(StringComparer.Ordinal)]);
     }
+
+    private static HashSet<string> CommitStages(Assembly[] assemblies) =>
+        assemblies.SelectMany(Types)
+            .Where(IsKernelWrite)
+            .SelectMany(type => type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            .Where(method => method.Name == "CommitAsync")
+            .Select(MethodSignatureSymbol.Format)
+            .ToHashSet(StringComparer.Ordinal);
 
     private static bool IsCommitSink(MethodBase target) =>
         RawMutationPortSymbolInventoryTests.IsRawMutationSink(target)
