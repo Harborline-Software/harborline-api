@@ -68,6 +68,7 @@ public sealed class T433ActivationAsyncTests
         var tenant = new TenantId("t433-async");
         var now = DateTimeOffset.UtcNow;
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, tenant);
         var pack = new InstalledPack("test.async", "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft,
             [], new Dictionary<string, int>(), now, PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]),
             1, TrustScope.OwnRoster, []);

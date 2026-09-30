@@ -77,6 +77,7 @@ public sealed class PackInstallPrincipalTests
     public async Task Activate_Requires_And_Records_The_Acting_Principal()
     {
         using var fixture = await CreateFixtureAsync();
+        PlatformPackTestPreload.Activate(fixture.Store, Tenant);
         var outcome = fixture.Installer.Install(
             fixture.PackBytes, fixture.Context with { Principal = "test-operator" });
         Assert.True(outcome.Installed);
@@ -99,6 +100,7 @@ public sealed class PackInstallPrincipalTests
     public async Task Deactivate_Requires_And_Records_The_Acting_Principal()
     {
         using var fixture = await CreateFixtureAsync();
+        PlatformPackTestPreload.Activate(fixture.Store, Tenant);
         var outcome = fixture.Installer.Install(
             fixture.PackBytes, fixture.Context with { Principal = "test-operator" });
         Assert.True(outcome.Installed);

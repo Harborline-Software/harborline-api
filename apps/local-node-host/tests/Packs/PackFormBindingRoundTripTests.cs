@@ -123,6 +123,7 @@ public sealed class PackFormBindingRoundTripTests : IAsyncLifetime
         var workflows = _app.Services.GetRequiredService<IWorkflowDefinitionStore>();
         var roleGate = _app.Services.GetRequiredService<IRoleGateAdmission>();
         _packStore = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(_packStore, NodeTenant.Resolve(_activeTeam));
         var packStore = _packStore;
         var projector = new PackSeedProjector(
             packStore,
