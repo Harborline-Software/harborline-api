@@ -254,7 +254,7 @@ public sealed class CatalogueRegistryTests
     {
         var rule = new StandingRuleDefinition("receipt.handler", "1.0.0", new StandingReference("handler"), "matter", ["handler_id"],
             new RuleDefinition(new DefinitionEnvelope<string, string, TenantId, string?>("receipt.handler", "1.0.0", Tenant,
-                CascadeLayer.Pack, null, []), RuleTier.JsonLogic, RuleScope.Schema, string.Empty,
+                CascadeLayer.Pack, null, [], Contract: null), RuleTier.JsonLogic, RuleScope.Schema, string.Empty,
                 """{"==":[{"var":"handler_id"},"person-a"]}""", RuleActionKind.Validate));
         return
         [

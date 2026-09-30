@@ -57,7 +57,8 @@ public sealed record WorkflowDefinitionRecord
                 new TenantId(Tenant),
                 CascadeLayer.Tenant,
                 WorkflowDefinitionProvenance.Unspecified,
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: null),
             Status,
             Authored)
     {

@@ -12,11 +12,13 @@ using Harborline.Api.Foundation.Documents.Issuance;
 using Harborline.Api.Foundation.Documents.Merge;
 using Harborline.Api.Foundation.Documents.Model;
 using Harborline.Api.Foundation.Documents.Rendering;
+using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Documents;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.People;
+using Harborline.Blocks.BuilderDefinitions;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -101,6 +103,14 @@ public static class DocumentTemplateRoutes
             if (!TryResolveTemplate(registry, body.TemplateKey, body.TemplateVersion, body.Template, out var template, out var templateError))
             {
                 return Results.BadRequest(new { error = templateError });
+            }
+
+            // T-572 S5 (kernel-core-ck-8; DES-0006 §10; T-724 ruling 87): a stored template whose declared
+            // contract is outside the seed's window is a 409 refusal at stage render. An inline draft body is
+            // not a stored definition and is not checked here.
+            if (string.IsNullOrWhiteSpace(body.Template) && StoredContractRefusal(template) is { } refused)
+            {
+                return Results.Conflict(refused);
             }
 
             Invoice invoice;
@@ -289,6 +299,30 @@ public static class DocumentTemplateRoutes
     }
 
     /// <summary>
+    /// Returns the render-stage refusal for a stored template whose declared contract is outside the platform
+    /// seed's window, or null when it declares none or is inside the window.
+    /// </summary>
+    private static ContractRefusalResponse? StoredContractRefusal(TemplateDefinition template)
+    {
+        if (template.Envelope.Contract is not { } declared)
+        {
+            return null;
+        }
+
+        var window = PlatformPackageSeed.ContractWindow;
+        // The caller named this key and version, so naming them back is safe (T-724 ruling 61).
+        var refusal = window.Check(declared, $"{template.Envelope.Identity}@{template.Envelope.Version}");
+        return refusal is { Code: PackInstallCodes.RefusedContractOutOfWindow }
+            ? new ContractRefusalResponse(
+                Refused: true,
+                Stage: "render",
+                Refusals: [new PackRefusalDto(
+                    PackInstallCodes.RefusedContractOutOfWindow, refusal.Pointer, refusal.Target)],
+                Contract: ContractWindowDto.From(window))
+            : null;
+    }
+
+    /// <summary>
     /// Resolves the DOCUMENT's render locale (§1.5) from its policy. <c>Fixed</c> is exact; <c>FromRecord</c>
     /// / <c>FromInstance</c> fall back to <c>en-US</c> today — the customer/org preferred-locale lookups are
     /// a named follow-up (no recipient-locale or org-settings seam is wired at the node yet), never
@@ -318,6 +352,20 @@ internal static class ResultsExtensions
 }
 
 // ── Wire shapes ─────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// The 409 body for a stored definition refused at render because its declared contract is outside the
+/// window: DES-0006 §3's refusal envelope, plus the window as an RFC 9457 extension member (T-724 ruling 87).
+/// </summary>
+/// <param name="Refused">Always true.</param>
+/// <param name="Stage">The refusing stage, <c>render</c>.</param>
+/// <param name="Refusals">The refusals, each with code, pointer and <c>key@version</c> target.</param>
+/// <param name="Contract">The app's contract window in DES-0006 §1's shape.</param>
+public sealed record ContractRefusalResponse(
+    [property: JsonPropertyName("refused")] bool Refused,
+    [property: JsonPropertyName("stage")] string Stage,
+    [property: JsonPropertyName("refusals")] IReadOnlyList<PackRefusalDto> Refusals,
+    [property: JsonPropertyName("contract")] ContractWindowDto Contract);
 
 /// <summary>POST body for <c>/document-templates/render</c>.</summary>
 public sealed record RenderTemplateRequest(

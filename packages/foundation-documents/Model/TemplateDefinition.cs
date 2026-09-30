@@ -39,7 +39,8 @@ public sealed record TemplateDefinition
             TenantId.System,
             CascadeLayer.Pack,
             Provenance: null,
-            Array.Empty<DefinitionRequirement>());
+            Array.Empty<DefinitionRequirement>(),
+            Contract: null);
         this.DocumentType = DocumentType;
         this.RecordType = RecordType;
         this.Locale = Locale;
@@ -63,7 +64,8 @@ public sealed record TemplateDefinition
                 TenantId.System,
                 CascadeLayer.Pack,
                 Provenance: null,
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: null),
             DocumentType,
             RecordType,
             Locale,

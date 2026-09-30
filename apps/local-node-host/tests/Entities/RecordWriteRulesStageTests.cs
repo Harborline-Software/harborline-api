@@ -170,7 +170,7 @@ public sealed class RecordWriteRulesStageTests
     }
 
     private static RuleDefinition Rule(string id, string expression) =>
-        new(new DefinitionEnvelope<string, string, TenantId, string?>(id, "1.0.0", Tenant, CascadeLayer.Tenant, null, []),
+        new(new DefinitionEnvelope<string, string, TenantId, string?>(id, "1.0.0", Tenant, CascadeLayer.Tenant, null, [], Contract: null),
             RuleTier.JsonLogic, RuleScope.Schema, string.Empty, expression, RuleActionKind.Validate);
 
     private sealed class Host(WebApplication app, SchemaId schema, FormDefinition form) : IAsyncDisposable

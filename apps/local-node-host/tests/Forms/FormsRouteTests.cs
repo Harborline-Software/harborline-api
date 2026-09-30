@@ -270,7 +270,7 @@ public sealed partial class FormsRouteTests : IAsyncLifetime
             Overlay = original.Overlay with
             {
                 Rules = [new RuleDefinition(
-                    Envelope: new("restrict.active", "1.0.0", TenantA, CascadeLayer.Tenant, null, []),
+                    Envelope: new("restrict.active", "1.0.0", TenantA, CascadeLayer.Tenant, null, [], Contract: null),
                     Tier: RuleTier.JsonLogic,
                     Scope: RuleScope.Field,
                     ScopeTarget: "station",

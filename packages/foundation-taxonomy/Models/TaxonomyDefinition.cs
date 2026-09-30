@@ -15,7 +15,8 @@ public sealed record TaxonomyDefinition
             ActorId.System,
             CascadeLayer.Tenant,
             Provenance: null,
-            Array.Empty<DefinitionRequirement>());
+            Array.Empty<DefinitionRequirement>(),
+            Contract: null);
 
     /// <summary>The definition's single control-metadata authority.</summary>
     public DefinitionEnvelope<TaxonomyDefinitionId, TaxonomyVersion, ActorId, TaxonomyLineage?> Envelope

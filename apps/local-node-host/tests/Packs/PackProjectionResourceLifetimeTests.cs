@@ -191,7 +191,7 @@ public sealed class PackProjectionResourceLifetimeTests
 
     private static StandingRuleDefinition Standing(string id) => new(id, "1.0.0", new StandingReference("handler"),
         "matter", ["handler_id"], new RuleDefinition(
-            new DefinitionEnvelope<string, string, TenantId, string?>(id, "1.0.0", Tenant, CascadeLayer.Pack, null, []),
+            new DefinitionEnvelope<string, string, TenantId, string?>(id, "1.0.0", Tenant, CascadeLayer.Pack, null, [], Contract: null),
             RuleTier.JsonLogic, RuleScope.Schema, string.Empty,
             """{"==":[{"var":"handler_id"},"person-7"]}""", RuleActionKind.Validate));
 

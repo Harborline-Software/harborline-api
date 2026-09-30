@@ -48,7 +48,8 @@ public sealed record RuleDefinition
             TenantId.System,
             CascadeLayer.Tenant,
             Provenance: null,
-            Array.Empty<DefinitionRequirement>());
+            Array.Empty<DefinitionRequirement>(),
+            Contract: null);
         this.Tier = Tier;
         this.Scope = Scope;
         this.ScopeTarget = ScopeTarget;
@@ -75,7 +76,8 @@ public sealed record RuleDefinition
                 TenantId.System,
                 CascadeLayer.Tenant,
                 Provenance: null,
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: null),
             Tier,
             Scope,
             ScopeTarget,

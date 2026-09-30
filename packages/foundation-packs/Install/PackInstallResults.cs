@@ -92,6 +92,11 @@ public static class PackInstallCodes
     /// <c>KernelBootstrapErrors.CompiledShapeReplacement</c>.</summary>
     public const string RefusedCompiledShapeReplacement = "kernel.compiled-shape-replacement";
 
+    /// <summary>A Layout, Resource or Bookable item declares an envelope contract outside the platform package
+    /// seed's window (DES-0029 kernel-core-ck-8, DES-0014 C10). The value is the platform's shared
+    /// <c>DefinitionContractWindow.Check</c> code (T-724 rulings 85 and 87).</summary>
+    public const string RefusedContractOutOfWindow = "definition.contract.out_of_window";
+
     /// <summary>A first install created a new seed layer (Draft).</summary>
     public const string Installed = "pack.install.installed";
 
@@ -273,7 +278,13 @@ public sealed record PackUnmetPlatformRequirement(
     PackPlatformRequirementFailure Failure);
 
 /// <summary>A stable install-refusal code paired with the RFC 6901 location it describes.</summary>
-public sealed record PackInstallRefusal(string Code, string Pointer);
+/// <param name="Code">The stable refusal code.</param>
+/// <param name="Pointer">The RFC 6901 location the refusal describes.</param>
+/// <param name="Target">
+/// The refused definition as <c>id@version</c> when the refusal names one (DES-0014 C3); null when the
+/// refusal is pack-grain.
+/// </param>
+public sealed record PackInstallRefusal(string Code, string Pointer, string? Target = null);
 
 /// <summary>
 /// The install-preview — the D8 "moment of trust" surface (design §5). It answers WHO signed, WHAT would

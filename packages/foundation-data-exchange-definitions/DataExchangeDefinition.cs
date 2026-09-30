@@ -17,7 +17,8 @@ public sealed record DataExchangeDefinition
         string.Empty,
         CascadeLayer.Tenant,
         JsonSerializer.SerializeToElement(new { }),
-        Array.Empty<DefinitionRequirement>());
+        Array.Empty<DefinitionRequirement>(),
+        Contract: null);
 
     /// <summary>Gets the definition's single control-metadata authority.</summary>
     public DefinitionEnvelope<string, string, string, JsonElement> Envelope
