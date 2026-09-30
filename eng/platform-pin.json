@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
-  "commit": "db469dc92a7a6a1b67a9dcfba0fa9f7e700cbd7d",
-  "recordedAt": "2026-09-30 (T-738: platform main commit db469dc9, the merge of platform PR 221 (brace-expansion 5.0.12 override). It brings in platform PR 212 (T-738 one content-kind and pillar registry with Reserved values and a drift gate), which the api half of T-738 needs, and every other platform PR merged since 0f308049: 204 (T-772 Stryker.NET byte-count and member-name bounds), 205 (T-902 Kernel Core remainder), 209 (T-606 S1 Booking claims a Bookable), 184 (minor-and-patch dependency group), 201 (ui-shared-conformance failing-case evidence), 214 (T-491 S1 Scheduling definitions carry semantic-version heads), 213 (T-528 S1 execution runtime substrate), 208 (T-740 part 1 Rules editor refusals), 207 (T-615 S2 Records field kinds and value domains), 211 (T-493 S7 Taxonomy in the shared versioned-definition store), 210 (T-580 layout tests name DES-0052 ids), 216 (T-424 XML docs on packable packages), 215 (T-601 data exchange editors conform) and 206 (T-489 S4a ReportDefinition measure references). PR 213 adds one producer, Harborline.Foundation.ExecutionRuntime; every other producer identity/assembly pair is unchanged.)",
+  "commit": "9abd9e016a45fc8756ef259763f8079d56352e4e",
+  "recordedAt": "2026-09-30 (R6: platform main commit 9abd9e01, the merge of platform PR 232 (T-521 slice 2, the content store Harborline.Foundation.ContentStore). It consumes platform PRs 222 (kernel JoinAsync transaction join), 233 (T-615 slot-binding narrowing), 227 and 235 (effect receipts), 231 and 230 (T-527 notification channels, which adds Harborline.Foundation.NotificationDelivery). Two producers were added: Harborline.Foundation.ContentStore and Harborline.Foundation.NotificationDelivery; every other producer identity/assembly pair is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."
@@ -25,6 +25,7 @@
     "Harborline.Foundation": "Harborline.Foundation.dll",
     "Harborline.Foundation.Assistance": "Harborline.Foundation.Assistance.dll",
     "Harborline.Foundation.Authorization": "Harborline.Foundation.Authorization.dll",
+    "Harborline.Foundation.ContentStore": "Harborline.Foundation.ContentStore.dll",
     "Harborline.Foundation.DataExchange": "Harborline.Foundation.DataExchange.dll",
     "Harborline.Foundation.Definitions": "Harborline.Foundation.Definitions.dll",
     "Harborline.Foundation.Documents": "Harborline.Foundation.Documents.dll",
@@ -33,6 +34,7 @@
     "Harborline.Foundation.Forms": "Harborline.Foundation.Forms.dll",
     "Harborline.Foundation.Forms.Engine": "Harborline.Foundation.Forms.Engine.dll",
     "Harborline.Foundation.MultiTenancy": "Harborline.Foundation.MultiTenancy.dll",
+    "Harborline.Foundation.NotificationDelivery": "Harborline.Foundation.NotificationDelivery.dll",
     "Harborline.Foundation.RuleAuthoring": "Harborline.Foundation.RuleAuthoring.dll",
     "Harborline.Foundation.RuleEngine": "Harborline.Foundation.RuleEngine.dll",
     "Harborline.Foundation.Scheduling": "Harborline.Foundation.Scheduling.dll",
