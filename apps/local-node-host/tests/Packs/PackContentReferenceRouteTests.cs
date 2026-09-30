@@ -26,6 +26,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Health;
 
@@ -76,6 +77,7 @@ public sealed class PackContentReferenceRouteTests : IAsyncLifetime
         var activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "Ref Co"));
 
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, NodeTenant.Resolve(activeTeam));
         var admission = new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator());
         var installer = new PackInstaller(verifier, store, admission, new InMemoryPackInstallAudit(),
             Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate());

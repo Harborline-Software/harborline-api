@@ -48,6 +48,7 @@ public sealed class PackConformanceCorpusTests
         using var keyPair = KeyPair.Generate();
         using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(store, Tenant);
         var codec = new PackFileCodec();
         var installer = new PackInstaller(
             new PackVerifier(new Ed25519Verifier(), codec),

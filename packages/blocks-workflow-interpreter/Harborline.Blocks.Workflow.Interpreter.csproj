@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Blocks.Workflow.Interpreter</RootNamespace>
     <Description>ADR 0135 A1 — the general declarative workflow interpreter (W-8 execution). Executes an authored + admitted + persisted WorkflowDefinition through the ADR 0135 engine: it loads the pinned definition via the re-validating IWorkflowDefinitionExecutionStore (never the lenient authoring face — SC2 F-2) and reaches every side-effect ONLY through the public IWorkflowEffectBroker (AP autonomously; CP through the SoD-gated confirm path — ADR 0143). A SEPARATE assembly from blocks-workflow by design: it composes only the public broker/catalog seams and cannot name the internal effect-factory surface (SC2 F-1 containment, compiler-enforced).</Description>
     <PackageTags>workflow;interpreter;execution;blocks;harborline;adr-0135</PackageTags>
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

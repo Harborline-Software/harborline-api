@@ -1,6 +1,6 @@
 using System;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Wayfinder;
 
 namespace Harborline.Api.Foundation.Ship.Common;

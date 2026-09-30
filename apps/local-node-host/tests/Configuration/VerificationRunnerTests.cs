@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -26,8 +27,11 @@ using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Packs;
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Foundation.RuleEngine.Environments;
 
 using Xunit;
+
+using FormsExpressionEnvironment = Harborline.Foundation.Forms.Engine.FormsExpressionEnvironment;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Configuration;
 
@@ -166,7 +170,9 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
 
         // The receipt says what ran it: the catalogue plus the api's own production interpreters.
         Assert.Contains(receipt.Engines, engine => engine == VerificationCatalog.Reference);
-        Assert.Contains(receipt.Engines, engine => engine.Key == "Harborline.Api.Foundation.RuleEngine");
+        // T-304 slice 2: the business rules run on the platform rule runtime, and the receipt names that module.
+        Assert.Contains(receipt.Engines, engine => engine.Key == "Harborline.Foundation.RuleEngine");
+        Assert.DoesNotContain(receipt.Engines, engine => engine.Key == "Harborline.Api.Foundation.RuleEngine");
         Assert.Contains(receipt.Engines, engine => engine.Key == "Harborline.Api.Foundation.Authorization");
         Assert.All(receipt.Engines, engine => Assert.Matches("^[0-9a-f]{64}$", engine.Digest));
     }
@@ -231,6 +237,47 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
             Assert.Equal(VerificationStatus.Passed, row.Status);
             Assert.Equal(total.ToString(CultureInfo.InvariantCulture), Actual(row, "record.number"));
         }
+    }
+
+    /// <summary>
+    /// T-304 slice 2: the candidate's rules run on the platform rule runtime, which evaluates only under an
+    /// admitted environment. Without one the save gate closes on <c>rule.environment.not_admitted</c> even for
+    /// the clean candidate, and the runner's own Forms submission admission computes the total.
+    /// </summary>
+    [Fact]
+    public void An_unadmitted_candidate_evaluation_closes_the_save_gate_on_the_environment_code()
+    {
+        var world = World("finance.clean");
+        var values = JsonNode.Parse("""{"quantity":3,"unitPrice":5}""")!.AsObject();
+
+        var admitted = world.Evaluate("records/invoice", values, new FrozenClock(Frozen),
+            FormsExpressionEnvironment.Admitted.For(EvaluationPhase.Submission), out var none);
+        Assert.Null(none);
+        Assert.Equal("15", admitted["total"]!.ToJsonString());
+
+        var refused = world.Evaluate("records/invoice", values, new FrozenClock(Frozen), admission: null, out var blocked);
+        Assert.NotNull(blocked);
+        Assert.Equal(BorrowerEnvironmentAdmission.NotAdmitted, blocked!.Code);
+        Assert.Equal("/record", blocked.Pointer);
+        Assert.False(refused.ContainsKey("total"));
+    }
+
+    /// <summary>
+    /// T-304 slice 2: a candidate rule that reads a root Forms does not declare (the workflow bag) is refused by the
+    /// Forms environment, where the api copy read it as a missing value and computed over a null.
+    /// </summary>
+    [Fact]
+    public void A_candidate_rule_outside_the_forms_environment_closes_the_save_gate()
+    {
+        Seed("finance.undeclared-root", ("records/invoice", PackContentKind.FormDefinition,
+            Invoice("""{"*":[{"var":"wf.quantity"},{"var":"unitPrice"}]}""", [Approver])));
+        var world = World("finance.undeclared-root", "finance.undeclared-root");
+
+        world.Evaluate("records/invoice", JsonNode.Parse("""{"quantity":3,"unitPrice":5}""")!.AsObject(),
+            new FrozenClock(Frozen), FormsExpressionEnvironment.Admitted.For(EvaluationPhase.Submission), out var blocked);
+
+        Assert.NotNull(blocked);
+        Assert.Equal(BorrowerEnvironmentAdmission.VariableNotAdmitted, blocked!.Code);
     }
 
     /// <summary>
@@ -383,6 +430,18 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
             new Dictionary<string, string>(StringComparer.Ordinal) { ["records/invoice"] = owner }, Frozen);
         Assert.NotNull(prepared.Preparation?.Prepared);
         return prepared.Preparation!.Candidate.Digest;
+    }
+
+    private VerificationCandidateWorld World(string owner, params string[] extraPacks)
+    {
+        var baseline = _target.ReadEffective(_tenant).Digest;
+        var prepared = _target.Prepare(_tenant, baseline,
+            ["finance.access", "finance.clean", "finance.rule-defect", "finance.authz-defect", .. extraPacks],
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["records/invoice"] = owner }, Frozen);
+        Assert.NotNull(prepared.Preparation?.Prepared);
+        var world = VerificationCandidateWorld.Resolve(_store, _tenant, prepared.Preparation!.Candidate, out var refusals);
+        Assert.Empty(refusals);
+        return world!;
     }
 
     private async Task<VerificationReceipt> RunAsync(string owner, string receiptId)

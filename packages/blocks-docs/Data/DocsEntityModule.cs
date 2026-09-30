@@ -39,7 +39,7 @@ namespace Harborline.Api.Blocks.Docs.Data;
 /// <para>
 /// <b>Tenant isolation.</b> Both <see cref="Attachment"/> and
 /// <see cref="DocumentRef"/> carry a <c>TenantId</c> column. Neither implements
-/// <see cref="Harborline.Api.Foundation.MultiTenancy.IMustHaveTenant"/> because their
+/// <see cref="Harborline.Foundation.MultiTenancy.IMustHaveTenant"/> because their
 /// multi-tenancy is expressed via explicit TenantId predicates in the EF repos
 /// (defence-in-depth per ADR 0092) — the global automatic filter in
 /// <see cref="SignalBridgeDbContext.ApplyTenantQueryFilters"/> only runs on

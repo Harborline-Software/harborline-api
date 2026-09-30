@@ -1,7 +1,6 @@
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.FinancialSubLedger.Models;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.FinancialSubLedger.Services;
 

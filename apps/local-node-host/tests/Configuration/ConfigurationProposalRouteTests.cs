@@ -366,6 +366,31 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
     private static string Route(string proposalId, string? suffix) =>
         $"/api/local-node/configuration/proposals/{proposalId}" + (suffix is null ? string.Empty : $"/{suffix}");
 
+    // T-980 S3: an Active pack over an inactive dependency is a legacy state activation and deactivation
+    // no longer admit. A read over it names the broken closure instead of failing with a 500.
+    [Fact]
+    public async Task A_broken_package_closure_is_a_named_refusal_on_the_effective_and_proposal_reads()
+    {
+        await StartAsync("proposal-1");
+        Seed("acme.base", "1.0.0", ["forms/base"]);
+        _store.Commit(new PackInstallTransaction(_tenant, new InstalledPack("acme.dependent", "1.0.0",
+            PackScopeTier.Horizontal, PackLifecycleState.Draft, [], new Dictionary<string, int>(), Frozen,
+            PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]), 1, TrustScope.OwnRoster,
+            [new PackDependencyRef("acme.base", "1.0.0")]),
+            new PackInstallWatermark("acme.dependent", "1.0.0", new Dictionary<string, int>()), []));
+        _store.Activate(_tenant, "acme.dependent", "1.0.0");
+        _store.Deactivate(_tenant, "acme.base", "1.0.0");
+
+        foreach (var (route, status) in new[] { (ConfigurationActivationRoutes.EffectiveRoute, HttpStatusCode.NotFound),
+            (Route("proposal-1", null), HttpStatusCode.UnprocessableEntity) })
+        {
+            using var response = await _client.GetAsync(route);
+            Assert.Equal(status, response.StatusCode);
+            Assert.Equal("configuration-package-not-active",
+                (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        }
+    }
+
     private async Task<JsonElement> StartAsync(string proposalId)
     {
         using var response = await _client.PostAsJsonAsync(ConfigurationProposalRoutes.ProposalsRoute, new { proposalId });

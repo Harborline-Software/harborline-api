@@ -13,7 +13,7 @@ namespace Harborline.Api.Kernel.Audit;
 /// needs — IRS export (time-range) and security review (principal-filter).
 /// Additional filter dimensions land as compliance use cases surface.
 /// </remarks>
-/// <param name="TenantId">Required. Audit reads are tenant-scoped — there is no cross-tenant audit query in v0 (see ADR 0049 §"Open questions" on whether <see cref="Harborline.Api.Foundation.MultiTenancy.IMayHaveTenant"/> ever applies to audit records).</param>
+/// <param name="TenantId">Required. Audit reads are tenant-scoped — there is no cross-tenant audit query in v0 (see ADR 0049 §"Open questions" on whether a nullable-tenant marker ever applies to audit records).</param>
 /// <param name="EventType">Optional. Match a single event type. Combine multiple queries to OR across types.</param>
 /// <param name="OccurredAfter">Optional. Inclusive lower bound on <see cref="AuditRecord.OccurredAt"/>.</param>
 /// <param name="OccurredBefore">Optional. Inclusive upper bound on <see cref="AuditRecord.OccurredAt"/>.</param>

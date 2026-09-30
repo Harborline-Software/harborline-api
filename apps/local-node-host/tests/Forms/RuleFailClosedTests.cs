@@ -36,7 +36,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Forms;
 /// not-required; a budget abort names the responsible definition; and a render-time
 /// compile-fault degrade stays observable (a warning naming the definition).
 /// </summary>
-public sealed class RuleFailClosedTests
+public sealed partial class RuleFailClosedTests
 {
     private static readonly DateTimeOffset SubmittedAt = new(2026, 8, 30, 10, 0, 0, TimeSpan.Zero);
     private static readonly TenantId Tenant = new("tenant-ticket-150");
@@ -205,7 +205,8 @@ public sealed class RuleFailClosedTests
         // spent at the last step before the gate (reuse resolution) rather than on a clock read.
         reuse.CancelOnNextResolve = true;
 
-        await Assert.ThrowsAsync<RuleEngineTimeoutException>(() =>
+        // T-304: the submit gate runs on the platform runtime, so its timeout is the platform's type.
+        await Assert.ThrowsAsync<global::Harborline.Foundation.RuleEngine.RuleEngineTimeoutException>(() =>
             engine.SaveWithReceiptAsync(FormId, candidate, token,
                 TestAuthorization.FormWrite(token, FormId, SubmittedAt), cancelled.Token));
     }

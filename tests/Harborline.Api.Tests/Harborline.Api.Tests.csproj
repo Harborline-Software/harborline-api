@@ -6,7 +6,6 @@
     <!-- Carried from this repository's pre-merge root props (ticket 008 step 0.5). Scoped here
          rather than at root: a root-level 1591 suppression would silently relax the XML-doc
          requirement for all 93 incoming projects, which the source deliberately enforces. -->
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

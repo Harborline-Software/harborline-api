@@ -3,7 +3,6 @@ using Harborline.Api.Blocks.FinancialSubLedger.Models;
 using Harborline.Api.Blocks.FinancialSubLedger.Services;
 using Harborline.Api.Blocks.Leases.Models;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using PeopleModels = Harborline.Api.Blocks.People.Foundation.Models;
 
 namespace Harborline.Api.Blocks.Leases.Services;

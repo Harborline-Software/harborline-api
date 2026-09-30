@@ -1,6 +1,6 @@
 using System;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Runtime.Teams;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
@@ -37,7 +37,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// first write.
 /// </para>
 /// <para>
-/// Identity-only: this is <c>Harborline.Api.Foundation.MultiTenancy.ITenantContext</c> (the narrow
+/// Identity-only: this is <c>Harborline.Foundation.MultiTenancy.ITenantContext</c> (the narrow
 /// tenant-resolution interface, ADR 0008), NOT the authorization sum-facade — the financial write
 /// services consult only <see cref="TenantMetadata.Id"/>.
 /// </para>

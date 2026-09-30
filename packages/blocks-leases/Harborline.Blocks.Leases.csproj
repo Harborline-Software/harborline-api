@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- TODO(HARBORLINE_API_I18N_002): Path A temporary suppression — SharedResource scaffolded
          ahead of consumer wiring. Remove once IStringLocalizer references land. -->
-    <NoWarn>CS1591;HARBORLINE_API_I18N_002</NoWarn>
+    <NoWarn>$(NoWarn);HARBORLINE_API_I18N_002</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
@@ -23,7 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
     <ProjectReference Include="..\kernel-signatures\Harborline.Kernel.Signatures.csproj" />

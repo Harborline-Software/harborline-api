@@ -22,7 +22,7 @@ namespace Harborline.Api.LocalNodeHost.Data.Drafts;
 /// <para>
 /// The node has no single <see cref="ITenantContext"/> sum-interface object — it registers
 /// <c>ActiveTeamAuthorizationContext</c> (<see cref="ICurrentUser"/>) and <c>ActiveTeamTenantContext</c>
-/// (<see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>) separately.
+/// (<see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>) separately.
 /// <see cref="NodeAuthorizationTenantContext"/> composes those into the sum-interface
 /// <see cref="PartyContext"/> needs, so party derivation reads the UserId + TenantId off the same
 /// active-team-bound principal (same-token derivation preserved). Its third member,
@@ -59,18 +59,18 @@ public static class NodeDraftPartyComposition
 
 /// <summary>
 /// Composes the node's separately-registered <see cref="ICurrentUser"/>,
-/// and <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/> into the
+/// and <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/> into the
 /// <see cref="ITenantContext"/> sum-interface <see cref="PartyContext"/> depends on.
 /// </summary>
 public sealed class NodeAuthorizationTenantContext : ITenantContext
 {
     private readonly ICurrentUser _user;
-    private readonly Harborline.Api.Foundation.MultiTenancy.ITenantContext _tenant;
+    private readonly Harborline.Foundation.MultiTenancy.ITenantContext _tenant;
 
     /// <summary>Constructs the adapter over the node's identity and tenant contexts.</summary>
     public NodeAuthorizationTenantContext(
         ICurrentUser user,
-        Harborline.Api.Foundation.MultiTenancy.ITenantContext tenant)
+        Harborline.Foundation.MultiTenancy.ITenantContext tenant)
     {
         _user = user ?? throw new ArgumentNullException(nameof(user));
         _tenant = tenant ?? throw new ArgumentNullException(nameof(tenant));
@@ -102,7 +102,7 @@ public sealed class NodeAuthorizationTenantContext : ITenantContext
             + "naming the record it addresses (ticket 205).");
 
     /// <inheritdoc />
-    public Harborline.Api.Foundation.MultiTenancy.TenantMetadata? Tenant => _tenant.Tenant;
+    public Harborline.Foundation.MultiTenancy.TenantMetadata? Tenant => _tenant.Tenant;
 }
 
 /// <summary>

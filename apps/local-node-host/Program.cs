@@ -2840,18 +2840,18 @@ builder.Services.AddNodeDocsWrites();
 builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialPeriods.Services.IChartRepository, NodeEfChartRepository>();
 builder.Services.AddSingleton<IGeneralLedgerReadModel>(sp =>
     new InMemoryGeneralLedgerReadModel(sp.GetRequiredService<IJournalStore>()));
-// ArAgingService / ApAgingService consume the NARROWED Harborline.Api.Foundation.MultiTenancy.ITenantContext
+// ArAgingService / ApAgingService consume the NARROWED Harborline.Foundation.MultiTenancy.ITenantContext
 // (the financial-cluster consumer variant) — which is exactly what the active-team-derived
 // ActiveTeamTenantContext implements and what the node AR/AP write compositions register (ADR 0032
 // identity layer; the aging tenant follows the active org, not a fixed "local"). NOT the Authorization
 // sum-interface facade.
 builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialAr.Services.IArAgingService>(sp =>
     new Harborline.Api.Blocks.FinancialAr.Services.ArAgingService(
-        sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+        sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
         sp.GetRequiredService<Harborline.Api.Blocks.FinancialAr.Services.IInvoiceRepository>()));
 builder.Services.AddSingleton<Harborline.Api.Blocks.FinancialAp.Services.IApAgingService>(sp =>
     new Harborline.Api.Blocks.FinancialAp.Services.ApAgingService(
-        sp.GetRequiredService<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(),
+        sp.GetRequiredService<Harborline.Foundation.MultiTenancy.ITenantContext>(),
         sp.GetRequiredService<Harborline.Api.Blocks.FinancialAp.Services.IBillRepository>()));
 builder.Services.AddBlocksReportsSubstrate();
 builder.Services.AddTrialBalanceCartridge();

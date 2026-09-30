@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.SecurityPolicy.Issuance;
 using Harborline.Api.Foundation.SecurityPolicy.Models;
 using Harborline.Api.Foundation.Definitions;

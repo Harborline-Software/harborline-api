@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import path from 'node:path'
+import {readdirSync, readFileSync} from 'node:fs'
 import test from 'node:test'
 import {changedLines, checkConfigs, checkSlices, globRegex, mutableChanges, pickSlice, projectSources, sliceMutate, summarise} from '../mutation-report.mjs'
 
@@ -191,4 +192,20 @@ test('the nightly pick walks the rotation one slice a day and wraps', () => {
 test('a project compiles its tracked C# minus Compile Remove, plus linked files', () => {
   const csproj = '<Compile Remove="Entrypoint.cs" /><Compile Remove="tests/**/*.cs" /><Compile Include="..\\..\\shared\\Env.cs" Link="Env.cs" />'
   assert.deepEqual(projectSources(csproj, ['Entrypoint.cs', 'Program.cs', 'tests/A.cs', 'README.md']), ['Program.cs', '../../shared/Env.cs'])
+})
+
+// ck-4 triage (2026-09-29): mutation run 36644970273 scored the tenant slice and uploaded nothing.
+// upload-artifact skips hidden files unless told otherwise, and .stryker/ is a dot-folder, so every
+// report was dropped with "No files were found" and the runner's clean checkout deleted the rest.
+test('every upload-artifact step whose path enters a dot-folder includes hidden files', () => {
+  const dir = path.join(root, '.github', 'workflows')
+  const missing = []
+  for (const file of readdirSync(dir).filter(name => /\.ya?ml$/.test(name))) {
+    const steps = readFileSync(path.join(dir, file), 'utf8').split(/\n(?=\s*- (?:name|uses):)/)
+    for (const step of steps.filter(s => /uses:\s*actions\/upload-artifact@/.test(s))) {
+      const paths = step.match(/^\s*path:\s*(.+)$/m)?.[1] ?? ''
+      if (/(^|\/)\.[^/.]/.test(paths) && !/^\s*include-hidden-files:\s*true\b/m.test(step)) missing.push(`${file}: ${paths}`)
+    }
+  }
+  assert.deepEqual(missing, [])
 })

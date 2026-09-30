@@ -14,7 +14,7 @@ public static class TenantContextServiceCollectionExtensions
 {
     /// <summary>
     /// Registers <typeparamref name="TConcrete"/> as the implementation of
-    /// <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>,
+    /// <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>,
     /// <see cref="ICurrentUser"/>, <see cref="IAuthorizationContext"/>, and
     /// the facade <see cref="ITenantContext"/> — all four bindings resolve to
     /// the SAME scoped instance per request. Also installs an
@@ -28,7 +28,7 @@ public static class TenantContextServiceCollectionExtensions
     public static IServiceCollection AddHarborlineTenantContext<TConcrete>(
         this IServiceCollection services)
         where TConcrete : class,
-                          Harborline.Api.Foundation.MultiTenancy.ITenantContext,
+                          Harborline.Foundation.MultiTenancy.ITenantContext,
                           ICurrentUser,
                           IAuthorizationContext,
                           ITenantContext
@@ -37,7 +37,7 @@ public static class TenantContextServiceCollectionExtensions
         // resolve through it. Uses GetRequiredService<TConcrete> to alias
         // the existing scoped instance rather than constructing a second one.
         services.AddScoped<TConcrete>();
-        services.AddScoped<Harborline.Api.Foundation.MultiTenancy.ITenantContext>(sp => sp.GetRequiredService<TConcrete>());
+        services.AddScoped<Harborline.Foundation.MultiTenancy.ITenantContext>(sp => sp.GetRequiredService<TConcrete>());
         services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<TConcrete>());
         services.AddScoped<IAuthorizationContext>(sp => sp.GetRequiredService<TConcrete>());
         services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TConcrete>());

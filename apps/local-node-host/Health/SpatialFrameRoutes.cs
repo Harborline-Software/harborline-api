@@ -72,8 +72,9 @@ public static class SpatialFrameRoutes
             async (string anchor, string frameCode, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct);
+            if (denied is not null)
                 return denied;
             if (ResolvePrincipalContext(http) is not { } readContext)
                 return PrincipalUnresolved();
@@ -96,8 +97,9 @@ public static class SpatialFrameRoutes
             async (string anchor, string frameCode, string frameEpoch, HttpContext http, CancellationToken ct) =>
         {
             var tenant = NodeTenant.Resolve(activeTeam);
-            if (await RequestAuthorization.RefusalAsync(
-                    http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct) is { } denied)
+            var denied = await RequestAuthorization.RefusalAsync(
+                    http, tenant, Permission.SpatialRead, RouteRecord.Of(anchor), ct);
+            if (denied is not null)
                 return denied;
             if (ResolvePrincipalContext(http) is not { } readContext)
                 return PrincipalUnresolved();

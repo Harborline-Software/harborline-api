@@ -5,13 +5,12 @@
     <RootNamespace>Harborline.Api.Foundation.Wayfinder</RootNamespace>
     <Description>Foundation-tier substrate for the Wayfinder system + Standing Order contract (ADR 0065). Hosts StandingOrder + StandingOrderTriple + ApprovalChain + 5-value StandingOrderScope + 6-value StandingOrderState + IStandingOrderRepository + IStandingOrderIssuer + IStandingOrderValidator + 4-value StandingOrderValidatorPriority + 4-value StandingOrderValidationSeverity + 5 new AuditEventType discriminators. Composes ADR 0049 (audit by construction) + ADR 0028 (CRDT-native per-tenant log).</Description>
     <PackageTags>harborline;foundation;wayfinder;standing-order;adr-0065</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
     <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\kernel-audit\Harborline.Kernel.Audit.csproj" />
     <ProjectReference Include="..\kernel-crdt\Harborline.Kernel.Crdt.csproj" />
   </ItemGroup>

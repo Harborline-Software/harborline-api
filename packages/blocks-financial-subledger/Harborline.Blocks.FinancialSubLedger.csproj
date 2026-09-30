@@ -7,7 +7,6 @@
     <PackageTags>subsidiary-ledger;subledger;ar;ap;reconciliation;blocks;domain;harborline</PackageTags>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <NoWarn>CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
@@ -20,7 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\foundation-persistence\Harborline.Foundation.Persistence.csproj" />
     <ProjectReference Include="..\blocks-financial-ledger\Harborline.Blocks.FinancialLedger.csproj" />
     <ProjectReference Include="..\blocks-people-foundation\Harborline.Blocks.People.Foundation.csproj" />

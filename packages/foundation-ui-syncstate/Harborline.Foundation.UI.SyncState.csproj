@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.UI.SyncState</RootNamespace>
     <Description>Foundation-tier public enum exposing ADR 0036's canonical 5-state sync-state encoding (healthy / stale / offline / conflict / quarantine). Backward-compatible additive surface for downstream substrate ADRs (e.g., ADR 0063's SyncStateSpec.AcceptableStates) that need a typed enum rather than string-form identifiers. Per ADR 0036-A1.</Description>
     <PackageTags>harborline;foundation;ui;sync-state;adr-0036</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />

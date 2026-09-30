@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Foundation.Forms.Engine</RootNamespace>
     <Description>Foundation-tier dynamic-forms rendering engine (ADR 0055 §3.1). The IFormEngine companion to the Harborline.Api.Foundation.Forms keystone: composes the kernel schema registry, the foundation macaroon capability primitives, the foundation-recovery PII field-encryption seam, and the asset audit log to render / validate / save form instances. Enforces INV-S1 (read-path tenant fail-closed), INV-S2 (schema-validation resource bounds), INV-S3 (PII default-secure-at-rest), and INV-S4 (audit completeness).</Description>
     <PackageTags>harborline;foundation;forms;form-engine;capabilities;macaroon;adr-0055</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
@@ -22,6 +21,11 @@
     <ProjectReference Include="..\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- T-304: the submit gate evaluates on the platform rule runtime under Forms' admitted environment
+         (FormsExpressionEnvironment, forms-ck-13). The api rule-engine copy above still serves render,
+         compile admission and the other consumers T-540 retires. -->
+    <PackageReference Include="Harborline.Foundation.RuleEngine" />
+    <PackageReference Include="Harborline.Foundation.Forms.Engine" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <!-- Ticket 150: render-time rule-projection degrades must be observable (a warning naming
          the responsible definition), so the engine takes the standard optional-logger seam. -->
@@ -32,6 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Harborline.Api.Foundation.Forms.Engine.Tests" />
+    <InternalsVisibleTo Include="Harborline.Api.LocalNodeHost.Tests" />
   </ItemGroup>
   <Import Project="$(MSBuildThisFileDirectory)../../eng/identity-contract.props" />
 </Project>

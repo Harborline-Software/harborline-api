@@ -1,5 +1,5 @@
 using Harborline.Api.Foundation.Definitions;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 
 namespace Harborline.Api.Blocks.Assets.Registry.Model;
 

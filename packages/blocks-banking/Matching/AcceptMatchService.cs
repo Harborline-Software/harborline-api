@@ -103,9 +103,7 @@ public sealed class AcceptMatchService
         if (link is null)
             throw new InvalidOperationException($"MatchLink '{matchLinkId.Value}' not found.");
 
-        // DES-0029 ck-6: an Accepted link whose line was never updated is an accept a crash interrupted between
-        // its two commits. It passes the gates below and finishes the line; a true duplicate is refused there.
-        if (link.State is not (MatchLinkState.Proposed or MatchLinkState.Accepted))
+        if (link.State != MatchLinkState.Proposed)
             throw NotProposed(link);
 
         // Load the statement line
@@ -141,36 +139,41 @@ public sealed class AcceptMatchService
                     "Un-reconcile first via explicit unlock-with-provenance action.");
         }
 
-        // ── Accept the link ──
-        if (link.State == MatchLinkState.Proposed)
+        // ── Accept the link and write the line's derived state in one transaction (DES-0029 ck-6, T-988) ──
+        var accepted = link with
         {
-            var accepted = link with
-            {
-                State      = MatchLinkState.Accepted,
-                AcceptedAt = new Instant(_time.GetUtcNow()),
-            };
-            await _linkRepo.UpdateAsync(accepted, ct).ConfigureAwait(false);
-        }
+            State      = MatchLinkState.Accepted,
+            AcceptedAt = new Instant(_time.GetUtcNow()),
+        };
 
         // ── Sum-integrity: compute new reconciliation state ──
         var allLinks = await _linkRepo.ListByStatementLineAsync(tenantId, line.Id, ct).ConfigureAwait(false);
         decimal acceptedSum = allLinks
+            .Select(l => l.Id == accepted.Id ? accepted : l)
             .Where(l => l.State == MatchLinkState.Accepted)
             .Sum(l => l.Amount);
 
-        ReconciliationState newState = ComputeNewState(line.Amount, acceptedSum);
-        if (link.State == MatchLinkState.Accepted && line.State == newState)
-            throw NotProposed(link);
+        ReconciliationState newState = DeriveLineState(line.Amount, acceptedSum, ReconciliationState.Proposed);
 
-        var updatedLine = line with { State = newState };
-        await _lineRepo.UpdateAsync(updatedLine, ct).ConfigureAwait(false);
+        // The link's own persisted state decides a duplicate: link and line commit together, so there is no
+        // half-applied accept for a retry to finish.
+        if (!await _linkRepo.TransitionWithLineAsync(accepted, MatchLinkState.Proposed, line with { State = newState }, ct)
+                .ConfigureAwait(false))
+            throw new MatchAcceptException(link.Id, MatchAcceptRejectReason.LinkNotProposed,
+                $"MatchLink '{link.Id.Value}' is no longer Proposed; only Proposed links can be accepted.");
     }
 
     private static MatchAcceptException NotProposed(MatchLink link) =>
         new(link.Id, MatchAcceptRejectReason.LinkNotProposed,
             $"MatchLink '{link.Id.Value}' is in state {link.State}; only Proposed links can be accepted.");
 
-    private static ReconciliationState ComputeNewState(decimal lineAmount, decimal acceptedSum)
+    /// <summary>
+    /// A statement line's state from the sum of its accepted links: Matched at the full line amount, PartiallyMatched
+    /// for any other nonzero sum, and <paramref name="whenNoneAccepted"/> at zero. Accept and un-match both use it
+    /// (T-988), so an un-match that leaves the full amount accepted keeps the line Matched.
+    /// </summary>
+    internal static ReconciliationState DeriveLineState(
+        decimal lineAmount, decimal acceptedSum, ReconciliationState whenNoneAccepted)
     {
         // Use a small tolerance for floating-point equality
         if (Math.Abs(acceptedSum - lineAmount) < 0.005m)
@@ -179,7 +182,7 @@ public sealed class AcceptMatchService
         if (Math.Abs(acceptedSum) > 0.005m)
             return ReconciliationState.PartiallyMatched;
 
-        return ReconciliationState.Proposed;
+        return whenNoneAccepted;
     }
 }
 

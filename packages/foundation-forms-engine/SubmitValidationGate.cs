@@ -3,10 +3,12 @@ using System.Text.Json.Nodes;
 
 using Harborline.Api.Foundation.Forms;
 using Harborline.Api.Foundation.Forms.Models;
-using Harborline.Api.Foundation.RuleEngine;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
-using Harborline.Api.Foundation.RuleEngine.Graph;
-using Harborline.Api.Foundation.RuleEngine.Model;
+using Harborline.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Context;
+using Harborline.Foundation.RuleEngine.Environments;
+using Harborline.Foundation.RuleEngine.Graph;
+using Harborline.Foundation.RuleEngine.Model;
 
 namespace Harborline.Api.Foundation.Forms.Engine;
 
@@ -54,6 +56,11 @@ namespace Harborline.Api.Foundation.Forms.Engine;
 /// (<see cref="AsyncValidationCheck"/>) are NOT re-executed node-side in this slice —
 /// config is validated at admission; connector re-execution is the documented follow-up.
 /// </para>
+/// <para>
+/// T-304: evaluation runs on the platform rule runtime (<c>Harborline.Foundation.RuleEngine</c>) under the
+/// admission the caller presents (rules-eng-26). An unadmitted evaluation refuses the write with its
+/// <c>rule.environment.*</c> code; it is never a hidden page or a skipped rule.
+/// </para>
 /// </remarks>
 internal static class SubmitValidationGate
 {
@@ -79,6 +86,7 @@ internal static class SubmitValidationGate
         FormDefinition formDef,
         JsonDocument candidate,
         TimeProvider clock,
+        EvaluationAdmission? admission,
         CancellationToken ct)
     {
         var overlay = formDef.Overlay;
@@ -104,10 +112,10 @@ internal static class SubmitValidationGate
         {
             try
             {
-                var compiled = RuleCompiler.Compile(overlay.Rules);
+                var compiled = RuleCompiler.Compile(PlatformRuleContract.ToContract(overlay.Rules));
                 if (compiled.RuleCount > 0)
                 {
-                    result = new FormRuleGraph(compiled, clock)
+                    result = new FormRuleGraph(compiled, clock, admission)
                         .EvaluateInstance(RuleInstance.FromJson(bodyObj), ct);
                 }
             }
@@ -190,12 +198,8 @@ internal static class SubmitValidationGate
         var hiddenPages = new HashSet<string>(StringComparer.Ordinal);
         if (hasGuardedPages)
         {
-            var guardEvaluator = new GuardEvaluator(clock: clock);
-            var contextBag = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
-            foreach (var (name, node) in bodyObj)
-            {
-                contextBag[name] = node;
-            }
+            var guardEvaluator = new GuardEvaluator(clock);
+            var context = RuleContextSnapshot.Capture(bodyObj.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal));
 
             foreach (var page in overlay.Pages!)
             {
@@ -206,19 +210,16 @@ internal static class SubmitValidationGate
                 }
 
                 var guardId = $"page-guard:{page.Id}";
-                var guardRule = new RuleDefinition(
-                    Id: guardId,
-                    Tier: RuleTier.JsonLogic,
-                    Scope: RuleScope.Schema,
-                    ScopeTarget: string.Empty,
-                    Expression: guard,
-                    Action: RuleActionKind.Validate);
-                var verdict = guardEvaluator.EvaluateGuard(guardRule, contextBag, ct);
+                var guardRule = PlatformRuleContract.PageGuard(page.Id, guard);
+                var verdict = guardEvaluator.EvaluateGuard(guardRule, context, RuleEvalScope.Root, admission, ct);
                 // T-687: the seam returns a compile fault as Invalid(rule.compile.*) rather than throwing.
                 // Same refusal path (and admission constant) as the rule-set compile fault: an
-                // uncompilable guard is an uninterpretable restriction, not a hidden page.
+                // uncompilable guard is an uninterpretable restriction, not a hidden page. T-304: so is a
+                // guard outside the admitted environment (rule.environment.*).
                 var compileCode = verdict.Error?.Code;
-                if (compileCode is not null && compileCode.StartsWith("rule.compile.", StringComparison.Ordinal))
+                if (compileCode is not null
+                    && (compileCode.StartsWith("rule.compile.", StringComparison.Ordinal)
+                        || compileCode.StartsWith("rule.environment.", StringComparison.Ordinal)))
                 {
                     return GateResult.Empty with
                     {

@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Blocks.Banking.Models;
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Banking;

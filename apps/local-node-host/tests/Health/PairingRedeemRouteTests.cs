@@ -228,6 +228,24 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         Assert.True(h.Roster.Current.Contains("bob"));
     }
 
+    [Fact(DisplayName = "ck-10 plain path: a refused roster save leaves the joiner untrusted in memory")]
+    public async Task Plain_Path_Refused_Roster_Save_Leaves_No_Trust()
+    {
+        var h = await StartAsync(webPlaneEnabled: false);
+        await using (var db = h.Search.CreateContext())
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER ck10_roster_fault BEFORE INSERT ON roster_records BEGIN SELECT RAISE(ABORT, 'ck10'); END;");
+        var bob = Member.New("bob");
+        var token = h.Coordinator.CreateInvite(h.Anchor);
+
+        var resp = await h.Client.SendAsync(
+            Post($"{AdmissionRoutes.RouteBase}/redeem", PlainRedeemBody(token.TokenId, bob), SessionToken));
+
+        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
+        Assert.False(h.Roster.Current.Contains("bob"));
+        Assert.DoesNotContain("bob", h.Roster.AdmittedPeerTransportKeys().Keys);
+    }
+
     [Fact(DisplayName = "pairing: a mode flip linearizes at the completed web-plane read (M4)")]
     public async Task Mode_Flip_Uses_Documented_Point_In_Time_Transition_Semantics()
     {
@@ -639,6 +657,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         public required TeamTrustAnchor Anchor { get; init; }
         public required TenantId Tenant { get; init; }
         public required NodeEnrollmentAdmitter WireHandler { get; init; }
+        public required SearchTestStore Search { get; init; }
     }
 
     private async Task<Harness> StartAsync(
@@ -654,12 +673,14 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         var genesis = MemberRoster.Genesis(Team, founder.PartyId, founder.Signer, Verifier, Now, Guid.NewGuid());
         var roster = new NodeTeamRoster(genesis);
 
-        // Roster projection (CRDT + SQLite).
-        var rosterFactory = NewRosterFactory(out var crdtSp);
-        _providers.Add(crdtSp);
-        await using (var ctx = await rosterFactory.CreateDbContextAsync()) await ctx.Database.EnsureCreatedAsync();
+        // Roster projection (CRDT + SQLite). ck-10: the roster context shares the grant store's SQLite file, as in
+        // production (one local-node.db), so the admission's conferred grant commits in the roster save.
+        var search = await SearchTestStore.CreateAsync();
+        _searchStores.Add(search);
+        var rosterFactory = search.RosterFactory;
+        await using (var ctx = await rosterFactory.CreateDbContextAsync()) await ctx.Database.MigrateAsync();
         var projection = new RosterCrdtProjection(TimeProvider.System,
-            crdtSp.GetRequiredService<ICrdtEngine>(), rosterFactory, Verifier, founder.Signer,
+            new YDotNetCrdtEngine(), rosterFactory, Verifier, founder.Signer,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RosterCrdtProjection>.Instance, roster);
         _async.Add(projection);
 
@@ -681,8 +702,6 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         var tenant = ActiveTeamTenantContext.ProjectTenantId(teamContext.TeamId);
 
         // Grant store — ONE live grant iff web-plane is to be ENABLED (the R2 predicate + the bridge pin both read it).
-        var search = await SearchTestStore.CreateAsync();
-        _searchStores.Add(search);
         if (webPlaneEnabled)
         {
             await using var ctx = search.CreateContext();
@@ -764,6 +783,7 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
             _client = client, Roster = roster, Coordinator = coordinator, Mint = mint,
             Founder = founder,
             Anchor = TeamTrustAnchor.FromRoster(genesis), Tenant = tenant, WireHandler = wireHandler,
+            Search = search,
         };
     }
 
@@ -1019,20 +1039,6 @@ public sealed class PairingRedeemRouteTests : IAsyncLifetime
         var sp = services.BuildServiceProvider();
         _providers.Add(sp);
         return sp.GetRequiredService<IDbContextFactory<NodeLocalAdmissionDbContext>>();
-    }
-
-    private IDbContextFactory<NodeLocalRosterDbContext> NewRosterFactory(out ServiceProvider sp)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), $"harborline-pairing-route-roster-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        _dirs.Add(dir);
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddDbContextFactory<NodeLocalRosterDbContext>(
-            opt => opt.UseSqlite($"Data Source={Path.Combine(dir, "roster.db")};Pooling=False"));
-        services.AddSingleton<ICrdtEngine, YDotNetCrdtEngine>();
-        sp = services.BuildServiceProvider();
-        return sp.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
     }
 
     private sealed class FixedPartyReader(string partyId) : ICanonicalPrincipalPartyReader

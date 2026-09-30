@@ -7,7 +7,7 @@
     <PackageTags>harborline;kernel;events;event-bus;channels</PackageTags>
     <!-- NU1510 suppressed: direct PackageRefs below are required after preview.4
          NuGet resolution shift (PR #11) but flagged as transitively pruneable. -->
-    <NoWarn>$(NoWarn);CS1591;NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />

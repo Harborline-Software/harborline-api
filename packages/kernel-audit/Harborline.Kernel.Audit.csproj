@@ -5,7 +5,6 @@
     <RootNamespace>Harborline.Api.Kernel.Audit</RootNamespace>
     <Description>Harborline kernel audit-trail subsystem (ADR 0049). Append-only domain-typed audit records — recovery events, capability grants, payment authorizations — with multi-party signed attestation. Durability delegated to the kernel IEventLog substrate, parallel to how Kernel.Ledger uses IEventLog.</Description>
     <PackageTags>harborline;kernel;audit;compliance;event-sourced;append-only</PackageTags>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
@@ -23,7 +22,7 @@
     <ProjectReference Include="..\foundation\Harborline.Foundation.csproj" />
     <ProjectReference Include="..\foundation-authorization\Harborline.Foundation.Authorization.csproj" />
     <ProjectReference Include="..\foundation-identity-atlas\Harborline.Foundation.IdentityAtlas.csproj" />
-    <ProjectReference Include="..\foundation-multitenancy\Harborline.Foundation.MultiTenancy.csproj" />
+    <PackageReference Include="Harborline.Foundation.MultiTenancy" />
     <ProjectReference Include="..\kernel\Harborline.Kernel.csproj" />
     <ProjectReference Include="..\kernel-event-bus\Harborline.Kernel.EventBus.csproj" />
   </ItemGroup>

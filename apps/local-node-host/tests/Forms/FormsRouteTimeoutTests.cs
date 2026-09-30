@@ -15,7 +15,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Forms.Engine;
 using Harborline.Api.Foundation.Forms.Engine.Capabilities;
 using Harborline.Api.Foundation.Forms.Models;
-using Harborline.Api.Foundation.RuleEngine;
+using Harborline.Foundation.RuleEngine;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.LocalNodeHost.Data.Forms;
 using Harborline.Api.LocalNodeHost.Health;

@@ -16,7 +16,6 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema;
@@ -85,7 +84,7 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
         builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
         builder.Services.AddSingleton<IActiveTeamAccessor>(_activeTeam);
-        builder.Services.AddScoped<Harborline.Api.Foundation.MultiTenancy.ITenantContext, Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>();
+        builder.Services.AddScoped<Harborline.Foundation.MultiTenancy.ITenantContext, Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>();
         builder.Services.AddSingleton<ISelectedSessionPermissionResolver, FailClosedSelectedSessionPermissionResolver>();
         builder.Services.AddScoped<SelectedSessionTenantContext>();
 

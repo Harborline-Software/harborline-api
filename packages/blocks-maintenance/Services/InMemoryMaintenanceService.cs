@@ -5,7 +5,7 @@ using Harborline.Api.Blocks.Maintenance.Audit;
 using Harborline.Api.Blocks.Maintenance.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
-using Harborline.Api.Foundation.MultiTenancy;
+using Harborline.Foundation.MultiTenancy;
 using Harborline.Api.Kernel.Audit;
 
 namespace Harborline.Api.Blocks.Maintenance.Services;

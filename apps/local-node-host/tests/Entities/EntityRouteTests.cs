@@ -14,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Harborline.Api.Blocks.FinancialLedger.Data;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
-using Harborline.Api.Foundation.MultiTenancy;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Kernel.Runtime.Teams;
 using Harborline.Api.Kernel.Schema.DependencyInjection;
@@ -91,7 +90,7 @@ public sealed class EntityRouteTests : IAsyncLifetime
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt =>
             opt.UseSqlite(connectionString));
         builder.Services.AddSingleton<IActiveTeamAccessor>(_activeTeam);
-        builder.Services.AddScoped<Harborline.Api.Foundation.MultiTenancy.ITenantContext, Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>();
+        builder.Services.AddScoped<Harborline.Foundation.MultiTenancy.ITenantContext, Harborline.Api.LocalNodeHost.Data.Financial.ActiveTeamTenantContext>();
         builder.Services.AddSingleton<ISelectedSessionPermissionResolver, FailClosedSelectedSessionPermissionResolver>();
         builder.Services.AddScoped<SelectedSessionTenantContext>();
 

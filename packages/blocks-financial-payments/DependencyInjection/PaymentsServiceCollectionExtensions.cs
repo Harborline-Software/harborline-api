@@ -39,7 +39,7 @@ public static class PaymentsServiceCollectionExtensions
     ///
     /// <para>
     /// <b>PR 3 amber-amendment:</b> the host MUST also register
-    /// <see cref="Harborline.Api.Foundation.MultiTenancy.ITenantContext"/>.
+    /// <see cref="Harborline.Foundation.MultiTenancy.ITenantContext"/>.
     /// <see cref="DefaultPaymentApplicationService"/> consumes it for
     /// service-level tenant-isolation guards; invoking the service without a
     /// resolved tenant throws <see cref="InvalidOperationException"/>.
