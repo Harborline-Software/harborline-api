@@ -286,6 +286,23 @@ public sealed class SelectedSessionPepTests
         Assert.False(context.HasPermission("records:read"));
     }
 
+    [Fact(DisplayName = "ck-4: a bound request context refuses a second principal and keeps the first tenant")]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void Second_Bind_Is_Refused_And_The_First_Tenant_Stands()
+    {
+        var context = new SelectedSessionTenantContext(new FailClosedSelectedSessionPermissionResolver());
+        Assert.Equal(string.Empty, context.UserId); // an unbound context attributes to no one
+        context.Bind(RequestPrincipal("tenant-first"));
+
+        Assert.Throws<InvalidOperationException>(() => context.Bind(RequestPrincipal("tenant-second")));
+        Assert.Equal(new TenantId("tenant-first"), context.Tenant!.Id);
+    }
+
+    private static SelectedSessionRequestPrincipal RequestPrincipal(string tenant) =>
+        new("selected-account", new TenantId(tenant), new PrincipalUserId("selected-holder"),
+            new CanonicalPartyReference("selected-party"), "membership", 1,
+            [new PinnedGrantOwnerVersion("fixture", 1)], 1, "session", "coordination");
+
     [Fact(DisplayName = "25-member roster rebuild timing is recorded")]
     public async Task TwentyFive_Member_Roster_Rebuild_Is_Measured()
     {

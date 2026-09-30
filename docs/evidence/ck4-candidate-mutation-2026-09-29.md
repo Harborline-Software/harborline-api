@@ -62,6 +62,15 @@ Each hand mutation was applied in the candidate worktree, the named tests were r
 | T-537 M3 | `Id = principal.TenantId` replaced by a fixed tenant (line 49) | `Program_Composition_Provides_Isolated_Selected_Session_Request_Contexts` | 1 of 1 failed |
 | T-537 switch | `if (false && candidate is null)` at `WebTenantSwitchAuthority.cs:367`, with `candidate?.DisplayLabel ?? targetTenantId` at :392 so the mutant compiles | `WebTenantSwitchAuthorityTests` | 1 of 3 failed: `Switch_to_a_tenant_outside_the_accounts_candidates_is_refused_before_any_head_is_written` |
 
+## Gap closed after the re-run (M3, )
+
+The M3 re-run left the unbound-context authority branch untested. Two tests now pin it, tagged :
+
+- : an unbound context attributes to no one (empty ), a second  is refused, and the first tenant stands. It kills the bind-once  removal (line 42) and the unbound  default (line 80).
+- : over an allow-all desktop plane, the unbound context grants on the desktop plane and refuses inside a device-plane scope. It kills line 94 (negate , a device-plane request would borrow the operator's grants), line 98 (device plane returns true) and line 102 (desktop  inverted). Each was applied by hand, turned the test red, and was restored.
+
+Scoped Stryker.NET on the file with filter  at the candidate plus these tests: **63.16%** (12 killed, 4 survived, 3 no-coverage; was 15.78% in the first re-run), report SHA-256 . Remaining: line 39 and 91  removals (a null still ends in an exception), line 43 message text, line 64  (equivalent in the host), line 68  in the cancellation catch and line 71 the fault catch body (both leave  null, so every check fails closed).
+
 ## Slice baselines
 
 The `scope-tenancy`, `scope-tenancy-identity-tenant` and `scope-tenancy-identity-session` slices run separately on the `mutation.yml` workflow at the same commit (`9076915d`): run `36644970273` (in progress when this note was written) and run `36645000780` (queued). Run `36644984613` was cancelled. Their scores are not recorded here; the controller reads them from the run.
