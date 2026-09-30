@@ -81,6 +81,9 @@ public sealed class AllowListVacuityArchTests
         new("AuthorizationDefinitionWriteFenceTests", "Reviewed",
             AuthorizationDefinitionWriteFenceTests.ReviewedRows,
             AuthorizationDefinitionWriteFenceTests.DiscoveredPipelineWriteKeys),
+        new("WritePipelineExecutorFenceTests", "NotYetOnTheExecutor",
+            WritePipelineExecutorFenceTests.NotYetOnTheExecutorRows,
+            WritePipelineExecutorFenceTests.DiscoveredOffExecutorKeys),
         new("AuthorizationRefusalRenderingFenceTests", "Allowed",
             AuthorizationRefusalRenderingFenceTests.AllowedRows,
             AuthorizationRefusalRenderingFenceTests.DiscoveredDenialProseReads),
@@ -147,6 +150,8 @@ public sealed class AllowListVacuityArchTests
             "the fence already asserts SequenceEqual against the discovered call sites, both directions",
         ["RawMutationPortSymbolInventoryTests.Allowed"] =
             "the fence already asserts an exact inventory against the discovered call sites, both directions",
+        ["JournalKernelBoundaryArchTests.WorkflowJoins"] =
+            "the fence already asserts Assert.Equal against the discovered journal-staging files, both directions",
         ["LastAdministratorGuardArchTests.MutationMembers"] =
             "the IGrantStore mutation-member inventory the L619 scan searches for, not an exception list; "
             + "every discovered store must reach the guard on every one of these members and none is excused",
@@ -184,6 +189,9 @@ public sealed class AllowListVacuityArchTests
         ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
             "an exact inventory compared with SequenceEqual against the discovered callers, both "
             + "directions, so a row that excused nothing would be red as a stale expectation",
+        ["WritePipelineExecutorFenceTests.StageNames"] =
+            "the six KernelWrite stage method names the ck-10 fence scans FOR, not an exception list; the "
+            + "planted bypass proves a stage call outside the executor is seen",
         ["AuthorizationDefinitionWriteFenceTests.ContainerWriteVerbs"] =
             "the EF container-write method names the ck-10 fence scans FOR, not an exception list; a verb it "
             + "does not hold excuses nothing, and the planted bypass proves the listed verbs are seen",

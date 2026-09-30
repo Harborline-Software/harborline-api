@@ -240,6 +240,56 @@ public sealed class WebTenantSelectionAuthorityTests
         Assert.Null(challenge.ConsumedAtUtc);
     }
 
+    /// <summary>
+    /// ck-4 G group 1, mutant 16023: a tenant selection receipt that names another tenant is refused
+    /// where it is received, before the home row records it. Without the receipt tenant clause the
+    /// receipt is persisted and the selection only returns null later.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_selection_receipt_naming_another_tenant_is_refused_before_the_home_records_it()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        fixture.Store.ReceiptTenantId = fixture.UnusableTenantId;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+
+        Assert.StartsWith("identity.session_selection_receipt_invalid:", exception.Message);
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Equal(
+                InstallationIdentityCoordinatorState.Committing,
+                (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+        }
+        await using var sessions = fixture.SessionFactory.CreateDbContext();
+        Assert.Empty(await sessions.UserSessions.AsNoTracking().ToArrayAsync());
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutant 16047: a stored selection row whose tenant list names one tenant other
+    /// than its payload's tenant is refused. The tenant list is in none of the row's digests.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task A_stored_selection_whose_tenant_list_names_another_tenant_is_refused()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        Assert.NotNull(await fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        InstallationIdentityCoordinatorRecord row;
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            row = await identity.Coordinators.AsNoTracking().SingleAsync();
+        }
+        Assert.Equal(new[] { fixture.TenantId }, WebTenantSelectionAuthority.ValidateStoredSelection(row));
+
+        row.TenantIdsJson = $"[\"{fixture.UnusableTenantId}\"]";
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            WebTenantSelectionAuthority.ValidateStoredSelection(row));
+        Assert.StartsWith("identity.session_selection_payload_invalid:", exception.Message);
+    }
+
     private sealed class SelectionFixture : IAsyncDisposable
     {
         private readonly string _directory;
@@ -441,6 +491,7 @@ public sealed class WebTenantSelectionAuthorityTests
         public Func<Task>? AfterPrepare { get; set; }
         public bool Aborted { get; private set; }
         public bool ThrowAfterFinalizeOnce { get; set; }
+        public string? ReceiptTenantId { get; set; }
         public int FinalizeCalls { get; private set; }
         public List<int> SessionCountsObservedDuringFinalize { get; } = [];
         public int ReadCalls { get; private set; }
@@ -498,7 +549,7 @@ public sealed class WebTenantSelectionAuthorityTests
             SessionCountsObservedDuringFinalize.Add(await sessions.UserSessions.CountAsync(cancellationToken));
             FinalizeCalls++;
             var receipt = _receipt ??= new TenantSessionSelectionReceipt(
-                TenantId,
+                ReceiptTenantId ?? TenantId,
                 DocumentOwnerVersion: 2,
                 membership.MembershipId,
                 AuditSequence: 1,

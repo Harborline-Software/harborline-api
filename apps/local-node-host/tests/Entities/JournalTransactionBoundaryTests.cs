@@ -177,6 +177,47 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         Assert.Equal((2, 2), await CountsAsync());
     }
 
+    [Fact(DisplayName = "ck-6 boundary: a journal post whose audit adapter stages no audit row commits nothing")]
+    public async Task PostWithoutAStagedAuditRow_CommitsNothing()
+    {
+        var store = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create(audit: new SilentAuditEnlistment()));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-UNAUDITED", sourceReference: null)));
+
+        Assert.Equal((0, 0), await CountsAsync());
+    }
+
+    [Fact(DisplayName = "ck-6 boundary: a journal post whose staged audit row names no actor is refused by name and commits nothing")]
+    public async Task PostWithAnActorlessAuditRow_IsRefusedByNameAndCommitsNothing()
+    {
+        var store = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create(audit: new ActorlessAuditEnlistment()));
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-ACTORLESS", sourceReference: null)));
+
+        Assert.Contains("names no actor", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal((0, 0), await CountsAsync());
+    }
+
+    [Fact(DisplayName = "ck-6 boundary: an unfenced post holds the write lock from its audit-chain read to its commit")]
+    public async Task UnfencedPost_ExcludesAConcurrentWriterBetweenItsAuditChainReadAndCommit()
+    {
+        Exception? competitorError = null;
+        var racing = new RacingAuditEnlistment(async () =>
+        {
+            try { await _store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-RIVAL", sourceReference: null)); }
+            catch (Exception ex) { competitorError = ex; }
+        });
+        var store = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create(audit: racing));
+
+        await store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-FIRST", sourceReference: null));
+
+        Assert.Equal(5, Assert.IsType<Microsoft.Data.Sqlite.SqliteException>(competitorError).SqliteErrorCode);
+        Assert.Null(await FindAsync("JE-CK6-RIVAL"));
+        Assert.Equal((1, 1), await CountsAsync());
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private async Task<(int Journal, int Audit)> CountsAsync()
@@ -300,6 +341,55 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
                 Fired = true;
                 throw new InvalidOperationException($"ck-6 injected fault before: {marker}");
             }
+        }
+    }
+
+    /// <summary>An audit adapter that claims enlistment but stages no audit row.</summary>
+    private sealed class SilentAuditEnlistment : Harborline.Api.Foundation.Coordination.IWriteEnlistment
+    {
+        public Harborline.Api.Foundation.Coordination.WriteInvariant Invariant => NodeWriteInvariants.Audit;
+
+        public ValueTask<Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome> EnlistAsync(
+            Harborline.Api.Foundation.Coordination.StagedWriteUnitOfWork unitOfWork,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome.Enlisted);
+    }
+
+    /// <summary>The real audit adapter, with the staged journal audit row's actor cleared afterwards.</summary>
+    private sealed class ActorlessAuditEnlistment : Harborline.Api.Foundation.Coordination.IWriteEnlistment
+    {
+        private readonly NodeAuditWriteEnlister _inner = new();
+
+        public Harborline.Api.Foundation.Coordination.WriteInvariant Invariant => NodeWriteInvariants.Audit;
+
+        public async ValueTask<Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome> EnlistAsync(
+            Harborline.Api.Foundation.Coordination.StagedWriteUnitOfWork unitOfWork,
+            CancellationToken cancellationToken = default)
+        {
+            var outcome = await _inner.EnlistAsync(unitOfWork, cancellationToken);
+            var context = ((NodeJournalWriteUnitOfWork)unitOfWork).Context;
+            foreach (var row in context.ChangeTracker.Entries<NodeAuditEventRow>().Where(row => row.State == EntityState.Added))
+                row.Property(audit => audit.Actor).CurrentValue = null;
+            return outcome;
+        }
+    }
+
+    /// <summary>The real audit adapter, followed once by a competing write after it has read the audit-chain tip.</summary>
+    private sealed class RacingAuditEnlistment(Func<Task> race) : Harborline.Api.Foundation.Coordination.IWriteEnlistment
+    {
+        private readonly NodeAuditWriteEnlister _inner = new();
+        private Func<Task>? _race = race;
+
+        public Harborline.Api.Foundation.Coordination.WriteInvariant Invariant => NodeWriteInvariants.Audit;
+
+        public async ValueTask<Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome> EnlistAsync(
+            Harborline.Api.Foundation.Coordination.StagedWriteUnitOfWork unitOfWork,
+            CancellationToken cancellationToken = default)
+        {
+            var outcome = await _inner.EnlistAsync(unitOfWork, cancellationToken);
+            if (Interlocked.Exchange(ref _race, null) is { } competitor)
+                await competitor();
+            return outcome;
         }
     }
 

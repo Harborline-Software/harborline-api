@@ -28,6 +28,9 @@ internal sealed class AccessGrantFormSubmissionProjection(
     public string? RequiredPermission(FormDefinitionId form) =>
         form.Value == FormId ? TeamRolePermissions.MembersManage : null;
 
+    /// <summary>The grant's requested start, <c>effectiveFrom</c>, is the field K3 refuses in the past without a backdate capability.</summary>
+    public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "effectiveFrom" : null;
+
     public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) =>
         form.Value == FormId ? [SubmitterRole] : [];
 

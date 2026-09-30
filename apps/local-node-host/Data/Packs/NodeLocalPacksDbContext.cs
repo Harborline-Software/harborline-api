@@ -194,6 +194,8 @@ public sealed class NodeLocalPacksDbContext : DbContext
             e.Property(r => r.Principal).HasColumnName("principal").HasMaxLength(512);
             e.Property(r => r.CommittedAt).HasColumnName("committed_at");
             e.Property(r => r.PublishedAt).HasColumnName("published_at");
+            e.Property(r => r.AuthoritySnapshotJson).HasColumnName("authority_snapshot_json");
+            e.Property(r => r.LastError).HasColumnName("last_error");
             e.HasIndex(r => new { r.Tenant, r.PublishedAt });
         });
 

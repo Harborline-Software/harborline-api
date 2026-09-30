@@ -435,6 +435,10 @@ internal static class LocalNodeHostedComponentCatalog
             Describe<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutboxDrainDaemon>(
                 "local-node.job.audit-outbox-drain", 92, LocalNodeHostedComponentKind.JobRunner,
                 LocalNodeHostedActivation.Always),
+            // DES-0029 ck-6 -- the configuration activation evidence drain, registered with the activation target.
+            Describe<Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationEvidenceDrainDaemon>(
+                "local-node.job.configuration-evidence-drain", 93, LocalNodeHostedComponentKind.JobRunner,
+                LocalNodeHostedActivation.Always),
             Describe<Harborline.Api.LocalNodeHost.Data.HomeEpoch.HostedHomeEpochGenesisService>(
                 "local-node.provisioner.home-epoch-genesis", 95, LocalNodeHostedComponentKind.Provisioner,
                 LocalNodeHostedActivation.Always),
@@ -534,7 +538,7 @@ internal static class LocalNodeHostedComponentCatalog
         where TRegistrar : class, IHostedService =>
         new(typeof(TRegistrar), activation);
 
-    private const int ExpectedOperationalCatalogCount = 33;
+    private const int ExpectedOperationalCatalogCount = 34;
 
     private static void ValidateCatalog(ImmutableArray<LocalNodeHostedComponentDescriptor> catalog)
     {

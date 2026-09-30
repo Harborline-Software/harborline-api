@@ -25,8 +25,9 @@ using Harborline.Api.Foundation.Packs.Install.Merge;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.ReportDefinitions;
-using Harborline.Api.Foundation.RuleEngine.Standings;
-using Harborline.Api.Foundation.RuleEngine.Compilation;
+using Harborline.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Compilation;
+using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.Foundation.DataExchangeDefinitions;
 using Harborline.Api.Foundation.ScheduleDefinitions;
 using Harborline.Api.Foundation.Taxonomy.Models;
@@ -1531,7 +1532,7 @@ internal sealed class PackSeedProjector : IPackSeedProjector
     {
         try
         {
-            definition = JsonSerializer.Deserialize<StandingRuleDefinition>(
+            definition = StandingRuleDefinitionJson.Deserialize(
                 item.CanonicalJson,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
             return definition is not null
