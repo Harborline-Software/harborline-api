@@ -6,8 +6,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Coordination;
 using Harborline.Api.LocalNodeHost.Data;
-using Harborline.Api.LocalNodeHost.Data.Audit;
-using Harborline.Api.LocalNodeHost.Data.HomeEpoch;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Financial;
 
@@ -54,9 +53,10 @@ namespace Harborline.Api.LocalNodeHost.Data.Financial;
 /// recurring-invoice, and issued-invoice invariants. <see cref="WriteEnlistmentRegistry"/> verifies that
 /// every one has a registered <see cref="IWriteEnlistment"/> before any row is staged; a missing adapter
 /// refuses the save. Registered adapters explicitly return <see cref="WriteEnlistmentOutcome.NotApplicable"/>
-/// when their ambient scope does not match this write. The registry runs the home-epoch fence first, and
-/// an active fence scope keeps the existing <c>BEGIN IMMEDIATE</c> transaction around the fence read and
-/// single save.
+/// when their ambient scope does not match this write. The registry runs the home-epoch fence first. Every post
+/// commits through the Platform <see cref="KernelTransactionBoundary"/> over
+/// <see cref="NodeJournalKernelTransactionPort"/>, which holds one <c>BEGIN IMMEDIATE</c> transaction from before
+/// the adapters run until the single commit (DES-0029 ck-6).
 /// </para>
 /// </remarks>
 public sealed class NodeEfJournalStore : IJournalStore
@@ -101,77 +101,22 @@ public sealed class NodeEfJournalStore : IJournalStore
         await using var ctx = await _contextFactory.CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Security verdict G-4 (md2 Finding 1) — when an ambient HomeEpochWriteScope is active (a multi-home
-        // write asserting the epoch it believes it is home for), the fence read AND the effect commit MUST
-        // be one atomic read-through-write so a concurrent promotion cannot commit a higher epoch between
-        // them (the TOCTOU). That requires the write lock to be held for the read's duration, which a plain
-        // SaveChanges (implicit, write-only transaction) does NOT do. So the fenced path runs the whole
-        // unit-of-work inside an explicit BEGIN IMMEDIATE transaction (HomeEpochFenceTransaction): the
-        // RESERVED write lock is taken BEFORE the fence read, the read sees the durably-current epoch under
-        // that lock, and a stale assertion throws inside the transaction so the JE + audit + idempotency +
-        // status rows all roll back. A superseded home commits NOTHING.
-        //
-        // With no scope the registered fence adapter reports NotApplicable and the write keeps the plain
-        // SaveChanges shape, avoiding a write-lock-held transaction it does not need.
-        //
-        // A reversal reads the original and transitions it in the same unit of work, so it also takes the write
-        // lock before that read: two concurrent reversals cannot both see the original Posted.
-        var fenceActive = HomeEpochWriteScope.Current is not null;
-
-        if (fenceActive || entry.ReversalOf is not null)
-        {
-            await HomeEpochFenceTransaction.RunAsync(
-                ctx,
-                () => StageAndSaveAsync(ctx, entry, decision, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            await StageAndSaveAsync(ctx, entry, decision, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
-    /// Validates and runs the declared adapters, stages the journal entry, and issues the single save.
-    /// </summary>
-    private async Task StageAndSaveAsync(
-        LocalNodeDbContext ctx,
-        JournalEntry entry,
-        AuthorizationDecision decision,
-        CancellationToken cancellationToken)
-    {
-        var unitOfWork = new NodeJournalWriteUnitOfWork(ctx, entry, decision);
-        await _enlistmentRegistry
-            .EnlistAsync(NodeJournalWriteOperation.Post, unitOfWork, cancellationToken)
-            .ConfigureAwait(false);
-        if (entry.ReversalOf is { } originalId)
-        {
-            // DES-0029 ck-6: the original's Posted -> Reversed transition commits with the reversing entry and
-            // its audit row, or none of them does. A second reversal is refused before anything is written.
-            var original = await ctx.Set<JournalEntry>()
-                .SingleOrDefaultAsync(e => e.TenantId == entry.TenantId && e.Id == originalId, cancellationToken)
-                .ConfigureAwait(false);
-            if (original?.Status != JournalEntryStatus.Posted)
+        // DES-0029 ck-6: the post commits through the Platform kernel transaction boundary. The port opens the
+        // single BEGIN IMMEDIATE fence (G-4, md2 Finding 1) before the command is prepared, so the home-epoch
+        // fence read, the audit-chain tip read and a reversal's read of its original all run under the write
+        // lock, and a stale epoch, a lost reversal race or any fault rolls the entry, its audit row and every
+        // co-committed status row back together. The boundary owns the operation/record/audit staging order
+        // and the single commit.
+        await KernelTransactionBoundary.ExecutePreparedAsync(
+            async ct =>
             {
-                throw new JournalEntryNotReversibleException(
-                    $"JournalEntry '{originalId.Value}' is {original?.Status.ToString() ?? "absent"}; only a Posted entry can be reversed.");
-            }
-
-            var tracked = ctx.Entry(original);
-            tracked.Property(e => e.Status).CurrentValue = JournalEntryStatus.Reversed;
-            tracked.Property(e => e.ReversedBy).CurrentValue = entry.Id;
-        }
-
-        ctx.Set<JournalEntry>().Add(entry);
-        try
-        {
-            await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (entry.SourceReference is { Length: > 0 } && NodePersistenceConflict.IsDuplicate(ex))
-        {
-            throw new JournalSourceReferenceConflictException(
-                $"JournalEntry '{entry.Id.Value}': source reference '{entry.SourceReference}' is already posted.", ex);
-        }
+                await _enlistmentRegistry
+                    .EnlistAsync(NodeJournalWriteOperation.Post, new NodeJournalWriteUnitOfWork(ctx, entry, decision), ct)
+                    .ConfigureAwait(false);
+                return NodeJournalKernelTransactionPort.Command(ctx, entry);
+            },
+            new NodeJournalKernelTransactionPort(ctx),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
