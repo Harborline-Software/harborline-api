@@ -71,6 +71,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: stryker-full-${{ github.run_id }}
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 30
+          include-hidden-files: true  # the path is a dot-folder, which upload-artifact skips by default
           path: .stryker/*/reports/mutation-report.json

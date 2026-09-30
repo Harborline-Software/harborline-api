@@ -262,6 +262,7 @@ jobs:
           name: verify-perf-hosted-evidence-${{ github.run_id }}
           if-no-files-found: ignore
           retention-days: 14
+          include-hidden-files: true  # the path is a dot-folder, which upload-artifact skips by default
           path: .claude/gate-evidence/
 
   # The two host lanes. Each runs exact-clone against its own baseline, in parallel with the shared
@@ -699,4 +700,5 @@ jobs:
           name: stryker-${{ github.run_id }}
           if-no-files-found: ignore
           retention-days: 7
+          include-hidden-files: true  # the path is a dot-folder, which upload-artifact skips by default
           path: .stryker/*/reports/mutation-report.json
