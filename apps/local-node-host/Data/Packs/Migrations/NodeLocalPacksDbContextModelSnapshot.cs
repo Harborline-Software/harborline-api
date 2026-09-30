@@ -14,7 +14,7 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20260928120000_AddConfigurationRecoveries";
+    public override string LastMigrationId => "20260929180000_AddConfigurationEvidenceAuthority";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -41,7 +41,9 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset>("CommittedAt").HasColumnType("TEXT").HasColumnName("committed_at");
                 b.Property<string>("DecisionId").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("decision_id");
                 b.Property<string>("DecisionJson").IsRequired().HasColumnType("TEXT").HasColumnName("decision_json");
+                b.Property<string>("AuthoritySnapshotJson").HasColumnType("TEXT").HasColumnName("authority_snapshot_json");
                 b.Property<string>("InputsDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("inputs_digest");
+                b.Property<string>("LastError").HasColumnType("TEXT").HasColumnName("last_error");
                 b.Property<string>("NewDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("new_digest");
                 b.Property<string>("Principal").IsRequired().HasMaxLength(512).HasColumnType("TEXT").HasColumnName("principal");
                 b.Property<string>("PriorDigest").IsRequired().HasMaxLength(64).HasColumnType("TEXT").HasColumnName("prior_digest");
