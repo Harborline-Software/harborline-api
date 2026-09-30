@@ -369,9 +369,11 @@ public sealed class RosterPreInsertVerificationTests
         var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
                 RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant, nonce)))
             .AttestReceipt(f.Founder, "founder", instant);
-        // Ed25519 is deterministic, so pick the admitted party until the tie-break (ordinal signature order) puts
-        // the revocation first: that revocation precedes the admission and ejects its signer.
-        var late = Enumerable.Range(0, 64).Select(i =>
+        // The fixture's keys are fresh each run, so the revocation's signature is random. Draw admitted parties until
+        // the tie-break (ordinal signature order) puts the revocation first: that revocation precedes the admission and
+        // ejects its signer. A revocation signature near the top of the ordinal range needs thousands of draws, so the
+        // bound is generous; 64 left roughly one run in forty with no candidate (T-987).
+        var late = Enumerable.Range(0, 200_000).Select(i =>
             {
                 var key = KeyPair.Generate().PrincipalId;
                 return RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), $"late-{i}", key,
@@ -442,13 +444,13 @@ public sealed class RosterPreInsertVerificationTests
 
     private static RosterRecordCrdtState CopyReceipt(
         RosterRecordCrdtState target, RosterRecordCrdtState source) => target with
-    {
-        WireFormatVersion = source.WireFormatVersion,
-        ReceivedAtIso = source.ReceivedAtIso,
-        ReceivedByPartyId = source.ReceivedByPartyId,
-        ReceivedByPublicKey = source.ReceivedByPublicKey,
-        ReceiveAttestationSignatureB64Url = source.ReceiveAttestationSignatureB64Url,
-    };
+        {
+            WireFormatVersion = source.WireFormatVersion,
+            ReceivedAtIso = source.ReceivedAtIso,
+            ReceivedByPartyId = source.ReceivedByPartyId,
+            ReceivedByPublicKey = source.ReceivedByPublicKey,
+            ReceiveAttestationSignatureB64Url = source.ReceiveAttestationSignatureB64Url,
+        };
 
     private sealed class DelayedTrail : IAuditTrail
     {
@@ -491,8 +493,11 @@ public sealed class RosterPreInsertVerificationTests
         }
         public static async Task<Fixture> CreateAsync(PermissionSet? permissions = null, IAuditTrail? trail = null)
         {
-            var f = new Fixture { _trail = trail ?? new InMemoryAuditTrail(),
-                _memberAuthority = permissions ?? PermissionSet.Empty };
+            var f = new Fixture
+            {
+                _trail = trail ?? new InMemoryAuditTrail(),
+                _memberAuthority = permissions ?? PermissionSet.Empty
+            };
             Directory.CreateDirectory(f._directory);
             f.Provider = f.NewProvider();
             await using (var db = await f.Factory.CreateDbContextAsync()) await db.Database.EnsureCreatedAsync();

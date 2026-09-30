@@ -7,6 +7,12 @@ on:
     branches: [main]
   pull_request:
   merge_group:
+# A new push to a pull request cancels that PR's in-flight run. A merge group keys on its own ref
+# (unique per queue entry) and a push to main on its run id, so neither is ever cancelled or queued
+# behind another run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'merge_group' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
   pull-requests: read
