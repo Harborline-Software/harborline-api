@@ -141,6 +141,25 @@ public static class PackInstallCodes
     /// <summary>Deactivation refused: the named installed version is not the pack's current Active version.</summary>
     public const string DeactivateNotActive = "pack.install.deactivate.not_active";
 
+    /// <summary>Activation refused: a package in the target's dependency closure is installed but not Active
+    /// (DES-0029 ck-2 S2). The detail names the dependency path from the target.</summary>
+    public const string ActivateDependencyInactive = "pack.install.activate.dependency_inactive";
+
+    /// <summary>Activation refused: the Active version of a package in the closure is below a pin on it. The
+    /// pin is a minimum-inclusive floor checked against the Active version, never the latest installed one.</summary>
+    public const string ActivateDependencyBelowPin = "pack.install.activate.dependency_below_pin";
+
+    /// <summary>Activation refused: a package in the closure is not installed at all.</summary>
+    public const string ActivateDependencyMissing = "pack.install.activate.dependency_missing";
+
+    /// <summary>Activation refused: the closure's dependencies form a cycle; the detail names it. Any other
+    /// kernel closure refusal is reported under its own <c>kernel.closure.*</c> code.</summary>
+    public const string ActivateDependencyCycle = "pack.install.activate.dependency_cycle";
+
+    /// <summary>Deactivation refused: an Active pack's closure runs through this pack (D4, no cascade).
+    /// <see cref="PackDeactivationOutcome.Dependents"/> names every such pack.</summary>
+    public const string DeactivateDependentsActive = "pack.install.deactivate.dependents_active";
+
     /// <summary>An ACTIVATE was attempted with no acting principal — the pointer flip that makes seed
     /// content LIVE is at least as consequential as install, so the same domain-layer principal
     /// requirement applies (ticket 151 cluster; "any compiled caller bypasses").</summary>
@@ -454,11 +473,14 @@ public sealed record PackActivationOutcome(
 /// <param name="Projected">Whether synchronous reverse projection completed.</param>
 /// <param name="ProjectionResult">Opaque host-owned projection summary; never carries authority.</param>
 /// <param name="Decision">The exact decision that admitted or refused the deactivation request.</param>
+/// <param name="Dependents">The Active packs, ordinal order, whose closure runs through this one when the
+/// refusal is <see cref="PackInstallCodes.DeactivateDependentsActive"/>; otherwise empty.</param>
 public sealed record PackDeactivationOutcome(
     bool Deactivated, string PackKey, string Version, string? Error,
     bool Projected = false,
     object? ProjectionResult = null,
-    AuthorizationDecision? Decision = null);
+    AuthorizationDecision? Decision = null,
+    IReadOnlyList<string>? Dependents = null);
 
 /// <summary>
 /// The outcome of an administrator NARROWING one content key of a pack's Active version (ticket 208

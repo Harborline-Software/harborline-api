@@ -36,7 +36,8 @@ namespace Harborline.Api.LocalNodeHost.Data.HomeEpoch;
 /// </para>
 /// <para>
 /// <b>Single source for fenced sites (no A4 drift).</b> <c>NodeEfJournalStore.SaveAtomicAsync</c> (the
-/// JE-post site), <c>NodeEfInvoiceNumberingService.NextNumberAsync</c> (the Gap-2b sequence-allocation site),
+/// JE-post site, through its kernel-boundary port and <see cref="BeginAsync"/>),
+/// <c>NodeEfInvoiceNumberingService.NextNumberAsync</c> (the Gap-2b sequence-allocation site),
 /// and <c>NodeEfGrantStore</c> mutations run their fenced unit-of-work through this one helper, so the
 /// IMMEDIATE-locked read-through-write semantics are identical at all sites. The G-4 arch-test asserts every
 /// site routes through here.
@@ -77,8 +78,30 @@ public static class HomeEpochFenceTransaction
         Func<Task<T>> body,
         CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(body);
+        await using var fence = await BeginAsync(ctx, ct).ConfigureAwait(false);
+        try
+        {
+            // The fence read + the effect's SaveChangesAsync — both run here, under the held write lock.
+            var result = await body().ConfigureAwait(false);
+            await fence.CommitAsync(ct).ConfigureAwait(false);
+            return result;
+        }
+        catch
+        {
+            // A stale-epoch rejection (or any failure) rolls the whole read-through-write back: nothing persists.
+            await fence.RollbackAsync(ct).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens the same single <c>BEGIN IMMEDIATE</c> fence for a caller that owns the commit point itself (the
+    /// journal store's Platform <c>KernelTransactionBoundary</c> port). Disposing an uncommitted fence rolls it back.
+    /// </summary>
+    public static async Task<Held> BeginAsync(DbContext ctx, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
 
         // Take the underlying ADO connection and open it (EF may not have opened it yet). We begin the
         // transaction directly on the SqliteConnection so we can pass deferred:false (= BEGIN IMMEDIATE);
@@ -96,31 +119,54 @@ public static class HomeEpochFenceTransaction
         // BeginTransactionAsync() or the parameterless ADO begin: the documented default for a plain SQLite
         // begin is DEFERRED (write lock taken lazily on first write — too late, the fence read precedes it).
         // Passing deferred:false makes the IMMEDIATE intent explicit and version-independent.
-        await using var sqliteTx = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
-
-        // Enlist EF onto this same ADO transaction so the body's SaveChangesAsync commits inside it (rather
-        // than EF opening its own implicit transaction on a fresh write lock).
-        await ctx.Database.UseTransactionAsync(sqliteTx, ct).ConfigureAwait(false);
-
+        SqliteTransaction? sqliteTx = null;
         try
         {
-            // The fence read + the effect's SaveChangesAsync — both run here, under the held write lock.
-            var result = await body().ConfigureAwait(false);
-            await sqliteTx.CommitAsync(ct).ConfigureAwait(false);
-            return result;
+            sqliteTx = connection.BeginTransaction(IsolationLevel.Serializable, deferred: false);
+
+            // Enlist EF onto this same ADO transaction so the body's SaveChangesAsync commits inside it (rather
+            // than EF opening its own implicit transaction on a fresh write lock).
+            await ctx.Database.UseTransactionAsync(sqliteTx, ct).ConfigureAwait(false);
+            return new Held(connection, sqliteTx, openedHere);
         }
         catch
         {
-            // A stale-epoch rejection (or any failure) rolls the whole read-through-write back: nothing
-            // persists. Best-effort rollback — if the connection already faulted, the dispose finalizes it.
-            try { await sqliteTx.RollbackAsync(ct).ConfigureAwait(false); } catch { /* already rolled back */ }
+            if (sqliteTx is not null) await sqliteTx.DisposeAsync().ConfigureAwait(false);
+            if (openedHere) await connection.CloseAsync().ConfigureAwait(false);
             throw;
         }
-        finally
+    }
+
+    /// <summary>An open <c>BEGIN IMMEDIATE</c> fence: the write lock is held until commit, rollback or dispose.</summary>
+    public sealed class Held : IAsyncDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private readonly SqliteTransaction _transaction;
+        private readonly bool _openedHere;
+
+        internal Held(SqliteConnection connection, SqliteTransaction transaction, bool openedHere)
         {
-            if (openedHere && connection.State == ConnectionState.Open)
+            _connection = connection;
+            _transaction = transaction;
+            _openedHere = openedHere;
+        }
+
+        /// <summary>Commits everything saved under the fence.</summary>
+        public Task CommitAsync(CancellationToken ct = default) => _transaction.CommitAsync(ct);
+
+        /// <summary>Best-effort rollback: if the connection already faulted, dispose finalizes it.</summary>
+        public async Task RollbackAsync(CancellationToken ct = default)
+        {
+            try { await _transaction.RollbackAsync(ct).ConfigureAwait(false); } catch { /* already rolled back */ }
+        }
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            await _transaction.DisposeAsync().ConfigureAwait(false);
+            if (_openedHere && _connection.State == ConnectionState.Open)
             {
-                await connection.CloseAsync().ConfigureAwait(false);
+                await _connection.CloseAsync().ConfigureAwait(false);
             }
         }
     }

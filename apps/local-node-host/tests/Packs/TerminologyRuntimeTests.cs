@@ -160,7 +160,7 @@ public sealed class TerminologyRuntimeTests
         unsupported["schemaVersion"] = 8;
         var result = await fixture.Install(unsupported, "2.0.0", expectInstalled: false);
         Assert.Contains(result.Preview.AdmissionRefusals, refusal => refusal.Code == PackTerminologyCodes.UnsupportedVersion);
-        Assert.Single(fixture.Packs.ListInstalled(Tenant));
+        Assert.Single(fixture.Packs.ListInstalled(Tenant), pack => pack.PackKey != PlatformPackTestPreload.PackKey);
         Assert.Equal("1.0.0", Assert.Single(fixture.Projection.List(Tenant)).Provenance.PackVersion);
         Assert.Null(fixture.Packs.GetVersion(Tenant, "terminology.test", "2.0.0"));
     }
@@ -182,9 +182,10 @@ public sealed class TerminologyRuntimeTests
         fixture.Packs.Commit(new PackInstallTransaction(Tenant, owner,
             new PackInstallWatermark(owner.PackKey, owner.Version, new Dictionary<string, int>()), []));
         fixture.Packs.Activate(Tenant, owner.PackKey, owner.Version);
-        var before = JsonSerializer.Serialize(fixture.Projection.List(Tenant));
         var unresolved = await fixture.Projector.ProjectActivePacksAsync(Tenant);
-        Assert.Equal(before, JsonSerializer.Serialize(fixture.Projection.List(Tenant)));
+        // The claimants' refused passes roll back, but the platform pack's clean pass (D5: always Active)
+        // applies ADR 0129 F4: an unresolved contested key projects for nobody.
+        Assert.Empty(fixture.Projection.List(Tenant));
         Assert.Contains(unresolved.Refusals, refusal => refusal.Code == "pack.terminology.ownership_unresolved");
         fixture.Packs.RecordKeyOwnership(Tenant, "operations.asset", owner.PackKey);
         await fixture.Projector.ProjectActivePacksAsync(Tenant);
@@ -218,6 +219,7 @@ public sealed class TerminologyRuntimeTests
         public PackInstaller? Installer { get; private set; }
         public Runtime()
         {
+            PlatformPackTestPreload.Activate(Packs, Tenant);
             Projector = new PackSeedProjector(Packs, services.GetRequiredService<IEntityTypeRegistry>(), NullLogger<PackSeedProjector>.Instance,
                 time: TimeProvider.System, terminology: Projection);
             Catalogue = new ProjectedCatalogue(TestAuthorization.FormLifecycle(forms, TestAuthorization.AllowGate(), TestAuthorization.RoleGate()), terminology: Projection);

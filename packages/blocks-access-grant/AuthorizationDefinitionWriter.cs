@@ -273,7 +273,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         var bootstrapDecision = bootstrap.Decision;
         return await WriteCoreAsync(command, bootstrapDecision.Request is { } request
             ? new AuthorizationWriteContext(request.Principal, request.Tenant, request.At)
-            : throw new ArgumentException("A bootstrap decision requires a request.", nameof(bootstrapDecision)),
+            : throw new ArgumentException("A bootstrap decision requires a request.", nameof(bootstrap)),
             bootstrapDecision,
             additiveSeedRevision: false,
             packAuthority: null,
@@ -314,13 +314,25 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
 
         public ValidatedAuthorizationConfigurationWrite? Sealed { get; private set; }
 
+        // The two argument guards the Authorize stage runs, kept as methods whose parameters they name.
+        private static void RequireBootstrapEvidence(AuthorizationDecision bootstrapDecision)
+        {
+            bootstrapDecision.RequireAllowed();
+            if (bootstrapDecision.Resolution.All(step => step.Stage != AuthorizationResolutionStage.Bootstrap))
+                throw new ArgumentException("The carried bootstrap decision lacks bootstrap derivation evidence.", nameof(bootstrapDecision));
+        }
+
+        private static void RequireAuthorityTenant(AuthorizationConfigurationCommand command, TenantId? declaredTenant, TenantId authorityTenant)
+        {
+            if (declaredTenant is { } tenant && tenant != authorityTenant)
+                throw new ArgumentException("The authorization command tenant does not match the write authority.", nameof(command));
+        }
+
         protected override async ValueTask AuthorizeAsync(CancellationToken ct)
         {
             if (bootstrapDecision is not null)
             {
-                bootstrapDecision.RequireAllowed();
-                if (bootstrapDecision.Resolution.All(step => step.Stage != AuthorizationResolutionStage.Bootstrap))
-                    throw new ArgumentException("The carried bootstrap decision lacks bootstrap derivation evidence.", nameof(bootstrapDecision));
+                RequireBootstrapEvidence(bootstrapDecision);
                 return;
             }
             if (packAuthority is not null)
@@ -345,8 +357,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
                 NarrowCapabilityRoleBinding narrow => (narrow.TenantId, narrow.DefinitionId.Value.ToString()),
                 _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
             };
-            if (target.Tenant is { } declaredTenant && declaredTenant != authority.Tenant)
-                throw new ArgumentException("The authorization command tenant does not match the write authority.", nameof(command));
+            RequireAuthorityTenant(command, target.Tenant, authority.Tenant);
             var decision = await writer.gate.DecideAsync(
                 authority.Request(AuthorizationOperation.Parse(Permission.GrantPermissions), "grant", target.Id), ct)
                 .ConfigureAwait(false);

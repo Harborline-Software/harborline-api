@@ -301,6 +301,7 @@ public sealed class PackReplacementRemovalTests
 
         public World(IPackPlatformCompatibility? platform = null)
         {
+            PlatformPackTestPreload.Activate(_store, Tenant);
             _rendezvous = platform is not null;
             Views = new TearDownableViewRegistry();
             Reports = new InMemoryReportDefinitionRegistry(new AcceptAllReports());

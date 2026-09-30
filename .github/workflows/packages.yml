@@ -11,6 +11,10 @@ name: packages
 # green without running anything, and the merge queue admitted whatever was in front of it. The variable was in fact unset from 2026-08-24 (free
 # plan, private repositories, minutes exhausted) until the repositories went public on 2026-09-07.
 #
+# 2026-09-29 (owner, CI load): on a pull request the three required jobs skip a draft (as verify.yml's
+# lanes do) and a PR labelled `stacked`, and so report skipped-as-green there. The merge group runs
+# all three regardless, and it is the only way onto main, so no change lands without them.
+#
 # Verification does NOT depend on this flag. Run locally instead:
 #     bash eng/verify.sh
 #
@@ -20,6 +24,8 @@ name: packages
 # ---------------------------------------------------------------------------
 on:
   pull_request:
+    # ready_for_review: a draft skips the jobs below, so marking it ready must run them.
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   push:
     # T-577: no push-to-main run; the merge group already proved the landing commit.
@@ -34,6 +40,13 @@ on:
         type: boolean
         required: false
         default: false
+
+# A new push to a pull request cancels that PR's in-flight run. A merge group keys on its own ref
+# (unique per queue entry), and a tag push or dispatch on its run id, so none of them is ever cancelled
+# or queued behind another run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'merge_group' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -55,8 +68,13 @@ jobs:
   # that was never run.
   protocol-lane-conformance:
     # Skipped on push only (publication only, see `on:`). No variable can flip this condition, and a
-    # push has no pull request or merge group for a skipped-as-green context to admit (T-633).
-    if: github.event_name != 'push'
+    # push has no pull request or merge group for a skipped-as-green context to admit (T-633). On a
+    # pull request it also skips a draft and a `stacked` PR (see the header); the merge group runs it.
+    if: >-
+      github.event_name != 'push' &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        !contains(github.event.pull_request.labels.*.name, 'stacked')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -103,8 +121,12 @@ jobs:
         run: cargo test --manifest-path packages/contracts/rust/Cargo.toml
 
   operator-cli-headless:
-    # Skipped on push only, for the reason protocol-lane-conformance gives.
-    if: github.event_name != 'push'
+    # Skipped on push, a draft and a `stacked` PR, for the reasons protocol-lane-conformance gives.
+    if: >-
+      github.event_name != 'push' &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.draft == false &&
+        !contains(github.event.pull_request.labels.*.name, 'stacked')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -127,6 +149,11 @@ jobs:
   # suite is precisely what hid a restore-breaking NU1015 in Directory.Build.props.
   # On push (publication only) it packs and uploads without the consumer run.
   pack-consume:
+    # A draft and a `stacked` PR skip it, as protocol-lane-conformance does; every other event runs it.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       !contains(github.event.pull_request.labels.*.name, 'stacked'))
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}

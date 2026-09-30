@@ -86,6 +86,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
         var activeTeam = new MutableActiveTeamAccessor(TeamContextFor(TeamA, "General Co"));
 
         _store = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(_store, NodeTenantFor());
         _audit = new InMemoryPackInstallAudit();
         var admission = new PackWorkflowAdmissionAdapter(new WorkflowAdmissionValidator());
         _installer = new PackInstaller(verifier, _store, admission, _audit,
@@ -411,7 +412,7 @@ public sealed class PackMultiPackCollisionRouteTests : IAsyncLifetime
 
     private List<InstalledPack> ActivePacks()
         => _store.ListInstalled(NodeTenantFor())
-            .Where(p => p.Lifecycle == PackLifecycleState.Active)
+            .Where(p => p.Lifecycle == PackLifecycleState.Active && p.PackKey != PlatformPackTestPreload.PackKey)
             .OrderBy(p => p.PackKey, StringComparer.Ordinal)
             .ToList();
 
