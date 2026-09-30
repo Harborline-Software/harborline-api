@@ -5,6 +5,7 @@ using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.Kernel.Schema;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,10 +36,14 @@ public sealed class NodeEntityWriter(
     [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
     AuthorizationGate gate,
     Health.AuthorizationRefusalAudit? refusals = null,
-    Health.AuthorizedActAudit? accepted = null) : IEntityWriteCoordinator
+    Health.AuthorizedActAudit? accepted = null,
+    IWritePipelineObserver? pipelineObserver = null) : IEntityWriteCoordinator
 {
     /// <summary>The event type an accepted record write is recorded under (ticket 331 slice 2).</summary>
     public static readonly Kernel.Audit.AuditEventType RecordWrittenEventType = new("RecordWritten");
+
+    /// <summary>The event type an accepted record delete is recorded under (DES-0029 ck-10 S2).</summary>
+    public static readonly Kernel.Audit.AuditEventType RecordDeletedEventType = new("RecordDeleted");
 
     /// <summary>
     /// Records the accepted write against the ONE decision that permitted it and returns that entry's
@@ -47,11 +52,12 @@ public sealed class NodeEntityWriter(
     /// member of its body.
     /// </summary>
     private ValueTask<Guid?> RecordAcceptedAsync(
-        AuthorizationDecision decision, SchemaId schema, string recordId, CancellationToken ct)
+        AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema, string recordId,
+        CancellationToken ct)
         => accepted is null
             ? ValueTask.FromResult<Guid?>(null)
             : accepted.RecordAsync(
-                RecordWrittenEventType,
+                eventType,
                 decision,
                 new Dictionary<string, object?> { ["recordId"] = recordId, ["schema"] = schema.Value },
                 ct);
@@ -113,61 +119,29 @@ public sealed class NodeEntityWriter(
         decision.RequireAllowed();
     }
 
-    public async ValueTask<LegalEntityWritten> CreateLegalEntityAsync(
+    private async ValueTask<AuthorizationDecision> DecideAsync(
+        AuthorizationWriteContext authority, string recordId, CancellationToken ct)
+    {
+        var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
+            .ConfigureAwait(false);
+        decision.RequireAllowed();
+        return decision;
+    }
+
+    // ck-10 S2 (DES-0029): every write on this coordinator runs the six ADR 0038 stages through the kernel
+    // executor. None of them settles at bind, so the executor always reaches react and returns its result.
+    private async ValueTask<TResult> RunAsync<TBound, TMutation, TSealed, TResult>(
+        KernelWrite<TBound, TMutation, TSealed, TResult> write, CancellationToken ct)
+        where TBound : class
+        => (await WritePipeline.RunAsync(write, pipelineObserver, ct).ConfigureAwait(false))!;
+
+    public ValueTask<LegalEntityWritten> CreateLegalEntityAsync(
         CreateLegalEntityCommand command,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", command.Id.Value), ct)
-            .ConfigureAwait(false);
-        decision.RequireAllowed();
-
-        // Stage two (ADR 0065 clause 4): authority validation runs after the gate and BEFORE any
-        // device-local parsing, so the refusal a caller sees is the authority's — named, pointed at
-        // the failing member, and identical on every path that writes this record type. The null
-        // object is gone: whatever is composed here is a real validator (ticket 151, L1418).
-        using (var candidate = JsonSerializer.SerializeToDocument(new
-        {
-            legalName = command.LegalName,
-            kind = command.Kind,
-            taxClassification = command.TaxClassification,
-            commonControlGroupId = command.CommonControlGroupId,
-        }))
-        {
-            // The token is discarded: this path persists through EF, not the entity store. It is minted
-            // anyway so the refusal recording below is the one place every record write validates.
-            _ = await AdmitAsync(decision, Health.EntityRoutes.LegalEntitySchema, candidate, authority.Tenant, null, authority, ct)
-                .ConfigureAwait(false);
-        }
-
-        // Device-local parsing of the already-validated body. Unreachable for a body the authority
-        // accepted; kept as the local guard for an embedder that composes its own schema.
-        if (string.IsNullOrWhiteSpace(command.LegalName))
-            throw new ArgumentException("legalName is required.", nameof(command));
-        if (!Enum.TryParse<EntityKind>(command.Kind, true, out var kind))
-            throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
-        if (!Enum.TryParse<TaxClassification>(command.TaxClassification, true, out var taxClass))
-            throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
-
-        var instant = (Instant)authority.At;
-        var entity = new LegalEntity(
-            command.Id,
-            authority.Tenant,
-            command.LegalName.Trim(),
-            kind,
-            taxClass,
-            command.CommonControlGroupId,
-            instant,
-            instant);
-
-        await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        context.Set<LegalEntity>().Add(entity);
-        await context.SaveChangesAsync(ct).ConfigureAwait(false);
-        return new LegalEntityWritten(
-            entity,
-            await RecordAcceptedAsync(decision, Health.EntityRoutes.LegalEntitySchema, command.Id.Value, ct)
-                .ConfigureAwait(false));
+        return RunAsync(new LegalEntityCreate(this, factory, command, authority), ct);
     }
 
     public async ValueTask<EntityId> CreateAsync(
@@ -203,63 +177,242 @@ public sealed class NodeEntityWriter(
     /// Resolves a bound schema and its create options only after the canonical write decision allows
     /// this record. Preparation cannot supply a decision or change the admitted tenant or record id.
     /// </summary>
-    internal async ValueTask<EntityWritten> CreateWithReceiptAsync(
+    internal ValueTask<EntityWritten> CreateWithReceiptAsync(
         JsonDocument body,
         string recordId,
         AuthorizationWriteContext authority,
         Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare,
         CancellationToken ct = default)
-    {
-        // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
-        // so an unauthorized caller learns nothing about the schema. RW-9 is held by the signature now:
-        // the store's record seam takes a ValidatedRecordBody, which only AdmitAsync below can mint.
-        var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", recordId), ct)
-            .ConfigureAwait(false);
-        decision.RequireAllowed();
-        var (schema, options) = await prepare(ct).ConfigureAwait(false);
-        if (options.Tenant != authority.Tenant || InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart != recordId)
-            throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
-        var admitted = await AdmitAsync(decision, schema, body, options.Tenant, options.Binding, authority, ct).ConfigureAwait(false);
-        var created = await entities.CreateAsync(admitted, options with { ValidFrom = authority.At }, ct)
-            .ConfigureAwait(false);
-        return new EntityWritten(
-            created,
-            await RecordAcceptedAsync(decision, schema, created.LocalPart, ct).ConfigureAwait(false));
-    }
+        => RunAsync(new RecordCreate(this, entities, body, recordId, authority, prepare), ct);
 
-    public async ValueTask<VersionId> UpdateAsync(
+    public ValueTask<VersionId> UpdateAsync(
         EntityId id,
         JsonDocument body,
         UpdateOptions options,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
-    {
-        var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
-            .ConfigureAwait(false);
-        decision.RequireAllowed();
-        // The new body is validated against the record's OWN activated schema, so the token the store's
-        // record seam receives carries that schema and its schema-match guard passes by construction. A
-        // missing entity is refused here with the store's own message; nothing is persisted either way.
-        var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-        var admitted = await AdmitAsync(
-            decision, existing.Schema, body, existing.Tenant, existing.Binding, authority, ct).ConfigureAwait(false);
-        var version = await entities.UpdateAsync(id, admitted, options with { ValidFrom = authority.At }, ct)
-            .ConfigureAwait(false);
-        await RecordAcceptedAsync(decision, existing.Schema, id.LocalPart, ct).ConfigureAwait(false);
-        return version;
-    }
+        => RunAsync(new RecordUpdate(this, entities, id, body, options, authority), ct);
 
     public async ValueTask DeleteAsync(
         EntityId id,
         DeleteOptions options,
         AuthorizationWriteContext authority,
         CancellationToken ct = default)
+        => await RunAsync(new RecordDelete(this, entities, id, options, authority), ct).ConfigureAwait(false);
+
+    /// <summary>The legal-entity record as mutate derived it; a kind is null when it is not a declared name.</summary>
+    private sealed record LegalEntityDraft(CreateLegalEntityCommand Stored, EntityKind? Kind, TaxClassification? Tax);
+
+    /// <summary>
+    /// A legal-entity create as its six ADR 0038 stages. Mutate derives the record as stored (the trimmed
+    /// name, each kind parsed from its declared name only), so validate admits exactly what commit stores.
+    /// This path persists through EF, not the entity store.
+    /// </summary>
+    private sealed class LegalEntityCreate(
+        NodeEntityWriter writer,
+        IDbContextFactory<LocalNodeDbContext> factory,
+        CreateLegalEntityCommand command,
+        AuthorizationWriteContext authority)
+        : KernelWrite<CreateLegalEntityCommand, LegalEntityDraft, LegalEntity, LegalEntityWritten>
     {
-        var decision = await gate.DecideAsync(authority.Request(RecordsWrite, "record", id.LocalPart), ct)
-            .ConfigureAwait(false);
-        decision.RequireAllowed();
-        await entities.DeleteAsync(id, options with { ValidFrom = authority.At }, ct).ConfigureAwait(false);
+        private AuthorizationDecision decision = null!;
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            decision = await writer.DecideAsync(authority, command.Id.Value, ct).ConfigureAwait(false);
+
+        /// <summary>A new record: there is no prior state to read.</summary>
+        protected override ValueTask<CreateLegalEntityCommand?> BindAsync(CancellationToken ct) =>
+            ValueTask.FromResult<CreateLegalEntityCommand?>(command);
+
+        protected override ValueTask<LegalEntityDraft> MutateAsync(CreateLegalEntityCommand bound, CancellationToken ct) =>
+            ValueTask.FromResult(new LegalEntityDraft(
+                bound with { LegalName = bound.LegalName?.Trim() },
+                Declared<EntityKind>(bound.Kind),
+                Declared<TaxClassification>(bound.TaxClassification)));
+
+        protected override async ValueTask<LegalEntity> ValidateAsync(
+            CreateLegalEntityCommand bound, LegalEntityDraft mutation, CancellationToken ct)
+        {
+            var stored = mutation.Stored;
+            // Stage two (ADR 0065 clause 4): the authority's schema judges the record as it will be stored,
+            // so its refusal is the one a caller sees, identical on every path that writes this record type.
+            // The token is discarded: this path persists through EF, not the entity store. It is minted
+            // anyway so the refusal recording is the one place every record write validates.
+            using (var candidate = JsonSerializer.SerializeToDocument(new
+            {
+                legalName = stored.LegalName,
+                kind = stored.Kind,
+                taxClassification = stored.TaxClassification,
+                commonControlGroupId = stored.CommonControlGroupId,
+            }))
+            {
+                _ = await writer.AdmitAsync(decision, Health.EntityRoutes.LegalEntitySchema, candidate, authority.Tenant,
+                    null, authority, ct).ConfigureAwait(false);
+            }
+
+            // The local guard for an embedder that composes its own schema: a value the authority admitted
+            // but that mutate could not derive is refused, never stored as something validate did not see.
+            if (string.IsNullOrWhiteSpace(stored.LegalName))
+                throw new ArgumentException("legalName is required.", nameof(command));
+            if (mutation.Kind is not { } kind)
+                throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
+            if (mutation.Tax is not { } taxClass)
+                throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
+
+            var instant = (Instant)authority.At;
+            return new LegalEntity(
+                stored.Id, authority.Tenant, stored.LegalName, kind, taxClass, stored.CommonControlGroupId, instant, instant);
+        }
+
+        protected override async ValueTask CommitAsync(LegalEntity validated, CancellationToken ct)
+        {
+            await using var context = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            context.Set<LegalEntity>().Add(validated);
+            await context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        protected override async ValueTask<LegalEntityWritten> ReactAsync(LegalEntity validated, CancellationToken ct) =>
+            new(validated, await writer.RecordAcceptedAsync(
+                decision, RecordWrittenEventType, Health.EntityRoutes.LegalEntitySchema, validated.Id.Value, ct).ConfigureAwait(false));
+
+        /// <summary>The enum member named exactly <paramref name="value"/>: the schema's own vocabulary, no case folding or numbers.</summary>
+        private static T? Declared<T>(string? value) where T : struct, Enum =>
+            value is not null && Enum.GetNames<T>().Contains(value, StringComparer.Ordinal) ? Enum.Parse<T>(value) : null;
+    }
+
+    private sealed record PreparedRecord(SchemaId Schema, CreateOptions Options);
+
+    /// <summary>A generic record create as its six ADR 0038 stages.</summary>
+    private sealed class RecordCreate(
+        NodeEntityWriter writer,
+        IEntityMutationStore entities,
+        JsonDocument body,
+        string recordId,
+        AuthorizationWriteContext authority,
+        Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare)
+        : KernelWrite<PreparedRecord, PreparedRecord, (ValidatedRecordBody Body, CreateOptions Options), EntityWritten>
+    {
+        private AuthorizationDecision decision = null!;
+        private EntityId created;
+
+        // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
+        // so an unauthorized caller learns nothing about the schema.
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            decision = await writer.DecideAsync(authority, recordId, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<PreparedRecord?> BindAsync(CancellationToken ct)
+        {
+            var (schema, options) = await prepare(ct).ConfigureAwait(false);
+            if (options.Tenant != authority.Tenant || InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart != recordId)
+                throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
+            return new PreparedRecord(schema, options);
+        }
+
+        protected override ValueTask<PreparedRecord> MutateAsync(PreparedRecord bound, CancellationToken ct) =>
+            ValueTask.FromResult(bound with { Options = bound.Options with { ValidFrom = authority.At } });
+
+        // RW-9 is held by the signature: the store's record seam takes a ValidatedRecordBody, which only
+        // AdmitAsync can mint.
+        protected override async ValueTask<(ValidatedRecordBody Body, CreateOptions Options)> ValidateAsync(
+            PreparedRecord bound, PreparedRecord mutation, CancellationToken ct) =>
+            (await writer.AdmitAsync(decision, mutation.Schema, body, mutation.Options.Tenant, mutation.Options.Binding,
+                authority, ct).ConfigureAwait(false), mutation.Options);
+
+        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
+            created = await entities.CreateAsync(validated.Body, validated.Options, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<EntityWritten> ReactAsync(
+            (ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
+            new(created, await writer.RecordAcceptedAsync(
+                decision, RecordWrittenEventType, validated.Body.Schema, created.LocalPart, ct).ConfigureAwait(false));
+    }
+
+    /// <summary>A generic record update as its six ADR 0038 stages.</summary>
+    private sealed class RecordUpdate(
+        NodeEntityWriter writer,
+        IEntityMutationStore entities,
+        EntityId id,
+        JsonDocument body,
+        UpdateOptions options,
+        AuthorizationWriteContext authority)
+        : KernelWrite<Entity, UpdateOptions, (ValidatedRecordBody Body, UpdateOptions Options), VersionId>
+    {
+        private AuthorizationDecision decision = null!;
+        private VersionId version;
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            decision = await writer.DecideAsync(authority, id.LocalPart, ct).ConfigureAwait(false);
+
+        // A missing entity is refused here with the store's own message; nothing is persisted either way.
+        protected override async ValueTask<Entity?> BindAsync(CancellationToken ct) =>
+            await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+
+        protected override ValueTask<UpdateOptions> MutateAsync(Entity bound, CancellationToken ct) =>
+            ValueTask.FromResult(options with { ValidFrom = authority.At });
+
+        // The new body is validated against the record's OWN activated schema, so the token the store's
+        // record seam receives carries that schema and its schema-match guard passes by construction.
+        protected override async ValueTask<(ValidatedRecordBody Body, UpdateOptions Options)> ValidateAsync(
+            Entity bound, UpdateOptions mutation, CancellationToken ct) =>
+            (await writer.AdmitAsync(decision, bound.Schema, body, bound.Tenant, bound.Binding, authority, ct)
+                .ConfigureAwait(false), mutation);
+
+        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, UpdateOptions Options) validated, CancellationToken ct) =>
+            version = await entities.UpdateAsync(id, validated.Body, validated.Options, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<VersionId> ReactAsync(
+            (ValidatedRecordBody Body, UpdateOptions Options) validated, CancellationToken ct)
+        {
+            await writer.RecordAcceptedAsync(decision, RecordWrittenEventType, validated.Body.Schema, id.LocalPart, ct)
+                .ConfigureAwait(false);
+            return version;
+        }
+    }
+
+    /// <summary>
+    /// A generic record delete as its six ADR 0038 stages: bind reads the record (it must exist and belong to
+    /// the write authority's tenant) and react records the accepted act, as every other write here does.
+    /// </summary>
+    private sealed class RecordDelete(
+        NodeEntityWriter writer,
+        IEntityMutationStore entities,
+        EntityId id,
+        DeleteOptions options,
+        AuthorizationWriteContext authority)
+        : KernelWrite<Entity, DeleteOptions, (Entity Record, DeleteOptions Options), EntityId>
+    {
+        private AuthorizationDecision decision = null!;
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            decision = await writer.DecideAsync(authority, id.LocalPart, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<Entity?> BindAsync(CancellationToken ct)
+        {
+            var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+            if (existing.Tenant != authority.Tenant)
+                throw new ArgumentException("The entity tenant does not match the write authority.", nameof(id));
+            return existing;
+        }
+
+        protected override ValueTask<DeleteOptions> MutateAsync(Entity bound, CancellationToken ct) =>
+            ValueTask.FromResult(options with { ValidFrom = authority.At });
+
+        /// <summary>A tombstone has no body to admit: bind already refused a missing or foreign record.</summary>
+        protected override ValueTask<(Entity Record, DeleteOptions Options)> ValidateAsync(
+            Entity bound, DeleteOptions mutation, CancellationToken ct) =>
+            ValueTask.FromResult((bound, mutation));
+
+        protected override async ValueTask CommitAsync((Entity Record, DeleteOptions Options) validated, CancellationToken ct) =>
+            await entities.DeleteAsync(id, validated.Options, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<EntityId> ReactAsync((Entity Record, DeleteOptions Options) validated, CancellationToken ct)
+        {
+            await writer.RecordAcceptedAsync(decision, RecordDeletedEventType, validated.Record.Schema, id.LocalPart, ct)
+                .ConfigureAwait(false);
+            return id;
+        }
     }
 
     ValueTask<EntityId> IEntityWriteCoordinator.CreateAsync(
