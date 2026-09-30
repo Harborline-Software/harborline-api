@@ -31,7 +31,8 @@ public sealed record TemplateDefinition
             TenantId.System,
             CascadeLayer.Base,
             Provenance: null,
-            Array.Empty<DefinitionRequirement>());
+            Array.Empty<DefinitionRequirement>(),
+            Contract: null);
         this.Kind = Kind;
         this.DataSchema = DataSchema ?? throw new ArgumentNullException(nameof(DataSchema));
         this.UiSchema = UiSchema ?? throw new ArgumentNullException(nameof(UiSchema));
@@ -58,7 +59,8 @@ public sealed record TemplateDefinition
                 TenantId.System,
                 CascadeLayer.Base,
                 BaseRef,
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: null),
             Kind,
             DataSchema,
             UiSchema,

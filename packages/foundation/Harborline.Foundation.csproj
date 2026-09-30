@@ -20,6 +20,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="NSec.Cryptography" />
     <PackageReference Include="SmartFormat" />
+    <!-- T-572 slice 4: the shared definition-contract record and window check (DES-0029 kernel-core-ck-8). -->
+    <PackageReference Include="Harborline.Foundation.Definitions" />
   </ItemGroup>
   <ItemGroup>
     <!-- Exclude the sibling test project from library compilation -->

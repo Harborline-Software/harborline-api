@@ -85,6 +85,7 @@ public sealed class PackTemplateContentTests
     [InlineData("{}", "missing/blank 'key'")]
     [InlineData("{\"key\":\"k\"}", "missing/blank 'version'")]
     [InlineData("{\"key\":\"k\",\"version\":\"1\",\"documentType\":\"invoice\",\"recordType\":{\"type\":\"invoice\",\"version\":\"1\"},\"locale\":{\"kind\":\"fixed\",\"tag\":\"en-US\"},\"structure\":[]}", "'structure' must be a non-empty array of blocks")]
+    [InlineData("{\"key\":\"k\",\"version\":\"1\",\"documentType\":\"invoice\",\"recordType\":{\"type\":\"invoice\",\"version\":\"1\"},\"locale\":{\"kind\":\"fixed\",\"tag\":\"en-US\"},\"structure\":[{}],\"contract\":{\"major\":\"1\"}}", "'contract' requires integer 'major' and 'minor'")]
     public void A_malformed_template_body_is_a_miss_not_an_exception(string json, string expectedFragment)
     {
         var ok = PackTemplateContent.TryParse(JsonNode.Parse(json), out _, out var error);

@@ -228,7 +228,8 @@ public sealed class WorkflowDefinition
             TenantId.System,
             CascadeLayer.Tenant,
             WorkflowDefinitionProvenance.Unspecified,
-            Array.Empty<DefinitionRequirement>());
+            Array.Empty<DefinitionRequirement>(),
+            Contract: null);
 
     /// <summary>The definition's single typed control-metadata authority.</summary>
     public DefinitionEnvelope<WorkflowDefinitionKey, WorkflowDefinitionVersion, TenantId, WorkflowDefinitionProvenance> Envelope

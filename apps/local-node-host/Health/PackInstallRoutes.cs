@@ -217,8 +217,14 @@ internal static class PackInstallRoutes
                 Version: outcome.Version,
                 BrokeGlass: outcome.BrokeGlass,
                 RefusalCodes: outcome.RefusalCodes,
-                Refusals: outcome.Preview.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer)).ToList(),
-                Preview: ToPreviewDto(outcome.Preview));
+                Refusals: outcome.Preview.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer, r.Target)).ToList(),
+                Preview: ToPreviewDto(outcome.Preview))
+            {
+                // DES-0014 C3: a refusal names its stage. DES-0006 §1/§10 and T-724 ruling 87: a contract
+                // refusal reports the seed's window as an RFC 9457 extension member.
+                Stage = outcome.Installed ? null : "install",
+                Contract = ContractWindowDto.ForRefusals(outcome.Preview.Refusals),
+            };
 
             return outcome.Installed ? Results.Ok(dto) : Results.UnprocessableEntity(dto);
         });
@@ -483,7 +489,7 @@ internal static class PackInstallRoutes
         AdmissionRefusals: p.AdmissionRefusals.Select(a => new AdmissionRefusalDto(a.ContentKey, a.Code, a.Message)).ToList(),
         RevocationStale: p.RevocationStale,
         RefusalCodes: p.RefusalCodes,
-        Refusals: p.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer)).ToList(),
+        Refusals: p.Refusals.Select(r => new PackRefusalDto(r.Code, r.Pointer, r.Target)).ToList(),
         CrossPackCollisions: p.CrossPackCollisions.Select(c => new CrossPackCollisionDto(
             c.ContentKey, c.ContentKind.ToString(), c.ClaimingPackKeys, c.Resolution.ToString(), c.OwnerPackKey)).ToList(),
         UnmetContentReferences: p.UnmetContentReferences.Select(u => new UnmetContentReferenceDto(
@@ -590,10 +596,55 @@ public sealed record InstallResponseDto(
     bool BrokeGlass,
     IReadOnlyList<string> RefusalCodes,
     IReadOnlyList<PackRefusalDto> Refusals,
-    PreviewResponseDto Preview);
+    PreviewResponseDto Preview)
+{
+    /// <summary>The refusing pipeline stage (DES-0014 C3): <c>install</c> on a refusal, null on success.</summary>
+    public string? Stage { get; init; }
+
+    /// <summary>
+    /// The app's contract window, present only when a refusal is a contract-window refusal (T-572 slice 4);
+    /// null otherwise.
+    /// </summary>
+    public ContractWindowDto? Contract { get; init; }
+}
 
 /// <summary>One stable refusal code paired with the RFC 6901 location it describes.</summary>
-public sealed record PackRefusalDto(string Code, string Pointer);
+/// <param name="Code">The stable refusal code.</param>
+/// <param name="Pointer">The RFC 6901 location the refusal describes.</param>
+/// <param name="Target">The refused definition as <c>id@version</c>, or null for a pack-grain refusal.</param>
+public sealed record PackRefusalDto(string Code, string Pointer, string? Target = null);
+
+/// <summary>
+/// The app's supported definition-contract window in DES-0006 §1's <c>contract</c> shape. It reports the
+/// platform package seed's declaration and is not a second declaration of it (T-724 ruling 89).
+/// </summary>
+/// <param name="AppMajor">The app's current contract major.</param>
+/// <param name="AppMinor">The app's current contract minor.</param>
+/// <param name="Window">The admitted majors as <c>[oldest, current]</c>.</param>
+public sealed record ContractWindowDto(
+    [property: System.Text.Json.Serialization.JsonPropertyName("app_major")] int AppMajor,
+    [property: System.Text.Json.Serialization.JsonPropertyName("app_minor")] int AppMinor,
+    [property: System.Text.Json.Serialization.JsonPropertyName("window")] IReadOnlyList<int> Window)
+{
+    /// <summary>Reports <paramref name="window"/> in the DES-0006 §1 shape.</summary>
+    /// <param name="window">The seed's contract window.</param>
+    /// <returns>The wire report of the window.</returns>
+    public static ContractWindowDto From(Harborline.Foundation.Definitions.DefinitionContractWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return new(window.Major, window.Minor, [window.OldestMajor, window.Major]);
+    }
+
+    /// <summary>
+    /// Reports the seed's window when any of <paramref name="refusals"/> is a contract-window refusal.
+    /// </summary>
+    /// <param name="refusals">The install refusals.</param>
+    /// <returns>The seed window report, or null when no refusal concerns the contract window.</returns>
+    public static ContractWindowDto? ForRefusals(IEnumerable<PackInstallRefusal> refusals)
+        => refusals.Any(refusal => refusal.Code == PackInstallCodes.RefusedContractOutOfWindow)
+            ? From(Harborline.Blocks.BuilderDefinitions.PlatformPackageSeed.ContractWindow)
+            : null;
+}
 
 /// <summary>One re-attach conflict in the preview.</summary>
 public sealed record ReattachConflictDto(

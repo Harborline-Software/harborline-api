@@ -4,6 +4,8 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Documents.Model;
 
+using DefinitionContractVersion = Harborline.Foundation.Definitions.DefinitionContractVersion;
+
 namespace Harborline.Api.LocalNodeHost.Data.PackProjection;
 
 /// <summary>
@@ -100,6 +102,12 @@ internal static class PackTemplateContent
             return false;
         }
 
+        // T-572 slice 4: the optional declared app contract (DES-0006 §1) travels onto the envelope.
+        if (!TryParseContract(obj["contract"], out var contract, out error))
+        {
+            return false;
+        }
+
         var blocks = new List<DocumentBlock>(structureArr.Count);
         foreach (var blockNode in structureArr)
         {
@@ -118,7 +126,8 @@ internal static class PackTemplateContent
                 tenant,
                 CascadeLayer.Pack,
                 Provenance: null,
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: contract),
             DocumentType: documentType!.Trim(),
             RecordType: new RecordTypeBinding(recordType!.Trim(), recordVersion!.Trim()),
             Locale: locale,
@@ -329,6 +338,27 @@ internal static class PackTemplateContent
         "end" => ColumnAlign.End,
         _ => ColumnAlign.Start,
     };
+
+    private static bool TryParseContract(JsonNode? node, out DefinitionContractVersion? contract, out string error)
+    {
+        contract = null;
+        error = string.Empty;
+        if (node is null)
+        {
+            return true;
+        }
+
+        if (node is JsonObject obj
+            && obj["major"] is JsonValue major && major.TryGetValue<int>(out var majorValue)
+            && obj["minor"] is JsonValue minor && minor.TryGetValue<int>(out var minorValue))
+        {
+            contract = new DefinitionContractVersion(majorValue, minorValue);
+            return true;
+        }
+
+        error = "'contract' requires integer 'major' and 'minor'";
+        return false;
+    }
 
     private static string? ReadString(JsonObject obj, string key)
         => obj.TryGetPropertyValue(key, out var node) && node is JsonValue v && v.TryGetValue<string>(out var s)

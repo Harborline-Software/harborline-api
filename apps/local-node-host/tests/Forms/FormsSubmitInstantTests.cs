@@ -85,7 +85,8 @@ public sealed class FormsSubmitInstantTests : IAsyncLifetime
                     new RuleDefinition(
                         Envelope: new DefinitionEnvelope<string, string, TenantId, string?>(
                             "only.on.the.admitted.day", "1.0.0", Tenant, CascadeLayer.Tenant,
-                            Provenance: null, Array.Empty<DefinitionRequirement>()),
+                            Provenance: null, Array.Empty<DefinitionRequirement>(),
+                            Contract: null),
                         Tier: RuleTier.JsonLogic,
                         Scope: RuleScope.Schema,
                         ScopeTarget: string.Empty,
