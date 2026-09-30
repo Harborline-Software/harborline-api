@@ -343,10 +343,16 @@ public sealed class NodeEntityWriter(
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             decision = await writer.DecideAsync(authority, id.LocalPart, ct).ConfigureAwait(false);
 
-        // A missing entity is refused here with the store's own message; nothing is persisted either way.
-        protected override async ValueTask<Entity?> BindAsync(CancellationToken ct) =>
-            await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+        // A missing or foreign record is refused here, as delete does (T-1003): the store looks records up
+        // by id only, so bind is where the stored tenant meets the write authority's.
+        protected override async ValueTask<Entity?> BindAsync(CancellationToken ct)
+        {
+            var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Entity '{id}' not found.");
+            if (existing.Tenant != authority.Tenant)
+                throw new ArgumentException("The entity tenant does not match the write authority.", nameof(id));
+            return existing;
+        }
 
         protected override ValueTask<UpdateOptions> MutateAsync(Entity bound, CancellationToken ct) =>
             ValueTask.FromResult(options with { ValidFrom = authority.At });

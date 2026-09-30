@@ -103,6 +103,21 @@ public sealed class RecordWritePipelineTests
         Assert.Empty(h.Trail.ReceivedCalls());
     }
 
+    [Fact(DisplayName = "T-1003: update binds the record: another tenant's record is refused at bind and is not written")]
+    public async Task Update_AnotherTenantsRecord_IsRefusedAtBind()
+    {
+        var h = new Harness();
+        var id = await h.Seed("foreign", new TenantId("another-tenant"));
+        using var body = JsonDocument.Parse("""{"name":"after"}""");
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await h.Writer.UpdateAsync(id, body, new UpdateOptions(Actor), Authority));
+
+        Assert.Equal(WritePipelineStage.Bind, h.Stages[^1]);
+        Assert.Equal("before", (await h.Entities.GetAsync(id))!.Body.RootElement.GetProperty("name").GetString());
+        Assert.Empty(h.Trail.ReceivedCalls());
+    }
+
     [Fact(DisplayName = "ck-10 S2: delete of a missing record is refused at bind")]
     public async Task Delete_MissingRecord_IsRefusedAtBind()
     {
