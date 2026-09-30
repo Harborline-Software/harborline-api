@@ -170,7 +170,9 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
         using var daemon = new ConfigurationEvidenceDrainDaemon(_evidence, TimeProvider.System, NullLogger<ConfigurationEvidenceDrainDaemon>.Instance);
         await daemon.StartAsync(CancellationToken.None);
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (Outbox().Single().PublishedAt is null && DateTime.UtcNow < deadline) await Task.Delay(20);
+        // Each poll opens a keyed connection to the rollback-journal test store and holds its shared lock, so a 20 ms
+        // poll starved the daemon's mark commit under a loaded runner (the entry was on the trail, the mark never landed).
+        while (Outbox().Single().PublishedAt is null && DateTime.UtcNow < deadline) await Task.Delay(250);
         await daemon.StopAsync(CancellationToken.None);
 
         Assert.NotNull(Outbox().Single().PublishedAt);
