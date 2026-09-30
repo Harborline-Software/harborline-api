@@ -76,6 +76,11 @@ public sealed class WritePipelineExecutorFenceTests
             "S3 definition lifecycle"),
     ];
 
+    internal static string[] NotYetOnTheExecutorRows() => [.. NotYetOnTheExecutor.Select(row => row.Key)];
+
+    /// <summary>Admitted-write commit sites in production that are not a KernelWrite commit stage.</summary>
+    internal static string[] DiscoveredOffExecutorKeys() => Classify(ProductionAssemblies()).Off;
+
     [Fact(DisplayName = "ck-10 fence: no production code runs its own loop over the ADR 0038 stage order")]
     public void NoProductionCodeIteratesTheStageOrder()
     {

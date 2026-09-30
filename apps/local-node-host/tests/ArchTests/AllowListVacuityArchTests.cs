@@ -81,6 +81,9 @@ public sealed class AllowListVacuityArchTests
         new("AuthorizationDefinitionWriteFenceTests", "Reviewed",
             AuthorizationDefinitionWriteFenceTests.ReviewedRows,
             AuthorizationDefinitionWriteFenceTests.DiscoveredPipelineWriteKeys),
+        new("WritePipelineExecutorFenceTests", "NotYetOnTheExecutor",
+            WritePipelineExecutorFenceTests.NotYetOnTheExecutorRows,
+            WritePipelineExecutorFenceTests.DiscoveredOffExecutorKeys),
         new("AuthorizationRefusalRenderingFenceTests", "Allowed",
             AuthorizationRefusalRenderingFenceTests.AllowedRows,
             AuthorizationRefusalRenderingFenceTests.DiscoveredDenialProseReads),
@@ -184,6 +187,9 @@ public sealed class AllowListVacuityArchTests
         ["AccessClaimAndRecoveryPathArchTests.ClaimIssuerCallers"] =
             "an exact inventory compared with SequenceEqual against the discovered callers, both "
             + "directions, so a row that excused nothing would be red as a stale expectation",
+        ["WritePipelineExecutorFenceTests.StageNames"] =
+            "the six KernelWrite stage method names the ck-10 fence scans FOR, not an exception list; the "
+            + "planted bypass proves a stage call outside the executor is seen",
         ["AuthorizationDefinitionWriteFenceTests.ContainerWriteVerbs"] =
             "the EF container-write method names the ck-10 fence scans FOR, not an exception list; a verb it "
             + "does not hold excuses nothing, and the planted bypass proves the listed verbs are seen",
