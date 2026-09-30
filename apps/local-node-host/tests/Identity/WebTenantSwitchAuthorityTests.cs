@@ -164,6 +164,129 @@ public sealed class WebTenantSwitchAuthorityTests
             Now));
     }
 
+    /// <summary>
+    /// ck-4 G group 1, mutants 16378, 16379 and 16380: a target Party binding verified under another
+    /// tenant is refused when the switch resolves its target, before any head is written. The Party
+    /// reader echoes the principal, so only the verified-tenant clause can refuse it here.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Switch_refuses_a_target_party_binding_verified_under_another_tenant()
+    {
+        await using var fixture = await SwitchFixture.CreateAsync(partyVerifiedTenant: OldTenantId);
+
+        var switched = await fixture.Authority.SwitchAsync(SwitchFixture.OldHandle, TargetTenantId);
+
+        Assert.Null(switched);
+        Assert.Empty(fixture.OldStore.VisibilityObservedDuringFinalize);
+        Assert.Empty(fixture.TargetStore.VisibilityObservedDuringFinalize);
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Empty(await identity.Coordinators.AsNoTracking().ToArrayAsync());
+        }
+        Assert.NotNull(await new WebSelectedSessionStore(fixture.SessionFactory).FindActiveAsync(
+            Digest(SwitchFixture.OldHandle),
+            fixture.AccountSecurityVersion,
+            Now));
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutants 16548 (old-tenant revocation receipt) and 16569 (target-tenant selection
+    /// receipt): a tenant receipt that names a third tenant is refused, the home stays Committing and
+    /// the old session stays live. Every other receipt field matches, so the receipt tenant clause is
+    /// the only check that sees it.
+    /// </summary>
+    [Theory]
+    [Trait("Holds", "kernel-core-ck-4")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Switch_refuses_a_tenant_receipt_naming_another_tenant(bool oldTenantReceipt)
+    {
+        await using var fixture = await SwitchFixture.CreateAsync();
+        (oldTenantReceipt ? fixture.OldStore : fixture.TargetStore).ReceiptTenantId =
+            "33333333-3333-3333-3333-333333333333";
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SwitchAsync(SwitchFixture.OldHandle, TargetTenantId));
+
+        Assert.StartsWith("identity.session_switch_receipt_invalid:", exception.Message);
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Equal(
+                InstallationIdentityCoordinatorState.Committing,
+                (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+        }
+        Assert.NotNull(await new WebSelectedSessionStore(fixture.SessionFactory).FindActiveAsync(
+            Digest(SwitchFixture.OldHandle),
+            fixture.AccountSecurityVersion,
+            Now));
+    }
+
+    /// <summary>
+    /// ck-4 G group 1, mutants 16352 and 16354: a stored switch row whose old and target tenant are the
+    /// same tenant is refused, even when its digests, fingerprint, correlation id and tenant list are
+    /// all recomputed to agree with it. The distinct-tenant row built the same way is admitted, so the
+    /// same-tenant clause is what refuses.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void A_stored_switch_whose_old_and_target_tenant_are_the_same_is_refused()
+    {
+        Assert.Equal(
+            new[] { OldTenantId, TargetTenantId },
+            WebTenantSwitchAuthority.ValidateStoredSwitchTenants(StoredSwitch(OldTenantId, TargetTenantId)));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            WebTenantSwitchAuthority.ValidateStoredSwitch(StoredSwitch(TargetTenantId, TargetTenantId)));
+        Assert.StartsWith("identity.session_switch_payload_invalid:", exception.Message);
+    }
+
+    private static InstallationIdentityCoordinatorRecord StoredSwitch(string oldTenantId, string targetTenantId)
+    {
+        const string accountId = "account-1";
+        var target = new WebTenantSwitchAuthority.SwitchTargetAuthority(
+            Membership("target-membership", accountId, targetTenantId, "target-principal", "target-grant"),
+            "target-party",
+            "target-tenant");
+        var payload = new WebTenantSwitchAuthority.SwitchPayload(
+            oldTenantId, "old-membership", "old-session", Digest(SwitchFixture.OldHandle), 1, target);
+        var digest = InstallationAuditIntegrity.Hash(
+            accountId,
+            payload.OldTenantId,
+            payload.OldMembershipId,
+            payload.OldSessionCorrelationId,
+            payload.OldHandleDigest,
+            "1",
+            targetTenantId,
+            target.Membership.MembershipId,
+            target.Membership.OwnerVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            target.Membership.CanonicalPrincipalId,
+            target.CanonicalPartyReference,
+            target.DisplayName,
+            target.Membership.GrantId,
+            target.Membership.GrantOwnerVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            target.Membership.AuthorizationEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var correlationId = InstallationAuditIntegrity.Hash(
+            WebTenantSwitchAuthority.CommandType, payload.OldSessionCorrelationId, targetTenantId);
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        return new InstallationIdentityCoordinatorRecord
+        {
+            CorrelationId = correlationId,
+            CommandType = WebTenantSwitchAuthority.CommandType,
+            CommandFingerprint = InstallationAuditIntegrity.Hash(
+                WebTenantSwitchAuthority.CommandType, correlationId, digest),
+            PayloadSchemaVersion = WebTenantSwitchAuthority.PayloadSchemaVersion,
+            AccountId = accountId,
+            ActorAccountId = accountId,
+            AuthorityEvidenceDigest = digest,
+            ExpectedAccountSecurityVersion = 1,
+            TenantIdsJson = System.Text.Json.JsonSerializer.Serialize(
+                new[] { oldTenantId, targetTenantId }.Order(StringComparer.Ordinal).ToArray(), json),
+            IntentPayloadJson = System.Text.Json.JsonSerializer.Serialize(payload, json),
+            FinalReceiptsJson = "{}",
+        };
+    }
+
     private sealed class SwitchFixture : IAsyncDisposable
     {
         internal const string OldHandle =
@@ -199,7 +322,9 @@ public sealed class WebTenantSwitchAuthorityTests
         internal RecordingMembershipStore TargetStore { get; }
         internal WebTenantSwitchAuthority Authority { get; }
 
-        internal static async Task<SwitchFixture> CreateAsync(bool listTarget = true)
+        internal static async Task<SwitchFixture> CreateAsync(
+            bool listTarget = true,
+            string? partyVerifiedTenant = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"tenant-switch-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -289,7 +414,7 @@ public sealed class WebTenantSwitchAuthorityTests
                 new FixedCandidateLocator(listTarget),
                 coordinator,
                 resolver,
-                new FixedPartyReader(),
+                new FixedPartyReader(partyVerifiedTenant),
                 Options.Create(new SessionOptions()),
                 new FixedTimeProvider(Now));
             return new SwitchFixture(
@@ -335,6 +460,7 @@ public sealed class WebTenantSwitchAuthorityTests
 
         public string TenantId => membership.TenantId;
         public bool ThrowAfterFinalizeOnce { get; set; }
+        public string? ReceiptTenantId { get; set; }
         public List<VisibilityObservation> VisibilityObservedDuringFinalize { get; } = [];
 
         public Task<TenantMembershipSnapshot?> GetMembershipAsync(
@@ -381,7 +507,7 @@ public sealed class WebTenantSwitchAuthorityTests
                 throw new InvalidOperationException("injected target audit interruption");
             }
             return _selectionReceipt ??= new TenantSessionSelectionReceipt(
-                TenantId,
+                ReceiptTenantId ?? TenantId,
                 DocumentOwnerVersion: 2,
                 membership.MembershipId,
                 AuditSequence: 1,
@@ -420,7 +546,7 @@ public sealed class WebTenantSwitchAuthorityTests
         {
             await RecordVisibilityAsync(cancellationToken);
             return _revocationReceipt ??= new TenantSessionRevocationReceipt(
-                TenantId,
+                ReceiptTenantId ?? TenantId,
                 DocumentOwnerVersion: 2,
                 membership.MembershipId,
                 SessionCorrelationId: "old-session",
@@ -525,14 +651,14 @@ public sealed class WebTenantSwitchAuthorityTests
             Task.FromResult(Candidates);
     }
 
-    private sealed class FixedPartyReader : ICanonicalPrincipalPartyReader
+    private sealed class FixedPartyReader(string? verifiedTenant) : ICanonicalPrincipalPartyReader
     {
         public ValueTask<CanonicalPartyBinding?> ResolveAsync(
             TenantId tenant,
             PrincipalUserId user,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult<CanonicalPartyBinding?>(new CanonicalPartyBinding(
-                tenant,
+                verifiedTenant is null ? tenant : new TenantId(verifiedTenant),
                 user,
                 new CanonicalPartyReference(
                     tenant.Value == OldTenantId ? "old-party" : "target-party")));
