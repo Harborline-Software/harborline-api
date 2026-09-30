@@ -42,15 +42,16 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
     }
 
     /// <summary>
-    /// ck-10 (DES-0029): an admission conferral runs the same six ADR 0038 stages, inside the caller's open
-    /// transaction. Authorize checks the carried admission authority before anything is read; bind reads
+    /// ck-10 (DES-0029): an admission conferral runs the six ADR 0038 stages through the kernel executor
+    /// (<see cref="WritePipeline.RunAsync"/>), inside the caller's open transaction. Authorize checks the
+    /// carried admission authority before anything is read; bind reads
     /// through <paramref name="unit"/>, so it sees the caller's uncommitted state; mutate derives the
     /// per-admission definitions and the grant; validate admits each definition and seals it; commit hands
     /// the seals and the grant to <paramref name="unit"/>, which stages them with their audit and saves them
     /// in the caller's transaction; react returns the grant. A refusal at any stage throws inside that
     /// transaction, so nothing is persisted. Returns null when this admission's grant already exists.
     /// </summary>
-    internal static async ValueTask<AccessGrant?> ConferAdmissionAsync(
+    internal static ValueTask<AccessGrant?> ConferAdmissionAsync(
         AdmissionConferral conferral,
         AdmissionConferralAuthority authority,
         IAdmissionConferralUnit unit,
@@ -60,51 +61,53 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         ArgumentNullException.ThrowIfNull(conferral);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(unit);
-        IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long>? bound = null;
-        (AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions)? mutation = null;
-        ValidatedAdmissionConferral? validated = null;
-        foreach (var stage in WritePipeline.Order)
+        return WritePipeline.RunAsync(new ConferralWrite(conferral, authority, unit), observer, ct);
+    }
+
+    /// <summary>One admission conferral as its six ADR 0038 stages, run by the kernel executor.</summary>
+    private sealed class ConferralWrite(
+        AdmissionConferral conferral,
+        AdmissionConferralAuthority authority,
+        IAdmissionConferralUnit unit)
+        : KernelWrite<IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long>,
+            (AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions), ValidatedAdmissionConferral, AccessGrant>
+    {
+        protected override ValueTask AuthorizeAsync(CancellationToken ct)
         {
-            observer?.OnStage(stage);
-            ct.ThrowIfCancellationRequested();
-            switch (stage)
-            {
-                case WritePipelineStage.Authorize:
-                    authority.Authorize(conferral);
-                    break;
-                case WritePipelineStage.Bind:
-                    if (await unit.GrantExistsAsync(new GrantId(conferral.GrantId), ct).ConfigureAwait(false))
-                        return null;
-                    var revisions = new Dictionary<AuthorizationCapabilityDefinitionId, long>();
-                    foreach (var permission in conferral.Permissions.Permissions)
-                    {
-                        var id = conferral.DefinitionIdFor(permission);
-                        revisions[id] = await unit.DefinitionRevisionAsync(id, ct).ConfigureAwait(false);
-                    }
-                    bound = revisions;
-                    break;
-                case WritePipelineStage.Mutate:
-                    mutation = MutateConferral(conferral);
-                    break;
-                case WritePipelineStage.Validate:
-                    validated = await ValidateConferralAsync(conferral, authority,
-                            bound ?? throw new InvalidOperationException("Bind must precede validate."),
-                            mutation ?? throw new InvalidOperationException("Mutate must precede validate."), ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.Commit:
-                    await unit.CommitAsync(
-                            validated ?? throw new InvalidOperationException("Validate must precede commit."), ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.React:
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unsupported kernel write stage '{stage}'.");
-            }
+            authority.Authorize(conferral);
+            return ValueTask.CompletedTask;
         }
 
-        return (validated ?? throw new InvalidOperationException("Kernel write pipeline did not react.")).Grant;
+        /// <summary>Null (settled) when this admission's grant already exists.</summary>
+        protected override async ValueTask<IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long>?> BindAsync(
+            CancellationToken ct)
+        {
+            if (await unit.GrantExistsAsync(new GrantId(conferral.GrantId), ct).ConfigureAwait(false))
+                return null;
+            var revisions = new Dictionary<AuthorizationCapabilityDefinitionId, long>();
+            foreach (var permission in conferral.Permissions.Permissions)
+            {
+                var id = conferral.DefinitionIdFor(permission);
+                revisions[id] = await unit.DefinitionRevisionAsync(id, ct).ConfigureAwait(false);
+            }
+            return revisions;
+        }
+
+        protected override ValueTask<(AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions)> MutateAsync(
+            IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long> bound, CancellationToken ct)
+            => ValueTask.FromResult(MutateConferral(conferral));
+
+        protected override ValueTask<ValidatedAdmissionConferral> ValidateAsync(
+            IReadOnlyDictionary<AuthorizationCapabilityDefinitionId, long> bound,
+            (AccessGrant Grant, AuthorizationCapabilityDefinition[] Definitions) mutation,
+            CancellationToken ct)
+            => ValidateConferralAsync(conferral, authority, bound, mutation, ct);
+
+        protected override ValueTask CommitAsync(ValidatedAdmissionConferral validated, CancellationToken ct)
+            => unit.CommitAsync(validated, ct);
+
+        protected override ValueTask<AccessGrant> ReactAsync(ValidatedAdmissionConferral validated, CancellationToken ct)
+            => ValueTask.FromResult(validated.Grant);
     }
 
     private static (AccessGrant, AuthorizationCapabilityDefinition[]) MutateConferral(AdmissionConferral conferral)
@@ -152,7 +155,7 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         return new ValidatedAdmissionConferral(mutation.Grant, conferral.SourceReference, seals, roles, authority.Decision);
     }
 
-    /// <summary>Runs authorize → bind → mutate → validate → commit → react.</summary>
+    /// <summary>Runs authorize → bind → mutate → validate → commit → react through the kernel executor.</summary>
     public async ValueTask<AuthorizationConfigurationWriteResult> WriteAsync(
         AuthorizationConfigurationCommand command,
         AuthorizationWriteContext authority,
@@ -286,278 +289,217 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var stages = new List<string>(6);
-        AuthorizationDecision? decision = null;
-        AuthorizationConfigurationState? bound = null;
-        AuthorizationMutation? mutation = null;
-        ValidatedAuthorizationConfigurationWrite? validated = null;
-        AuthorizationConfigurationWriteResult? result = null;
-
-        foreach (var stage in WritePipeline.Order)
+        var write = new ConfigurationWrite(this, command, authority, bootstrapDecision, additiveSeedRevision, packAuthority);
+        var result = await WritePipeline.RunAsync(write, pipelineObserver, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Kernel write pipeline did not react.");
+        return result with
         {
-            switch (stage)
-            {
-                case WritePipelineStage.Authorize:
-                    decision = await AuthorizeAsync(command, authority, bootstrapDecision, additiveSeedRevision,
-                            packAuthority, stages, ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.Bind:
-                    bound = await BindAsync(command, stages, ct).ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.Mutate:
-                    mutation = await MutateAsync(command,
-                            bound ?? throw new InvalidOperationException("Bind must precede mutate."), stages, ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.Validate:
-                    validated = await ValidateAsync(command,
-                            bound ?? throw new InvalidOperationException("Bind must precede validate."),
-                            mutation ?? throw new InvalidOperationException("Mutate must precede validate."),
-                            authority, decision, packAuthority is not null, stages, ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.Commit:
-                    await CommitAsync(validated ?? throw new InvalidOperationException("Validate must precede commit."),
-                            authority, bootstrapDecision, stages, ct)
-                        .ConfigureAwait(false);
-                    break;
-                case WritePipelineStage.React:
-                    result = await ReactAsync(
-                            validated ?? throw new InvalidOperationException("Validate must precede react."), stages, ct)
-                        .ConfigureAwait(false);
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unsupported kernel write stage '{stage}'.");
-            }
-        }
-
-        return (result ?? throw new InvalidOperationException("Kernel write pipeline did not react.")) with
-        {
-            Decision = decision,
-            AuditId = store is IAuditingAuthorizationConfigurationStore ? validated?.AuditId : null,
+            Decision = write.Decision,
+            AuditId = store is IAuditingAuthorizationConfigurationStore ? write.Sealed?.AuditId : null,
         };
     }
 
-    private async ValueTask<AuthorizationDecision?> AuthorizeAsync(
+    /// <summary>One authorization configuration command as its six ADR 0038 stages, run by the kernel executor.</summary>
+    private sealed class ConfigurationWrite(
+        AuthorizationDefinitionWriter writer,
         AuthorizationConfigurationCommand command,
         AuthorizationWriteContext authority,
         AuthorizationDecision? bootstrapDecision,
         bool additiveSeedRevision,
-        PackProjectionAuthority? packAuthority,
-        List<string> stages,
-        CancellationToken ct)
+        PackProjectionAuthority? packAuthority)
+        : KernelWrite<AuthorizationConfigurationState, AuthorizationMutation, ValidatedAuthorizationConfigurationWrite,
+            AuthorizationConfigurationWriteResult>
     {
-        RecordStage(WritePipelineStage.Authorize, stages);
-        ct.ThrowIfCancellationRequested();
-        if (bootstrapDecision is not null)
-        {
-            bootstrapDecision.RequireAllowed();
-            if (bootstrapDecision.Resolution.All(step => step.Stage != AuthorizationResolutionStage.Bootstrap))
-                throw new ArgumentException("The carried bootstrap decision lacks bootstrap derivation evidence.", nameof(bootstrapDecision));
-            return null;
-        }
-        if (packAuthority is not null)
-        {
-            // The pack installer already decided packages:operate for this exact activated version and
-            // minted the authority the projector is running under; re-deciding here would be a SECOND
-            // decision over the same act. The remaining five stages are the ordinary ones.
-            packAuthority.EnsureUsable();
-            return null;
-        }
-        if (additiveSeedRevision)
-        {
-            // WriteAdditiveSeedRevisionAsync already proved the exact checked-in definition and the
-            // server-derived seed principal. The remaining five stages are identical to an ordinary write,
-            // including definition admission and the non-bootstrap CommitAsync path.
-            return null;
-        }
-        (TenantId? Tenant, string Id) target = command switch
-        {
-            InstallAuthorizationDefinition install => (install.DeclaringTenantId, install.Definition.DefinitionId.Value.ToString()),
-            ReplaceAuthorizationDefinition replace => (replace.DeclaringTenantId, replace.Definition.DefinitionId.Value.ToString()),
-            NarrowCapabilityRoleBinding narrow => (narrow.TenantId, narrow.DefinitionId.Value.ToString()),
-            _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
-        };
-        if (target.Tenant is { } declaredTenant && declaredTenant != authority.Tenant)
-            throw new ArgumentException("The authorization command tenant does not match the write authority.", nameof(command));
-        var decision = await gate.DecideAsync(
-            authority.Request(AuthorizationOperation.Parse(Permission.GrantPermissions), "grant", target.Id), ct)
-            .ConfigureAwait(false);
-        decision.RequireAllowed();
-        return decision;
-    }
+        public AuthorizationDecision? Decision { get; private set; }
 
-    private async ValueTask<AuthorizationConfigurationState> BindAsync(
-        AuthorizationConfigurationCommand command,
-        List<string> stages,
-        CancellationToken ct)
-    {
-        RecordStage(WritePipelineStage.Bind, stages);
-        return command switch
+        public ValidatedAuthorizationConfigurationWrite? Sealed { get; private set; }
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct)
+        {
+            if (bootstrapDecision is not null)
+            {
+                bootstrapDecision.RequireAllowed();
+                if (bootstrapDecision.Resolution.All(step => step.Stage != AuthorizationResolutionStage.Bootstrap))
+                    throw new ArgumentException("The carried bootstrap decision lacks bootstrap derivation evidence.", nameof(bootstrapDecision));
+                return;
+            }
+            if (packAuthority is not null)
+            {
+                // The pack installer already decided packages:operate for this exact activated version and
+                // minted the authority the projector is running under; re-deciding here would be a SECOND
+                // decision over the same act. The remaining five stages are the ordinary ones.
+                packAuthority.EnsureUsable();
+                return;
+            }
+            if (additiveSeedRevision)
+            {
+                // WriteAdditiveSeedRevisionAsync already proved the exact checked-in definition and the
+                // server-derived seed principal. The remaining five stages are identical to an ordinary write,
+                // including definition admission and the non-bootstrap CommitAsync path.
+                return;
+            }
+            (TenantId? Tenant, string Id) target = command switch
+            {
+                InstallAuthorizationDefinition install => (install.DeclaringTenantId, install.Definition.DefinitionId.Value.ToString()),
+                ReplaceAuthorizationDefinition replace => (replace.DeclaringTenantId, replace.Definition.DefinitionId.Value.ToString()),
+                NarrowCapabilityRoleBinding narrow => (narrow.TenantId, narrow.DefinitionId.Value.ToString()),
+                _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
+            };
+            if (target.Tenant is { } declaredTenant && declaredTenant != authority.Tenant)
+                throw new ArgumentException("The authorization command tenant does not match the write authority.", nameof(command));
+            var decision = await writer.gate.DecideAsync(
+                authority.Request(AuthorizationOperation.Parse(Permission.GrantPermissions), "grant", target.Id), ct)
+                .ConfigureAwait(false);
+            decision.RequireAllowed();
+            Decision = decision;
+        }
+
+        protected override async ValueTask<AuthorizationConfigurationState?> BindAsync(CancellationToken ct) => command switch
         {
             InstallAuthorizationDefinition install =>
-                await states.ReadStateAsync(install.Definition.DefinitionId, ct: ct).ConfigureAwait(false),
+                await writer.states.ReadStateAsync(install.Definition.DefinitionId, ct: ct).ConfigureAwait(false),
             ReplaceAuthorizationDefinition replace =>
-                await states.ReadStateAsync(
+                await writer.states.ReadStateAsync(
                     replace.Definition.DefinitionId,
                     replace.DeclaringTenantId,
                     ct).ConfigureAwait(false),
             NarrowCapabilityRoleBinding narrow =>
-                await states.ReadStateAsync(narrow.DefinitionId, narrow.TenantId, ct).ConfigureAwait(false),
+                await writer.states.ReadStateAsync(narrow.DefinitionId, narrow.TenantId, ct).ConfigureAwait(false),
             _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
         };
-    }
 
-    private ValueTask<AuthorizationMutation> MutateAsync(
-        AuthorizationConfigurationCommand command,
-        AuthorizationConfigurationState bound,
-        List<string> stages,
-        CancellationToken ct)
-    {
-        RecordStage(WritePipelineStage.Mutate, stages);
-        ct.ThrowIfCancellationRequested();
-        var mutation = command switch
+        protected override ValueTask<AuthorizationMutation> MutateAsync(
+            AuthorizationConfigurationState bound,
+            CancellationToken ct)
         {
-            InstallAuthorizationDefinition install =>
-                AuthorizationMutation.ForDefinition(install.Definition),
-            ReplaceAuthorizationDefinition replace =>
-                AuthorizationMutation.ForDefinition(replace.Definition),
-            NarrowCapabilityRoleBinding narrow =>
-                AuthorizationMutation.ForBinding(new CapabilityRoleBindingRevision(
-                    narrow.TenantId,
-                    narrow.DefinitionId,
-                    bound.BindingRevision + 1,
-                    narrow.SelectedRoles,
-                    narrow.ChangedBy,
-                    narrow.ChangedAt,
-                    narrow.Reason)),
-            _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
-        };
-        return ValueTask.FromResult(mutation);
-    }
-
-    private async ValueTask<ValidatedAuthorizationConfigurationWrite> ValidateAsync(
-        AuthorizationConfigurationCommand command,
-        AuthorizationConfigurationState bound,
-        AuthorizationMutation mutation,
-        AuthorizationWriteContext authority,
-        AuthorizationDecision? decision,
-        bool packPublished,
-        List<string> stages,
-        CancellationToken ct)
-    {
-        RecordStage(WritePipelineStage.Validate, stages);
-        var at = authority.At;
-        switch (command)
-        {
-            case InstallAuthorizationDefinition install:
-                if (bound.Definition is not null)
-                {
-                    throw new InvalidOperationException("The authorization definition is already installed.");
-                }
-
-                // ck-10: admit the exact mutate output that is sealed below, so the persisted payload is
-                // the validated one by construction rather than because mutate happens to copy the command.
-                var installed = mutation.Definition
-                    ?? throw new InvalidOperationException("Mutate produced no definition.");
-                await definitionAdmission.AdmitAsync(
-                    installed,
-                    install.DeclaringTenantId,
-                    previous: null,
-                    packPublished,
-                    ct).ConfigureAwait(false);
-                return new ValidatedAuthorizationConfigurationWrite(
-                    AuthorizationConfigurationWriteKind.InstallDefinition,
-                    installed,
-                    bindingRevision: null,
-                    expectedDefinitionRevision: 0,
-                    expectedBindingRevision: 0,
-                    definitionEffectiveAt: at,
-                    declaringTenantId: install.DeclaringTenantId,
-                    decision, authority.Principal, authority.Tenant);
-
-            case ReplaceAuthorizationDefinition replace:
-                var previous = bound.Definition
-                    ?? throw new InvalidOperationException("The authorization definition is not installed.");
-                var replacement = mutation.Definition
-                    ?? throw new InvalidOperationException("Mutate produced no definition.");
-                await definitionAdmission.AdmitAsync(
-                    replacement,
-                    replace.DeclaringTenantId,
-                    previous,
-                    packPublished,
-                    ct).ConfigureAwait(false);
-                return new ValidatedAuthorizationConfigurationWrite(
-                    AuthorizationConfigurationWriteKind.ReplaceDefinition,
-                    replacement,
-                    bindingRevision: null,
-                    expectedDefinitionRevision: previous.Revision,
-                    expectedBindingRevision: 0,
-                    definitionEffectiveAt: at,
-                    declaringTenantId: replace.DeclaringTenantId,
-                    decision, authority.Principal, authority.Tenant);
-
-            case NarrowCapabilityRoleBinding narrow:
-                var definition = bound.Definition
-                    ?? throw new InvalidOperationException("The authorization definition is not installed.");
-                var revision = mutation.BindingRevision
-                    ?? throw new InvalidOperationException("Mutate produced no binding revision.");
-                bindingAdmission.Admit(
-                    definition.OfferedRoles,
-                    bound.EffectiveBinding,
-                    revision.SelectedRoles);
-                return new ValidatedAuthorizationConfigurationWrite(
-                    AuthorizationConfigurationWriteKind.NarrowBinding,
-                    definition: null,
-                    revision,
-                    expectedDefinitionRevision: definition.Revision,
-                    expectedBindingRevision: bound.BindingRevision,
-                    definitionEffectiveAt: null,
-                    declaringTenantId: null,
-                    decision, authority.Principal, authority.Tenant);
-
-            default:
-                throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'.");
+            var mutation = command switch
+            {
+                InstallAuthorizationDefinition install =>
+                    AuthorizationMutation.ForDefinition(install.Definition),
+                ReplaceAuthorizationDefinition replace =>
+                    AuthorizationMutation.ForDefinition(replace.Definition),
+                NarrowCapabilityRoleBinding narrow =>
+                    AuthorizationMutation.ForBinding(new CapabilityRoleBindingRevision(
+                        narrow.TenantId,
+                        narrow.DefinitionId,
+                        bound.BindingRevision + 1,
+                        narrow.SelectedRoles,
+                        narrow.ChangedBy,
+                        narrow.ChangedAt,
+                        narrow.Reason)),
+                _ => throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'."),
+            };
+            return ValueTask.FromResult(mutation);
         }
-    }
 
-    private async ValueTask CommitAsync(
-        ValidatedAuthorizationConfigurationWrite write,
-        AuthorizationWriteContext authority,
-        AuthorizationDecision? bootstrapDecision,
-        List<string> stages,
-        CancellationToken ct)
-    {
-        RecordStage(WritePipelineStage.Commit, stages);
-        if (bootstrapDecision is null)
-            await store.CommitAsync(write, ct).ConfigureAwait(false);
-        else
-            await store.CommitBootstrapAsync(write, authority.Tenant, grants, ct).ConfigureAwait(false);
-    }
-
-    private ValueTask<AuthorizationConfigurationWriteResult> ReactAsync(
-        ValidatedAuthorizationConfigurationWrite write,
-        List<string> stages,
-        CancellationToken ct)
-    {
-        RecordStage(WritePipelineStage.React, stages);
-        ct.ThrowIfCancellationRequested();
-        var completedStages = stages.ToArray();
-        if (write.BindingRevision is not { } revision)
+        protected override async ValueTask<ValidatedAuthorizationConfigurationWrite> ValidateAsync(
+            AuthorizationConfigurationState bound,
+            AuthorizationMutation mutation,
+            CancellationToken ct)
         {
+            var at = authority.At;
+            var packPublished = packAuthority is not null;
+            switch (command)
+            {
+                case InstallAuthorizationDefinition install:
+                    if (bound.Definition is not null)
+                    {
+                        throw new InvalidOperationException("The authorization definition is already installed.");
+                    }
+
+                    // ck-10: admit the exact mutate output that is sealed below, so the persisted payload is
+                    // the validated one by construction rather than because mutate happens to copy the command.
+                    var installed = mutation.Definition
+                        ?? throw new InvalidOperationException("Mutate produced no definition.");
+                    await writer.definitionAdmission.AdmitAsync(
+                        installed,
+                        install.DeclaringTenantId,
+                        previous: null,
+                        packPublished,
+                        ct).ConfigureAwait(false);
+                    return Sealed = new ValidatedAuthorizationConfigurationWrite(
+                        AuthorizationConfigurationWriteKind.InstallDefinition,
+                        installed,
+                        bindingRevision: null,
+                        expectedDefinitionRevision: 0,
+                        expectedBindingRevision: 0,
+                        definitionEffectiveAt: at,
+                        declaringTenantId: install.DeclaringTenantId,
+                        Decision, authority.Principal, authority.Tenant);
+
+                case ReplaceAuthorizationDefinition replace:
+                    var previous = bound.Definition
+                        ?? throw new InvalidOperationException("The authorization definition is not installed.");
+                    var replacement = mutation.Definition
+                        ?? throw new InvalidOperationException("Mutate produced no definition.");
+                    await writer.definitionAdmission.AdmitAsync(
+                        replacement,
+                        replace.DeclaringTenantId,
+                        previous,
+                        packPublished,
+                        ct).ConfigureAwait(false);
+                    return Sealed = new ValidatedAuthorizationConfigurationWrite(
+                        AuthorizationConfigurationWriteKind.ReplaceDefinition,
+                        replacement,
+                        bindingRevision: null,
+                        expectedDefinitionRevision: previous.Revision,
+                        expectedBindingRevision: 0,
+                        definitionEffectiveAt: at,
+                        declaringTenantId: replace.DeclaringTenantId,
+                        Decision, authority.Principal, authority.Tenant);
+
+                case NarrowCapabilityRoleBinding:
+                    var definition = bound.Definition
+                        ?? throw new InvalidOperationException("The authorization definition is not installed.");
+                    var revision = mutation.BindingRevision
+                        ?? throw new InvalidOperationException("Mutate produced no binding revision.");
+                    writer.bindingAdmission.Admit(
+                        definition.OfferedRoles,
+                        bound.EffectiveBinding,
+                        revision.SelectedRoles);
+                    return Sealed = new ValidatedAuthorizationConfigurationWrite(
+                        AuthorizationConfigurationWriteKind.NarrowBinding,
+                        definition: null,
+                        revision,
+                        expectedDefinitionRevision: definition.Revision,
+                        expectedBindingRevision: bound.BindingRevision,
+                        definitionEffectiveAt: null,
+                        declaringTenantId: null,
+                        Decision, authority.Principal, authority.Tenant);
+
+                default:
+                    throw new InvalidOperationException($"Unsupported authorization command '{command.GetType().Name}'.");
+            }
+        }
+
+        protected override async ValueTask CommitAsync(ValidatedAuthorizationConfigurationWrite validated, CancellationToken ct)
+        {
+            if (bootstrapDecision is null)
+                await writer.store.CommitAsync(validated, ct).ConfigureAwait(false);
+            else
+                await writer.store.CommitBootstrapAsync(validated, authority.Tenant, writer.grants, ct).ConfigureAwait(false);
+        }
+
+        protected override ValueTask<AuthorizationConfigurationWriteResult> ReactAsync(
+            ValidatedAuthorizationConfigurationWrite validated,
+            CancellationToken ct)
+        {
+            // React runs only once every earlier stage has completed, so the completed stages are the whole order.
+            if (validated.BindingRevision is not { } revision)
+            {
+                return ValueTask.FromResult(new AuthorizationConfigurationWriteResult(
+                    validated.Definition, null, WritePipeline.Names));
+            }
+
+            BindingWarningCode? warning = revision.SelectedRoles.Equals(
+                Harborline.Api.Foundation.IdentityAtlas.Permissions.RoleBindingSet.Empty)
+                ? BindingWarningCode.EmptyBinding
+                : null;
             return ValueTask.FromResult(new AuthorizationConfigurationWriteResult(
-                write.Definition, null, completedStages));
+                null,
+                new BindingChangeResult(revision, revision.SelectedRoles, warning),
+                WritePipeline.Names));
         }
-
-        BindingWarningCode? warning = revision.SelectedRoles.Equals(
-            Harborline.Api.Foundation.IdentityAtlas.Permissions.RoleBindingSet.Empty)
-            ? BindingWarningCode.EmptyBinding
-            : null;
-        return ValueTask.FromResult(new AuthorizationConfigurationWriteResult(
-            null,
-            new BindingChangeResult(revision, revision.SelectedRoles, warning),
-            completedStages));
     }
 
     private sealed record AuthorizationMutation(
@@ -569,11 +511,5 @@ public sealed class AuthorizationDefinitionWriter : IPackProjectionParticipant
 
         public static AuthorizationMutation ForBinding(CapabilityRoleBindingRevision bindingRevision) =>
             new(null, bindingRevision);
-    }
-
-    private void RecordStage(WritePipelineStage stage, List<string> stages)
-    {
-        stages.Add(WritePipeline.NameOf(stage));
-        pipelineObserver?.OnStage(stage);
     }
 }
