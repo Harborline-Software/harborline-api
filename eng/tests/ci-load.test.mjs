@@ -44,6 +44,16 @@ test('a stacked PR skips its heavy PR jobs and its aggregator; a draft skips the
   }
 })
 
+// T-1001: stryker needed verify-windows, the winbox lane that since the 2026-09-29 ruling runs on a PR only
+// for Dependabot, so on every other PR stryker was skipped with it and Stryker.NET feedback never ran.
+test('stryker needs the hosted Windows lane, which an ordinary PR runs, and keeps its PR guards', () => {
+  const text = read('verify.yml')
+  const needs = guard(text, 'stryker').match(/^ {4}needs: \[(.*)\]$/m)?.[1].split(/,\s*/)
+  assert.deepEqual(needs, ['verify-windows-hosted'], 'verify.yml stryker: does not need verify-windows-hosted')
+  for (const lane of needs) assert.ok(!guard(text, lane).includes("github.actor == 'dependabot[bot]'"), `verify.yml stryker: needs ${lane}, which an ordinary PR skips`)
+  assert.ok(guard(text, 'stryker').includes('github.event.pull_request.head.repo.full_name == github.repository'), 'verify.yml stryker: no fork guard')
+})
+
 test('the label is only ever read as a negated contains, so no non-PR run can see it', () => {
   // A merge_group, push, schedule or dispatch payload carries no pull_request labels: contains() is
   // false there, so the negation is true and the label cannot skip (or enable) anything outside a PR.

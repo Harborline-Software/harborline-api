@@ -676,7 +676,10 @@ jobs:
     # in packages.yml) replaces with a per-run checkout at the recorded pin.
     # Pull requests only (a main or merge-group tree has nothing since origin/main). The fork and draft
     # guards are the other self-hosted lanes'.
-    needs: [verify-windows]
+    # T-1001: it waits on verify-windows-hosted, the required Windows lane an ordinary PR runs. It
+    # used to wait on verify-windows (winbox), which a PR runs only for Dependabot since the
+    # 2026-09-29 ruling, so on every other PR this job was skipped with it.
+    needs: [verify-windows-hosted]
     if: >-
       vars.ACTIONS_ENABLED == 'true' &&
       github.event_name == 'pull_request' &&
