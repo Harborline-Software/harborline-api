@@ -9,7 +9,6 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
-using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Packs;
@@ -59,18 +58,21 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
     private readonly IDbContextFactory<NodeLocalPacksDbContext> _factory;
     private readonly DurablePackInstallStore _packs;
     private readonly AuthorizationGate _gate;
-    private readonly IPackInstallAudit _audit;
+    private readonly ConfigurationEvidenceOutbox? _evidence;
     private readonly IPackPlatformCompatibility? _platform;
     private PackProjectionSqliteUnit? _unit;
 
-    /// <summary>Composes the target over the host's durable pack store and its Access gate.</summary>
+    /// <summary>
+    /// Composes the target over the host's durable pack store and its Access gate. <paramref name="evidence"/> delivers
+    /// each committed activation's evidence to the audit trail; without it the rows stay owed to a later drain.
+    /// </summary>
     public ConfigurationActivationTarget(IDbContextFactory<NodeLocalPacksDbContext> factory, DurablePackInstallStore packs,
-        AuthorizationGate gate, IPackInstallAudit audit, IPackPlatformCompatibility? platform = null)
+        AuthorizationGate gate, ConfigurationEvidenceOutbox? evidence, IPackPlatformCompatibility? platform = null)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _packs = packs ?? throw new ArgumentNullException(nameof(packs));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _audit = audit ?? throw new ArgumentNullException(nameof(audit));
+        _evidence = evidence;
         _platform = platform;
     }
 
@@ -195,7 +197,6 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
         var intent = request.EvidenceIntent;
         var inputs = InputsDigest(request.Prepared.Candidate.Digest, request.Prepared.Baseline.Digest, request.Principal, intent.Reason);
         ConfigurationActivationOutcome outcome;
-        AuthorizationDecision? decision = null;
         using (var transaction = new PackProjectionTransaction(cancellationToken))
         {
             transaction.Enlist(_packs);
@@ -221,7 +222,7 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
 
             // Point-of-use authority for THIS request, resolved live and bound to the decision by identity.
             var gateRequest = authority.InstallWide(Operate);
-            decision = await _gate.DecideAsync(gateRequest, cancellationToken).ConfigureAwait(false);
+            var decision = await _gate.DecideAsync(gateRequest, cancellationToken).ConfigureAwait(false);
             var decisionId = DecisionId(decision);
             var access = new ConfigurationActivationAuthority(decision.Verdict == AuthorizationVerdict.Allowed, decisionId);
             var decided = ConfigurationActivation.DecideCompareAndSwap(current, request,
@@ -258,6 +259,9 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
                 Tenant = tenant.Value, IntentId = intent.Id, Reason = intent.Reason, InputsDigest = inputs,
                 DecisionId = decisionId, DecisionJson = DecisionJson(decision), PriorDigest = current.Digest,
                 NewDigest = request.Prepared.Candidate.Digest, Principal = request.Principal, CommittedAt = now,
+                // DES-0029 ck-6: the decision's authority commits with the switch, so the evidence can be delivered
+                // with it after this request, and its live decision, are gone.
+                AuthoritySnapshotJson = ConfigurationEvidenceOutbox.Capture(decision),
             });
             context.SaveChanges();
             CrashPoint?.Invoke("before-commit");
@@ -280,18 +284,14 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
             outcome = ConfigurationActivationOutcome.ConfirmCommitted(decided);
         }
 
-        // Publication runs after the durable commit and outside the lease, with the decision that admitted the
-        // switch. A publication failure leaves the row pending as the evidence that publication is owed; the
-        // kernel's recovery (T-587) brings it to a terminal state, and nothing here turns the committed switch
-        // into a refusal or republishes without its decision.
+        // Publication runs after the durable commit and outside the lease: this row alone is delivered from the
+        // evidence outbox, with the authority captured above; any owed backlog stays with the drain daemon. A
+        // publication failure leaves the row owed; the host's drain daemon (DES-0029 ck-6) or the offline recovery
+        // (T-587) brings it to a terminal state, and nothing here turns the committed switch into a refusal.
         try
         {
             CrashPoint?.Invoke("before-publish");
-            using var context = CreateContext();
-            var row = context.EvidenceOutbox.First(r => r.Tenant == tenant.Value && r.IntentId == intent.Id);
-            _audit.AppendAuthorized(Entry(row, now), decision!);
-            row.PublishedAt = now;
-            context.SaveChanges();
+            if (_evidence is not null) await _evidence.DeliverAsync(tenant.Value, intent.Id, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -404,11 +404,6 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
         decidedAt = decision.DecidedAt,
         verdict = decision.Verdict.ToString(),
     });
-
-    private static PackInstallAuditEntry Entry(ConfigurationEvidenceOutboxRow row, DateTimeOffset now) => new(
-        new TenantId(row.Tenant), PackInstallAuditAction.Activated, "configuration-generation", row.NewDigest, now, null, null,
-        $"configuration.activated:{row.IntentId}:{row.PriorDigest}->{row.NewDigest}:{row.DecisionId}",
-        ActingPrincipal: row.Principal);
 
     internal static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

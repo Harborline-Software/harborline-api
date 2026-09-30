@@ -115,11 +115,13 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260928120000_RosterDropLegacyPermissions",
         // T-909 slice 6 (T-587): the offline configuration recovery record and its audit row.
         "20260928120000_AddConfigurationRecoveries",
+        // DES-0029 ck-6: an activation's evidence outbox row carries its captured authority and last delivery error.
+        "20260929180000_AddConfigurationEvidenceAuthority",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_59_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_60_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 
