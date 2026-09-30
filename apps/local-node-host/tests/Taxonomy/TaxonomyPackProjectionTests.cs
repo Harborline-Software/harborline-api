@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Foundation.Taxonomy.Models;
 using Harborline.Api.Foundation.Taxonomy.Services;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Tests.Packs;
 
 using Xunit;
 
@@ -178,6 +179,7 @@ public sealed class TaxonomyPackProjectionTests
                 Principal: "test-operator"));
         Assert.True(install.Installed, string.Join("; ", install.RefusalCodes));
 
+        PlatformPackTestPreload.Activate(store, tenant);
         var activation = installer.Activate(
             tenant,
             install.PackKey,

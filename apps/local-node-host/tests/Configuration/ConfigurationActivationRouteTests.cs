@@ -342,6 +342,7 @@ public sealed class ConfigurationActivationRouteTests : IAsyncLifetime
     [InlineData("pack-activate")]
     public async Task Every_handler_observes_the_admitted_instant_exactly_once(string handler)
     {
+        PlatformPackTestPreload.Activate(_store, _tenant);
         var baseline = await DigestAsync();
         var candidate = (await PrepareAsync(baseline, "form.shared", "acme.ext")).GetProperty("candidateDigest").GetString()!;
         Seed("acme.draft", "1.0.0", [], activate: false);

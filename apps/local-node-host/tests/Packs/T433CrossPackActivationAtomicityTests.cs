@@ -30,6 +30,7 @@ public sealed class T433CrossPackActivationAtomicityTests
         var now = DateTimeOffset.Parse("2026-09-16T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
         await using var database = durable ? await PacksTestStore.CreateAsync() : null;
         IPackInstallMutationStore store = database is null ? new InMemoryPackInstallStore() : new DurablePackInstallStore(database.Factory);
+        PlatformPackTestPreload.Activate(store, tenant);
         using var reader = new RendezvousReader(store);
         var types = new InMemoryEntityTypeRegistry(new InMemoryRegistryAuditLog());
         var projector = new PackSeedProjector(store, types, NullLogger<PackSeedProjector>.Instance, time: TimeProvider.System);
@@ -60,7 +61,7 @@ public sealed class T433CrossPackActivationAtomicityTests
         var winner = Assert.Single(outcomes, outcome => outcome.Activated);
         var refused = Assert.Single(outcomes, outcome => !outcome.Activated);
         Assert.Equal(PackInstallCodes.ActivateProviderSlotOccupied, refused.Error);
-        Assert.Equal(winner.PackKey, Assert.Single(store.ListInstalled(tenant), pack => pack.Lifecycle == PackLifecycleState.Active).PackKey);
+        Assert.Equal(winner.PackKey, Assert.Single(store.ListInstalled(tenant), pack => pack.Lifecycle == PackLifecycleState.Active && pack.PackKey != PlatformPackTestPreload.PackKey).PackKey);
         Assert.Equal(winner.PackKey + ".type", Assert.Single(types.ListSeeds()).Id.Value);
         Assert.Equal(PackLifecycleState.Draft, store.GetVersion(tenant, refused.PackKey, "1.0.0")!.Lifecycle);
         Assert.Null(store.GetActive(tenant, refused.PackKey));
