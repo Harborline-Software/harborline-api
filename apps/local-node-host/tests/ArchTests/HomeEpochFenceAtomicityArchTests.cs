@@ -65,18 +65,20 @@ public sealed class HomeEpochFenceAtomicityArchTests
         Assert.DoesNotContain("deferred: true", helper);
 
         // Every fenced site must drive its fenced unit-of-work through that ONE helper (no drift copy).
-        foreach (var site in new[]
+        // The journal store's site is its Platform kernel-boundary port, which owns the commit point and so opens
+        // the same helper's fence with BeginAsync rather than handing it a body (DES-0029 ck-6).
+        foreach (var (site, entry) in new[]
                  {
-                     Path.Combine(root, "Data", "Financial", "NodeEfJournalStore.cs"),
-                     Path.Combine(root, "Data", "Financial", "NodeEfInvoiceNumberingService.cs"),
-                     Path.Combine(root, "Data", "Search", "Vector", "NodeEfGrantStore.cs"),
+                     (Path.Combine(root, "Data", "Financial", "NodeJournalKernelTransactionPort.cs"), "HomeEpochFenceTransaction.BeginAsync"),
+                     (Path.Combine(root, "Data", "Financial", "NodeEfInvoiceNumberingService.cs"), "HomeEpochFenceTransaction.RunAsync"),
+                     (Path.Combine(root, "Data", "Search", "Vector", "NodeEfGrantStore.cs"), "HomeEpochFenceTransaction.RunAsync"),
                  })
         {
             var text = File.ReadAllText(site);
             Assert.True(
-                text.Contains("HomeEpochFenceTransaction.RunAsync"),
+                text.Contains(entry),
                 $"Fenced site '{Path.GetFileName(site)}' must run its fenced unit-of-work through " +
-                $"HomeEpochFenceTransaction.RunAsync (the single BEGIN IMMEDIATE source) so the fence read " +
+                $"{entry} (the single BEGIN IMMEDIATE source) so the fence read " +
                 $"holds the write lock — otherwise the read runs in its own autocommit statement and the " +
                 $"G-4 TOCTOU re-opens (verdict shipyard#1365 Finding 1).");
 
