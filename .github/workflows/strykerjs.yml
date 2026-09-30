@@ -29,7 +29,8 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.draft == false)
+       github.event.pull_request.draft == false &&
+       !contains(github.event.pull_request.labels.*.name, 'stacked'))
     runs-on: ubuntu-latest
     # T-724 ruling 118 (Q50): PR job stays capped at 60 minutes (changed-lines only); the scheduled/full run
     # keeps the pre-existing 350-minute budget.
