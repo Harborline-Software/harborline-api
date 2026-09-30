@@ -187,6 +187,8 @@ public sealed partial class FormsRouteTests
     {
         public string? RequiredPermission(FormDefinitionId form) =>
             form.Value == FormId || form.Value == OpenFormId ? "members:manage" : null;
+        // K3: the test form's optional text field stands in for a dated form's effective-from.
+        public string? EffectiveFromField(FormDefinitionId form) => form.Value == FormId ? "inspector" : null;
         public IReadOnlyList<string> CapabilityRoles(FormDefinitionId form) => OperatorRoles;
     }
 
