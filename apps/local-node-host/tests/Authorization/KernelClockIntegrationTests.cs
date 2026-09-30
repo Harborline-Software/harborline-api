@@ -630,8 +630,12 @@ public sealed class KernelClockIntegrationTests
         {
             var candidate = new Dictionary<string, string>
             {
-                ["person"] = AccessGrantRecipient, ["role"] = "administrator", ["scope"] = "/",
-                ["residency"] = "cache", ["effectiveFrom"] = effectiveFrom.ToString("O"), ["effectiveTo"] = "",
+                ["person"] = AccessGrantRecipient,
+                ["role"] = "administrator",
+                ["scope"] = "/",
+                ["residency"] = "cache",
+                ["effectiveFrom"] = effectiveFrom.ToString("O"),
+                ["effectiveTo"] = "",
                 ["reason"] = "manual",
             };
             if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");

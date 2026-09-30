@@ -130,7 +130,10 @@ public sealed partial class FormsRouteTests
         using var request = SelectedSubmit();
         request.Content = JsonContent.Create(new Dictionary<string, string>
         {
-            ["station"] = "Marina", ["result"] = "PASS", ["inspector"] = skewed, ["captured_at"] = skewed,
+            ["station"] = "Marina",
+            ["result"] = "PASS",
+            ["inspector"] = skewed,
+            ["captured_at"] = skewed,
         });
 
         using var response = await _client.SendAsync(request);
@@ -154,7 +157,9 @@ public sealed partial class FormsRouteTests
         using var request = SelectedSubmit();
         request.Content = JsonContent.Create(new Dictionary<string, string>
         {
-            ["station"] = "Marina", ["result"] = "PASS", ["captured_at"] = DateTimeOffset.UtcNow.AddDays(-30).ToString("O"),
+            ["station"] = "Marina",
+            ["result"] = "PASS",
+            ["captured_at"] = DateTimeOffset.UtcNow.AddDays(-30).ToString("O"),
         });
         var before = DateTimeOffset.UtcNow;
 

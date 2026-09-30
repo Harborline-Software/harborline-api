@@ -134,8 +134,13 @@ public sealed partial class ComposedHostBootSmokeTests
 
     private static object AccessCandidate(DateTimeOffset effectiveFrom) => new
     {
-        person = "principal-access-recipient", role = "administrator", scope = "/", residency = "cache",
-        effectiveFrom = effectiveFrom.ToString("O"), effectiveTo = "", reason = "manual",
+        person = "principal-access-recipient",
+        role = "administrator",
+        scope = "/",
+        residency = "cache",
+        effectiveFrom = effectiveFrom.ToString("O"),
+        effectiveTo = "",
+        reason = "manual",
     };
 
     private static ComposedHost StartAccessHost(string? directory = null) => ComposedHost.Start(
