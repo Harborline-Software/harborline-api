@@ -80,8 +80,9 @@ internal sealed class RosterRevocationProjection(RosterCrdtProjection inner) : I
 /// <remarks>
 /// T-1000 (DES-0029 kernel-core-ck-6): the revocation's <see cref="AuditEventType.MemberRevoked"/> entry is staged
 /// through <paramref name="recorder"/>, bound to the roster save and the admitted decision, so the roster record and
-/// its audit commit together or neither does. An append or signing fault refuses the revocation and writes no roster
-/// record. The committed entry reaches the trail through the audit outbox's drain; delivery is not durability.
+/// its audit commit together or neither does, and the ticket 290 administrator removal commits in that same save. An
+/// append or signing fault refuses the revocation and writes no roster record and no removal. The committed entry
+/// reaches the trail through the audit outbox's drain; delivery is not durability.
 /// </remarks>
 internal sealed class NodeRosterMemberRevocationAuthority(
     NodeTeamRoster roster,
@@ -122,50 +123,51 @@ internal sealed class NodeRosterMemberRevocationAuthority(
             if (current.TeamId != Guid.Parse(tenant.Value))
                 throw new InvalidOperationException("The member revocation team does not match the live roster.");
 
-            // Ticket 290 — the removal leg runs FIRST, under the SAME decision, BEFORE the roster leg
-            // publishes anything. The two writes do not share a transaction (the roster record is a CRDT
-            // publish, the removal a serializable append on the roster store), so ordering is the only unit
-            // of work available: a refusal here leaves BOTH structures untouched, where the reverse order
-            // committed the roster revocation and then threw, and the converged fold retried the refusal
-            // forever. The one refusal that can happen is clause 7's — this party is the team's last usable
-            // administrator — and per ticket 211 the whole revocation refuses so the install is never left
-            // without an Administrator in force; the caller hands over first (211's handover) and retries.
-            var removal = await administrators.AppendRemovalUnderDecisionAsync(
-                tenant.Value,
-                revokedPartyId,
-                AdministratorAuthorityEvent.Revoked,
-                reason,
-                admittedDecision,
-                cancellationToken).ConfigureAwait(false);
-            if (removal.Outcome is AdministratorAuthorityOutcome.RefusedLastUsableAdministrator)
+            try
+            {
+                if (current.Contains(revokedPartyId))
+                {
+                    // Ticket 290 ordering: the administrator guard answers before the roster signs, so a
+                    // last-usable-administrator refusal is named ahead of the roster's own floor.
+                    RequireRemovalApplied(await administrators.PreviewRemovalUnderDecisionAsync(
+                        tenant.Value, revokedPartyId, admittedDecision, cancellationToken).ConfigureAwait(false));
+                    var (afterRevocation, signedRevocation) = current.SignRevoke(
+                        revokedByPartyId, signer, revokedPartyId, verifier, admittedDecision.DecidedAt, Guid.NewGuid());
+                    var state = RosterRecordCrdtState.FromRevocation(signedRevocation);
+                    // Ticket 290 and T-1000 (DES-0029 ck-6): the administrator removal, the signed revocation record
+                    // and its MemberRevoked audit are one save on the roster context, inside the one BEGIN IMMEDIATE
+                    // transaction PublishLocalAsync opens. The last-usable-administrator guard reads the log under
+                    // that write lock, and a refusal or a fault in any leg leaves all three unwritten. A refusal is
+                    // clause 7's: the whole revocation refuses so the install is never left without an
+                    // Administrator in force; the caller hands over first (ticket 211) and retries.
+                    await projection.PublishLocalAsync(state, cancellationToken, async (write, token) =>
+                    {
+                        RequireRemovalApplied(await administrators.StageRemovalUnderDecisionAsync(
+                            write, tenant.Value, revokedPartyId, AdministratorAuthorityEvent.Revoked, reason,
+                            admittedDecision, token).ConfigureAwait(false));
+                        await recorder.Within(new AuthorizedEnrollmentWrite(write, admittedDecision, reason))
+                            .RecordMemberRevokedAsync(
+                                tenant, state.TeamId, revokedByPartyId, revokedPartyId, correlationId, token)
+                            .ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                    roster.AdoptSyncedRoster(afterRevocation);
+                    return ToEvidence(state);
+                }
+
+                // Not a live member, so there is no roster record to write and the removal is the whole act; it
+                // commits alone. A replay of a revocation that already committed finds it here, and its audit
+                // committed in that revocation's save, so there is nothing to record again.
+                RequireRemovalApplied(await administrators.AppendRemovalUnderDecisionAsync(
+                    tenant.Value, revokedPartyId, AdministratorAuthorityEvent.Revoked, reason, admittedDecision,
+                    cancellationToken).ConfigureAwait(false));
+            }
+            catch (LastUsableAdministratorRevocationRefusedException refused)
             {
                 await AppendRefusalAuditAsync(
-                    tenant, reaction, removal.Code, admittedDecision, cancellationToken).ConfigureAwait(false);
-                throw new LastUsableAdministratorRevocationRefusedException(removal.Code);
+                    tenant, reaction, refused.Code, admittedDecision, cancellationToken).ConfigureAwait(false);
+                throw;
             }
 
-            if (removal.Outcome is not AdministratorAuthorityOutcome.Applied)
-            {
-                throw new InvalidOperationException(
-                    "The roster revocation could not write its administrator removal: " + removal.Code);
-            }
-
-            if (current.Contains(revokedPartyId))
-            {
-                var (afterRevocation, signedRevocation) = current.SignRevoke(
-                    revokedByPartyId, signer, revokedPartyId, verifier, admittedDecision.DecidedAt, Guid.NewGuid());
-                var state = RosterRecordCrdtState.FromRevocation(signedRevocation);
-                await projection.PublishLocalAsync(state, cancellationToken, (write, token) =>
-                    recorder.Within(new AuthorizedEnrollmentWrite(write, admittedDecision, reason))
-                        .RecordMemberRevokedAsync(
-                            tenant, state.TeamId, revokedByPartyId, revokedPartyId, correlationId, token))
-                    .ConfigureAwait(false);
-                roster.AdoptSyncedRoster(afterRevocation);
-                return ToEvidence(state);
-            }
-
-            // A replay of a revocation that already committed: its audit committed in the same save, so there is
-            // nothing to record again.
             var committed = projection.Snapshot().LastOrDefault(record =>
                 record.Kind == RosterRecordKind.Revocation
                 && string.Equals(record.TeamId, tenant.Value, StringComparison.OrdinalIgnoreCase)
@@ -177,6 +179,22 @@ internal sealed class NodeRosterMemberRevocationAuthority(
         finally
         {
             gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Throws unless the administrator removal applied: <see cref="LastUsableAdministratorRevocationRefusedException"/>
+    /// when the party is the team's last usable administrator, <see cref="InvalidOperationException"/> for any other
+    /// refusal. Thrown inside the roster save, it rolls the whole revocation back.
+    /// </summary>
+    private static void RequireRemovalApplied(AdministratorAuthorityResult removal)
+    {
+        if (removal.Outcome is AdministratorAuthorityOutcome.RefusedLastUsableAdministrator)
+            throw new LastUsableAdministratorRevocationRefusedException(removal.Code);
+        if (removal.Outcome is not AdministratorAuthorityOutcome.Applied)
+        {
+            throw new InvalidOperationException(
+                "The roster revocation could not write its administrator removal: " + removal.Code);
         }
     }
 

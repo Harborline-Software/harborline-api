@@ -476,6 +476,77 @@ public sealed class NodeAdministratorAuthority
     }
 
     /// <summary>
+    /// T-1000 (DES-0029 ck-6): the removal leg of a roster revocation, staged on <paramref name="write"/>, the
+    /// roster context whose one save commits the signed revocation and its audit. The last-usable-administrator
+    /// invariant is checked against the log read on that context, inside the caller's open transaction; nothing is
+    /// saved here, so the removal commits with the revocation or not at all.
+    /// </summary>
+    /// <param name="write">The roster context, inside the transaction that will save the revocation record.</param>
+    /// <param name="teamId">The team the authority is scoped to; must be the decision's own tenant.</param>
+    /// <param name="partyId">The party losing administrative authority.</param>
+    /// <param name="removal">Which removal path this is.</param>
+    /// <param name="reason">A stable, log-safe reason code.</param>
+    /// <param name="admittedDecision">The one decision the roster revocation was admitted under; its instant stamps the row.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// <see cref="AdministratorAuthorityOutcome.Applied"/> when the removal row is staged; otherwise the refusal, with
+    /// nothing staged.
+    /// </returns>
+    internal Task<AdministratorAuthorityResult> StageRemovalUnderDecisionAsync(
+        NodeLocalRosterDbContext write,
+        string teamId,
+        string partyId,
+        AdministratorAuthorityEvent removal,
+        string reason,
+        AuthorizationDecision admittedDecision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(write);
+        RequireRemovalDecision(teamId, partyId, admittedDecision);
+        return StageRemovalAsync(
+            write, teamId, partyId, removal, reason, admittedDecision.DecidedAt, cancellationToken);
+    }
+
+    /// <summary>
+    /// T-1000: the outcome <see cref="StageRemovalUnderDecisionAsync"/> would have now, read on a context that is
+    /// discarded unsaved. A revocation evaluates it before signing so a last-usable-administrator refusal is named
+    /// ahead of the roster's own floor, as ticket 290 ordered it; the staged check inside the roster save stays the
+    /// authoritative one. It reads no clock: the instant is the decision's (ticket 216).
+    /// </summary>
+    /// <param name="teamId">The team the authority is scoped to; must be the decision's own tenant.</param>
+    /// <param name="partyId">The party that would lose administrative authority.</param>
+    /// <param name="admittedDecision">The one decision the roster revocation was admitted under.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The outcome the removal would have; nothing is written.</returns>
+    internal async Task<AdministratorAuthorityResult> PreviewRemovalUnderDecisionAsync(
+        string teamId,
+        string partyId,
+        AuthorizationDecision admittedDecision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireRemovalDecision(teamId, partyId, admittedDecision);
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await StageRemovalAsync(
+                context, teamId, partyId, AdministratorAuthorityEvent.Revoked, string.Empty,
+                admittedDecision.DecidedAt, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static void RequireRemovalDecision(string teamId, string partyId, AuthorizationDecision admittedDecision)
+    {
+        ArgumentNullException.ThrowIfNull(admittedDecision);
+        ArgumentException.ThrowIfNullOrWhiteSpace(teamId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(partyId);
+        if (!string.Equals(teamId, admittedDecision.Request.Tenant.Value, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The administrator team does not match the admitted decision's tenant.", nameof(teamId));
+        }
+
+        admittedDecision.RequireAllowed();
+    }
+
+    /// <summary>
     /// The (team, party) pairs whose LATEST administrator-authority event is an establishment — the log fold
     /// WITHOUT the clock (ticket 290). The roster's reconcile runs inside whatever act published the roster
     /// record, and ticket 216 requires that an act read the host clock exactly once, at the decision; an
@@ -713,6 +784,28 @@ public sealed class NodeAdministratorAuthority
             .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
             .ConfigureAwait(false);
 
+        var result = await StageRemovalAsync(context, teamId, partyId, removal, reason, now, cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Outcome is not AdministratorAuthorityOutcome.Applied) return result;
+
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>
+    /// Reads the log on <paramref name="context"/>, checks the chain and the last-usable-administrator invariant, and
+    /// stages the removal row without saving. The caller owns the transaction and the save.
+    /// </summary>
+    private static async Task<AdministratorAuthorityResult> StageRemovalAsync(
+        NodeLocalRosterDbContext context,
+        string teamId,
+        string partyId,
+        AdministratorAuthorityEvent removal,
+        string reason,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         var log = await ReadLogAsync(context, cancellationToken).ConfigureAwait(false);
         if (!AdministratorAuthorityRecord.VerifyChain(log))
         {
@@ -750,8 +843,6 @@ public sealed class NodeAdministratorAuthority
             Hash = string.Empty,
         });
 
-        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new AdministratorAuthorityResult(
             AdministratorAuthorityOutcome.Applied, appended.Reason, appended.Sequence);
     }

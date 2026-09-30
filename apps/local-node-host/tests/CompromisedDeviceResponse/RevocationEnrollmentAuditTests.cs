@@ -93,6 +93,30 @@ public sealed class RevocationEnrollmentAuditTests : IAsyncLifetime
         await AssertNothingCommittedAsync();
     }
 
+    [Fact(DisplayName = "T-1000: a fault appending the revocation's audit commits no administrator removal either")]
+    public async Task AppendFault_CommitsNoAdministratorRemoval()
+    {
+        // Both parties hold administrative authority, so the removal leg would apply (ticket 290); it must still
+        // roll back with the roster record, because the removal, the record and the audit are one save (ck-6).
+        await SeedAdministratorAsync("operator-a");
+        await SeedAdministratorAsync(Revoked);
+        await _audit.ExecuteAsync(
+            "CREATE TRIGGER t1000_fault BEFORE INSERT ON search_audit_outbox BEGIN SELECT RAISE(ABORT, 't1000'); END;");
+
+        await using (var projection = Projection(out var live))
+        {
+            await Assert.ThrowsAnyAsync<DbUpdateException>(async () =>
+                await Publisher(projection, live, Recorder()).RevokeAsync(Request(), CorrelationId, Decision()));
+        }
+
+        await using var restarted = _audit.Reopen();
+        await using var roster = restarted.RosterFactory.CreateDbContext();
+        var log = await roster.AdministratorAuthority.OrderBy(record => record.Sequence).ToListAsync();
+        Assert.Equal(2, log.Count);
+        Assert.All(log, record => Assert.Equal(AdministratorAuthorityEvent.Established, record.Event));
+        Assert.False(await roster.RosterRecords.AnyAsync(row => row.Kind == (int)RosterRecordKind.Revocation));
+    }
+
     [Fact(DisplayName = "T-1000: a fault signing the revocation's audit refuses the revocation and writes no roster record")]
     public async Task SigningFault_RefusesTheRevocation_AndWritesNoRosterRecord()
     {
@@ -150,6 +174,32 @@ public sealed class RevocationEnrollmentAuditTests : IAsyncLifetime
         TestAuthorization.AllowedDecision(
             new TenantId(Team.ToString("D")), Revoked, "members", TeamRolePermissions.MembersManage,
             _founder.IssuerId.ToBase64Url(), At.AddMinutes(2));
+
+    private async Task SeedAdministratorAsync(string partyId)
+    {
+        await using var context = _audit.RosterFactory.CreateDbContext();
+        var tip = await context.AdministratorAuthority.AsNoTracking()
+            .OrderByDescending(record => record.Sequence).FirstOrDefaultAsync();
+        var record = new AdministratorAuthorityRecord
+        {
+            Sequence = (tip?.Sequence ?? 0) + 1,
+            TeamId = Team.ToString("D"),
+            PartyId = partyId,
+            Event = AdministratorAuthorityEvent.Established,
+            Provenance = AdministratorProvenance.Recovery,
+            MemberPublicKey = "cHVibGljLWtleQ",
+            AdmissionSignature = "c2lnbmF0dXJl",
+            AdmittedByPublicKey = "cHVibGljLWtleQ",
+            AdmittedByPartyId = partyId,
+            OccurredAtUtc = At,
+            Reason = "test-seed",
+            PreviousHash = tip?.Hash ?? AdministratorAuthorityRecord.ZeroHash,
+            Hash = string.Empty,
+        };
+        record.Hash = AdministratorAuthorityRecord.ComputeHash(record);
+        context.AdministratorAuthority.Add(record);
+        await context.SaveChangesAsync();
+    }
 
     private static async Task<bool> RevocationRowExistsAsync(DurableAuditHarness audit, string recordId)
     {
