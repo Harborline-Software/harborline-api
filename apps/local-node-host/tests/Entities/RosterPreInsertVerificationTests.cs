@@ -365,22 +365,24 @@ public sealed class RosterPreInsertVerificationTests
     {
         await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
         var instant = At.AddHours(1);
-        var nonce = Guid.Parse("7f000000-0000-0000-0000-000000000000");
-        var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
-                RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant, nonce)))
-            .AttestReceipt(f.Founder, "founder", instant);
-        // The fixture's keys are fresh each run, so the revocation's signature is random. Draw admitted parties until
-        // the tie-break (ordinal signature order) puts the revocation first: that revocation precedes the admission and
-        // ejects its signer. A revocation signature near the top of the ordinal range needs thousands of draws, so the
-        // bound is generous; 64 left roughly one run in forty with no candidate (T-987).
-        var late = Enumerable.Range(0, 200_000).Select(i =>
+        // The fixture's keys are fresh each run, so signatures are random. Each attempt draws a fresh nonce and signs
+        // a revocation and an admission that share it and the instant, until the tie-break (ordinal signature order)
+        // puts the revocation first: that revocation precedes the admission and ejects its signer. Each attempt is a
+        // coin flip, so 64 fail together about once in 2^64 runs. Redrawing only the admission against one fixed
+        // revocation left no candidate whenever that revocation sorted near the top (T-987).
+        var (revocation, late) = Enumerable.Range(0, 64).Select(i =>
             {
+                var nonce = Guid.NewGuid();
+                var revoked = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
+                        RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant, nonce)))
+                    .AttestReceipt(f.Founder, "founder", instant);
                 var key = KeyPair.Generate().PrincipalId;
-                return RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), $"late-{i}", key,
+                var admitted = RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), $"late-{i}", key,
                     RosterSigning.SignAdmission(f.Member, Tenant, $"late-{i}", key, "member", false, instant, nonce)));
+                return (revoked, admitted);
             })
-            .First(candidate => string.CompareOrdinal(revocation.SignatureB64Url, candidate.SignatureB64Url) < 0)
-            .AttestReceipt(f.Founder, "founder", instant);
+            .First(pair => string.CompareOrdinal(pair.revoked.SignatureB64Url, pair.admitted.SignatureB64Url) < 0);
+        late = late.AttestReceipt(f.Founder, "founder", instant);
         await f.MergeRawAsync([revocation]);
         Assert.Contains(await f.StoredAsync(), r => r.RecordId == revocation.RecordId);
         await f.MergeRawAsync([late]);
