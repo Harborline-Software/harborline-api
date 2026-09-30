@@ -136,7 +136,7 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorder : IEnrollme
             $"The enrollment audit of {eventType.Value} must join the change it records: bind the recorder with Within.");
         if (_authorized is not { } authorized)
         {
-            await NodeAuditOutbox.StageSignedAsync(write, _signer, tenantId, eventType, _time.GetUtcNow(), body, ct)
+            await NodeAuditOutbox.StageSignedAsync(write, _signer, tenantId, eventType, _time.GetUtcNow(), body, ct: ct)
                 .ConfigureAwait(false);
             return;
         }
@@ -145,7 +145,7 @@ public sealed class KernelAuditEnrollmentCompensatingControlRecorder : IEnrollme
         var entry = new Dictionary<string, object?>(body, StringComparer.Ordinal);
         if (authorized.Reason is { } reason) entry["reason"] = reason;
         await NodeAuditOutbox.StageSignedAsync(
-                write, _signer, tenantId, eventType, authorized.Decision.DecidedAt, entry, ct, authorized.Decision)
+                write, _signer, tenantId, eventType, authorized.Decision.DecidedAt, entry, authorized.Decision, ct)
             .ConfigureAwait(false);
     }
 }

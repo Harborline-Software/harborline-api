@@ -113,13 +113,13 @@ public sealed class NodeAuditOutbox(
     /// <param name="eventType">The event the entry records.</param>
     /// <param name="occurredAt">The instant the entry records; with <paramref name="decision"/> it must be the decided instant.</param>
     /// <param name="body">The entry body that is signed and stored.</param>
-    /// <param name="ct">Cancels the signing.</param>
     /// <param name="decision">
     /// T-1000: the decision that allowed the change, when a request decision allowed it. Its authority is captured
     /// now against the entry's header (<see cref="CapturedAuditAuthority.Capture"/>), and the entry carries its
     /// actor, target and act, so the delivered record is the one an authorized append would have written. A
     /// header the decision does not match throws, so the change fails rather than committing a wrong entry.
     /// </param>
+    /// <param name="ct">Cancels the signing.</param>
     /// <returns>The staged entry's audit id.</returns>
     public static async ValueTask<Guid> StageSignedAsync(
         DbContext write,
@@ -128,8 +128,8 @@ public sealed class NodeAuditOutbox(
         AuditEventType eventType,
         DateTimeOffset occurredAt,
         IReadOnlyDictionary<string, object?> body,
-        CancellationToken ct = default,
-        AuthorizationDecision? decision = null)
+        AuthorizationDecision? decision = null,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(write);
         ArgumentNullException.ThrowIfNull(signer);

@@ -492,7 +492,7 @@ public sealed class NodeAdministratorAuthority
     /// <see cref="AdministratorAuthorityOutcome.Applied"/> when the removal row is staged; otherwise the refusal, with
     /// nothing staged.
     /// </returns>
-    internal Task<AdministratorAuthorityResult> StageRemovalUnderDecisionAsync(
+    internal static Task<AdministratorAuthorityResult> StageRemovalUnderDecisionAsync(
         NodeLocalRosterDbContext write,
         string teamId,
         string partyId,

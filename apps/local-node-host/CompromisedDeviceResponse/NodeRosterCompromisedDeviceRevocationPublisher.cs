@@ -58,8 +58,8 @@ internal interface IRosterRevocationProjection
     /// </summary>
     Task PublishLocalAsync(
         RosterRecordCrdtState record,
-        CancellationToken cancellationToken,
-        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord);
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
+        CancellationToken cancellationToken);
 
     /// <summary>The converged roster records, in list order.</summary>
     IReadOnlyList<RosterRecordCrdtState> Snapshot();
@@ -69,8 +69,8 @@ internal sealed class RosterRevocationProjection(RosterCrdtProjection inner) : I
 {
     public Task PublishLocalAsync(
         RosterRecordCrdtState record,
-        CancellationToken cancellationToken,
-        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord) =>
+        Func<NodeLocalRosterDbContext, CancellationToken, ValueTask> stageWithRecord,
+        CancellationToken cancellationToken) =>
         inner.PublishLocalAsync(record, cancellationToken, stageWithRecord);
 
     public IReadOnlyList<RosterRecordCrdtState> Snapshot() => inner.Snapshot();
@@ -140,16 +140,16 @@ internal sealed class NodeRosterMemberRevocationAuthority(
                     // that write lock, and a refusal or a fault in any leg leaves all three unwritten. A refusal is
                     // clause 7's: the whole revocation refuses so the install is never left without an
                     // Administrator in force; the caller hands over first (ticket 211) and retries.
-                    await projection.PublishLocalAsync(state, cancellationToken, async (write, token) =>
+                    await projection.PublishLocalAsync(state, async (write, token) =>
                     {
-                        RequireRemovalApplied(await administrators.StageRemovalUnderDecisionAsync(
+                        RequireRemovalApplied(await NodeAdministratorAuthority.StageRemovalUnderDecisionAsync(
                             write, tenant.Value, revokedPartyId, AdministratorAuthorityEvent.Revoked, reason,
                             admittedDecision, token).ConfigureAwait(false));
                         await recorder.Within(new AuthorizedEnrollmentWrite(write, admittedDecision, reason))
                             .RecordMemberRevokedAsync(
                                 tenant, state.TeamId, revokedByPartyId, revokedPartyId, correlationId, token)
                             .ConfigureAwait(false);
-                    }).ConfigureAwait(false);
+                    }, cancellationToken).ConfigureAwait(false);
                     roster.AdoptSyncedRoster(afterRevocation);
                     return ToEvidence(state);
                 }
