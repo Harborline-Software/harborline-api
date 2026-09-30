@@ -171,7 +171,7 @@ public sealed class DesktopActorRekeyTests
 
     [Fact]
     [Trait("Holds", "kernel-core-ck-11")]
-    public async Task The_rekey_audit_names_the_moved_grant_and_both_subjects()
+    public async Task The_rekey_audit_is_typed_and_names_the_moved_grant_and_both_subjects()
     {
         await using var store = await NodeStore.CreateAsync();
         await SeedRetiredRowsAsync(store);
@@ -182,7 +182,7 @@ public sealed class DesktopActorRekeyTests
 
         await using var context = store.CreateContext();
         var audit = await context.AuditOutbox.AsNoTracking()
-            .SingleAsync(row => row.EventType == RetiredDesktopActorRekey.RekeyedEventType.Value);
+            .SingleAsync(row => row.EventType == "AuthorizationGrantSubjectRekeyed");
         var body = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(audit.BodyJson)!;
         var moved = await context.Grants.AsNoTracking().SingleAsync(row => row.SourceReference == NodeOperatorSource);
         Assert.Equal(moved.GrantId, body["grantId"]);
