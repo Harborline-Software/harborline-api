@@ -242,6 +242,67 @@ public sealed class CompiledSchemaEntityValidationTests : IAsyncLifetime
         Assert.Equal("Headless LLC", created.Entity.LegalName);
     }
 
+    // ck-10 S2 (ADR 0038): mutate derives the legal entity as stored, and validate sees exactly that record.
+    [Fact(DisplayName = "ck-10 S2: validate sees the trimmed legal name the writer stores")]
+    public async Task Writer_ValidatesTheTrimmedNameItStores()
+    {
+        var seen = new List<string?>();
+        var writer = new NodeEntityWriter(
+            _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(),
+            new ObservingValidator(_app.Services.GetRequiredService<IEntityValidator>(),
+                body => seen.Add(body.RootElement.GetProperty("legalName").GetString())),
+            Authorization.TestAuthorization.AllowGate());
+
+        var written = await writer.CreateLegalEntityAsync(
+            new CreateLegalEntityCommand(LegalEntityId.NewId(), "  Trimmed Holdings  ", "Llc", "DisregardedEntity", null),
+            Authority());
+
+        Assert.Equal("Trimmed Holdings", Assert.Single(seen));
+        Assert.Equal("Trimmed Holdings", written.Entity.LegalName);
+    }
+
+    [Fact(DisplayName = "ck-10 S2: a whitespace-only legal name is refused by the compiled schema, not a later guard")]
+    public async Task Writer_WhitespaceOnlyName_IsRefusedByTheSchema()
+    {
+        var refusal = await Assert.ThrowsAsync<EntityValidationException>(() =>
+            Writer.CreateLegalEntityAsync(
+                new CreateLegalEntityCommand(LegalEntityId.NewId(), "   ", "Llc", "DisregardedEntity", null),
+                Authority()).AsTask());
+
+        Assert.Contains("/legalName", refusal.Pointers);
+    }
+
+    [Theory(DisplayName = "ck-10 S2: a kind validate admitted but that is not a declared name is never stored as a parsed kind")]
+    [InlineData("llc")]
+    [InlineData("0")]
+    public async Task Writer_StoresOnlyTheKindValidateAdmitted(string kind)
+    {
+        var name = "Undeclared Kind " + kind;
+        var permissive = new NodeEntityWriter(
+            _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(),
+            NullEntityValidator.Instance,
+            Authorization.TestAuthorization.AllowGate());
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            permissive.CreateLegalEntityAsync(
+                new CreateLegalEntityCommand(LegalEntityId.NewId(), name, kind, "DisregardedEntity", null),
+                Authority()).AsTask());
+
+        await using var context = await _app.Services
+            .GetRequiredService<IDbContextFactory<LocalNodeDbContext>>()
+            .CreateDbContextAsync();
+        Assert.False(await context.Set<LegalEntity>().AnyAsync(row => row.LegalName == name));
+    }
+
+    private sealed class ObservingValidator(IEntityValidator inner, Action<JsonDocument> observe) : IEntityValidator
+    {
+        public Task ValidateAsync(SchemaId schema, JsonDocument body, CancellationToken ct = default)
+        {
+            observe(body);
+            return inner.ValidateAsync(schema, body, ct);
+        }
+    }
+
     // (f) — invalidation: re-activation replaces the compiled artefact; the next write sees v2.
     [Fact(DisplayName = "151 L1418 (f): re-activating a record type replaces the compiled artefact atomically — holds RW-6")]
     public async Task ReActivation_ReplacesTheCompiledArtefact()
