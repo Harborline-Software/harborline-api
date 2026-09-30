@@ -278,6 +278,39 @@ public sealed class WorkflowDefinitionRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"{Base}/bad-cp-autonomous.v1")).StatusCode);
     }
 
+    [Fact(DisplayName = "T-691: a malformed transition role is a non-disclosing 422 in the form route's refusal shape")]
+    public async Task Malformed_Transition_Role_Is422_Without_Disclosing_The_Rejected_Token()
+    {
+        var body = new
+        {
+            key = "bad-role.v1",
+            title = Text("Bad"),
+            mutability = "Locked",
+            initialState = "Draft",
+            states = States(),
+            triggers = Triggers(),
+            transitions = new object[]
+            {
+                new { id = "t-issue", from = "Draft", on = "issued", to = "PendingApproval" },
+                new { id = "t-approve", from = "PendingApproval", on = "approve", to = "Posted", requiredRoles = new[] { "Administrator" } },
+                new { id = "t-reject", from = "PendingApproval", on = "reject", to = "Rejected" },
+            },
+            actions = Array.Empty<object>(),
+            guards = Array.Empty<object>(),
+        };
+
+        using var resp = await _client.PutAsJsonAsync($"{Base}/bad-role.v1", body);
+        var responseBody = await resp.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, resp.StatusCode);
+        using var document = JsonDocument.Parse(responseBody);
+        var refusal = document.RootElement;
+        Assert.Equal("authorization.gate_reference.required_roles_invalid", refusal.GetProperty("code").GetString());
+        Assert.Equal("transition.requiredRoles", refusal.GetProperty("detail").GetProperty("field").GetString());
+        Assert.DoesNotContain("Administrator", responseBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Gate reference refused", responseBody, StringComparison.Ordinal);
+    }
+
     private static TeamContext TeamContextFor(TeamId teamId, string name)
         => new(teamId, name, new ServiceCollection().BuildServiceProvider(), TimeProvider.System);
 
