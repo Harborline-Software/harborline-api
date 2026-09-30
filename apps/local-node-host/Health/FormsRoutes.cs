@@ -194,7 +194,7 @@ public static class FormsRoutes
                 return caseError!;
             }
 
-            using var candidate = JsonDocument.Parse(body.GetRawText());
+            using var candidate = Candidate(body);
 
             // T-540 (ck-7): the act's ONE host-clock read. The token, the pre-save validate, the pack gate's
             // decision, the save's rule gate and the stored stamp all use this instant, so a submit that
@@ -234,6 +234,10 @@ public static class FormsRoutes
                             FormCapabilityAction.Write, at, ct).ConfigureAwait(false);
                     }
                 }
+
+                if (await BackdateRefusalAsync(submissionGate, definition, candidate, token.Subject, at, timeProvider, ct)
+                    .ConfigureAwait(false) is { } backdate)
+                    return backdate;
 
                 var authority = new AuthorizationWriteContext(
                     token.Subject,
@@ -408,6 +412,51 @@ public static class FormsRoutes
         new(NodeCallerParty.Resolve(http).Value);
 
     /// <summary>
+    /// The reserved submit-body member that carries an offline client's device capture time (DES-0006 §2, L024).
+    /// It is evidence, never time authority (L942): <see cref="Candidate"/> removes it, so it is neither
+    /// validated as a form field nor able to date anything the submission stamps.
+    /// </summary>
+    public const string CapturedAtMember = "captured_at";
+
+    /// <summary>The form candidate a submit body carries: the body without <see cref="CapturedAtMember"/>.</summary>
+    internal static JsonDocument Candidate(JsonElement body)
+    {
+        if (!body.TryGetProperty(CapturedAtMember, out _)) return JsonDocument.Parse(body.GetRawText());
+        var values = System.Text.Json.Nodes.JsonNode.Parse(body.GetRawText())!.AsObject();
+        values.Remove(CapturedAtMember);
+        return JsonDocument.Parse(values.ToJsonString());
+    }
+
+    /// <summary>
+    /// K3 (DES-0029 ck-9, owner ruling 2026-09-28 Q1): when <paramref name="gate"/> names the form's effective-from
+    /// field and the candidate requests an instant before <paramref name="admittedAt"/>, the kernel clock refuses it
+    /// by name, because no host backdate capability is composed. Returns that 403 refusal, or <see langword="null"/>
+    /// when the request is omitted, unparseable (left to the form's own validation), or not in the past.
+    /// </summary>
+    internal static async Task<IResult?> BackdateRefusalAsync(
+        IFormSubmissionGate? gate, Harborline.Api.Foundation.Forms.Models.FormDefinitionId form, JsonDocument candidate, ActorId actor,
+        DateTimeOffset admittedAt, TimeProvider time, CancellationToken ct)
+    {
+        if (gate?.EffectiveFromField(form) is not { } field
+            || !candidate.RootElement.TryGetProperty(field, out var value)
+            || value.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(value.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var requested))
+            return null;
+        try
+        {
+            await new Harborline.Kernel.Core.KernelClock(time)
+                .ResolveEffectiveFromAsync(actor.Value, admittedAt, requested, backdateCapability: null, ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+        catch (Harborline.Kernel.Core.KernelClockRefusalException refused)
+        {
+            return Results.Json(new { code = refused.Code, detail = new { field } }, statusCode: StatusCodes.Status403Forbidden);
+        }
+    }
+
+    /// <summary>
     /// Mints a verified <see cref="CapabilityToken"/> for the active-team tenant +
     /// the acting member, granting <paramref name="action"/>. Goes through the real
     /// issuer→verifier round-trip so the route never fabricates a capability.
@@ -436,6 +485,13 @@ public interface IFormSubmissionGate
     string? RequiredPermission(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form);
 
     IReadOnlyList<string> CapabilityRoles(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form);
+
+    /// <summary>
+    /// The candidate field that carries the client's requested effective-from instant for <paramref name="form"/>,
+    /// or <see langword="null"/> when the form dates nothing. Both submit routes refuse a past instant in that field,
+    /// by name, before anything is saved (DES-0029 K3).
+    /// </summary>
+    string? EffectiveFromField(Harborline.Api.Foundation.Forms.Models.FormDefinitionId form) => null;
 }
 
 // ── Wire shapes (mirror @harborline-software/api-contracts forms.ts) ───────────────────────────
