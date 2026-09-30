@@ -157,8 +157,15 @@ public sealed class DocumentTemplateRenderContractWindowTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    [Fact(DisplayName = "T-572 S5: render of a stored template that declares no contract is unchanged by this slice")]
-    public async Task Render_of_a_template_without_a_declaration_is_unchanged()
+    /// <summary>
+    /// Pins today's interim behaviour: a stored template with no <c>envelope.contract</c> still renders. This is a
+    /// staged rollout, not a tolerated-missing policy (T-572 Q4 and Q6 keep "no grace period"), and the
+    /// missing-declaration half of ck-8 is not Holds until the follow-up lands. That follow-up refuses
+    /// <c>definition.contract.missing</c> at install and render once the authoring surfaces stamp the
+    /// contract and the shipped templates declare <c>{major: 1, minor: 0}</c>, and it deletes this test.
+    /// </summary>
+    [Fact(DisplayName = "T-572 S5: interim, render of a stored template with no declared contract still succeeds (deleted by the definition.contract.missing follow-up)")]
+    public async Task Interim_render_admits_a_template_with_no_declared_contract()
     {
         using var response = await _client.PostAsJsonAsync(RenderRoute,
             new { templateKey = UndeclaredKey, templateVersion = TemplateVersion });

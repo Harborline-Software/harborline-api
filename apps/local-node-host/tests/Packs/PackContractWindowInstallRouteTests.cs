@@ -149,6 +149,26 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
     }
 
+    /// <summary>
+    /// Pins today's interim behaviour: an item with no <c>envelope.contract</c> still installs. This is a
+    /// staged rollout, not a tolerated-missing policy (T-572 Q4 and Q6 keep "no grace period"), and the
+    /// missing-declaration half of ck-8 is not Holds until the follow-up lands. That follow-up refuses
+    /// <c>definition.contract.missing</c> at install and render once the authoring surfaces stamp the
+    /// contract and the shipped templates declare <c>{major: 1, minor: 0}</c>, and it deletes this test.
+    /// </summary>
+    [Theory(DisplayName = "T-572 S4: interim, an item with no envelope contract still installs (deleted by the definition.contract.missing follow-up)")]
+    [InlineData("Layout")]
+    [InlineData("Resource")]
+    [InlineData("Bookable")]
+    public async Task Interim_install_admits_an_item_with_no_declared_contract(string kind)
+    {
+        using var response = await PostBytesAsync(PackInstallRoutes.InstallRoute,
+            await ExportAsync(PackBody(kind, contract: null)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(_store.ListInstalled(NodeTenantFor()), pack => pack.PackKey == "acme.contract");
+    }
+
     [Fact(DisplayName = "T-572 S4: check collects the contract refusal with the pack's other refusals and installs nothing")]
     [Trait("Holds", "kernel-core-ck-8")]
     public async Task Check_collects_the_contract_refusal()
@@ -197,7 +217,7 @@ public sealed class PackContractWindowInstallRouteTests : IAsyncLifetime
         return _client.PostAsync(route, content);
     }
 
-    private static object PackBody(string kind, object contract, string key = "acme.contract") => new
+    private static object PackBody(string kind, object? contract, string key = "acme.contract") => new
     {
         key,
         version = "1.0.0",
