@@ -128,6 +128,22 @@ public sealed class LayoutPublishRegistersTests
         await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, ["rules.unknown"]))), LayoutDefinitionCodes.ValidationRuleUnknown);
     }
 
+    /// <summary>
+    /// Named rules fail closed at publication only (T-724 ruling 36; platform
+    /// LayoutDefinitionAdmission.cs:448-451). Render admits only an already-published version
+    /// (DES-0053 design.md:90-91) and does not repeat publication's checks (DES-0018 ruling 6), so a
+    /// host that omits the rule register still renders a surface naming a rule.
+    /// </summary>
+    [Fact(DisplayName = "layout-bound-8: omitting the host validation-rule register at render admits the published surface (T-724 ruling 36, DES-0053 :90-91, DES-0018 ruling 6)")]
+    public async Task OmittedValidationRuleRegisterAdmitsThePublishedSurfaceAtRender()
+    {
+        var host = Host(options: new(SupplyValidationRules: false));
+
+        var rendered = await RenderAsync(host, Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))));
+
+        Assert.Equal("reference", Assert.Single(rendered.Plan.Flow).BlockId);
+    }
+
     private static readonly LayoutPageLayoutDefinition PackLayout = new(
         "pack.a4", "a4", LayoutPageOrientation.Portrait,
         new("12mm", "12mm", "12mm", "12mm"), new("10mm", "10mm"));
