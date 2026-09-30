@@ -1,7 +1,7 @@
 using System.Text.Json;
 
 using Harborline.Api.Foundation.Assets.Common;
-using Harborline.Api.Foundation.RuleEngine.Standings;
+using Harborline.Foundation.RuleEngine.Standings;
 using Harborline.Api.Kernel.Schema;
 
 namespace Harborline.Api.LocalNodeHost.Data.Authorization;

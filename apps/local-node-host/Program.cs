@@ -1609,9 +1609,9 @@ builder.Services.AddInMemoryViewDefinitions();
 // ADR 0047/0069 record standings: installed standing rules are ordinary immutable definition rows.
 // The evaluator remains a seam for ticket 205; it is deliberately not wired into the kernel gate here.
 builder.Services.AddSingleton<
-    Harborline.Api.Foundation.RuleEngine.Standings.IStandingRuleDefinitionStore,
-    Harborline.Api.Foundation.RuleEngine.Standings.InMemoryStandingRuleDefinitionStore>();
-builder.Services.AddSingleton<Harborline.Api.Foundation.RuleEngine.Standings.StandingEvaluator>();
+    Harborline.Api.LocalNodeHost.Data.Authorization.IStandingRuleDefinitionStore,
+    Harborline.Api.LocalNodeHost.Data.Authorization.InMemoryStandingRuleDefinitionStore>();
+builder.Services.AddSingleton<Harborline.Foundation.RuleEngine.Standings.StandingEvaluator>();
 builder.Services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Authorization.StandingCatalogue>();
 // Pack seed PROJECTION (BUILD #127 slice 1) — the seam that makes an installed+activated pack's declarative
 // content LIVE in the runtime registries the read APIs consume (AssetTypeDefinition → the shared
