@@ -100,6 +100,12 @@ public sealed class NodeEntityWriter(
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
 
+    // The bind guard update and delete share, kept as a method whose parameter it names (CA2208).
+    private static Entity RequireAuthorityTenant(EntityId id, Entity existing, TenantId authorityTenant) =>
+        existing.Tenant == authorityTenant
+            ? existing
+            : throw new ArgumentException("The entity tenant does not match the write authority.", nameof(id));
+
     public async ValueTask AuthorizeAsync(
         string recordId,
         ActorId principal,
@@ -252,16 +258,11 @@ public sealed class NodeEntityWriter(
 
             // The local guard for an embedder that composes its own schema: a value the authority admitted
             // but that mutate could not derive is refused, never stored as something validate did not see.
-            if (string.IsNullOrWhiteSpace(stored.LegalName))
-                throw new ArgumentException("legalName is required.", nameof(command));
-            if (mutation.Kind is not { } kind)
-                throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
-            if (mutation.Tax is not { } taxClass)
-                throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
+            var (legalName, kind, taxClass) = RequireDerived(bound, mutation);
 
             var instant = (Instant)authority.At;
             return new LegalEntity(
-                stored.Id, authority.Tenant, stored.LegalName, kind, taxClass, stored.CommonControlGroupId, instant, instant);
+                stored.Id, authority.Tenant, legalName, kind, taxClass, stored.CommonControlGroupId, instant, instant);
         }
 
         protected override async ValueTask CommitAsync(LegalEntity validated, CancellationToken ct)
@@ -274,6 +275,19 @@ public sealed class NodeEntityWriter(
         protected override async ValueTask<LegalEntityWritten> ReactAsync(LegalEntity validated, CancellationToken ct) =>
             new(validated, await writer.RecordAcceptedAsync(
                 decision, RecordWrittenEventType, Health.EntityRoutes.LegalEntitySchema, validated.Id.Value, ct).ConfigureAwait(false));
+
+        // Validate's local guard, kept as a method whose parameter it names (CA2208): the command is refused.
+        private static (string LegalName, EntityKind Kind, TaxClassification Tax) RequireDerived(
+            CreateLegalEntityCommand command, LegalEntityDraft mutation)
+        {
+            if (mutation.Stored.LegalName is not { } legalName || string.IsNullOrWhiteSpace(legalName))
+                throw new ArgumentException("legalName is required.", nameof(command));
+            if (mutation.Kind is not { } kind)
+                throw new ArgumentException($"kind must be one of: {string.Join(", ", Enum.GetNames<EntityKind>())}.", nameof(command));
+            if (mutation.Tax is not { } taxClass)
+                throw new ArgumentException($"taxClassification must be one of: {string.Join(", ", Enum.GetNames<TaxClassification>())}.", nameof(command));
+            return (legalName, kind, taxClass);
+        }
 
         /// <summary>The enum member named exactly <paramref name="value"/>: the schema's own vocabulary, no case folding or numbers.</summary>
         private static T? Declared<T>(string? value) where T : struct, Enum =>
@@ -303,9 +317,17 @@ public sealed class NodeEntityWriter(
         protected override async ValueTask<PreparedRecord?> BindAsync(CancellationToken ct)
         {
             var (schema, options) = await prepare(ct).ConfigureAwait(false);
-            if (options.Tenant != authority.Tenant || InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart != recordId)
-                throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
+            RequirePreparedFor(prepare, options.Tenant == authority.Tenant
+                && InMemoryEntityStore.DeriveEntityId(schema, options).LocalPart == recordId);
             return new PreparedRecord(schema, options);
+        }
+
+        // Bind's guard, kept as a method whose parameter it names (CA2208): the prepare callback is refused.
+        private static void RequirePreparedFor(
+            Func<CancellationToken, ValueTask<(SchemaId Schema, CreateOptions Options)>> prepare, bool matchesAuthority)
+        {
+            if (!matchesAuthority)
+                throw new ArgumentException("The prepared entity does not match the admitted tenant and record id.", nameof(prepare));
         }
 
         protected override ValueTask<PreparedRecord> MutateAsync(PreparedRecord bound, CancellationToken ct) =>
@@ -349,9 +371,7 @@ public sealed class NodeEntityWriter(
         {
             var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-            if (existing.Tenant != authority.Tenant)
-                throw new ArgumentException("The entity tenant does not match the write authority.", nameof(id));
-            return existing;
+            return RequireAuthorityTenant(id, existing, authority.Tenant);
         }
 
         protected override ValueTask<UpdateOptions> MutateAsync(Entity bound, CancellationToken ct) =>
@@ -397,9 +417,7 @@ public sealed class NodeEntityWriter(
         {
             var existing = await entities.GetAsync(id, VersionSelector.Latest, ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException($"Entity '{id}' not found.");
-            if (existing.Tenant != authority.Tenant)
-                throw new ArgumentException("The entity tenant does not match the write authority.", nameof(id));
-            return existing;
+            return RequireAuthorityTenant(id, existing, authority.Tenant);
         }
 
         protected override ValueTask<DeleteOptions> MutateAsync(Entity bound, CancellationToken ct) =>
