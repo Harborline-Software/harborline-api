@@ -363,24 +363,27 @@ public sealed class RosterPreInsertVerificationTests
     [Trait("Holds", "kernel-core-ck-11")]
     public async Task A_same_instant_same_nonce_revocation_whose_signature_sorts_first_refuses_the_revoked_members_admission()
     {
-        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner);
+        using var founderKey = KeyPair.FromSeed(Enumerable.Repeat((byte)4, 32).ToArray());
+        using var memberKey = KeyPair.FromSeed(Enumerable.Repeat((byte)1, 32).ToArray());
+        await using var f = await Fixture.CreateAsync(PermissionCompositions.Owner,
+            founderKey: founderKey, memberKey: memberKey);
         var instant = At.AddHours(1);
         var nonce = Guid.Parse("7f000000-0000-0000-0000-000000000000");
         var revocation = RosterRecordCrdtState.FromRevocation(new MemberRevocationRecord(Tenant.ToString("D"), "member",
                 RosterSigning.SignRevocation(f.Founder, Tenant, "member", "founder", instant, nonce)))
             .AttestReceipt(f.Founder, "founder", instant);
-        // The fixture's keys are fresh each run, so the revocation's signature is random. Draw admitted parties until
-        // the tie-break (ordinal signature order) puts the revocation first: that revocation precedes the admission and
-        // ejects its signer. A revocation signature near the top of the ordinal range needs thousands of draws, so the
-        // bound is generous; 64 left roughly one run in forty with no candidate (T-987).
-        var late = Enumerable.Range(0, 200_000).Select(i =>
-            {
-                var key = KeyPair.Generate().PrincipalId;
-                return RosterRecordCrdtState.FromAdmission(new MemberAdmissionRecord(Tenant.ToString("D"), $"late-{i}", key,
-                    RosterSigning.SignAdmission(f.Member, Tenant, $"late-{i}", key, "member", false, instant, nonce)));
-            })
-            .First(candidate => string.CompareOrdinal(revocation.SignatureB64Url, candidate.SignatureB64Url) < 0)
-            .AttestReceipt(f.Founder, "founder", instant);
+        // Fixed test-only seeds and signed payloads make Ed25519's ordinal tie-break reproducible.
+        using var admittedKey = KeyPair.FromSeed(Enumerable.Repeat((byte)2, 32).ToArray());
+        var key = admittedKey.PrincipalId;
+        var admission = new MemberAdmissionRecord(Tenant.ToString("D"), "late", key,
+            RosterSigning.SignAdmission(f.Member, Tenant, "late", key, "member", false, instant, nonce));
+        var late = RosterRecordCrdtState.FromAdmission(admission).AttestReceipt(f.Founder, "founder", instant);
+        Assert.Equal(revocation.IssuedAtIso, late.IssuedAtIso);
+        Assert.Equal(revocation.NonceGuid, late.NonceGuid);
+        Assert.True(RosterSigning.VerifyRevocation(Tenant, "member", revocation.ToRevocationOrNull()!.Signed, Verifier));
+        Assert.True(RosterSigning.VerifyAdmission(Tenant, "late", key, admission.Admission, Verifier));
+        Assert.True(string.CompareOrdinal(revocation.SignatureB64Url, late.SignatureB64Url) < 0,
+            $"Expected revocation before admission: {revocation.SignatureB64Url} < {late.SignatureB64Url}");
         await f.MergeRawAsync([revocation]);
         Assert.Contains(await f.StoredAsync(), r => r.RecordId == revocation.RecordId);
         await f.MergeRawAsync([late]);
@@ -470,8 +473,13 @@ public sealed class RosterPreInsertVerificationTests
     {
         private readonly string _directory = Path.Combine(Path.GetTempPath(), $"roster-preinsert-{Guid.NewGuid():N}");
         private IAuditTrail _trail = null!;
-        public Ed25519Signer Founder { get; } = new(KeyPair.Generate());
-        public Ed25519Signer Member { get; } = new(KeyPair.Generate());
+        public Ed25519Signer Founder { get; }
+        public Ed25519Signer Member { get; }
+        private Fixture(KeyPair? founderKey = null, KeyPair? memberKey = null)
+        {
+            Founder = new Ed25519Signer(founderKey ?? KeyPair.Generate());
+            Member = new Ed25519Signer(memberKey ?? KeyPair.Generate());
+        }
         public ServiceProvider Provider { get; private set; } = null!;
         public RosterCrdtProjection Projection => Provider.GetRequiredService<RosterCrdtProjection>();
         public IDbContextFactory<NodeLocalRosterDbContext> Factory => Provider.GetRequiredService<IDbContextFactory<NodeLocalRosterDbContext>>();
@@ -491,9 +499,10 @@ public sealed class RosterPreInsertVerificationTests
             services.AddNodeRoster();
             return services.BuildServiceProvider();
         }
-        public static async Task<Fixture> CreateAsync(PermissionSet? permissions = null, IAuditTrail? trail = null)
+        public static async Task<Fixture> CreateAsync(PermissionSet? permissions = null, IAuditTrail? trail = null,
+            KeyPair? founderKey = null, KeyPair? memberKey = null)
         {
-            var f = new Fixture
+            var f = new Fixture(founderKey, memberKey)
             {
                 _trail = trail ?? new InMemoryAuditTrail(),
                 _memberAuthority = permissions ?? PermissionSet.Empty
