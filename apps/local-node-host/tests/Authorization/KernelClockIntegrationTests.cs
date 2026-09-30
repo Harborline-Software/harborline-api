@@ -163,19 +163,25 @@ public sealed class KernelClockIntegrationTests
             () => NodeRosterRecord.FromCrdtState(roster)).Message, StringComparison.Ordinal);
     }
 
-    [Fact(DisplayName = "T-909 ck-9 K3: the grant form refuses a past effective-from by name and commits nothing")]
+    [Theory(DisplayName = "T-909 ck-9 K3: the grant form refuses a past effective-from by name and commits nothing")]
     [Trait("Holds", "kernel-core-ck-9")]
-    public async Task Access_grant_form_refuses_a_past_effective_from_by_name_and_commits_nothing()
+    [InlineData(false, 1)]     // one tick before the admitted instant: no skew tolerance
+    [InlineData(true, 30 * TimeSpan.TicksPerDay)] // the DES-0029 K3 probe: captured_at and effective_from both skewed 30 days
+    public async Task Access_grant_form_refuses_a_past_effective_from_by_name_and_commits_nothing(
+        bool sendCapturedAt, long ticksBeforeAdmitted)
     {
         var clock = new MutableHostClock(FrozenAt);
         await using var fixture = await ProductionFixture.CreateAsync(clock);
         await fixture.PrepareAsync("access-grant");
-        var skewed = FrozenAt.AddDays(-30);
+        var past = FrozenAt.AddTicks(-ticksBeforeAdmitted);
 
-        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: skewed, capturedAt: skewed);
+        var (status, body) = await fixture.AccessGrantSubmitAsync(
+            effectiveFrom: past, capturedAt: sendCapturedAt ? past : null);
 
-        Assert.True(status == HttpStatusCode.Forbidden, $"{status}: {body}");
-        Assert.Equal("kernel.backdate-capability-required", body.GetProperty("code").GetString());
+        Assert.True(
+            status == HttpStatusCode.Forbidden
+            && body.GetProperty("code").GetString() == "kernel.backdate-capability-required",
+            $"{status}: {body}");
         Assert.Empty(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
     }
 
@@ -298,6 +304,7 @@ public sealed class KernelClockIntegrationTests
 
     private sealed class ProductionFixture : IAsyncDisposable
     {
+        private const string RootSeedHex = "2162162162162162162162162162162162162162162162162162162162162162";
         private readonly string _directory;
         private readonly string? _priorInstallRoot;
         private readonly string? _priorRootSeed;
@@ -356,9 +363,7 @@ public sealed class KernelClockIntegrationTests
             Environment.SetEnvironmentVariable(
                 "HARBORLINE_TEST_INSTALL_FOOTPRINT_ROOT",
                 Path.Combine(directory, "install-footprint"));
-            Environment.SetEnvironmentVariable(
-                "LocalNode__RootSeedHex",
-                "2162162162162162162162162162162162162162162162162162162162162162");
+            Environment.SetEnvironmentVariable("LocalNode__RootSeedHex", RootSeedHex);
             Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
             Environment.SetEnvironmentVariable("LocalNode__WebClient__Enabled", "true");
             // T-650: scheduling authoring DI is behind this flag (Program.cs reads
@@ -408,8 +413,11 @@ public sealed class KernelClockIntegrationTests
                 case "definition-publish":
                 case "form-definition-publish":
                 case "scheduling-draft-save":
-                case "access-grant":
                     await SeedOperatorGrantAsync();
+                    break;
+                case "access-grant":
+                    // The grant form's members:manage gate decides for the composed host's own founder principal.
+                    await SeedOperatorGrantAsync(new ActorId(TestDesktopOperator.HostOperator(RootSeedHex)));
                     break;
                 case "form-definition-restore":
                 case "form-submit":
@@ -618,17 +626,18 @@ public sealed class KernelClockIntegrationTests
 
         // K3: the preloaded Access pack's grant form, the one live route that takes a client effective-from.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset effectiveFrom, DateTimeOffset capturedAt)
+            DateTimeOffset effectiveFrom, DateTimeOffset? capturedAt)
         {
+            var candidate = new Dictionary<string, string>
+            {
+                ["person"] = AccessGrantRecipient, ["role"] = "administrator", ["scope"] = "/",
+                ["residency"] = "cache", ["effectiveFrom"] = effectiveFrom.ToString("O"), ["effectiveTo"] = "",
+                ["reason"] = "manual",
+            };
+            if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");
             using var client = Client();
             using var response = await client.PostAsJsonAsync(
-                $"{FormsRoutes.RouteBase}/access.grant-a-role/submit",
-                new Dictionary<string, string>
-                {
-                    ["person"] = AccessGrantRecipient, ["role"] = "administrator", ["scope"] = "/",
-                    ["residency"] = "cache", ["effectiveFrom"] = effectiveFrom.ToString("O"), ["effectiveTo"] = "",
-                    ["reason"] = "manual", ["captured_at"] = capturedAt.ToString("O"),
-                });
+                $"{FormsRoutes.RouteBase}/access.grant-a-role/submit", candidate);
             var text = await response.Content.ReadAsStringAsync();
             return (response.StatusCode, text.Length == 0 ? default : JsonDocument.Parse(text).RootElement.Clone());
         }
@@ -711,10 +720,10 @@ public sealed class KernelClockIntegrationTests
             return client;
         }
 
-        private async Task SeedOperatorGrantAsync()
+        private async Task SeedOperatorGrantAsync(ActorId? operatorPrincipal = null)
         {
             var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
-            var principal = new ActorId(TestDesktopOperator.Party.Value);
+            var principal = operatorPrincipal ?? new ActorId(TestDesktopOperator.Party.Value);
             await Services.GetRequiredService<IGrantStore>().AppendAsync(
                 tenant,
                 new AccessGrant(
