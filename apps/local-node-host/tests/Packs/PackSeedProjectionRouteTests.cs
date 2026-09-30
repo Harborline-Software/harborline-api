@@ -529,7 +529,8 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
                 tenant,
                 CascadeLayer.Base,
                 new FormDefinitionProvenance(IdentityRef.System, null),
-                Array.Empty<DefinitionRequirement>()),
+                Array.Empty<DefinitionRequirement>(),
+                Contract: null),
             new JsonSerializerOptions(JsonSerializerDefaults.Web)
             {
                 Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -1150,6 +1151,28 @@ public sealed class PackSeedProjectionRouteTests : IAsyncLifetime
             activationJson.RootElement.GetProperty("projectionRefusals").EnumerateArray());
         Assert.Equal(expectedCode, refusal.GetProperty("code").GetString());
         Assert.Null(_packStore.GetActive(NodeTenant.Resolve(_activeTeam), PropertyPackKey));
+    }
+
+    [Fact(DisplayName = "T-572 S4: a pack template's declared contract survives install, activation and projection onto its envelope")]
+    [Trait("Holds", "kernel-core-ck-8")]
+    public async Task Template_contract_survives_install_activate_and_projection()
+    {
+        await InstallAndActivateGeneralAsync();
+
+        var request = LoadPropertyPackRequest();
+        var contents = Assert.IsType<JsonArray>(request["contents"]);
+        var template = Assert.IsType<JsonObject>(Assert.IsType<JsonObject>(contents[1])["content"]);
+        template["contract"] = new JsonObject { ["major"] = 1, ["minor"] = 0 };
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await PostBytesAsync(PackInstallRoutes.InstallRoute, await ExportAsync(request))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            PackInstallRoutes.ActivateRoute,
+            new { packKey = PropertyPackKey, version = "1.0.0" })).StatusCode);
+
+        var projected = _templates.Resolve("property-management.rent-invoice", "1.0.0");
+        Assert.NotNull(projected);
+        Assert.Equal(new Harborline.Foundation.Definitions.DefinitionContractVersion(1, 0), projected!.Envelope.Contract);
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────

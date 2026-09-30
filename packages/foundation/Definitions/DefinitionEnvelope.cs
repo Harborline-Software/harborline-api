@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+using Harborline.Foundation.Definitions;
+
 namespace Harborline.Api.Foundation.Definitions;
 
 /// <summary>
@@ -19,7 +21,8 @@ public sealed record DefinitionEnvelope<TIdentity, TVersion, TTenant, TProvenanc
         TTenant Tenant,
         CascadeLayer CascadeLayer,
         TProvenance Provenance,
-        IReadOnlyList<DefinitionRequirement> Requires)
+        IReadOnlyList<DefinitionRequirement> Requires,
+        DefinitionContractVersion? Contract)
     {
         this.Identity = Identity;
         this.Version = Version;
@@ -27,6 +30,7 @@ public sealed record DefinitionEnvelope<TIdentity, TVersion, TTenant, TProvenanc
         this.CascadeLayer = CascadeLayer;
         this.Provenance = Provenance;
         this.Requires = Requires ?? throw new ArgumentNullException(nameof(Requires));
+        this.Contract = Contract;
     }
 
     /// <summary>
@@ -43,7 +47,7 @@ public sealed record DefinitionEnvelope<TIdentity, TVersion, TTenant, TProvenanc
         TProvenance Provenance,
         DefinitionRetentionClass RetentionClass,
         IReadOnlyList<DefinitionRequirement> Requires)
-        : this(Identity, Version, Tenant, CascadeLayer, Provenance, Requires)
+        : this(Identity, Version, Tenant, CascadeLayer, Provenance, Requires, Contract: null)
         => throw new DefinitionPolicyAuthorityBypassException("definition.retention.registry_bypass");
 
     /// <summary>
@@ -60,7 +64,7 @@ public sealed record DefinitionEnvelope<TIdentity, TVersion, TTenant, TProvenanc
         TProvenance Provenance,
         DefinitionLegalHold LegalHold,
         IReadOnlyList<DefinitionRequirement> Requires)
-        : this(Identity, Version, Tenant, CascadeLayer, Provenance, Requires)
+        : this(Identity, Version, Tenant, CascadeLayer, Provenance, Requires, Contract: null)
         => throw new DefinitionPolicyAuthorityBypassException("definition.legal_hold.registry_bypass");
 
     /// <summary>The definition identity.</summary>
@@ -80,6 +84,14 @@ public sealed record DefinitionEnvelope<TIdentity, TVersion, TTenant, TProvenanc
 
     /// <summary>Platform capabilities required by this definition.</summary>
     public IReadOnlyList<DefinitionRequirement> Requires { get; init; }
+
+    /// <summary>
+    /// The app contract <c>{ major, minor }</c> this definition declares it was authored against
+    /// (DES-0006 §1, T-724 ruling 85), checked against the platform package seed's window
+    /// (DES-0029 kernel-core-ck-8). Null when the definition declares none; the member is a required
+    /// constructor parameter with no default so every producer states what it carries (T-572 owner ruling, 2026-09-28).
+    /// </summary>
+    public DefinitionContractVersion? Contract { get; init; }
 }
 
 /// <summary>The named failure raised when authored data tries to bypass a definition policy registry.</summary>

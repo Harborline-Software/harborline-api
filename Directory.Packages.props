@@ -15,6 +15,7 @@
     <PackageVersion Include="Harborline.Kernel.Core" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Kernel.SchemaValidation" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Blocks.BuilderDefinitions" Version="$(HarborlinePackedVersion)" Justification="platform"/>
+    <PackageVersion Include="Harborline.Foundation.Definitions" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Blocks.LayoutRuntime" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Blocks.Calendar" Version="$(HarborlinePackedVersion)" Justification="platform"/>
     <PackageVersion Include="Harborline.Foundation.RuleEngine" Version="$(HarborlinePackedVersion)" Justification="platform"/>

@@ -101,7 +101,8 @@ public sealed class RemainingDefinitionEnvelopeTests
             Tenant: new TenantId("tenant-catalog-template"),
             CascadeLayer: CascadeLayer.Pack,
             Provenance: "catalog.base-template@2.0.0",
-            Requires: Array.Empty<DefinitionRequirement>());
+            Requires: Array.Empty<DefinitionRequirement>(),
+            Contract: null);
         var template = new CatalogTemplateDefinition(
             Envelope: envelope,
             Kind: CatalogTemplateKind.Form,
@@ -124,7 +125,8 @@ public sealed class RemainingDefinitionEnvelopeTests
             Tenant: new TenantId("tenant-rule-definition"),
             CascadeLayer: CascadeLayer.Tenant,
             Provenance: null,
-            Requires: Array.Empty<DefinitionRequirement>());
+            Requires: Array.Empty<DefinitionRequirement>(),
+            Contract: null);
         var rule = new RuleDefinition(
             Envelope: envelope,
             Tier: RuleTier.JsonLogic,

@@ -905,6 +905,17 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             };
         }
 
+        // T-572 S4 (kernel-core-ck-8): a pass-through platform item whose declared contract is outside the
+        // seed's window is refused before any installed-state read. CHECK collects it with the rest below.
+        var contractRefusals = PackContractWindowCheck.FindRefusals(contents, PlatformPackageSeed.ContractWindow);
+        if (!collectRefusals && contractRefusals.Count > 0)
+        {
+            return HardRefusal(
+                manifest.Key, manifest.Version, PackInstallCodes.RefusedContractOutOfWindow, revocationStale,
+                signerB64, epoch, scope, refusals: contractRefusals,
+                destinationClassifications: destinationClassifications);
+        }
+
         var unmetRequirements = PackPlatformRequirementCheck.FindUnmet(manifest, contents, _platform);
         var platformRefusals = unmetRequirements
             .Select(requirement => new PackInstallRefusal(
@@ -1033,6 +1044,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         if (collectRefusals)
         {
             var collected = new List<PackInstallRefusal>(earlyRefusals);
+            collected.AddRange(contractRefusals);
             collected.AddRange(platformRefusals);
             collected.AddRange(admission.Refusals.Select(refusal => new PackInstallRefusal(
                 PackInstallCodes.RefusedAdmission,

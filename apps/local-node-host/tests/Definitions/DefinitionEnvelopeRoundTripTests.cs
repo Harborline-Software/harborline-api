@@ -25,6 +25,8 @@ using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
 using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.LocalNodeHost.Tests.Packs;
 
+using DefinitionContractVersion = Harborline.Foundation.Definitions.DefinitionContractVersion;
+
 namespace Harborline.Api.LocalNodeHost.Tests.Definitions;
 
 /// <summary>Exercises the definition envelope through public definition and transport seams.</summary>
@@ -46,7 +48,8 @@ public sealed class DefinitionEnvelopeRoundTripTests
                 Tenant: new TenantId("tenant-envelope-proof"),
                 CascadeLayer: CascadeLayer.Tenant,
                 Provenance: new FormDefinitionProvenance(new IdentityRef("party", "form-author"), lineage),
-                Requires: Array.Empty<DefinitionRequirement>());
+                Requires: Array.Empty<DefinitionRequirement>(),
+                Contract: null);
         var now = new DateTimeOffset(2026, 8, 18, 12, 0, 0, TimeSpan.Zero);
 
         var definition = new FormDefinition(
@@ -92,7 +95,8 @@ public sealed class DefinitionEnvelopeRoundTripTests
                 Tenant: tenant,
                 CascadeLayer: CascadeLayer.Tenant,
                 Provenance: new FormDefinitionProvenance(new IdentityRef("party", "alice"), lineage),
-                Requires: Array.Empty<DefinitionRequirement>());
+                Requires: Array.Empty<DefinitionRequirement>(),
+                Contract: new DefinitionContractVersion(1, 0));
         var now = new DateTimeOffset(2026, 8, 18, 13, 0, 0, TimeSpan.Zero);
         var sourceSchemas = new InMemorySchemaRegistry(TimeProvider.System);
         var schema = await sourceSchemas.RegisterAsync(FormSchemaJson);
@@ -200,6 +204,42 @@ public sealed class DefinitionEnvelopeRoundTripTests
         Assert.Equal(envelope.Provenance.Owner, restored.Envelope.Provenance.Owner);
         Assert.Equal(envelope.Provenance.Lineage, restored.Envelope.Provenance.Lineage);
         Assert.Empty(restored.Envelope.Requires);
+        Assert.Equal(envelope.Contract, restored.Envelope.Contract);
+    }
+
+    [Theory(DisplayName = "T-572 S4: the envelope's declared contract survives its JSON wire form, and an absent one stays absent")]
+    [Trait("Holds", "kernel-core-ck-8")]
+    [InlineData(1, 0)]
+    [InlineData(2, 7)]
+    [InlineData(null, null)]
+    public void Envelope_contract_round_trips_through_json(int? major, int? minor)
+    {
+        var contract = major is { } declaredMajor ? new DefinitionContractVersion(declaredMajor, minor!.Value) : null;
+        var envelope = new DefinitionEnvelope<string, string, TenantId, string?>(
+            "templates/contract-round-trip",
+            "1.0.0",
+            new TenantId("tenant-contract-round-trip"),
+            CascadeLayer.Tenant,
+            Provenance: null,
+            Array.Empty<DefinitionRequirement>(),
+            Contract: contract);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(envelope, System.Text.Json.JsonSerializerOptions.Web);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<
+            DefinitionEnvelope<string, string, TenantId, string?>>(json, System.Text.Json.JsonSerializerOptions.Web)!;
+
+        Assert.Equal(contract, restored.Contract);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var member = document.RootElement.GetProperty("contract");
+        if (contract is null)
+        {
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, member.ValueKind);
+        }
+        else
+        {
+            Assert.Equal(contract.Major, member.GetProperty("major").GetInt32());
+            Assert.Equal(contract.Minor, member.GetProperty("minor").GetInt32());
+        }
     }
 
     private static HarborlineOverlay EmptyOverlay() => new(

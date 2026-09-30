@@ -831,7 +831,8 @@ public sealed class RoleGateAdmissionTests
         return new FormDefinition(
             new DefinitionEnvelope<FormDefinitionId, SemanticVersion, TenantId, FormDefinitionProvenance>(
                 new FormDefinitionId(id), new SemanticVersion(1, 0, 0), Tenant, layer,
-                new FormDefinitionProvenance(IdentityRef.System, null), []),
+                new FormDefinitionProvenance(IdentityRef.System, null), [],
+                Contract: null),
             FormDefinitionStatus.Draft,
             new SchemaId("schema"),
             new HarborlineOverlay(
@@ -857,7 +858,8 @@ public sealed class RoleGateAdmissionTests
                 Tenant,
                 pack ? CascadeLayer.Pack : CascadeLayer.Tenant,
                 WorkflowDefinitionProvenance.Unspecified,
-                []),
+                [],
+                Contract: null),
         Status = WorkflowDefinitionStatus.Draft,
         InitialState = "start",
         PackSource = pack ? new PackProjectionSource("vendor-a", "1.0.0") : null,

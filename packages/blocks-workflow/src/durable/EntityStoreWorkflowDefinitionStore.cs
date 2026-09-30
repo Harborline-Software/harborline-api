@@ -209,7 +209,8 @@ public sealed class EntityStoreWorkflowDefinitionStore
                 new TenantId(tenant),
                 cascadeLayer,
                 WorkflowDefinitionProvenance.Unspecified,
-                requires);
+                requires,
+                Contract: null);
         var packSource = root.TryGetProperty("packSource", out var packSourceElement)
             && packSourceElement.ValueKind is not JsonValueKind.Null
             ? packSourceElement.Deserialize<PackProjectionSource>()
