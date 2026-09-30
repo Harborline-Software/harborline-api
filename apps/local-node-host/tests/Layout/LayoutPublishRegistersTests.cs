@@ -1,13 +1,16 @@
+using System.Text;
 using System.Text.Json;
 
 using Harborline.Api.LocalNodeHost.Layout;
 using Harborline.Blocks.BuilderDefinitions;
+using Harborline.Blocks.LayoutRuntime;
+using Harborline.Contracts.Authorization;
 using Harborline.Contracts.Fields;
 using Harborline.Foundation.Definitions;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Layout;
 
-/// <summary>In-process T-733 parity proof for the Layout publication host seam.</summary>
+/// <summary>In-process T-733 parity proof for the Layout host seam at publication and at render.</summary>
 public sealed class LayoutPublishRegistersTests
 {
     [Fact(DisplayName = "layout-bound-3: the host supplies released controls for publish and refuses an unregistered control")]
@@ -80,6 +83,51 @@ public sealed class LayoutPublishRegistersTests
             LayoutDefinitionCodes.ValidationRuleUnknown);
     }
 
+    [Fact(DisplayName = "layout-bound-3: the host supplies released controls at render and refuses an unregistered control")]
+    public async Task ReleasedAndUnknownFieldControlsGoThroughTheHostRenderSeam()
+    {
+        var host = Host();
+
+        await RenderAsync(host, Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))));
+
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, [], Control: new("signature")))), LayoutDefinitionCodes.FieldControlUnknown);
+    }
+
+    [Fact(DisplayName = "layout-bound-3: omitting the host field-control register at render fails closed")]
+    public async Task OmittedFieldControlRegisterRefusesTheReleasedControlAtRender()
+    {
+        var host = Host(options: new(SupplyFieldControls: false));
+
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, [], Control: new(LayoutPublishRegisters.TextControlId)))), LayoutDefinitionCodes.FieldControlUnknown);
+    }
+
+    [Fact(DisplayName = "layout-bound-7: the host supplies installed-pack pages at render and refuses an unknown page")]
+    public async Task InstalledPackPagesGoThroughTheHostRenderSeam()
+    {
+        var host = Host(pageLayouts: [PackLayout], pageMasters: [PackMaster]);
+
+        var rendered = await RenderAsync(host, Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"]))));
+
+        Assert.Equal(PackMaster.Id, Assert.Single(rendered.Plan.PageFragments!).PageMasterId);
+        await AssertRenderRefusedAsync(host, Sealed(PageSurface(new("run", "pack.unknown", PackMaster.Id, ["body"]))), LayoutDefinitionCodes.PageReferenceUnknown);
+    }
+
+    [Fact(DisplayName = "layout-bound-7: an empty host page register at render fails closed")]
+    public async Task EmptyPageRegisterRefusesTheInstalledPackCitationAtRender()
+    {
+        await AssertRenderRefusedAsync(Host(), Sealed(PageSurface(new("run", PackLayout.Id, PackMaster.Id, ["body"]))), LayoutDefinitionCodes.PageReferenceUnknown);
+    }
+
+    [Fact(DisplayName = "layout-bound-8: the host supplies released validation rules at render and refuses an unregistered rule")]
+    public async Task ReleasedAndUnknownValidationRulesGoThroughTheHostRenderSeam()
+    {
+        var host = Host();
+
+        await RenderAsync(host, Sealed(CaptureSurface(new(false, [LayoutPublishRegisters.RequiredValueRuleId]))));
+
+        await AssertRenderRefusedAsync(host, Sealed(CaptureSurface(new(false, ["rules.unknown"]))), LayoutDefinitionCodes.ValidationRuleUnknown);
+    }
+
     private static readonly LayoutPageLayoutDefinition PackLayout = new(
         "pack.a4", "a4", LayoutPageOrientation.Portrait,
         new("12mm", "12mm", "12mm", "12mm"), new("10mm", "10mm"));
@@ -103,13 +151,36 @@ public sealed class LayoutPublishRegistersTests
         Assert.Contains(refused.Refusals, refusal => refusal.Code == code);
     }
 
-    private sealed class AllowAccess : ILayoutAccess
+    // The store admits any body, so the render seam alone decides: a body persisted under other
+    // registers reaches render exactly as the published store hands it over.
+    private static async Task<LayoutResolvedSurface> RenderAsync(LayoutPublishRegisters host, LayoutDefinition definition)
+    {
+        var key = new DefinitionKey("tenant-733", DefinitionKind.Layout, definition.Envelope.Identity);
+        var store = new InMemoryVersionedDefinitionStore(new Dictionary<DefinitionKind, DefinitionAdmission>
+        {
+            [DefinitionKind.Layout] = (_, _) => [],
+        });
+        await store.SaveDraftAsync(new(key, "version-1", "1.0.0", Encoding.UTF8.GetString(LayoutDefinitionJson.SerializeCanonical(definition))), 0, "draft-1");
+        await store.PublishAsync(key, "version-1", 1, "publish-1");
+        return await host.RenderResolver(store).ResolveAsync(new(key, "version-1"), AllowAccess.Instance, AllowAccess.Instance);
+    }
+
+    private static async Task AssertRenderRefusedAsync(LayoutPublishRegisters host, LayoutDefinition definition, string code)
+    {
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => RenderAsync(host, definition));
+        Assert.Equal("layout.persisted_body_invalid", refused.Message);
+        Assert.Contains(Assert.IsType<DefinitionRefusalException>(refused.InnerException).Refusals, refusal => refusal.Code == code);
+    }
+
+    private sealed class AllowAccess : ILayoutAccess, ILayoutSubmitAccess
     {
         public static AllowAccess Instance { get; } = new();
         public bool CanAuthor() => true;
         public bool CanPublish() => true;
         public bool CanRead(LayoutBinding binding) => true;
         public bool CanOpen(string surfaceId) => true;
+        public bool Satisfies(SubmitGate gate) => true;
+        public bool CanWrite() => true;
     }
 
     private static LayoutDefinition Sealed(LayoutDefinition definition)
