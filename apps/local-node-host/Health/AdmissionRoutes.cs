@@ -78,10 +78,9 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// member admit — the SoD-significant op the "second set of eyes" audit control exists to record. The admitter
 /// invokes <see cref="IEnrollmentCompensatingControlRecorder.RecordMemberAdmittedAsync"/> on the roster record's own save
 /// (T-986), so the signed audit commits in <c>local-node.db</c> with the admission or the admission does not
-/// commit, and the record survives a restart. The other SoD ops (revoke / permission-grant /
-/// ownership-transfer) have no runtime route in this host yet (only admit is exposed), so their
-/// <see cref="IEnrollmentCompensatingControlRecorder"/> methods wire when those routes land, on the same save (a named
-/// follow-on, not a silent gap).
+/// commit, and the record survives a restart. A revocation records the same way through the member-revocation
+/// authority (T-1000). Permission grant and ownership transfer have no production path at R1 (DES-0029, recorded
+/// from T-1000); their <see cref="IEnrollmentCompensatingControlRecorder"/> methods wire on the same save when one lands.
 /// </para>
 /// </remarks>
 public static class AdmissionRoutes
