@@ -104,9 +104,10 @@ internal static class ConfigurationProposalRoutes
             var (_, refusal) = await AuthorizeAsync(http, tenant, PackOperation.Author, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
             var proposed = store.Read(tenant, proposalId);
-            return proposed is null
-                ? Results.NotFound(new { code = "configuration-proposal-missing", target = "proposalId" })
-                : Results.Ok(Dto(store, tenant, proposed));
+            if (proposed is null) return Results.NotFound(new { code = "configuration-proposal-missing", target = "proposalId" });
+            // The detail re-reads the effective generation; a broken package closure is a named refusal.
+            try { return Results.Ok(Dto(store, tenant, proposed)); }
+            catch (ArgumentException exception) { return Unprocessable(exception, "effective"); }
         });
 
         selectedSession.MapPut(AutosaveRoute, async (HttpContext http, string proposalId,
