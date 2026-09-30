@@ -188,6 +188,18 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         Assert.Equal((0, 0), await CountsAsync());
     }
 
+    [Fact(DisplayName = "ck-6 boundary: a journal post whose staged audit row names no actor is refused by name and commits nothing")]
+    public async Task PostWithAnActorlessAuditRow_IsRefusedByNameAndCommitsNothing()
+    {
+        var store = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create(audit: new ActorlessAuditEnlistment()));
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-ACTORLESS", sourceReference: null)));
+
+        Assert.Contains("names no actor", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal((0, 0), await CountsAsync());
+    }
+
     [Fact(DisplayName = "ck-6 boundary: an unfenced post holds the write lock from its audit-chain read to its commit")]
     public async Task UnfencedPost_ExcludesAConcurrentWriterBetweenItsAuditChainReadAndCommit()
     {
@@ -341,6 +353,25 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
             Harborline.Api.Foundation.Coordination.StagedWriteUnitOfWork unitOfWork,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome.Enlisted);
+    }
+
+    /// <summary>The real audit adapter, with the staged journal audit row's actor cleared afterwards.</summary>
+    private sealed class ActorlessAuditEnlistment : Harborline.Api.Foundation.Coordination.IWriteEnlistment
+    {
+        private readonly NodeAuditWriteEnlister _inner = new();
+
+        public Harborline.Api.Foundation.Coordination.WriteInvariant Invariant => NodeWriteInvariants.Audit;
+
+        public async ValueTask<Harborline.Api.Foundation.Coordination.WriteEnlistmentOutcome> EnlistAsync(
+            Harborline.Api.Foundation.Coordination.StagedWriteUnitOfWork unitOfWork,
+            CancellationToken cancellationToken = default)
+        {
+            var outcome = await _inner.EnlistAsync(unitOfWork, cancellationToken);
+            var context = ((NodeJournalWriteUnitOfWork)unitOfWork).Context;
+            foreach (var row in context.ChangeTracker.Entries<NodeAuditEventRow>().Where(row => row.State == EntityState.Added))
+                row.Property(audit => audit.Actor).CurrentValue = null;
+            return outcome;
+        }
     }
 
     /// <summary>The real audit adapter, followed once by a competing write after it has read the audit-chain tip.</summary>

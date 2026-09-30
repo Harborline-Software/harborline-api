@@ -39,10 +39,14 @@ internal sealed class NodeJournalKernelTransactionPort(LocalNodeDbContext contex
             .SingleOrDefault()
             ?? throw new InvalidOperationException(
                 $"JournalEntry '{entry.Id.Value}' staged no audit row; a journal post commits its record and audit together.");
+        // Kernel audit evidence requires an actor; the journal audit adapter always records the admitting principal.
+        if (string.IsNullOrWhiteSpace(audit.Actor))
+            throw new InvalidOperationException(
+                $"JournalEntry '{entry.Id.Value}' staged an audit row that names no actor; kernel audit evidence requires one.");
         return new(
             new(entry.Id.Value, IdempotencyKey(entry), Fingerprint(entry)),
             entry,
-            new(audit.AuditId, audit.Actor ?? string.Empty, audit.OccurredAt, Encoding.UTF8.GetBytes(audit.Payload)));
+            new(audit.AuditId, audit.Actor, audit.OccurredAt, Encoding.UTF8.GetBytes(audit.Payload)));
     }
 
     /// <summary>
