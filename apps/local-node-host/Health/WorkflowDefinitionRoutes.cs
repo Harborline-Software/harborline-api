@@ -198,7 +198,8 @@ public static class WorkflowDefinitionRoutes
             }
             catch (GateReferenceShapeException ex)
             {
-                return Results.UnprocessableEntity(new { error = ex.Message, code = ex.Code, field = ex.Field });
+                // T-691: ex.Message echoes the rejected token; answer the form route's refusal shape.
+                return Results.UnprocessableEntity(new { code = ex.Code, detail = new { field = ex.Field } });
             }
             catch (WorkflowGateLaneException ex)
             {
