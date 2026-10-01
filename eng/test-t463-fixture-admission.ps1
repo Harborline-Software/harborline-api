@@ -54,10 +54,13 @@ foreach ($name in @('asset.suite.json', 'ledger.suite.json')) {
     Require-Refusal (Admit $invalidFact) 'verification-fixture-fact-invalid' "$name malformed initial record"
 }
 $unsupported = Admit (Read-Suite 'ledger-post.future.suite.json')
+if ($FutureAcceptance) {
+    # Acceptance asks the production admission boundary to admit a real posting case.
+    # The exception is driven by that boundary's actual refusals, never a fabricated outcome.
+    if ($null -eq $unsupported.Suite) {
+        throw "EXPECTED RED T-463/T-544: production admission refused ledger.post: $($unsupported.Codes -join ','). No execution or no-mutation evidence was produced."
+    }
+    throw 'Posting suite admitted; host posting execution is still unbound in this probe. Run real host acceptance before claiming a pass.'
+}
 Require-Refusal $unsupported $oracle.requiredRefusals.unknownAction 'ledger posting capability boundary'
 Write-Output 'PASS required admission regressions. Asset/ledger persistence, no-mutation observations and governed release acceptance remain NOT IMPLEMENTED in this harness.'
-if ($FutureAcceptance) {
-    # Intentionally red until a production catalogue and runner bind the existing posting path.
-    # Do not substitute records.create or a fake posting engine to turn this green.
-    throw 'EXPECTED RED T-463/T-544: ledger.post is not registered. No posting or no-mutation acceptance evidence was produced.'
-}
