@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "Harborline-Software/harborline-platform",
   "commit": "9abd9e016a45fc8756ef259763f8079d56352e4e",
-  "recordedAt": "2026-09-30 (R6: platform main commit 9abd9e01, the merge of platform PR 232 (T-521 slice 2, the content store Harborline.Foundation.ContentStore). It consumes platform PRs 222 (kernel JoinAsync transaction join), 233 (T-615 slot-binding narrowing), 227 and 235 (effect receipts), 231 and 230 (T-527 notification channels, which adds Harborline.Foundation.NotificationDelivery). Two producers were added: Harborline.Foundation.ContentStore and Harborline.Foundation.NotificationDelivery; every other producer identity/assembly pair is unchanged.)",
+  "recordedAt": "2026-09-30 (R6: platform main commit 9abd9e01, the merge of platform PR 232 (T-521 slice 2, the content store Harborline.Foundation.ContentStore). It consumes platform PRs 222 (kernel JoinAsync transaction join), 233 (T-615 slot-binding narrowing), 227 (effect receipts; PR 235 is outside this pin), 231 and 230 (T-527 notification channels, which adds Harborline.Foundation.NotificationDelivery). Two producers were added: Harborline.Foundation.ContentStore and Harborline.Foundation.NotificationDelivery; every other producer identity/assembly pair is unchanged.)",
   "why": [
     "The API builds the complete platform library feed before restore.",
     "Move this commit only when a consuming change needs a platform change."

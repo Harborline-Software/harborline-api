@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.FinancialLedger.Data;
@@ -36,6 +37,7 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
     private ServiceProvider _services = null!;
     private IDbContextFactory<LocalNodeDbContext> _factory = null!;
     private NodeEfWorkflowStore _store = null!;
+    private readonly WorkflowAuditFailureInterceptor _auditFailure = new();
 
     /// <inheritdoc />
     public async Task InitializeAsync()
@@ -48,7 +50,8 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
         services.AddSingleton<IHarborlineEntityModule, FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, FinancialPeriodsEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(options =>
-            options.UseSqlite($"Data Source={Path.Combine(_directory, "workflow.db")};Pooling=False"));
+            options.UseSqlite($"Data Source={Path.Combine(_directory, "workflow.db")};Pooling=False")
+                .AddInterceptors(_auditFailure));
         _services = services.BuildServiceProvider();
         _factory = _services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
         _store = new NodeEfWorkflowStore(_factory);
@@ -105,6 +108,24 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
         await AssertUnadvancedAndJournalFreeAsync("staged-fault");
     }
 
+    [Fact]
+    public async Task WorkflowAuditFailure_AfterJoinedRowsAreFlushed_RollsBackEverything()
+    {
+        await SeedInstanceAsync("flushed-fault");
+        var key = new WorkflowStepKey("flushed-fault", 0, "approve");
+        var effect = new WorkflowEffect((uow, ct) =>
+            StageJoinedDraftAsync((LocalNodeDbContext)uow, "JE-flushed-fault", "human-fault", ct));
+        _auditFailure.Enabled = true;
+
+        await Assert.ThrowsAsync<InjectedJoinFailure>(() => AdvanceAsync(key, effect));
+
+        Assert.True(_auditFailure.SawFlushedJournalAudit);
+        await AssertUnadvancedAndJournalFreeAsync("flushed-fault");
+        await using var context = await _factory.CreateDbContextAsync();
+        Assert.Empty(await context.Set<WorkflowEventRecord>().ToListAsync());
+        Assert.Empty(await context.Set<WorkflowStepIdempotencyRecord>().ToListAsync());
+    }
+
     [Fact(DisplayName = "T-1002: nested workflow execution is refused and cannot commit either workflow advance")]
     public async Task NestedExecution_IsRefused_AndCommitsNothing()
     {
@@ -119,6 +140,47 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
         Assert.Equal(KernelTransactionErrors.NestedExecution, failure.Code);
         await AssertUnadvancedAndJournalFreeAsync("outer");
         await AssertUnadvancedAndJournalFreeAsync("inner");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IndependentEffect_CompletesBeforeWorkflowTransaction(bool withAuthority)
+    {
+        await SeedInstanceAsync("independent-effect");
+        var calls = 0;
+        var effect = new WorkflowEffect(async (uow, _) =>
+        {
+            Assert.Null(uow);
+            calls++;
+            // This separate SQLite writer must complete before either advance path holds a writer.
+            await SeedInstanceAsync("independent-write");
+        }, commitsIndependently: true);
+
+        await _store.AdvanceAsync(
+            new WorkflowStepKey("independent-effect", 0, "approve"), effect,
+            "{}", "Advanced", "{}", "done", WorkflowStatus.Completed, At,
+            withAuthority ? AuthorityFor("independent-effect") : null);
+
+        Assert.Equal(1, calls);
+        Assert.NotNull(await _store.LoadAsync("independent-write"));
+        Assert.Equal(WorkflowStatus.Completed, (await _store.LoadAsync("independent-effect"))!.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IndependentEffect_FailureLeavesWorkflowUnadvanced(bool withAuthority)
+    {
+        await SeedInstanceAsync("independent-failure");
+        var effect = new WorkflowEffect((_, _) => Task.FromException(new InjectedJoinFailure()), commitsIndependently: true);
+
+        await Assert.ThrowsAsync<InjectedJoinFailure>(() => _store.AdvanceAsync(
+            new WorkflowStepKey("independent-failure", 0, "approve"), effect,
+            "{}", "Advanced", "{}", "done", WorkflowStatus.Completed, At,
+            withAuthority ? AuthorityFor("independent-failure") : null));
+
+        await AssertUnadvancedAndJournalFreeAsync("independent-failure");
     }
 
     [Fact(DisplayName = "T-1002: KG approval co-commits Workflow.Advanced and Financial.JournalDrafted under the approving human")]
@@ -143,6 +205,13 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
         var auditRows = await context.Set<NodeAuditEventRow>().Where(row => row.TenantId == Tenant.Value).ToListAsync();
         Assert.Equal("kg-approving-human", Assert.Single(auditRows, row => row.EventType == "Workflow.Advanced").Actor);
         Assert.Equal("kg-approving-human", Assert.Single(auditRows, row => row.EventType == NodeAuditWriteEnlister.JournalDraftedEventType).Actor);
+        var ordered = await context.Set<NodeAuditEventRow>().FromSql($"""
+            SELECT * FROM node_audit_events WHERE "TenantId" = {Tenant.Value} ORDER BY rowid
+            """).ToListAsync();
+        Assert.Equal("Financial.JournalDrafted", ordered[0].EventType);
+        Assert.Equal("Workflow.Advanced", ordered[1].EventType);
+        Assert.Equal(ordered[0].Hash, ordered[1].PrevHash);
+        Assert.True(NodeAuditHashChain.Verify(ordered));
     }
 
     [Fact(DisplayName = "T-1002: KG approval without request authority is refused before it stages a journal or advance")]
@@ -297,6 +366,25 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
 
     private sealed class InjectedJoinFailure : Exception
     {
+    }
+
+    private sealed class WorkflowAuditFailureInterceptor : SaveChangesInterceptor
+    {
+        internal bool Enabled { get; set; }
+        internal bool SawFlushedJournalAudit { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var audits = eventData.Context!.ChangeTracker.Entries<NodeAuditEventRow>().ToList();
+            if (Enabled && audits.Any(entry => entry.State == EntityState.Added && entry.Entity.EventType == "Workflow.Advanced"))
+            {
+                SawFlushedJournalAudit = audits.Any(entry => entry.State == EntityState.Unchanged
+                    && entry.Entity.EventType == "Financial.JournalDrafted");
+                throw new InjectedJoinFailure();
+            }
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class FailingParticipant : IKernelTransactionParticipant<string>

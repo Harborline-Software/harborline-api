@@ -103,18 +103,18 @@ public sealed class NodeEfWorkflowStore : IWorkflowStore
         ArgumentException.ThrowIfNullOrEmpty(eventType);
         ArgumentException.ThrowIfNullOrEmpty(nextStep);
 
+        if (effect?.CommitsIndependently == true)
+        {
+            await effect.StageAsync(null!, ct).ConfigureAwait(false);
+            effect = null;
+        }
+
         if (authority is not null)
         {
             await AdvanceThroughKernelAsync(
                     key, effect, resultJson, eventType, eventDataJson, nextStep, nextStatus, at, authority, ct)
                 .ConfigureAwait(false);
             return;
-        }
-
-        if (effect?.CommitsIndependently == true)
-        {
-            await effect.StageAsync(null!, ct).ConfigureAwait(false);
-            effect = null;
         }
 
         await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);

@@ -55,8 +55,10 @@ public sealed class WorkflowScheduledDefinitionTests
         Assert.Equal("daily", violation.Locator);
     }
 
-    [Fact]
-    public async Task Authored_schedule_advances_instance_when_time_becomes_due()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Authored_schedule_advances_instance_when_time_becomes_due(bool recordsOnly)
     {
         var directory = Path.Combine(Path.GetTempPath(), "workflow-schedule-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -119,12 +121,15 @@ public sealed class WorkflowScheduledDefinitionTests
                 provider.GetRequiredService<IRruleExpansionService>(),
                 provider.GetRequiredService<IWorkflowDefinitionExecutionStore>());
             var dispatcher = provider.GetRequiredService<IWorkflowTriggerDispatcher>();
+            var requests = new List<AuthorizationGateRequest>();
             var daemon = new WorkflowScheduleDaemon(
                 source,
                 dispatcher,
                 clock,
                 NullLogger<WorkflowScheduleDaemon>.Instance,
-                authorizationGate: provider.GetRequiredService<AuthorizationGate>(),
+                authorizationGate: recordsOnly
+                    ? TestAuthorization.Gate(request => request.Act.Operation.Value == "records:write", requests.Add)
+                    : provider.GetRequiredService<AuthorizationGate>(),
                 store: instances,
                 definitions: provider.GetRequiredService<IWorkflowDefinitionExecutionStore>());
 
@@ -133,6 +138,15 @@ public sealed class WorkflowScheduledDefinitionTests
             var advanced = await instances.LoadAsync("scheduled-instance");
             Assert.Equal(WorkflowStatus.Completed, advanced!.Status);
             Assert.Equal("done", advanced.CurrentStep);
+            if (recordsOnly)
+            {
+                Assert.Equal("records:write", Assert.Single(requests).Act.Operation.Value);
+                daemon = new WorkflowScheduleDaemon(
+                    source, dispatcher, clock, NullLogger<WorkflowScheduleDaemon>.Instance,
+                    authorizationGate: provider.GetRequiredService<AuthorizationGate>(),
+                    store: instances,
+                    definitions: provider.GetRequiredService<IWorkflowDefinitionExecutionStore>());
+            }
 
             var schedulerGrant = await provider.GetRequiredService<IGrantStore>()
                 .FindBySourceReferenceAsync(tenant, AccessGrantAuthorizationSeed.SchedulerGrantSource);

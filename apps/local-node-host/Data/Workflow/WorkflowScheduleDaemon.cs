@@ -135,14 +135,19 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
                 ct).ConfigureAwait(false);
             workflowDecision.RequireAllowed();
 
-            var journalId = JournalIdFor(instance, trigger);
-            var ledgerDecision = await _authorizationGate.DecideAsync(
-                authority.Request(
-                    AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
-                    "journal-entry",
-                    journalId),
-                ct).ConfigureAwait(false);
-            ledgerDecision.RequireAllowed();
+            AuthorizationDecision? ledgerDecision = null;
+            if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
+                || await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
+            {
+                var journalId = JournalIdFor(instance, trigger);
+                ledgerDecision = await _authorizationGate.DecideAsync(
+                    authority.Request(
+                        AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
+                        "journal-entry",
+                        journalId),
+                    ct).ConfigureAwait(false);
+                ledgerDecision.RequireAllowed();
+            }
 
             await _dispatcher.DispatchAsync(
                 trigger,

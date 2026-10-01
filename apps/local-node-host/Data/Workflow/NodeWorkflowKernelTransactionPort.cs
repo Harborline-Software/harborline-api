@@ -77,6 +77,9 @@ internal sealed class NodeWorkflowKernelTransactionPort
             ArgumentNullException.ThrowIfNull(audit);
             var advance = _advance ?? throw new InvalidOperationException("The workflow advance must be staged before its audit.");
             var payload = JsonSerializer.Serialize(new { event_type = "Workflow.Advanced", step = advance.Key.Step, next_step = advance.NextStep, next_status = advance.NextStatus, result = advance.ResultJson });
+            // Flush joined audit rows under the held transaction so the persisted tip includes them.
+            // This saves staged writes without committing; a later audit or commit failure rolls them back.
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             var previous = await context.Set<NodeAuditEventRow>().FromSql($"""
                 SELECT * FROM node_audit_events WHERE "TenantId" = {advance.TenantId} ORDER BY rowid DESC LIMIT 1
                 """).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
