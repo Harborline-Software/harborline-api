@@ -38,8 +38,6 @@ public sealed class WritePipelineExecutorFenceTests
             "S3 hierarchy reparent"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.SplitAsync",
             "S3 hierarchy split"),
-        ("apps/local-node-host/Data/Identity/AuthorizedGrantRevocationWriter.cs|Harborline.Api.LocalNodeHost.Data.Identity.AuthorizedGrantRevocationWriter.RevokeAsync",
-            "S4 grant revocation"),
         ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 workflow definition lifecycle"),
         ("packages/foundation-forms-engine/IAuthorizedFormEntityWriter.cs|Harborline.Api.Foundation.Forms.Engine.AuthorizedFormEntityWriter.CreateAsync",

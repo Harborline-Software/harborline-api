@@ -5,6 +5,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Search;
 
@@ -55,10 +56,13 @@ internal interface IAuthorizedGrantRevocationWriter
 /// <summary>Validates the carried decision against the write before reaching the raw grant store.</summary>
 internal sealed class AuthorizedGrantRevocationWriter(
     IGrantStore grants,
-    IDbContextFactory<NodeLocalSearchDbContext> grantFactory) : IAuthorizedGrantRevocationWriter
+    IDbContextFactory<NodeLocalSearchDbContext> grantFactory,
+    IWritePipelineObserver? pipelineObserver = null) : IAuthorizedGrantRevocationWriter
 {
     private static readonly AuthorizationOperation MembersManage =
         AuthorizationOperation.Parse(TeamRolePermissions.MembersManage);
+
+    private IGrantStore Grants => grants;
 
     public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
         AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
@@ -80,16 +84,18 @@ internal sealed class AuthorizedGrantRevocationWriter(
         return grants.NarrowScopeAsync(tenant, current, narrowed, successor, revocation, cancellationToken);
     }
 
-    public Task<AccessGrant?> RevokeAsync(
+    public async Task<AccessGrant?> RevokeAsync(
         TenantId tenant,
         GrantId grant,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(revocation);
         ArgumentNullException.ThrowIfNull(admittedDecision);
-        admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", grant.ToString());
-        return grants.RevokeAsync(tenant, grant, revocation, cancellationToken);
+        return await WritePipeline.RunAsync(
+            new GrantRevoke(this, tenant, grant, revocation, admittedDecision), pipelineObserver, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public Task<AdministratorHandover?> HandoverAsync(
@@ -123,5 +129,47 @@ internal sealed class AuthorizedGrantRevocationWriter(
         return new NodeEfAuthorizationConfigurationStore(grantFactory, new InMemoryRoleVocabulary([]))
             .NarrowAdmissionGrantAsync(
                 tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
+    }
+
+    /// <summary>
+    /// ck-10 S4 (DES-0029, ADR 0038): an admin grant revocation as its six stages, under the decision the caller
+    /// already made. A missing grant settles at bind. The store's own atomic guards (last administrator, no
+    /// replaced evidence) stay authoritative at commit; the caller audits the act.
+    /// </summary>
+    private sealed class GrantRevoke(
+        AuthorizedGrantRevocationWriter writer,
+        TenantId tenant,
+        GrantId grant,
+        GrantRevocation revocation,
+        AuthorizationDecision admittedDecision)
+        : KernelWrite<AccessGrant, GrantRevocation, GrantRevocation, AccessGrant?>
+    {
+        private AccessGrant? revoked;
+
+        protected override ValueTask AuthorizeAsync(CancellationToken ct)
+        {
+            admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", grant.ToString());
+            return ValueTask.CompletedTask;
+        }
+
+        protected override async ValueTask<AccessGrant?> BindAsync(CancellationToken ct) =>
+            await writer.Grants.FindAsync(tenant, grant, ct).ConfigureAwait(false);
+
+        protected override ValueTask<GrantRevocation> MutateAsync(AccessGrant bound, CancellationToken ct) =>
+            ValueTask.FromResult(revocation);
+
+        /// <summary>The revocation evidence names the actor and instant of the decision that admitted it, as a
+        /// review's does, so it can be neither back-dated nor attributed to someone else.</summary>
+        protected override ValueTask<GrantRevocation> ValidateAsync(
+            AccessGrant bound, GrantRevocation mutation, CancellationToken ct) =>
+            mutation.RevokedBy == admittedDecision.Request.Principal && mutation.RevokedAt == admittedDecision.DecidedAt
+                ? ValueTask.FromResult(mutation)
+                : throw new ArgumentException("Revocation attribution must match the admitted decision.", nameof(revocation));
+
+        protected override async ValueTask CommitAsync(GrantRevocation validated, CancellationToken ct) =>
+            revoked = await writer.Grants.RevokeAsync(tenant, grant, validated, ct).ConfigureAwait(false);
+
+        protected override ValueTask<AccessGrant?> ReactAsync(GrantRevocation validated, CancellationToken ct) =>
+            ValueTask.FromResult(revoked);
     }
 }
