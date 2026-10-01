@@ -43,7 +43,10 @@ jobs:
         env:
           BACKGROUND_MUTATION_ROUTE: ${{ vars.BACKGROUND_MUTATION_ROUTE }}
           LOCAL_BACKGROUND_RESERVATION: ${{ vars.LOCAL_BACKGROUND_RESERVATION }}
-        run: node .github/workloads/workload-route.mjs
+        run: |
+          node --test .github/workloads/workload-route.test.mjs
+          python3 .github/workloads/host-workload-lock.test.py
+          node .github/workloads/workload-route.mjs
   stryker-full:
     needs: workload-route
     if: vars.ACTIONS_ENABLED == 'true' && needs.workload-route.outputs.enabled == 'true'
