@@ -57,6 +57,7 @@ bash "$repo_root/eng/tests/fixture-git-retry.test.sh" || exit 1
 bash "$repo_root/eng/tests/verify-lane.test.sh" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
+dotnet run --project "$repo_root/eng/test-isolation/test-isolation.csproj" -- "$repo_root" || exit 1
 node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1
 # T-724 ruling 119e: the nightly drift report between a run's observed identities and the committed
 # knownTests roster (eng/known-tests-drift.mjs) never writes anything itself.

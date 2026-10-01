@@ -35,6 +35,8 @@ using Harborline.Api.LocalNodeHost.Data.People;
 using Harborline.Api.LocalNodeHost.Health;
 
 using Xunit;
+using Xunit.Abstractions;
+using Harborline.Api.LocalNodeHost.Tests.TestDoubles;
 
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -93,6 +95,10 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
     private string _dir = null!;
     private ILegalHoldStore _holds = null!;
     private readonly StubPdfWriter _renderWriter = new();
+    private readonly FailureOnlyHttpDiagnostics _diagnostics = new();
+    private readonly ITestOutputHelper _output;
+
+    public NodeDocumentTemplateRouteActingMemberPlacerTests(ITestOutputHelper output) => _output = output;
 
     public async Task InitializeAsync()
     {
@@ -101,6 +107,9 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        builder.Logging.SetMinimumLevel(LogLevel.Debug);
+        builder.Logging.AddProvider(_diagnostics);
+        builder.Logging.AddFilter<FailureOnlyHttpDiagnostics>("Microsoft.AspNetCore.Server.Kestrel", LogLevel.Debug);
 
         _dir = Path.Combine(Path.GetTempPath(), "harborline-doc-placer-3380-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
@@ -114,6 +123,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
 
         _app = builder.Build();
+        _app.Use(_diagnostics.ObserveAsync);
 
         var factory = _app.Services.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
         await using (var ctx = await factory.CreateDbContextAsync())
@@ -173,7 +183,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         await _app.StartAsync();
 
         var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
-        _client = new HttpClient { BaseAddress = new Uri(addresses!.Addresses.First()) };
+        _client = new HttpClient(new DiagnosticHandler(this)) { BaseAddress = new Uri(addresses!.Addresses.First()) };
     }
 
     public async Task DisposeAsync()
@@ -235,7 +245,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             [key] = "client-constructed-id",
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        AssertStatus(HttpStatusCode.BadRequest, refused);
         Assert.Equal("request.record-id-not-accepted",
             (await refused.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("code").GetString());
         Assert.Empty(await _holds.ListActiveAsync(LocalTenantId));
@@ -246,7 +256,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
             templateVersion = TemplateVersion,
             invoiceId = AliceInvoiceId,
         });
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        AssertStatus(HttpStatusCode.Created, created);
         var minted = (await created.Content.ReadFromJsonAsync<IssuedDocumentResponse>())!.Data.DocumentId;
         Assert.False(string.IsNullOrWhiteSpace(minted));
         Assert.NotEqual("client-constructed-id", minted);
@@ -261,7 +271,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         using var response = await _client.PostAsJsonAsync("/api/local-node/document-templates/render",
             new { templateKey = BadGuardTemplateKey, templateVersion = TemplateVersion });
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertStatus(HttpStatusCode.OK, response);
         Assert.DoesNotContain(BadGuardExpression, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Single(_renderWriter.Last!.Blocks);
     }
@@ -286,7 +296,7 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         }
 
         using var response = await _client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        AssertStatus(HttpStatusCode.Created, response);
 
         var body = await response.Content.ReadFromJsonAsync<IssuedDocumentResponse>();
         Assert.NotNull(body);
@@ -300,6 +310,27 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
         var entry = await _holds.FindHoldAsync(LocalTenantId, holdId);
         Assert.NotNull(entry);
         return entry!.PlacedBy;
+    }
+
+    private void AssertStatus(HttpStatusCode expected, HttpResponseMessage response)
+    {
+        _diagnostics.WriteStatusFailure((int)expected, (int)response.StatusCode, line => _output.WriteLine(line));
+        Assert.Equal(expected, response.StatusCode);
+    }
+
+    private sealed class DiagnosticHandler(NodeDocumentTemplateRouteActingMemberPlacerTests fixture)
+        : DelegatingHandler(new HttpClientHandler())
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            try { return await base.SendAsync(request, ct); }
+            catch (Exception exception)
+            {
+                fixture._output.WriteLine($"HTTP fixture transport failure: type={exception.GetType().FullName}");
+                fixture._output.WriteLine(fixture._diagnostics.Snapshot());
+                throw;
+            }
+        }
     }
 
     private static SelectedSessionRequestPrincipal BoundPrincipal(string canonicalParty) =>
