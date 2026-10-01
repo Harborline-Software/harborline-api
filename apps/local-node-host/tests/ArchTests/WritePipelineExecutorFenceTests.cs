@@ -31,8 +31,6 @@ public sealed class WritePipelineExecutorFenceTests
             "S6 exemption candidate: merge runs its whole pipeline inside the unit it opens, because the displaced set it decides is read there (ticket 216, review round 7); its writes are Merge.CommitAsync"),
         ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 workflow definition lifecycle"),
-        ("packages/foundation-forms-engine/IAuthorizedFormEntityWriter.cs|Harborline.Api.Foundation.Forms.Engine.AuthorizedFormEntityWriter.CreateAsync",
-            "S3 form submit record"),
         ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 form definition lifecycle"),
         ("packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.CommitActivationAsync",
