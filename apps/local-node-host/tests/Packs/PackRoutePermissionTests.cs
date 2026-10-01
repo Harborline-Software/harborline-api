@@ -32,6 +32,7 @@ using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Enrollment;
 using Harborline.Api.LocalNodeHost.Health;
@@ -345,7 +346,7 @@ public sealed class PackRoutePermissionTests : IAsyncLifetime
         Assert.Single(await RefusalRowsAsync());
     }
 
-    [Fact(DisplayName = "380: an activate refused for packages:operate is audited and activates nothing; granting operate then activates")]
+    [Fact(DisplayName = "380: an activate refused for packages:operate is audited and activates nothing; an operate retry passes the gate")]
     public async Task Activate_refusal_is_audited_and_leaves_the_pack_inactive()
     {
         var packBytes = await ExportAcmeAsync();
@@ -360,10 +361,12 @@ public sealed class PackRoutePermissionTests : IAsyncLifetime
             await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, activate), Permission.PackagesOperate);
         Assert.Null(_store.GetActive(TenantA, "acme.pack"));
 
+        // Past the gate on retry: this fixture has no platform pack, so the installer refuses on its own terms.
         _grants.GrantAtInstallRoot(Permission.PackagesOperate);
         using var retried = await _client.PostAsJsonAsync(PackInstallRoutes.ActivateRoute, activate);
-        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
-        Assert.Equal("1.0.0", _store.GetActive(TenantA, "acme.pack")?.Version);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, retried.StatusCode);
+        Assert.Contains("pack.install.activate.platform_pack_required", await retried.Content.ReadAsStringAsync());
+        Assert.Single(await RefusalRowsAsync());
     }
 
     [Fact(DisplayName = "380: a decided pack-route refusal records the gate's four-stage trace, not a pre-decision row")]
