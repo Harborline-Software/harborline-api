@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Exercises the pinned quality step's refusal and rollout outcomes against a disposable API repository.
 set -euo pipefail
+# These disposable repositories are independent of the enclosing verification run.
+unset HARBORLINE_VERIFY_QUALITY_RUN
 root=$(cd "$(dirname "$0")/../.." && pwd)
 # The main root's sibling, portable to bash 3.2 (a brace group inside ${:-} does not parse there).
 main_sibling() { (cd "$(dirname "$(git -c safe.directory="$root" -C "$root" rev-parse --path-format=absolute --git-common-dir)")/../$1" && { pwd -W 2>/dev/null || pwd; }); }
