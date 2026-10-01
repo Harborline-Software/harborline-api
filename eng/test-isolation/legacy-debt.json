@@ -136,11 +136,5 @@
     "TypeSha256": "70cad30e25121079abf2d4580f39a917eca2f71fdf21faeea105900e9bd6ba70",
     "Owner": "T-1031",
     "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
-  },
-  "apps/local-node-host/tests/Packs/AccessNavigationUpgradeCompositionTests.cs\tAccessNavigationUpgradeCompositionTests\tClearAllPools": {
-    "Count": 1,
-    "TypeSha256": "943febe083377931e58d74b228b48ef7630353b676da8ab893d2a18048adaad7",
-    "Owner": "T-1031",
-    "Reason": "API #320 owns isolation correction; remove this debt after integration."
   }
 }
