@@ -138,8 +138,8 @@ public static class KgActionApprovalTaskRoutes
             try
             {
                 result = await cutover.ResumeAsync(
-                    instanceId, decision, body.Note, ct,
-                    FinancialRouteWriteAuthority.Create(http, tenantId, timeProvider)).ConfigureAwait(false);
+                    instanceId, decision, body.Note,
+                    FinancialRouteWriteAuthority.Create(http, tenantId, timeProvider), ct).ConfigureAwait(false);
             }
             catch (Exception)
             {

@@ -183,11 +183,13 @@ public sealed class WorkflowJoinAcceptanceTests : IAsyncLifetime
         await AssertUnadvancedAndJournalFreeAsync("independent-failure");
     }
 
-    [Fact(DisplayName = "T-1002: KG approval co-commits Workflow.Advanced and Financial.JournalDrafted under the approving human")]
-    public async Task KgApproval_CoCommitsDraftAndAdvance_WithApprovingHumanActor()
+    [Theory(DisplayName = "T-1002: KG approval co-commits Workflow.Advanced and Financial.JournalDrafted under the approving human")]
+    [InlineData(0)]
+    [InlineData(5)] // A non-UTC authority time must still hash in the stored UTC form, or the chain fails to verify.
+    public async Task KgApproval_CoCommitsDraftAndAdvance_WithApprovingHumanActor(int offsetHours)
     {
         var cutover = CreateKgCutover();
-        var authority = new AuthorizationWriteContext(new ActorId("kg-approving-human"), Tenant, At);
+        var authority = new AuthorizationWriteContext(new ActorId("kg-approving-human"), Tenant, At.ToOffset(TimeSpan.FromHours(offsetHours)));
         var parked = await cutover.ParkForApprovalAsync(
             Tenant,
             "kg-approval",

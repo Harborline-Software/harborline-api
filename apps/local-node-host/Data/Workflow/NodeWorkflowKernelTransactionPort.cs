@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -76,6 +77,12 @@ internal sealed class NodeWorkflowKernelTransactionPort
         {
             ArgumentNullException.ThrowIfNull(audit);
             var advance = _advance ?? throw new InvalidOperationException("The workflow advance must be staged before its audit.");
+            // Hash the same round-trip UTC form the OccurredAt converter stores, as NodeAuditWriteEnlister does,
+            // so the chain verifies over the read-back value whatever offset the kernel clock carried.
+            var occurredAt = DateTimeOffset.Parse(
+                audit.RecordedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal);
             var payload = JsonSerializer.Serialize(new { event_type = "Workflow.Advanced", step = advance.Key.Step, next_step = advance.NextStep, next_status = advance.NextStatus, result = advance.ResultJson });
             // Flush joined audit rows under the held transaction so the persisted tip includes them.
             // This saves staged writes without committing; a later audit or commit failure rolls them back.
@@ -85,9 +92,9 @@ internal sealed class NodeWorkflowKernelTransactionPort
                 """).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             context.Set<NodeAuditEventRow>().Add(new NodeAuditEventRow
             {
-                AuditId = audit.AuditId, TenantId = advance.TenantId, EventType = "Workflow.Advanced", OccurredAt = audit.RecordedAt,
+                AuditId = audit.AuditId, TenantId = advance.TenantId, EventType = "Workflow.Advanced", OccurredAt = occurredAt,
                 Actor = audit.ActorId, Payload = payload, PrevHash = previous?.Hash,
-                Hash = NodeAuditHashChain.ComputeHash(previous?.Hash, audit.AuditId, "Workflow.Advanced", audit.ActorId, advance.TenantId, audit.RecordedAt, payload),
+                Hash = NodeAuditHashChain.ComputeHash(previous?.Hash, audit.AuditId, "Workflow.Advanced", audit.ActorId, advance.TenantId, occurredAt, payload),
             });
             _audited = true;
         }

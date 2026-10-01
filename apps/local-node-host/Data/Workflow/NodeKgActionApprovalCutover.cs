@@ -134,8 +134,8 @@ public sealed class NodeKgActionApprovalCutover
         string instanceId,
         string decision,
         string? note,
-        CancellationToken ct = default,
-        AuthorizationWriteContext? authority = null)
+        AuthorizationWriteContext? authority = null,
+        CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(instanceId);
         ArgumentException.ThrowIfNullOrEmpty(decision);
