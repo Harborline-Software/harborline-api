@@ -57,6 +57,9 @@ public sealed class NodeAuditWriteEnlister : INodeAuditWriteEnlister, IWriteEnli
     /// <c>KNOWN_AUDIT_EVENT_TYPES</c> constant <c>'Financial.JournalPosted'</c>).</summary>
     public const string JournalPostedEventType = "Financial.JournalPosted";
 
+    /// <summary>The audit event recorded when a human-approved workflow creates a journal draft.</summary>
+    public const string JournalDraftedEventType = "Financial.JournalDrafted";
+
     /// <summary>The audit attribution shape sourced exclusively from the carried authorization decision.</summary>
     public const string CarriedDecisionAttributionSchema = "carried-authorization-decision/v1";
 
@@ -106,11 +109,32 @@ public sealed class NodeAuditWriteEnlister : INodeAuditWriteEnlister, IWriteEnli
         AuthorizationDecision decision,
         CancellationToken ct = default)
     {
+        await EnlistAsync(ctx, entry, decision, JournalPostedEventType, TeamRolePermissions.LedgerPost, ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task EnlistJournalDraftedAsync(
+        LocalNodeDbContext ctx,
+        JournalEntry entry,
+        AuthorizationDecision decision,
+        CancellationToken ct = default)
+    {
+        await EnlistAsync(ctx, entry, decision, JournalDraftedEventType, TeamRolePermissions.LedgerPost, ct).ConfigureAwait(false);
+    }
+
+    private async Task EnlistAsync(
+        LocalNodeDbContext ctx,
+        JournalEntry entry,
+        AuthorizationDecision decision,
+        string eventType,
+        string operation,
+        CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(decision);
         decision.RequireAllowedReaction(
-            AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
+            AuthorizationOperation.Parse(operation),
             entry.TenantId,
             "journal-entry",
             entry.Id.Value);
@@ -151,7 +175,7 @@ public sealed class NodeAuditWriteEnlister : INodeAuditWriteEnlister, IWriteEnli
 
         var prevHash = tip?.Hash;
         var hash = NodeAuditHashChain.ComputeHash(
-            prevHash, auditId, JournalPostedEventType, actor, tenantId, occurredAt, payloadJson);
+            prevHash, auditId, eventType, actor, tenantId, occurredAt, payloadJson);
 
         // ADR 0135 per-event signing (the pre-multi-device PASS-gate). When the node signer is wired,
         // sign the SignedOperation<string> envelope NodeAuditSignaturePayload assembles (payload =
@@ -172,7 +196,7 @@ public sealed class NodeAuditWriteEnlister : INodeAuditWriteEnlister, IWriteEnli
         {
             AuditId = auditId,
             TenantId = tenantId,
-            EventType = JournalPostedEventType,
+            EventType = eventType,
             OccurredAt = occurredAt,
             Actor = actor,
             CorrelationId = correlationId,

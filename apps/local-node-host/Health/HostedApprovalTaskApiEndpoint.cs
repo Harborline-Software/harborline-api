@@ -77,7 +77,8 @@ public sealed class HostedApprovalTaskApiEndpoint : IHostedService
                 deviceReachable,
                 _tasks,
                 _kgActionCutover,
-                _activeTeam);
+                _activeTeam,
+                _timeProvider);
         });
 
         _logger.LogInformation(

@@ -967,7 +967,7 @@ public sealed class AuthorizationGateArchTests
         public Task AdvanceAsync(
             WorkflowStepKey key, WorkflowEffect? effect, string resultJson, string eventType,
             string eventDataJson, string nextStep, WorkflowStatus nextStatus,
-            DateTimeOffset at, CancellationToken ct = default) =>
+            DateTimeOffset at, WorkflowDispatchAuthority? authority = null, CancellationToken ct = default) =>
             throw new NotSupportedException();
         public Task ParkAsync(
             string instanceId, string step, string reasonJson, DateTimeOffset at, int iteration = 0,

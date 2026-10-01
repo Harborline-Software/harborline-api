@@ -135,24 +135,29 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
                 ct).ConfigureAwait(false);
             workflowDecision.RequireAllowed();
 
-            AuthorizationDecision? ledgerDecision = null;
-            if (await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
-            {
-                var journalId = NodeLedgerPostingEffect.JournalEntryIdFor(instance).Value;
-                ledgerDecision = await _authorizationGate.DecideAsync(
-                    authority.Request(
-                        AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
-                        "journal-entry",
-                        journalId),
-                    ct).ConfigureAwait(false);
-                ledgerDecision.RequireAllowed();
-            }
+            var journalId = JournalIdFor(instance, trigger);
+            var ledgerDecision = await _authorizationGate.DecideAsync(
+                authority.Request(
+                    AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
+                    "journal-entry",
+                    journalId),
+                ct).ConfigureAwait(false);
+            ledgerDecision.RequireAllowed();
 
             await _dispatcher.DispatchAsync(
                 trigger,
                 new WorkflowDispatchAuthority(workflowDecision, ledgerDecision),
                 ct).ConfigureAwait(false);
         }
+    }
+
+    private static string JournalIdFor(WorkflowInstanceRecord instance, WorkflowTrigger trigger)
+    {
+        if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
+            && trigger.Step.StartsWith(RecurringGenerationSteps.GeneratePrefix, StringComparison.Ordinal)
+            && DateOnly.TryParseExact(trigger.Step[RecurringGenerationSteps.GeneratePrefix.Length..], "yyyy-MM-dd", out var occurrence))
+            return NodeRecurringGenerationContext.JournalEntryIdFor(instance, occurrence).Value;
+        return NodeLedgerPostingEffect.JournalEntryIdFor(instance).Value;
     }
 
     private async ValueTask<bool> DeclaresLedgerEffectAsync(

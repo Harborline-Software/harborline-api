@@ -104,7 +104,8 @@ public static class NodeWorkflowComposition
             WorkflowEffectReach.Internal,
             (sp, request) => NodeLedgerPostingEffect.Build(
                 request,
-                sp.GetRequiredService<Harborline.Api.Blocks.FinancialLedger.Services.IJournalPostingService>()));
+                sp.GetRequiredService<Harborline.Api.Blocks.FinancialLedger.Services.IJournalPostingService>(),
+                sp.GetRequiredService<Data.Audit.INodeAuditWriteEnlister>()));
 
         // The interpreter itself — the dispatcher resolves it as the fallback for definitions with no handler.
         services.AddDeclarativeWorkflowInterpreter();
@@ -175,13 +176,8 @@ public static class NodeWorkflowComposition
         // over-threshold case, so this effect is the over-threshold invoice's ONLY issuer.
         services.AddSingleton<IInvoiceApprovalContext>(sp =>
             new NodeLiveInvoiceApprovalContext(
-                // MTW-2 2612-C — the approve-time invoice-issue JE (staged on the workflow uow, not via
-                // NodeEfJournalStore) picks up the node-signed attribution envelope when the audit
-                // enlister is wired. The same request-scoped attribution source stamps the issued
-                // invoice's UpdatedBy; both remain optional so workflow-only composition resolves.
-                sp.GetService<Data.Audit.INodeAuditWriteEnlister>(),
-                sp.GetService<Data.Audit.INodeCallerAttributionSource>(),
-                sp.GetService<Data.Identity.NodeOperatorIdentity>()));
+                // MTW-2 2612-C — every joined workflow effect is audited, so this dependency is required.
+                sp.GetRequiredService<Data.Audit.INodeAuditWriteEnlister>()));
         services.AddSingleton<IWorkflowStepHandler>(sp =>
             new InvoiceApprovalHandler(
                 sp.GetRequiredService<ThresholdDecisionTable>(),
@@ -189,7 +185,9 @@ public static class NodeWorkflowComposition
 
         // ── Handler B — recurring generation on the schedule trigger ──
         services.AddSingleton<IRecurringGenerationContext>(sp =>
-            new NodeRecurringGenerationContext());
+            new NodeRecurringGenerationContext(
+                sp.GetRequiredService<Data.Audit.INodeAuditWriteEnlister>(),
+                sp.GetRequiredService<Harborline.Api.Blocks.FinancialLedger.Services.IJournalPostingService>()));
         services.AddSingleton<IWorkflowStepHandler>(sp =>
             new RecurringGenerationHandler(sp.GetRequiredService<IRecurringGenerationContext>()));
 
@@ -242,7 +240,8 @@ public static class NodeWorkflowComposition
         //    Slice 2-actions, G-G4). A proposed CP action ALWAYS parks; the ONLY path to execution is a human
         //    approve (the model PROPOSES, the human ACTS). The execute effect runs the EXISTING CP path —
         //    for the v1 draft-journal-entry kind, it stages a Draft JE onto the advance's unit-of-work. ──
-        services.AddSingleton<IKgActionApprovalContext>(_ => new NodeKgActionApprovalContext());
+        services.AddSingleton<IKgActionApprovalContext>(sp =>
+            new NodeKgActionApprovalContext(sp.GetRequiredService<Data.Audit.INodeAuditWriteEnlister>()));
         services.AddSingleton<IWorkflowStepHandler>(sp =>
             new GraphRagProposalHandler(sp.GetRequiredService<IKgActionApprovalContext>()));
 
@@ -253,7 +252,9 @@ public static class NodeWorkflowComposition
             new NodeKgActionApprovalCutover(
                 sp.GetRequiredService<NodeWorkflowInstantiationService>(),
                 sp.GetRequiredService<IWorkflowTriggerDispatcher>(),
-                sp.GetRequiredService<TimeProvider>()));
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<IWorkflowStore>(),
+                sp.GetRequiredService<Harborline.Api.Foundation.Authorization.AuthorizationGate>()));
 
         // The parked-task read model — a pure read over the workflow tables for the Ask-bar Inbox
         // (parked invoice-approval AND kg-action-approval tasks + their FE-1 basis payload). No new schema.

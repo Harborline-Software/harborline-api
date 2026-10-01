@@ -12,9 +12,7 @@ using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
-using Harborline.Api.LocalNodeHost.Health;
-
-using Harborline.Api.LocalNodeHost.Data.Identity;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -71,30 +69,15 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 /// </remarks>
 public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
 {
-    private readonly INodeAuditWriteEnlister? _auditEnlister;
-    private readonly INodeCallerAttributionSource? _attributionSource;
-    private readonly NodeOperatorIdentity? _nodeOperator;
-
-    /// <summary>Construct without optional audit attribution collaborators.</summary>
-    public NodeLiveInvoiceApprovalContext()
-        : this(auditEnlister: null)
-    {
-    }
+    private readonly INodeAuditWriteEnlister _auditEnlister;
 
     /// <summary>
-    /// Construct with the optional atomic-audit enlister (MTW-2 2612-C), and the same acting
-    /// caller source used by the audit seam. The approve effect is awaited inside the approval request,
-    /// so a selected-session caller remains available while the effect stages the issued invoice. A
-    /// genuinely detached execution has no attribution and retains the ruled operator fallback.
+    /// Constructs the context with the audit-enlistment seam required by every joined invoice issue.
+    /// The issue record and both audit rows derive their actors from carried authorization decisions.
     /// </summary>
-    internal NodeLiveInvoiceApprovalContext(
-        INodeAuditWriteEnlister? auditEnlister,
-        INodeCallerAttributionSource? attributionSource = null,
-        NodeOperatorIdentity? nodeOperator = null)
+    public NodeLiveInvoiceApprovalContext(INodeAuditWriteEnlister auditEnlister)
     {
-        _auditEnlister = auditEnlister;
-        _attributionSource = attributionSource;
-        _nodeOperator = nodeOperator;
+        _auditEnlister = auditEnlister ?? throw new ArgumentNullException(nameof(auditEnlister));
     }
 
     /// <inheritdoc />
@@ -203,19 +186,18 @@ public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
                 Status = JournalEntryStatus.Posted,
                 PostedAtUtc = now,
             };
-            ctx.Set<JournalEntry>().Add(je);
-
             // The posted JE is a synchronous reaction of the admitted approval act. Carry that exact
             // decision into the atomic journal-audit enlister; never reconstruct authority from caller
             // attribution. Direct-construction workflow tests may omit the audit seam, but a composed
             // audit seam fails closed if its dispatcher did not carry the decision.
-            if (_auditEnlister is not null)
-            {
-                var decision = admittedDecision
-                    ?? throw new InvalidOperationException(
-                        "The approve-time journal audit requires the carried workflow admission decision.");
-                await _auditEnlister.EnlistJournalPostedAsync(ctx, je, decision, ct).ConfigureAwait(false);
-            }
+            var decision = admittedDecision
+                ?? throw new InvalidOperationException(
+                    "The approve-time journal audit requires the carried workflow admission decision.");
+            await _auditEnlister.EnlistJournalPostedAsync(ctx, je, decision, ct).ConfigureAwait(false);
+            await KernelTransactionBoundary.JoinAsync(
+                NodeJournalKernelTransactionPort.Command(ctx, je),
+                NodeJournalKernelTransactionPort.CreateParticipant(ctx),
+                ct).ConfigureAwait(false);
 
             // MTW-2 2612-C — stage the node-signed attribution envelope for THIS approve-time JE onto the
             // SAME workflow unit-of-work (one SQLite connection, one transaction — no second write, mirrors
@@ -225,8 +207,7 @@ public sealed class NodeLiveInvoiceApprovalContext : IInvoiceApprovalContext
             // is not wired (direct-construction slice/E2E tests) — behaviour byte-unchanged there.
             // Draft → Issued, stamping the JE id — staged on the SAME context so it co-commits with the JE +
             // the advance (mirrors the F3 IssuedInvoiceWriteScope atomicity, inline here).
-            var actingParty = NodeCallerParty.Resolve(
-                _attributionSource?.TryResolveCurrent(), _nodeOperator?.Principal);
+            var actingParty = new PartyId(decision.Request.Principal.Value);
             var issued = invoice with
             {
                 Status = InvoiceStatus.Issued,

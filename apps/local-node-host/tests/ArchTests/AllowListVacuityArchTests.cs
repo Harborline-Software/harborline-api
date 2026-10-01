@@ -150,8 +150,6 @@ public sealed class AllowListVacuityArchTests
             "the fence already asserts SequenceEqual against the discovered call sites, both directions",
         ["RawMutationPortSymbolInventoryTests.Allowed"] =
             "the fence already asserts an exact inventory against the discovered call sites, both directions",
-        ["JournalKernelBoundaryArchTests.WorkflowJoins"] =
-            "the fence already asserts Assert.Equal against the discovered journal-staging files, both directions",
         ["LastAdministratorGuardArchTests.MutationMembers"] =
             "the IGrantStore mutation-member inventory the L619 scan searches for, not an exception list; "
             + "every discovered store must reach the guard on every one of these members and none is excused",

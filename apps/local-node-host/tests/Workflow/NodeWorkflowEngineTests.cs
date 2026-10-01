@@ -9,6 +9,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
@@ -62,6 +63,7 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
         // The production node composes these two modules for the JE + workflow tables.
         services.AddSingleton<IHarborlineEntityModule, FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={_dbPath};Pooling=False"));
         return services.BuildServiceProvider()
@@ -172,7 +174,8 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
                 "{}",
                 OriginatingDecision: workflowDecision,
                 EffectDecision: journalDecision),
-            posting);
+            posting,
+            new NodeAuditWriteEnlister());
         var crashingRealEffect = new WorkflowEffect(async (uow, ct) =>
         {
             await realEffect.StageAsync(uow, ct);
@@ -182,7 +185,8 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
         // First attempt: crash AFTER the real ledger effect staged inside the single transaction.
         await Assert.ThrowsAsync<SimulatedCrash>(() => store.AdvanceAsync(
             key, crashingRealEffect, resultJson: "{}", eventType: "Advanced", eventDataJson: "{}",
-            nextStep: "post:done", nextStatus: WorkflowStatus.Completed));
+            nextStep: "post:done", nextStatus: WorkflowStatus.Completed,
+            at: DateTimeOffset.UtcNow, authority: new WorkflowDispatchAuthority(workflowDecision, journalDecision)));
 
         // Nothing committed — the effect rolled back with the event + idempotency + position.
         Assert.Equal(0, await CountJournalEntriesAsync(factory));
@@ -197,7 +201,8 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
         var store2 = NewStore(factory2);
         await store2.AdvanceAsync(
             key, realEffect, resultJson: "{\"je\":\"posted\"}",
-            eventType: "Advanced", eventDataJson: "{}", nextStep: "post:done", nextStatus: WorkflowStatus.Completed);
+            eventType: "Advanced", eventDataJson: "{}", nextStep: "post:done", nextStatus: WorkflowStatus.Completed,
+            at: DateTimeOffset.UtcNow, authority: new WorkflowDispatchAuthority(workflowDecision, journalDecision));
 
         Assert.Equal(1, await CountJournalEntriesAsync(factory2)); // EXACTLY ONE
 
@@ -414,7 +419,11 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
         // Directly attempting to write a duplicate (InstanceId, Seq) hits the unique index.
         ctx.Set<WorkflowEventRecord>().Add(new WorkflowEventRecord
         {
-            InstanceId = "inst-seq", Seq = 0, Step = "dup", EventType = "Advanced", OccurredAt = DateTimeOffset.UtcNow,
+            InstanceId = "inst-seq",
+            Seq = 0,
+            Step = "dup",
+            EventType = "Advanced",
+            OccurredAt = DateTimeOffset.UtcNow,
         });
         await Assert.ThrowsAsync<DbUpdateException>(() => ctx.SaveChangesAsync());
     }
@@ -430,8 +439,12 @@ public sealed class NodeWorkflowEngineTests : IAsyncLifetime
         var store = NewStore(factory);
         await store.CreateInstanceAsync(new WorkflowInstanceRecord
         {
-            Id = "inst-d7", TenantId = LocalTenantId.Value, DefinitionKey = "recurring-invoice",
-            DefinitionVersion = "2026-06-23.3", CurrentStep = "post", Status = WorkflowStatus.Running,
+            Id = "inst-d7",
+            TenantId = LocalTenantId.Value,
+            DefinitionKey = "recurring-invoice",
+            DefinitionVersion = "2026-06-23.3",
+            CurrentStep = "post",
+            Status = WorkflowStatus.Running,
         });
 
         await store.AdvanceAsync(new WorkflowStepKey("inst-d7", 0, "post"), null, "{}", "Advanced", "{}", "done", WorkflowStatus.Completed);
