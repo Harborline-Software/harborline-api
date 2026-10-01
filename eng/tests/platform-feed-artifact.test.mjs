@@ -65,6 +65,14 @@ test('transport digest is independently bound and rejects tampering before parsi
   assert.throws(() => validateBundle(Buffer.from('not json'), hash(raw), identity, pin), /artifact digest mismatch/)
   assert.throws(() => validateBundle(raw, '', identity, pin), /artifact digest mismatch/)
 })
+test('environment drift is a verified miss, source drift is fatal, and corruption never becomes a miss', () => {
+  const raw = bundle(), differentImage = {...identity, imageVersion: '20261001.2'}
+  assert.throws(() => validateBundle(raw, hash(raw), differentImage, pin), error => error.code === 'FEED_ENVIRONMENT_MISS' && /imageVersion/.test(error.message))
+  assert.throws(() => validateBundle(raw, hash(raw), {...differentImage, globalJson: 'e'.repeat(64)}, pin), error => error.code !== 'FEED_ENVIRONMENT_MISS')
+  const corrupt = changeBundle(object => { object.files[0].size++ })
+  assert.throws(() => validateBundle(corrupt, hash(corrupt), differentImage, pin), error => error.code !== 'FEED_ENVIRONMENT_MISS' && /file digest/.test(error.message))
+  assert.throws(() => validateBundle(raw, '0'.repeat(64), differentImage, pin), error => error.code !== 'FEED_ENVIRONMENT_MISS')
+})
 test('altered package bytes, props, size and per-file digest refuse even with a new envelope digest', () => {
   for (const edit of [
     object => { object.files[0].base64 = Buffer.from('altered').toString('base64') },

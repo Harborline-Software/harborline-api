@@ -76,6 +76,8 @@ test('same-run downloader uses exact ID, fails digest mismatch, and does not use
   assert.match(action, /restore .*FEED_ARTIFACT_DIGEST/)
   assert.match(action, /Reject failed downloads that left any bytes/)
   assert.match(action, /Validate a freshly rebuilt dependency feed after unavailable download/)
+  assert.match(action, /if \[\[ "\$result" -ne 3 \]\]; then exit "\$result"; fi/)
+  assert.match(action, /refusing reuse and rebuilding the checked-out Platform pin/)
 })
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
@@ -93,4 +95,23 @@ test('download fallback accepts only zero transferred bytes and visibly rejects 
   const corrupt = run()
   assert.equal(corrupt.status, 1, corrupt.stderr)
   assert.match(corrupt.stdout, /refusing possible corruption/)
+})
+test('only verified environment misses rebuild; successful reuse and fatal validation never take that fallback', {skip: process.platform === 'win32' && !existsSync(bash)}, t => {
+  const script = /    - name: Validate and materialize the complete dependency feed\n[\s\S]*?      run: \|\n([\s\S]*?)(?=    - name:)/.exec(action)[1]
+    .replace(/^        /gm, '')
+  const directory = mkdtempSync(path.join(tmpdir(), 'feed-environment-test-'))
+  t.after(() => { assert.equal(path.dirname(directory), tmpdir()); rmSync(directory, {recursive: true, force: true}) })
+  mkdirSync(path.join(directory, '.feed-transfer'))
+  writeFileSync(path.join(directory, '.feed-transfer', 'platform-feed-bundle.json'), 'fixture')
+  // Replace the subprocess only; run the actual action Bash branch against independent exit codes.
+  const mock = 'node() { case "$*" in *restore*) return "$RESTORE_EXIT";; *build-local-feed*) echo fresh-build;; *create*) echo strict-validation;; *) return 99;; esac; }\n'
+  const run = result => spawnSync(bash, ['-c', mock + script], {cwd: directory, encoding: 'utf8',
+    env: {...process.env, RESTORE_EXIT: String(result), HARBORLINE_PLATFORM_REPO: '/pin', FEED_ARTIFACT_DIGEST: 'fixture'}})
+  const hit = run(0)
+  assert.equal(hit.status, 0, hit.stderr); assert.doesNotMatch(hit.stdout, /fresh-build/)
+  const miss = run(3)
+  assert.equal(miss.status, 0, miss.stderr); assert.match(miss.stdout, /refusing reuse/)
+  assert.match(miss.stdout, /fresh-build\nstrict-validation/)
+  const tamper = run(1)
+  assert.equal(tamper.status, 1, tamper.stderr); assert.doesNotMatch(tamper.stdout, /fresh-build/)
 })

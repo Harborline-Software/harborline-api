@@ -114,7 +114,11 @@ export function createBundle(files, identity, pin) {
 export function validateBundle(raw, digest, identity, pin) {
   if (!/^[a-f0-9]{64}$/.test(digest) || sha256(raw) !== digest) throw new Error('feed artifact digest mismatch')
   const bundle = JSON.parse(raw)
-  if (bundle.schemaVersion !== 1 || canonical(bundle.identity) !== canonical(identity)) throw new Error('feed artifact identity mismatch')
+  if (bundle.schemaVersion !== 1 || !bundle.identity) throw new Error('feed artifact identity mismatch')
+  const environment = ['sdk', 'node', 'os', 'arch', 'imageOS', 'imageVersion']
+  const sourceIdentity = value => Object.fromEntries(Object.entries(value).filter(([key]) => !environment.includes(key)))
+  if (canonical(sourceIdentity(bundle.identity)) !== canonical(sourceIdentity(identity))) throw new Error('feed artifact identity mismatch')
+  const misses = environment.filter(key => bundle.identity[key] !== identity[key])
   if (!Array.isArray(bundle.files) || bundle.files.length !== Object.keys(pin.producers).length + 1) throw new Error('feed file inventory mismatch')
   const files = bundle.files.map(file => {
     if (typeof file.name !== 'string' || !/^[A-Za-z0-9.-]+$/.test(file.name) || typeof file.base64 !== 'string') throw new Error('unsafe feed filename or content')
@@ -123,6 +127,13 @@ export function validateBundle(raw, digest, identity, pin) {
     return {name: file.name, bytes}
   })
   if (canonical(verifyFeed(files, pin, identity.packageGraph.packedVersion)) !== canonical(bundle.closure)) throw new Error('feed dependency closure mismatch')
+  // Validate all transferred bytes before classifying a known environment mismatch as a miss.
+  // No artifact is materialized on this path. Source/graph/script mismatches above remain fatal.
+  if (misses.length) {
+    const error = new Error(`feed artifact identity mismatch (environment key miss): ${misses.join(', ')}`)
+    error.code = 'FEED_ENVIRONMENT_MISS'
+    throw error
+  }
   return files
 }
 
@@ -157,8 +168,14 @@ if (import.meta.main) {
     console.log(`identity=${sha256(canonical(identity))}`)
   } else {
     if (!lstatSync(transfer).isFile()) throw new Error('feed bundle must be a regular file')
-    const files = validateBundle(readFileSync(transfer), digest, identity, pin)
-    materializeFeed(files, feed)
-    console.log(`platform-feed: restored complete same-run dependency feed (${files.length - 1} packages); API proof remains fresh`)
+    try {
+      const files = validateBundle(readFileSync(transfer), digest, identity, pin)
+      materializeFeed(files, feed)
+      console.log(`platform-feed: restored complete same-run dependency feed (${files.length - 1} packages); API proof remains fresh`)
+    } catch (error) {
+      if (error.code !== 'FEED_ENVIRONMENT_MISS') throw error
+      console.error(`platform-feed: ${error.message}; artifact refused, fresh pack required`)
+      process.exitCode = 3
+    }
   }
 }
