@@ -56,6 +56,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
 
     private IHierarchyCompositeUnitOfWork Store => unitOfWork;
     private IHierarchyAuthorizedAuditWriter AuditWriter => audit;
+    private IEntityMutationStore Entities => entities;
+    private IEntityValidator Validator => validator;
 
     public async Task<SplitResult> SplitAsync(
         EntityId oldEntity,
@@ -70,19 +72,119 @@ public sealed class NodeHierarchyCompositeCoordinator(
         ArgumentNullException.ThrowIfNull(newEntities);
         ArgumentNullException.ThrowIfNull(childReassignments);
         var at = timeProvider.GetUtcNow();
-        var replacementIds = newEntities
+        return (await WritePipeline.RunAsync(
+            new Split(this, oldEntity, newEntities, childReassignments, justification, actor, tenant, at),
+            pipelineObserver, ct).ConfigureAwait(false))!;
+    }
+
+    /// <summary>
+    /// ck-10 S3 (DES-0029, ADR 0038): a split as its six stages. Every decision and every replacement's record
+    /// admission happens before the atomic unit opens, so a refused split takes no unit and writes nothing;
+    /// commit opens the unit and mints, reassigns, supersedes, deletes and audits in it.
+    /// </summary>
+    private sealed class Split(
+        NodeHierarchyCompositeCoordinator coordinator,
+        EntityId oldEntity,
+        IReadOnlyList<SplitTarget> newEntities,
+        IReadOnlyDictionary<EntityId, EntityId> childReassignments,
+        string justification,
+        ActorId actor,
+        TenantId tenant,
+        DateTimeOffset at)
+        : KernelWrite<IReadOnlyList<EntityEdge>, IReadOnlyList<SplitTarget>, IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)>, SplitResult>
+    {
+        private readonly EntityId[] replacementIds = newEntities
             .Select(target => InMemoryEntityStore.DeriveEntityId(target.Schema, target.Options))
             .ToArray();
-        var authorization = await DecideAllAsync(
-            [oldEntity, .. replacementIds, .. childReassignments.Keys, .. childReassignments.Values],
-            actor, tenant, at, ct).ConfigureAwait(false);
-        var affectedEdges = await ReadAffectedChildrenAsync(
-            [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, ct).ConfigureAwait(false);
-        return await unitOfWork.ExecuteAtomicAsync(
-            transactionCt => ApplySplitAsync(
-                authorization, oldEntity, newEntities, replacementIds, childReassignments, affectedEdges,
-                justification, actor, tenant, at, transactionCt),
-            ct).ConfigureAwait(false);
+        private CompositeAuthorization authorization = null!;
+        private IReadOnlyList<EntityEdge> displaced = [];
+        private SplitResult result = null!;
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            authorization = await coordinator.DecideAllAsync(
+                [oldEntity, .. replacementIds, .. childReassignments.Keys, .. childReassignments.Values],
+                actor, tenant, at, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
+            displaced = await coordinator.ReadAffectedChildrenAsync(
+                [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, ct).ConfigureAwait(false);
+
+        protected override ValueTask<IReadOnlyList<SplitTarget>> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
+            ValueTask.FromResult<IReadOnlyList<SplitTarget>>(
+                [.. newEntities.Select(target => target with { Options = target.Options with { ValidFrom = at } })]);
+
+        /// <summary>Ticket 151 (L1418) / ticket 366: every replacement is a record, admitted against its schema
+        /// from the decision that admitted it, and all are admitted before any is written.</summary>
+        protected override async ValueTask<IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)>> ValidateAsync(
+            IReadOnlyList<EntityEdge> bound, IReadOnlyList<SplitTarget> mutation, CancellationToken ct)
+        {
+            var admitted = new List<(ValidatedRecordBody, CreateOptions)>(mutation.Count);
+            for (var index = 0; index < mutation.Count; index++)
+            {
+                var target = mutation[index];
+                if (target.Options.Tenant != tenant)
+                    throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
+                admitted.Add((await ValidatedRecordBody.AdmitAsync(
+                    coordinator.Validator, authorization.Require(replacementIds[index]), target.Schema, target.Body,
+                    tenant, target.Options.Binding, ct).ConfigureAwait(false), target.Options));
+            }
+            return admitted;
+        }
+
+        protected override async ValueTask CommitAsync(
+            IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)> validated, CancellationToken ct)
+        {
+            var store = coordinator.Store;
+            result = await store.ExecuteAtomicAsync(async transactionCt =>
+            {
+                authorization.Require(oldEntity);
+                var minted = new List<EntityId>(validated.Count);
+                foreach (var (body, options) in validated)
+                    minted.Add(await coordinator.Entities.CreateAsync(body, options, transactionCt).ConfigureAwait(false));
+
+                var reassigned = new List<EntityId>();
+                foreach (var edge in displaced)
+                {
+                    var newParent = childReassignments[edge.From];
+                    authorization.Require(edge.From);
+                    authorization.Require(oldEntity);
+                    authorization.Require(newParent);
+                    await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
+                    var replacementEdge = await store.AddEdgeAsync(
+                        edge.From, newParent, EdgeKind.ChildOf, at, null, transactionCt).ConfigureAwait(false);
+                    if (edge.Validity.ValidTo is { } validTo)
+                        await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, transactionCt).ConfigureAwait(false);
+                    reassigned.Add(edge.From);
+                }
+                foreach (var newId in minted)
+                {
+                    authorization.Require(oldEntity);
+                    authorization.Require(newId);
+                    await store.AddEdgeAsync(
+                        oldEntity, newId, EdgeKind.SupersededBy, at, null, transactionCt).ConfigureAwait(false);
+                }
+                authorization.Require(oldEntity);
+                await coordinator.Entities.DeleteAsync(
+                    oldEntity, new DeleteOptions(actor, at, justification), transactionCt).ConfigureAwait(false);
+
+                using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+                {
+                    op = "split",
+                    old = oldEntity.ToString(),
+                    newIds = minted.Select(id => id.ToString()).ToArray(),
+                    reassigned = reassigned.Select(id => id.ToString()).ToArray(),
+                }));
+                await coordinator.AuditWriter.AppendAsync(new AuditAppend(
+                    oldEntity, null, Op.Split, actor, tenant, at, payload, justification),
+                    authorization.Require(oldEntity), transactionCt)
+                    .ConfigureAwait(false);
+                return new SplitResult(oldEntity, minted, reassigned);
+            }, ct).ConfigureAwait(false);
+        }
+
+        protected override ValueTask<SplitResult> ReactAsync(
+            IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)> validated, CancellationToken ct) =>
+            ValueTask.FromResult(result);
     }
 
     public async Task<MergeResult> MergeAsync(
@@ -250,75 +352,6 @@ public sealed class NodeHierarchyCompositeCoordinator(
             if (include(edge))
                 edges.Add(edge);
         return edges;
-    }
-
-    private async Task<SplitResult> ApplySplitAsync(
-        CompositeAuthorization authorization,
-        EntityId oldEntity,
-        IReadOnlyList<SplitTarget> newEntities,
-        IReadOnlyList<EntityId> replacementIds,
-        IReadOnlyDictionary<EntityId, EntityId> childReassignments,
-        IReadOnlyList<EntityEdge> affectedEdges,
-        string justification,
-        ActorId actor,
-        TenantId tenant,
-        DateTimeOffset effectiveAt,
-        CancellationToken ct)
-    {
-        authorization.Require(oldEntity);
-        var minted = new List<EntityId>(newEntities.Count);
-        for (var index = 0; index < newEntities.Count; index++)
-        {
-            var target = newEntities[index];
-            if (target.Options.Tenant != tenant)
-                throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
-            // Ticket 151 (L1418) / ticket 366: a split mints RECORDS, so stage two runs here too — after
-            // the composite admission, before the store sees the body. The SAME decision the admission
-            // returned is what the mint requires, so the ordering cannot be swapped or re-decided.
-            var admission = authorization.Require(replacementIds[index]);
-            var admitted = await ValidatedRecordBody.AdmitAsync(
-                validator, admission, target.Schema, target.Body, tenant, target.Options.Binding, ct).ConfigureAwait(false);
-            minted.Add(await entities.CreateAsync(
-                admitted, target.Options with { ValidFrom = effectiveAt }, ct).ConfigureAwait(false));
-        }
-
-        var reassigned = new List<EntityId>();
-        foreach (var edge in affectedEdges)
-        {
-            var newParent = childReassignments[edge.From];
-            authorization.Require(edge.From);
-            authorization.Require(oldEntity);
-            authorization.Require(newParent);
-            await unitOfWork.InvalidateEdgeAsync(edge.Id, effectiveAt, ct).ConfigureAwait(false);
-            var replacementEdge = await unitOfWork.AddEdgeAsync(
-                edge.From, newParent, EdgeKind.ChildOf, effectiveAt, null, ct).ConfigureAwait(false);
-            if (edge.Validity.ValidTo is { } validTo)
-                await unitOfWork.InvalidateEdgeAsync(replacementEdge.Id, validTo, ct).ConfigureAwait(false);
-            reassigned.Add(edge.From);
-        }
-        foreach (var newId in minted)
-        {
-            authorization.Require(oldEntity);
-            authorization.Require(newId);
-            await unitOfWork.AddEdgeAsync(
-                oldEntity, newId, EdgeKind.SupersededBy, effectiveAt, null, ct).ConfigureAwait(false);
-        }
-        authorization.Require(oldEntity);
-        await entities.DeleteAsync(
-            oldEntity, new DeleteOptions(actor, effectiveAt, justification), ct).ConfigureAwait(false);
-
-        using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
-        {
-            op = "split",
-            old = oldEntity.ToString(),
-            newIds = minted.Select(id => id.ToString()).ToArray(),
-            reassigned = reassigned.Select(id => id.ToString()).ToArray(),
-        }));
-        await audit.AppendAsync(new AuditAppend(
-            oldEntity, null, Op.Split, actor, tenant, effectiveAt, payload, justification),
-            authorization.Require(oldEntity), ct)
-            .ConfigureAwait(false);
-        return new SplitResult(oldEntity, minted, reassigned);
     }
 
     private async Task<MergeResult> ApplyMergeAsync(
