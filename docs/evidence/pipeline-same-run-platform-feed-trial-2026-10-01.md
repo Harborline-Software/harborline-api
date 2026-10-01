@@ -28,6 +28,29 @@ Same API main commit f087710b8d838c577b704a3b059fa6b11dfb3343: packages run 3680
 
 A producer dependency adds queue/startup, upload/download and repeated consumer setup. Saving SUM compute does not guarantee a shorter critical path. Measure a completed nonpublishing branch dispatch (publish=false) against the baseline, report producer plus all consumer durations and run creation-to-last-consumer completion, and disclose event/environment/cache differences. Verify's approximately 45-minute Windows critical path is outside this experiment. Do not recommend landing if wall time worsens without convincing shared-pool compute benefit.
 
-Hosted before/after measurements remain pending at this initial draft checkpoint. No publication, merge, readiness change or runner-concurrency change is authorized by this experiment.
+No publication, merge, readiness change or runner-concurrency change is authorized by this experiment.
 
 Initial hosted trial 36813191922 at 2bfedb22 exercised a real image-key refusal: the producer used Ubuntu image 20260920.314.1, while pack-consume received 20260927.320.1. The producer's 3,762,408-byte direct artifact (ID 11140896231; SHA-256 1223d746946c497b944c66f33ce50cb54cf4a3c06e917cc27114d209ab01b2f9) passed binding; two consumers restored it, and pack-consume refused the image mismatch. This failed run is not a completed performance comparison. The follow-up keeps exact image identity and adds the explicit verified-environment-miss fresh-build path rather than accepting mismatched bytes.
+
+## Completed trial: do not land this version
+
+[Baseline run 36802090007](https://github.com/Harborline-Software/harborline-api/actions/runs/36802090007) was a successful merge_group on main f087710. [Trial run 36814078999](https://github.com/Harborline-Software/harborline-api/actions/runs/36814078999) successfully completed on code commit c334f1bd3fc522ee39a49b6c1cccf6299a8204bb, via workflow_dispatch on refs/heads/pipeline/api-same-run-feed-trial-20261001 with publish=false. Its publication job was skipped: the ref was not a tag and inputs.publish was false. Protocol TypeScript/C#/Rust, operator CLI headless and clean package consumer verification retained their original commands and passed. No API results or receipts were restored.
+
+| Metric, seconds | Baseline | Trial |
+|---|---:|---:|
+| Producer job | absent | 207 |
+| Operator job | 218 | 238 |
+| Pack-consume job | 257 | 117 |
+| Protocol job | 235 | 273 |
+| SUM producer plus consumer job elapsed | 710 | 835 |
+| Run creation to last consumer completion | 261 | 487 |
+| First relevant job start to last consumer completion | 257 | 483 |
+| SUM relevant feed composites, including producer and fallback | 467 | 552 |
+
+The producer finished at 04:16:41Z after starting at 04:13:14Z. Consumers started at 04:16:43/44Z. Last consumer completed at 04:21:17Z, from a run created at 04:13:10Z. This explicitly includes producer serialization, its startup and transfer overhead. SUM job elapsed increased 125s (17.6%); creation-to-last-consumer wall time increased 226s (86.6%). These are measured elapsed runner occupancy and wall time, not CPU utilization or billed rounded minutes.
+
+Verified artifact provenance: ID 11141035730, name platform-feed-bundle.json, 3,762,416 bytes, SHA-256 702f77bf6bd457d1fddb87e5cdb83347a484435222f2fed43c6cc6e270aa0764. Producer output BUNDLE_DIGEST and upload ARTIFACT_DIGEST agreed. Producer and pack-consume ran Ubuntu image 20260920.314.1; pack-consume logged a complete 34-package restore. Operator and protocol ran 20260927.320.1 and logged imageVersion-only key misses, refused artifact reuse, freshly packed the checked-out pin and validated the new feed. Their composite durations were 152s and 200s, versus 8s for the matching pack consumer and 192s for the producer composite.
+
+Both runs used the same pinned Platform commit and package source version. API production/test sources are unchanged by the trial; its code changes are pipeline/helper fixtures. Events, Git commit metadata, runner instances/images, preinstalled dependencies and transient network/cache conditions differ. This is one completed trial and one historical baseline, not a controlled repeated statistical estimate. It nevertheless demonstrates no shared-pool benefit in the observed current image rollout: both SUM job elapsed and critical path worsened.
+
+Recommendation: retain API #324 as an experimental draft and do not land this version. Exact image partitioning fragmented the same-run feed while the producer serialized the consumers. Do not drop that check merely to get a hit; any future narrower identity needs an audit of the actual SDK/reference-pack/build inputs or a deliberately controlled producer environment. Cross-run reuse and cross-OS reuse remain out of scope. No further expensive run is warranted for this implementation after the observed regression.
