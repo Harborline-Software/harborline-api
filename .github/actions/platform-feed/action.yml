@@ -1,5 +1,12 @@
 name: Pinned platform feed
 description: Build and validate the local NuGet source before restoring API projects
+inputs:
+  artifact-id:
+    description: Exact dependency artifact ID from the producer in this workflow run (empty packs fresh)
+    default: ''
+  artifact-digest:
+    description: SHA-256 of the direct feed bundle from that producer
+    default: ''
 runs:
   using: composite
   steps:
@@ -23,8 +30,56 @@ runs:
           echo "::error title=platform-feed test failed::eng/tests/platform-feed.test.mjs failed; the feed build did not run"
           exit 1
         fi
+    - name: Validate the same-run artifact binding
+      if: inputs.artifact-id != '' || inputs.artifact-digest != ''
+      shell: bash
+      env:
+        FEED_ARTIFACT_ID: ${{ inputs.artifact-id }}
+        FEED_ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      run: |
+        [[ "$FEED_ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$FEED_ARTIFACT_DIGEST" =~ ^[a-f0-9]{64}$ ]] || {
+          echo '::error::same-run feed requires one exact artifact ID and producer digest'
+          exit 1
+        }
+        # Checkout is fresh on these hosted jobs. Refuse stale transfer files rather than reading them.
+        mkdir .feed-transfer
+    - name: Download the exact same-run dependency artifact
+      id: feed_download
+      if: inputs.artifact-id != ''
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        digest-mismatch: error
+        path: .feed-transfer
+    - name: Validate and materialize the complete dependency feed
+      if: inputs.artifact-id != '' && steps.feed_download.outcome == 'success'
+      shell: bash
+      env:
+        HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+        FEED_ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+      run: |
+        [[ "$(find .feed-transfer -mindepth 1 -maxdepth 1 | wc -l)" -eq 1 ]] || {
+          echo '::error::unexpected dependency artifact contents'
+          exit 1
+        }
+        node eng/platform-feed-artifact.mjs restore "$HARBORLINE_PLATFORM_REPO" .feed-transfer/platform-feed-bundle.json "$FEED_ARTIFACT_DIGEST"
+    - name: Reject failed downloads that left any bytes
+      if: inputs.artifact-id != '' && steps.feed_download.outcome != 'success'
+      shell: bash
+      run: |
+        if [[ -n "$(find .feed-transfer -mindepth 1 -print -quit)" ]]; then
+          echo '::error::failed dependency download left bytes; refusing possible corruption rather than falling back'
+          exit 1
+        fi
+        echo '::warning::exact dependency artifact unavailable with no bytes; rebuilding from the checked-out Platform pin'
     - name: Build the local package feed
+      if: inputs.artifact-id == '' || steps.feed_download.outcome != 'success'
       shell: bash
       env:
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
       run: node eng/build-local-feed.mjs
+    - name: Validate a freshly rebuilt dependency feed after unavailable download
+      if: inputs.artifact-id != '' && steps.feed_download.outcome != 'success'
+      shell: bash
+      run: node eng/platform-feed-artifact.mjs create .platform .feed-transfer/rebuilt-platform-feed-bundle.json

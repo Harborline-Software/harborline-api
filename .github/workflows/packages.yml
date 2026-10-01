@@ -53,6 +53,55 @@ permissions:
   packages: write
 
 jobs:
+  # Experimental same-run Ubuntu feed fan-out. Tag pushes and publication-enabled dispatches
+  # keep their original fresh-pack path. This job changes no publication or required-test policy.
+  platform-feed-producer:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       !contains(github.event.pull_request.labels.*.name, 'stacked'))
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name != 'push' && inputs.publish != true
+      - uses: actions/setup-dotnet@v6
+        if: github.event_name != 'push' && inputs.publish != true
+        with:
+          global-json-file: global.json
+      - uses: ./.github/actions/platform-feed
+        if: github.event_name != 'push' && inputs.publish != true
+      - name: Feed artifact unit and workflow policy tests
+        if: github.event_name != 'push' && inputs.publish != true
+        run: node --test eng/tests/platform-feed-artifact.test.mjs eng/tests/platform-feed-workflow.test.mjs
+      - name: Record complete dependency bundle
+        id: bundle
+        if: github.event_name != 'push' && inputs.publish != true
+        shell: bash
+        run: node eng/platform-feed-artifact.mjs create .platform platform-feed-bundle.json >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        id: upload
+        if: github.event_name != 'push' && inputs.publish != true
+        with:
+          path: platform-feed-bundle.json
+          archive: false
+          overwrite: false
+          if-no-files-found: error
+          retention-days: 1
+      - name: Bind the immutable artifact to the exact bundle bytes
+        if: github.event_name != 'push' && inputs.publish != true
+        shell: bash
+        env:
+          BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$BUNDLE_DIGEST" =~ ^[a-f0-9]{64}$ && "$ARTIFACT_DIGEST" == "$BUNDLE_DIGEST" ]] || {
+            echo '::error::producer artifact ID/digest does not bind the complete feed bundle'
+            exit 1
+          }
   # The app/Capability protocol is schema-first: one JSON Schema plus manifest generates the
   # TypeScript, C#, Rust and OpenAPI projections, and a shared 48-case fixture manifest is the
   # language-neutral proof that every projection implements the same wire contract.
@@ -67,6 +116,7 @@ jobs:
   # the first. One red lane reads as a broken projection; three red lanes read as a regeneration
   # that was never run.
   protocol-lane-conformance:
+    needs: [platform-feed-producer]
     # Skipped on push only (publication only, see `on:`). No variable can flip this condition, and a
     # push has no pull request or merge group for a skipped-as-green context to admit (T-633). On a
     # pull request it also skips a draft and a `stacked` PR (see the header); the merge group runs it.
@@ -85,6 +135,9 @@ jobs:
         with:
           version: 11.1.3
       - uses: ./.github/actions/platform-feed
+        with:
+          artifact-id: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-id || '' }}
+          artifact-digest: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-digest || '' }}
       - uses: actions/setup-node@v7
         with:
           # No engines field or .nvmrc pins this package; 24 is the version the lane is verified
@@ -121,6 +174,7 @@ jobs:
         run: cargo test --manifest-path packages/contracts/rust/Cargo.toml
 
   operator-cli-headless:
+    needs: [platform-feed-producer]
     # Skipped on push, a draft and a `stacked` PR, for the reasons protocol-lane-conformance gives.
     if: >-
       github.event_name != 'push' &&
@@ -134,6 +188,9 @@ jobs:
         with:
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
+        with:
+          artifact-id: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-id || '' }}
+          artifact-digest: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-digest || '' }}
       - name: Drive a provisioned node through the operator CLI
         run: >-
           dotnet test apps/local-node-host/tests/tests.csproj
@@ -149,6 +206,7 @@ jobs:
   # suite is precisely what hid a restore-breaking NU1015 in Directory.Build.props.
   # On push (publication only) it packs and uploads without the consumer run.
   pack-consume:
+    needs: [platform-feed-producer]
     # A draft and a `stacked` PR skip it, as protocol-lane-conformance does; every other event runs it.
     if: >-
       github.event_name != 'pull_request' ||
@@ -172,6 +230,9 @@ jobs:
           dotnet-version: '10.0.x'
           global-json-file: global.json
       - uses: ./.github/actions/platform-feed
+        with:
+          artifact-id: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-id || '' }}
+          artifact-digest: ${{ github.event_name != 'push' && inputs.publish != true && needs.platform-feed-producer.outputs.artifact-digest || '' }}
       - name: Select immutable prerelease version
         id: version
         shell: bash
