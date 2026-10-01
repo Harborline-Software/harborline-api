@@ -1,0 +1,78 @@
+{
+  "overlay": {
+    "fields": {
+      "quantity": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "quantity"
+          }
+        }
+      },
+      "unitPrice": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "unitPrice"
+          }
+        }
+      },
+      "total": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "total"
+          }
+        }
+      },
+      "status": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "status"
+          }
+        },
+        "writeRoles": [
+          "invoice.approver"
+        ]
+      }
+    },
+    "sections": [
+      {
+        "id": "journal",
+        "title": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "journal"
+          }
+        },
+        "fields": [
+          "quantity",
+          "unitPrice",
+          "total",
+          "status"
+        ],
+        "access": {
+          "readRoles": [
+            "invoice.author",
+            "invoice.approver"
+          ],
+          "writeRoles": [
+            "invoice.author",
+            "invoice.approver"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "id": "journal.total",
+        "tier": "JsonLogic",
+        "scope": "Field",
+        "scopeTarget": "total",
+        "expression": "{\"*\":[{\"var\":\"quantity\"},{\"var\":\"unitPrice\"}]}",
+        "action": "Compute"
+      }
+    ]
+  }
+}

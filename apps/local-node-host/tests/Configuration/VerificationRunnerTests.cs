@@ -423,6 +423,53 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         ("two-at-one-hundred", 200), ("ten-at-one-hundred", 1000), ("three-at-four-hundred", 1200),
     ];
 
+    /// <summary>
+    /// T-463: whole candidate documents are consumed unchanged as ordinary FormDefinition content.
+    /// This proves Records-and-Rules execution, not asset persistence or journal posting.
+    /// The suite's literal expectations are authored independently of the candidate's rule.
+    /// </summary>
+    [Theory]
+    [InlineData("asset", "asset")]
+    [InlineData("ledger", "journal")]
+    public async Task File_authored_candidates_run_through_the_existing_verification_path(
+        string fixtureName, string recordType)
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463");
+        var candidateDocument = await File.ReadAllTextAsync(Path.Combine(root, fixtureName + ".candidate.json"));
+        var suiteDocument = await File.ReadAllTextAsync(Path.Combine(root, fixtureName + ".suite.json"));
+        var suite = VerificationSuite.Parse(suiteDocument, out var refusals);
+        Assert.Empty(refusals);
+        Assert.NotNull(suite);
+        var packageKey = "verification." + fixtureName;
+        var definitionKey = "records/" + recordType;
+        Seed(packageKey, (definitionKey, PackContentKind.FormDefinition, candidateDocument));
+        var baseline = _target.ReadEffective(_tenant).Digest;
+        var prepared = _target.Prepare(_tenant, baseline, ["finance.access", packageKey],
+            new Dictionary<string, string>(StringComparer.Ordinal) { [definitionKey] = packageKey }, Frozen);
+        Assert.NotNull(prepared.Preparation?.Prepared);
+        var run = await _runner.RunAsync(_tenant, "receipt-file-" + fixtureName,
+            prepared.Preparation!.Candidate.Digest, baseline, suite!);
+        Assert.Empty(run.Refusals);
+        Assert.NotNull(run.Receipt);
+        Assert.Equal(VerificationStatus.Passed, run.Receipt.Status);
+        Assert.Equal(4, run.Receipt.Outcomes.Count);
+        Assert.All(run.Receipt.Outcomes, outcome =>
+        {
+            Assert.Equal(VerificationStatus.Passed, outcome.Status);
+            Assert.NotEmpty(outcome.Observations);
+            Assert.All(outcome.Observations, observation => Assert.True(observation.Matched));
+        });
+        // Independent literals pin both successful business results and the rejected actor.
+        foreach (var (rowId, total) in Rows)
+            Assert.Equal(total.ToString(CultureInfo.InvariantCulture),
+                Actual(Outcome(run.Receipt, "invoice-total", rowId), "record.number"));
+        var denied = Outcome(run.Receipt, "approval-authority");
+        Assert.Equal("false", Actual(denied, "outcome.accepted"));
+        Assert.Equal("\"records-authority-insufficient\"", Actual(denied, "outcome.refusalCode"));
+        Assert.Equal("\"/values/status\"", Actual(denied, "outcome.refusalPointer"));
+        Assert.Equal(baseline, _target.ReadEffective(_tenant).Digest);
+    }
+
     private string Candidate(string owner, string baseline)
     {
         var prepared = _target.Prepare(_tenant, baseline,
