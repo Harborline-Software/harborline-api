@@ -24,9 +24,6 @@ concurrency:
   group: mutation
   cancel-in-progress: false
 
-# No Actions cache capability is needed by mutation; applies to every job.
-cache-mode: none
-
 permissions:
   contents: read
 
@@ -41,15 +38,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Verify cache capability isolation
-        run: node .github/workloads/cache-isolation.mjs
       - name: Explain background routing
         id: route
         env:
           BACKGROUND_MUTATION_ROUTE: ${{ vars.BACKGROUND_MUTATION_ROUTE }}
           LOCAL_BACKGROUND_RESERVATION: ${{ vars.LOCAL_BACKGROUND_RESERVATION }}
         run: |
-          node --test .github/workloads/workload-route.test.mjs .github/workloads/cache-isolation.test.mjs
+          node --test .github/workloads/workload-route.test.mjs .github/workloads/select-platform-pin.test.mjs
           python3 .github/workloads/host-workload-lock.test.py
           node .github/workloads/workload-route.mjs
   stryker-full:
@@ -86,17 +81,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
-      - name: Verify cache capability isolation
-        run: node .github/workloads/cache-isolation.mjs
-      - name: Read the recorded platform pin
-        id: platform_pin
-        run: echo "commit=$(node -p "require('./eng/platform-pin.json').commit")" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
+      - name: Check out Platform main without executing it
+        uses: actions/checkout@v7
         with:
           repository: Harborline-Software/harborline-platform
-          ref: ${{ steps.platform_pin.outputs.commit }}
+          ref: main
+          fetch-depth: 0
           path: .platform
           persist-credentials: false
+      - name: Validate and select the recorded Platform pin
+        run: node .github/workloads/select-platform-pin.mjs
+
       - name: Reserved full mutation and isolated feed
         run: python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
         env:

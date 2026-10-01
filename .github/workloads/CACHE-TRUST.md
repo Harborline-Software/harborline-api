@@ -2,8 +2,8 @@
 
 Rule: `actions/cache-poisoning/poisonable-step`, high / security severity 7.5.
 This finding is not dismissed or suppressed. No external attacker-controlled
-full-main execution path was demonstrated. Cache capability is nevertheless
-removed in the draft, with a runner-enforced fail-closed check.
+full-main execution path was demonstrated. The draft now refuses
+unmerged full-run producer pins before checkout execution.
 
 ## Source, sink and inheritance
 
@@ -45,13 +45,27 @@ API package workflows also declare pnpm caches, making repository cache reuse
 relevant. No declared Actions-cache consumer was found in App's workflows during
 this focused scan; that is not a guarantee against future consumers.
 
-The draft now sets native workflow `cache-mode: none`, which denies cache reads
-and writes to both routing and mutation jobs. Before either job proceeds,
-`cache-isolation.mjs` requires the runner's `ACTIONS_CACHE_MODE` to equal `none`;
-missing, read, write and write-only modes fail closed. A shell environment change
-by subsequently executed code cannot grant a scoped cache-token capability.
-All checkout steps in these workflows use `persist-credentials: false`.
-The contents permission stays read-only; no secrets or permissions are added.
+The initial native `cache-mode: none` experiment was not accepted as proof:
+App's hosted guard did not observe the advertised effective `none` mode and
+failed closed before mutation. That unsupported guard/declaration is removed,
+not weakened by fabricating an environment value or dismissing the alert.
+
+The final trust check is independent of cache-mode availability. Checkout first
+fetches the fixed Platform `main` and its complete history without running code.
+`select-platform-pin.mjs` validates schema, fixed repository and exact 40-hex SHA;
+full mutation requires that SHA to be an ancestor of fetched `origin/main` before
+detaching to it, importing modules or invoking MSBuild. Unmerged, missing or
+mutable refs fail closed. Thus future full-run pins cannot silently select an
+unreviewed Platform branch even if a consumer pin review misses that distinction.
+The build still uses the recorded immutable version, not the newest main tree.
+
+Hosted PR feedback retains proposed immutable producer pins: it is a PR-trigger
+job in that PR's cache scope, and original fork/draft guards still apply. There
+is no exception for schedule or dispatch. Checkout credentials are never
+persisted; contents permission remains read-only and no secrets are added.
+Trusted main code can still access its normal cache capability. This change
+does not claim that dependency execution is sandboxed or that all caches are
+disabled; it enforces the source-code trust boundary before that execution.
 
 Full mutation's NuGet directory is under runner temp with run/attempt identity;
 its feed is rebuilt in the clean job workspace and is not uploaded/restored as
@@ -61,17 +75,18 @@ Mac qualification remain mandatory. Artifact report upload is not a cache.
 
 ## Regression and review evidence
 
-`cache-isolation.test.mjs` checks denial of every non-none mode and the workflow
-guard placement. Existing routing tests retain trusted-main/fork behavior.
-App's extra workflow tests retain pinned Python ordering and feed/restore
-fail-fast behavior. Hosted preflight checks actual native `ACTIONS_CACHE_MODE`;
-no mutation or Mac qualification is required to exercise that assertion.
+`select-platform-pin.test.mjs` uses a real temporary Git repository with an
+approved main commit and a divergent unmerged commit. It proves full mode
+rejects the divergent commit without checking it out; allows the approved SHA;
+rejects mutable/invalid refs and a different repository; and preserves hosted PR
+proposed-pin behavior. The fixture's module throws if executed: no build or
+mutation is needed to test this trust boundary. A wiring regression checks the
+literal main checkout/full history, validation ordering and no persisted token.
+App's preparation/failure tests remain in place.
 
-The current public CodeQL `CachePoisoningQuery.qll` predicate
-`hasDefaultBranchCacheWriteAccess` checks trigger/default-branch scope without a
-cache-mode test. Therefore static findings may persist despite the native
-capability restriction. Keep the security check and alert open for independent
-review; do not claim CodeQL clearance solely from the source reasoning.
+The current CodeQL cache-write model checks event/default-branch scope. Static
+results for the final trust check are still subject to independent review; keep
+the check and alert visible, with no suppression or permission exception.
 
 Sources:
 
