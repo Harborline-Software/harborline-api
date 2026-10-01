@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs'
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {verificationPlan, verifyPreflight} from '../verify-preflight.mjs'
-import {invalidateQualityProduction, recordQualityProduction, requireQualityProduction} from '../quality-production.mjs'
+import {beginQualityProduction, invalidateQualityProduction, recordQualityProduction, requireQualityProduction} from '../quality-production.mjs'
+import {qualityArtifacts} from '../quality-step.mjs'
 
 for (const lane of ['all', 'shared', 'host']) for (const flag of [undefined, '1']) {
   test(`${lane}, quality=${flag}: producer/consumer policy`, () => {
@@ -17,8 +18,23 @@ test('unset lane is a full quality run; invalid lanes fail closed', () => {
   assert.equal(verificationPlan({}).quality, true)
   assert.throws(() => verificationPlan({HARBORLINE_VERIFY_LANE: 'typo'}), /must be/)
 })
+test('production startup removes every old SARIF input and its manifest, including stray nested reports', () => {
+  const {apiRoot} = fixture()
+  try {
+    const directory = path.join(apiRoot, 'artifacts/quality')
+    mkdirSync(path.join(directory, 'stray'), {recursive: true})
+    const files = ['old.sarif', 'stray/old.sarif.json'].map(file => path.join(directory, file))
+    for (const file of files) writeFileSync(file, '{}')
+    writeFileSync(path.join(directory, 'host.cobertura.xml'), '<coverage/>')
+    recordQualityProduction(apiRoot, {head: 'old-head', run: 'old-run', files})
+    beginQualityProduction(apiRoot, qualityArtifacts(apiRoot).sarif)
+    assert.deepEqual(qualityArtifacts(apiRoot).sarif, [])
+    assert.equal(existsSync(path.join(directory, 'production.json')), false)
+    assert.equal(existsSync(path.join(directory, 'host.cobertura.xml')), true)
+  } finally { rmSync(apiRoot, {recursive: true, force: true}) }
+})
 function fixture() {
-  const apiRoot = mkdtempSync(path.join(tmpdir(), 'api-preflight-'))
+  const apiRoot = mkdtempSync(path.join(tmpdir(), 'api preflight space-'))
   mkdirSync(path.join(apiRoot, 'eng/baselines'), {recursive: true})
   mkdirSync(path.join(apiRoot, 'artifacts/quality'), {recursive: true})
   writeFileSync(path.join(apiRoot, 'global.json'), JSON.stringify({sdk: {version: '11.0.100-test', rollForward: 'disable'}}))
@@ -53,6 +69,11 @@ test('quality consumption refuses missing, previous-run, previous-head and chang
     assert.throws(() => recordQualityProduction(apiRoot, {...production, files: []}), /no SARIF/)
     recordQualityProduction(apiRoot, production)
     requireQualityProduction(apiRoot, production)
+    assert.throws(() => requireQualityProduction(apiRoot, {...production, run: undefined}), /missing verification HEAD\/run/)
+    const extra = path.join(apiRoot, 'artifacts/quality/unexpected.sarif')
+    writeFileSync(extra, '{}')
+    assert.throws(() => requireQualityProduction(apiRoot, {...production, files: [file, extra]}), /outputs changed/)
+    rmSync(extra)
     assert.throws(() => requireQualityProduction(apiRoot, {...production, head: 'head-b'}), /stale/)
     assert.throws(() => requireQualityProduction(apiRoot, {...production, run: 'run-b'}), /stale/)
     assert.throws(() => requireQualityProduction(apiRoot, {...production, files: []}), /outputs changed/)

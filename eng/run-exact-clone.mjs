@@ -21,7 +21,7 @@ import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
-import {invalidateQualityProduction, recordQualityProduction} from './quality-production.mjs'
+import {beginQualityProduction, recordQualityProduction} from './quality-production.mjs'
 import {qualityArtifacts} from './quality-step.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
@@ -46,7 +46,11 @@ const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
 const collectCoverage = coverageEnabled()
 const coveragePaths = qualityCoveragePaths(apiRoot)
 const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
-if (qualityEnabled) invalidateQualityProduction(apiRoot)
+if (qualityEnabled) {
+  // qualityArtifacts also finds SARIF outside the engine directories. Never attest an old
+  // top-level or nested report merely because this run rebuilt the three normal directories.
+  beginQualityProduction(apiRoot, qualityArtifacts(apiRoot).sarif)
+}
 
 const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
 const dirty = execFileSync('git', ['-C', apiRoot, 'status', '--porcelain'], {encoding: 'utf8'}).trim()
