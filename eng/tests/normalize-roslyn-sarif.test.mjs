@@ -17,7 +17,7 @@ const control = process.env.HARBORLINE_CONTROL_REPO
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {encoding: 'utf8', ...options})
-  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout)
   return result
 }
 

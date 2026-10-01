@@ -11,6 +11,8 @@ eval "$(sed -n '/^in_lane() {/,/^}/p' "$root/eng/verify.sh")"
 eval "$(sed -n '/^configure_quality() {/,/^}/p' "$root/eng/verify.sh")"
 eval "$(sed -n '/^configure_checkouts() {/,/^}/p' "$root/eng/verify.sh")"
 checkout_checks=$(cd "$root" && {
+  lane=all
+  HARBORLINE_GATE_QUALITY=
   unset HARBORLINE_CONTROL_REPO HARBORLINE_QUALITY_REPO
   configure_checkouts || exit 1
   node - "$HARBORLINE_CONTROL_REPO" "$HARBORLINE_QUALITY_REPO" <<'NODE' || exit 1
@@ -33,6 +35,24 @@ assert.equal(process.argv[3], path.resolve('relative quality with spaces'))
 NODE
 })
 check 'checkout defaults and relative overrides survive scratch-clone cwd changes' 0 "$?"
+for checkout_lane in all shared host; do
+  for checkout_flag in '' 1; do
+    checkout_status=$(cd "$root" && {
+      lane=$checkout_lane
+      HARBORLINE_GATE_QUALITY=$checkout_flag
+      unset HARBORLINE_CONTROL_REPO HARBORLINE_QUALITY_REPO
+      configure_checkouts || exit 1
+      if [ "$lane" = host ] && [ "$checkout_flag" != 1 ]; then
+        [ -z "${HARBORLINE_CONTROL_REPO:-}" ] && [ -z "${HARBORLINE_QUALITY_REPO:-}" ] || exit 1
+        # Execute the unchanged real normalizer assertions in the hosted non-quality environment.
+        node --test eng/tests/normalize-roslyn-sarif.test.mjs || exit 1
+      else
+        [ -n "${HARBORLINE_CONTROL_REPO:-}" ] && [ -n "${HARBORLINE_QUALITY_REPO:-}" ] || exit 1
+      fi
+    })
+    check "$checkout_lane flag=$checkout_flag exports only required checkout defaults" 0 "$?"
+  done
+done
 for lane in all shared host; do
   for flag in '' 1; do
     HARBORLINE_GATE_QUALITY=$flag

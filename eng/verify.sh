@@ -43,13 +43,21 @@ configure_quality() {
 }
 configure_quality || exit 1
 configure_checkouts() {
-  local main_checkout
+  local main_checkout require_checkouts=0
   main_checkout=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)") || return 1
+  if [ "$lane" != host ] || [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; then require_checkouts=1; fi
   # Downstream scanners and the scratch clone must use the same checkouts preflight validates.
   # Resolve explicit relative overrides from this source checkout before cloning changes cwd.
-  HARBORLINE_CONTROL_REPO=$(node -e 'console.log(require("node:path").resolve(process.argv[1]))' "${HARBORLINE_CONTROL_REPO:-$main_checkout/../harborline-control}") || return 1
-  HARBORLINE_QUALITY_REPO=$(node -e 'console.log(require("node:path").resolve(process.argv[1]))' "${HARBORLINE_QUALITY_REPO:-$main_checkout/../harborline-quality}") || return 1
-  export HARBORLINE_CONTROL_REPO HARBORLINE_QUALITY_REPO
+  # A non-quality host does not check out these private repositories. Supplying nonexistent
+  # defaults would incorrectly activate boundary integration tests that require real pins.
+  if [ "$require_checkouts" = 1 ] || [ -n "${HARBORLINE_CONTROL_REPO:-}" ]; then
+    HARBORLINE_CONTROL_REPO=$(node -e 'console.log(require("node:path").resolve(process.argv[1]))' "${HARBORLINE_CONTROL_REPO:-$main_checkout/../harborline-control}") || return 1
+    export HARBORLINE_CONTROL_REPO
+  fi
+  if [ "$require_checkouts" = 1 ] || [ -n "${HARBORLINE_QUALITY_REPO:-}" ]; then
+    HARBORLINE_QUALITY_REPO=$(node -e 'console.log(require("node:path").resolve(process.argv[1]))' "${HARBORLINE_QUALITY_REPO:-$main_checkout/../harborline-quality}") || return 1
+    export HARBORLINE_QUALITY_REPO
+  fi
 }
 configure_checkouts || exit 1
 node eng/verify-preflight.mjs || exit 1
