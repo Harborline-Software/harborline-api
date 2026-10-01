@@ -40,12 +40,18 @@ class PromotionTests(unittest.TestCase):
         self.addCleanup(self.sha.stop)
         for package_id in PACKAGE_IDS:
             self.package(package_id)
-        with tarfile.open(self.stage / 'contracts.tgz', 'w:gz') as archive:
-            data = json.dumps(dict(name='@harborline-software/api-contracts', version=VERSION)).encode()
-            entry = tarfile.TarInfo('package/package.json')
-            entry.size = len(data)
-            archive.addfile(entry, io.BytesIO(data))
+        self.tarball(self.stage / 'contracts.tgz')
         self.calls = []
+
+    def tarball(self, path, extra=None):
+        files = {'package/package.json': json.dumps(dict(name='@harborline-software/api-contracts', version=VERSION)).encode()}
+        if extra is not None:
+            files['package/extra.js'] = extra
+        with tarfile.open(path, 'w:gz') as archive:
+            for name, data in files.items():
+                entry = tarfile.TarInfo(name)
+                entry.size = len(data)
+                archive.addfile(entry, io.BytesIO(data))
 
     def package(self, package_id, version=VERSION, payload=b'original'):
         with zipfile.ZipFile(self.stage / f'{package_id}.{VERSION}.nupkg', 'w') as archive:
@@ -88,8 +94,9 @@ class PromotionTests(unittest.TestCase):
         shutil.copytree(self.stage, copied)
         proof.verify(copied, VERSION)
         self.assertEqual([call[1] for call in self.calls], ['restore', 'run'])
-        (copied / 'contracts.tgz').write_bytes(b'tampered')
-        with self.assertRaises((ValueError, tarfile.ReadError)):
+        # Same npm identity and version, different bytes: only the manifest's tarball hash can refuse this.
+        self.tarball(copied / 'contracts.tgz', extra=b'tampered')
+        with self.assertRaisesRegex(ValueError, 'promotion manifest does not match'):
             proof.verify(copied, VERSION)
 
     def test_missing_and_wrong_version_refused_before_consumer(self):
