@@ -5,8 +5,8 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 
 /// <summary>
 /// DES-0029 kernel-core-ck-6: a journal row reaches the node database only through the Platform
-/// <c>KernelTransactionBoundary</c> port, whose <c>CommitAsync</c> is the one journal commit point. The workflow
-/// effects that join the workflow writer's transaction are named exceptions: the boundary has no join mode.
+/// <c>KernelTransactionBoundary</c> port, whose <c>CommitAsync</c> is the one journal commit point. Workflow
+/// effects join that port through the enclosing workflow boundary and never stage a journal row themselves.
 /// </summary>
 public sealed class JournalKernelBoundaryArchTests
 {
@@ -21,22 +21,11 @@ public sealed class JournalKernelBoundaryArchTests
         @"\.\s*(?<call>(?:SaveChanges|BeginTransaction|UseTransaction|Commit|ExecuteUpdate|ExecuteDelete|ExecuteSql\w*|ExecuteNonQuery)(?:Async)?)\s*\(",
         RegexOptions.Compiled);
 
-    // A workflow effect stages its journal row into the workflow writer's already-open transaction, which the
-    // Platform boundary cannot join. Each row is a known ck-6 gap, not a blessing.
-    private static readonly string[] WorkflowJoins =
-    [
-        "apps/local-node-host/Data/Workflow/NodeInvoiceApprovalContext.cs",
-        "apps/local-node-host/Data/Workflow/NodeKgActionApprovalContext.cs",
-        "apps/local-node-host/Data/Workflow/NodeLedgerPostingEffect.cs",
-        "apps/local-node-host/Data/Workflow/NodeLiveInvoiceApprovalContext.cs",
-        "apps/local-node-host/Data/Workflow/NodeRecurringGenerationContext.cs",
-    ];
-
     [Fact]
-    public void JournalRowsAreStagedOnlyByTheKernelPortOrANamedWorkflowJoin()
+    public void JournalRowsAreStagedOnlyByTheKernelPort()
     {
         Assert.Equal(
-            WorkflowJoins.Append(Port).Order(StringComparer.Ordinal),
+            [Port],
             ScanJournalStages(RepositoryRoot()));
     }
 

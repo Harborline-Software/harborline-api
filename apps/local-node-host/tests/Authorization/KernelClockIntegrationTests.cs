@@ -430,6 +430,8 @@ public sealed class KernelClockIntegrationTests
                     break;
                 case "workflow-advance":
                 {
+                        await SeedOperatorGrantAsync();
+                        var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
                     var proposal = new KgGenerationProposal(
                         "Draft the admitted-instant proof JE.",
                         "qwen2.5-7b-instruct",
@@ -439,7 +441,7 @@ public sealed class KernelClockIntegrationTests
                         new KgProposedAction(KgProposedAction.DraftJournalEntry, "Draft proof JE", "{}"));
                     var parked = await Services.GetRequiredService<NodeKgActionApprovalCutover>()
                         .ParkForApprovalAsync(
-                            Tenant,
+                                tenant,
                             "kernel-clock-kg",
                             proposal,
                             new KgActionExecutionInput("1000", "2000", 10m, "clock proof", false));
@@ -499,8 +501,13 @@ public sealed class KernelClockIntegrationTests
         internal async Task<DateTimeOffset[]> WorkflowAdvanceAsync()
         {
             var instanceId = Assert.IsType<string>(_kgInstanceId);
+            var tenant = NodeTenant.Resolve(Services.GetRequiredService<IActiveTeamAccessor>());
             var result = await Services.GetRequiredService<NodeKgActionApprovalCutover>()
-                .ResumeAsync(instanceId, "approve", null);
+                .ResumeAsync(
+                    instanceId,
+                    "approve",
+                    null,
+                    authority: new AuthorizationWriteContext(TestDesktopOperator.Actor, tenant, FrozenAt));
             Assert.Equal(WorkflowDispatchResult.Advanced, result);
             await using var context = await _nodeFactory.CreateDbContextAsync();
             var instance = await context.Set<WorkflowInstanceRecord>().AsNoTracking()

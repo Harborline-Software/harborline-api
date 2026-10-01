@@ -13,6 +13,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -241,6 +242,7 @@ public sealed class DeclarativeWorkflowExecutionEndToEndTests : IAsyncLifetime
 
         services.AddSingleton<IWorkflowStore, NodeEfWorkflowStore>();
         services.AddTestAuthorizationGate();
+        services.AddNodeAuditWrites();
         services.AddDurableWorkflowEngine();
 
         var entityStore = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
@@ -250,7 +252,10 @@ public sealed class DeclarativeWorkflowExecutionEndToEndTests : IAsyncLifetime
 
         services.AddWorkflowEffectFactory(
             NodeLedgerPostingEffect.CapabilityRef, WorkflowEffectReach.Internal,
-            (isp, req) => NodeLedgerPostingEffect.Build(req, isp.GetRequiredService<IJournalPostingService>()));
+            (isp, req) => NodeLedgerPostingEffect.Build(
+                req,
+                isp.GetRequiredService<IJournalPostingService>(),
+                isp.GetRequiredService<INodeAuditWriteEnlister>()));
         // A fixed human confirmer, distinct from the (non-human) engine proposer, so SoD passes.
         services.AddSingleton<IWorkflowConfirmationContext>(
             new FixedConfirmation(new WorkflowConfirmerIdentity(HumanConfirmer, IsHuman: true)));

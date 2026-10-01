@@ -22,6 +22,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Health;
@@ -94,6 +95,7 @@ public sealed class DeclarativeConfirmRouteTests : IAsyncLifetime
         // The durable engine (adds the workflow entity module + NodeEfWorkflowStore + the dispatcher + broker) +
         // the definition store (authoring + the re-validating execution face).
         builder.Services.AddSingleton(TestAuthorization.Gate(true, _gateRequests.Add));
+        builder.Services.AddNodeAuditWrites();
         builder.Services.AddNodeWorkflowEngine();
         var entityStore = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
         builder.Services.AddSingleton(entityStore);

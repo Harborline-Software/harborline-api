@@ -317,6 +317,7 @@ public sealed class Sc4RecoverabilityGuardTests
         services.AddSingleton<IJournalStore, InMemoryJournalStore>(); // WRONG for SC4-C2 (a)
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
+        services.AddNodeAuditWrites();
         services.AddTestAuthorizationGate();
         using var provider = services.BuildServiceProvider();
 
@@ -398,6 +399,7 @@ public sealed class Sc4RecoverabilityGuardTests
         services.AddSingleton<IJournalStore>(sp => sp.GetRequiredService<NodeEfJournalStore>());
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
+        services.AddNodeAuditWrites();
         services.AddTestAuthorizationGate();
         services.AddNodeBillWrites();
         // Override with the WRONG (non-node) bill repository — the last registration wins for the
@@ -1030,6 +1032,11 @@ public sealed class Sc4RecoverabilityGuardTests
             Harborline.Api.Blocks.FinancialLedger.Models.JournalEntry entry,
             Harborline.Api.Foundation.Authorization.AuthorizationDecision decision,
             CancellationToken ct = default) => Task.CompletedTask;
+        public Task EnlistJournalDraftedAsync(
+            LocalNodeDbContext ctx,
+            Harborline.Api.Blocks.FinancialLedger.Models.JournalEntry entry,
+            Harborline.Api.Foundation.Authorization.AuthorizationDecision decision,
+            CancellationToken ct = default) => Task.CompletedTask;
     }
 
     // ── SC4-T9(b) Layer 2 — node WORKFLOW engine composition (ADR 0135 slice 2) ──
@@ -1131,7 +1138,8 @@ public sealed class Sc4RecoverabilityGuardTests
             Harborline.Api.Blocks.Workflow.Durable.WorkflowEffect? effect,
             string resultJson, string eventType, string eventDataJson, string nextStep,
             Harborline.Api.Blocks.Workflow.Durable.WorkflowStatus nextStatus,
-            DateTimeOffset at, CancellationToken ct = default)
+            DateTimeOffset at, Harborline.Api.Blocks.Workflow.Durable.WorkflowDispatchAuthority? authority = null,
+            CancellationToken ct = default)
             => Task.CompletedTask;
         public Task ParkAsync(
             string instanceId, string step, string reasonJson, DateTimeOffset at, int iteration = 0,
@@ -1157,6 +1165,7 @@ public sealed class Sc4RecoverabilityGuardTests
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(services);
         services.AddNodeFinancialPosting();
         services.AddTestAuthorizationGate();
+        services.AddNodeAuditWrites();
 
         // The workflow composition under test (ADR 0135 slice 2).
         services.AddTestAuthorizationGate();

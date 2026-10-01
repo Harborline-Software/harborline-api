@@ -6,6 +6,9 @@ using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -41,7 +44,7 @@ public static class NodeLedgerPostingEffect
     /// Builds the balanced-JE <see cref="WorkflowEffect"/> for <paramref name="request"/>. Pure construction —
     /// it stages nothing; the returned effect is enlisted by the atomic advance.
     /// </summary>
-    public static WorkflowEffect Build(WorkflowEffectRequest request, IJournalPostingService posting)
+    public static WorkflowEffect Build(WorkflowEffectRequest request, IJournalPostingService posting, INodeAuditWriteEnlister? audit = null)
     {
         ArgumentNullException.ThrowIfNull(posting);
         if (posting is not JournalPostingService verifyingPosting)
@@ -62,6 +65,7 @@ public static class NodeLedgerPostingEffect
         return new WorkflowEffect(async (uow, ct) =>
         {
             var ctx = (LocalNodeDbContext)uow;
+            var auditEnlister = audit ?? throw new InvalidOperationException("The workflow ledger effect requires the journal audit enlister.");
             var je = new JournalEntry(
                 id: jeId,
                 tenantId: tenant,
@@ -82,10 +86,13 @@ public static class NodeLedgerPostingEffect
                 decision,
                 workflowDecision.Request.Principal,
                 workflowDecision.Request.At,
-                (posted, _) =>
+                async (posted, stageCt) =>
                 {
-                    ctx.Set<JournalEntry>().Add(posted);
-                    return Task.CompletedTask;
+                    await auditEnlister.EnlistJournalPostedAsync(ctx, posted, decision, stageCt).ConfigureAwait(false);
+                    await KernelTransactionBoundary.JoinAsync(
+                        NodeJournalKernelTransactionPort.Command(ctx, posted),
+                        NodeJournalKernelTransactionPort.CreateParticipant(ctx),
+                        stageCt).ConfigureAwait(false);
                 },
                 ct).ConfigureAwait(false);
             if (!result.IsSuccess)

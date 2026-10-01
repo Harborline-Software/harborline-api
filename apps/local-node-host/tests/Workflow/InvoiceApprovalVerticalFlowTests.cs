@@ -97,19 +97,21 @@ public sealed class InvoiceApprovalVerticalFlowTests : IAsyncLifetime
         var invoices = new NodeEfInvoiceRepository(_factory);
         var numbering = new NodeEfInvoiceNumberingService(_factory, new ReplicaId("AA"));
         var journalStore = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create());
+        var gate = Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate();
+        var periods = new NodeEfPeriodResolver(_factory);
         var jePosting = new JournalPostingService(
             accounts: new NodeEfAccountResolver(_factory),
-            periods:  new NodeEfPeriodResolver(_factory),
-            store:    journalStore,
-            gate:     TestAuthorization.AllowGate());
+            periods: periods,
+            store: journalStore,
+            gate: gate);
         var invoicePosting = new InvoicePostingService(
             tenantContext: new ActiveTeamTenantContext(NodeTestActiveTeam.Accessor),
-            invoices:      invoices,
-            numbering:     numbering,
-            tax:           new NoOpTaxCalculator(),
-            journals:      jePosting,
-            events:        null,
-            journalStore:  journalStore, timeProvider: TimeProvider.System);
+            invoices: invoices,
+            numbering: numbering,
+            tax: new NoOpTaxCalculator(),
+            journals: jePosting,
+            events: null,
+            journalStore: journalStore, timeProvider: TimeProvider.System);
 
         var invoiceRepoAccessor = invoices;
         var invoiceNumberingAccessor = numbering;
@@ -119,12 +121,22 @@ public sealed class InvoiceApprovalVerticalFlowTests : IAsyncLifetime
         // REAL invoice via the posting accessor) + the dispatcher + the instantiation service + the cutover +
         // the parked-task read model — the exact slice AddNodeWorkflowEngine/Handlers register.
         var workflowStore = new NodeEfWorkflowStore(_factory);
-        var liveContext = new NodeLiveInvoiceApprovalContext(null, null, Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity());
+        var liveContext = new NodeLiveInvoiceApprovalContext(
+            new Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditWriteEnlister());
         var approvalHandler = new InvoiceApprovalHandler(
             NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(), liveContext);
         var dispatcher = new WorkflowTriggerDispatcher(workflowStore, new IWorkflowStepHandler[] { approvalHandler });
         var instantiation = new NodeWorkflowInstantiationService(workflowStore, _factory);
-        var cutover = new NodeInvoiceApprovalCutover(instantiation, dispatcher);
+        var cutover = new NodeInvoiceApprovalCutover(
+            instantiation,
+            dispatcher,
+            workflowStore,
+            gate,
+            new Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyEngine(),
+            new Harborline.Api.Kernel.Audit.InMemoryAuditTrail(),
+            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Signer,
+            periods,
+            invoices);
         var tasksReadModel = new NodeParkedTaskQueryReadModel(_factory);
 
         // JE read surface (so an approved invoice's JE can be read back).
@@ -230,7 +242,13 @@ public sealed class InvoiceApprovalVerticalFlowTests : IAsyncLifetime
         => await _client.PostAsJsonAsync($"{InvoicesRoute}/{id}/issue", new { });
 
     private async Task<HttpResponseMessage> ActionAsync(string instanceId, string decision, string? note = null)
-        => await _client.PostAsJsonAsync($"{TasksRoute}/{instanceId}/action", new { decision, note });
+        => await _client.PostAsJsonAsync($"{TasksRoute}/{instanceId}/action", new
+        {
+            decision,
+            note,
+            overrideReason = decision == "approve" ? "test second approver" : null,
+            overrideApprover = decision == "approve" ? "test-second-approver" : null,
+        });
 
     // ═════════════════════════════════════════════════════════════════════════════
     //  ≤ $5k — the direct path is UNCHANGED
@@ -426,9 +444,12 @@ public sealed class InvoiceApprovalVerticalFlowTests : IAsyncLifetime
             {
                 new InvoiceApprovalHandler(
                     NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(),
-                    new NodeLiveInvoiceApprovalContext(null, null, Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity())),
+                    new NodeLiveInvoiceApprovalContext(
+                        new Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditWriteEnlister())),
             });
-        var boot1 = await boot1Dispatcher.DispatchAsync(
+        var boot1 = await WorkflowJoinTestComposition.DispatchAsync(
+            boot1Store,
+            boot1Dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, instanceId, InvoiceApprovalSteps.Approve, "{\"decision\":\"approve\"}"));
         Assert.Equal(WorkflowDispatchResult.Advanced, boot1);
         Assert.Equal(1, await JournalEntryCountAsync());
@@ -444,9 +465,12 @@ public sealed class InvoiceApprovalVerticalFlowTests : IAsyncLifetime
             {
                 new InvoiceApprovalHandler(
                     NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(),
-                    new NodeLiveInvoiceApprovalContext(null, null, Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity())),
+                    new NodeLiveInvoiceApprovalContext(
+                        new Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditWriteEnlister())),
             });
-        var boot2 = await boot2Dispatcher.DispatchAsync(
+        var boot2 = await WorkflowJoinTestComposition.DispatchAsync(
+            boot2Store,
+            boot2Dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, instanceId, InvoiceApprovalSteps.Approve, "{\"decision\":\"approve\"}"));
         Assert.Equal(WorkflowDispatchResult.Terminal, boot2);
 

@@ -290,6 +290,8 @@ public sealed class NodeDocumentTemplateRouteActingMemberPlacerTests : IAsyncLif
                 invoiceId,
             }),
         };
+        // Buffer the small fixture JSON before entering Kestrel's request-body rate window.
+        await request.Content.LoadIntoBufferAsync();
         if (actingMember is not null)
         {
             request.Headers.Add(ActingMemberHeader, actingMember);

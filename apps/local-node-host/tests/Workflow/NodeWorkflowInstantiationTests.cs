@@ -16,6 +16,7 @@ using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Scheduling;
 using Harborline.Api.Foundation.Scheduling.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 
 using Xunit;
@@ -45,6 +46,7 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         var factory = NewFactory();
         await using var ctx = await factory.CreateDbContextAsync();
         await ctx.Database.EnsureCreatedAsync();
+        await WorkflowJoinTestComposition.SeedFinancialPrerequisitesAsync(factory);
     }
 
     public Task DisposeAsync()
@@ -62,6 +64,7 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         services.AddSingleton<IHarborlineEntityModule, FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, ArEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={_dbPath};Pooling=False"));
         return services.BuildServiceProvider().GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -74,18 +77,27 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         IWorkflowStore store, IDbContextFactory<LocalNodeDbContext> factory)
         => new(store, factory);
 
-    private static IWorkflowStepHandler InvoiceHandler()
-        => new InvoiceApprovalHandler(
-            NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(),
-            new NodeInvoiceApprovalContext());
+    private static IWorkflowStepHandler InvoiceHandler() => WorkflowJoinTestComposition.CreateInvoiceHandler();
 
-    private static IWorkflowStepHandler RecurringHandler()
-        => new RecurringGenerationHandler(new NodeRecurringGenerationContext());
+    private static IWorkflowStepHandler RecurringHandler(IDbContextFactory<LocalNodeDbContext> factory) =>
+        WorkflowJoinTestComposition.CreateRecurringHandler(factory);
 
     private async Task<int> CountJournalEntriesAsync(IDbContextFactory<LocalNodeDbContext> factory)
     {
         await using var ctx = await factory.CreateDbContextAsync();
         return await ctx.Set<JournalEntry>().CountAsync(j => j.TenantId == LocalTenantId);
+    }
+
+    private static async Task<string> StartInvoiceApprovalAsync(
+        IDbContextFactory<LocalNodeDbContext> factory,
+        NodeWorkflowInstantiationService instantiation,
+        string invoiceId,
+        decimal amount,
+        string memo)
+    {
+        await WorkflowJoinTestComposition.SeedDraftInvoiceAsync(factory, LocalTenantId, invoiceId, amount);
+        return await instantiation.StartInvoiceApprovalAsync(
+            LocalTenantId, invoiceId, amount, "1100", "4000", memo);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -101,15 +113,14 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
         // The invoice-issued event instantiates the approval Process (D7 pinned at instantiation).
-        var instanceId = await instantiation.StartInvoiceApprovalAsync(
-            LocalTenantId, invoiceId: "INV-UNDER", amount: 1000m,
-            debitAccount: "1100", creditAccount: "4000", memo: "under-threshold issue");
+        var instanceId = await StartInvoiceApprovalAsync(
+            factory, instantiation, "INV-UNDER", 1000m, "under-threshold issue");
 
         var pinned = await store.LoadAsync(instanceId);
         Assert.Equal(NodeWorkflowDefinitions.InvoiceApprovalV1Version, pinned!.DefinitionVersion);
 
         // Drive the decide trigger → under threshold → engine auto-posts.
-        var result = await dispatcher.DispatchAsync(
+        var result = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.Event, instanceId, InvoiceApprovalSteps.Decide));
 
         Assert.Equal(WorkflowDispatchResult.Advanced, result);
@@ -126,30 +137,29 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
         // OVER threshold → instantiate + decide → PARK on the approve human-task. NO JE yet.
-        var overId = await instantiation.StartInvoiceApprovalAsync(
-            LocalTenantId, "INV-OVER", 7500m, "1100", "4000", "over-threshold issue");
+        var overId = await StartInvoiceApprovalAsync(
+            factory, instantiation, "INV-OVER", 7500m, "over-threshold issue");
         Assert.Equal(WorkflowDispatchResult.Parked,
-            await dispatcher.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Event, overId, InvoiceApprovalSteps.Decide)));
+            await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(WorkflowTriggerKind.Event, overId, InvoiceApprovalSteps.Decide)));
         Assert.Equal(0, await CountJournalEntriesAsync(factory));
 
         // Approve → advance to the CP post with the effect → EXACTLY ONE JE.
         Assert.Equal(WorkflowDispatchResult.Advanced,
-            await dispatcher.DispatchAsync(WorkflowTrigger.For(
+            await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(
                 WorkflowTriggerKind.HumanAction, overId, InvoiceApprovalSteps.Approve, "{\"decision\":\"approve\"}")));
         Assert.Equal(1, await CountJournalEntriesAsync(factory));
 
         // A redelivered approve is a no-op (instance is Completed) — still EXACTLY ONE JE.
         Assert.Equal(WorkflowDispatchResult.Terminal,
-            await dispatcher.DispatchAsync(WorkflowTrigger.For(
+            await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(
                 WorkflowTriggerKind.HumanAction, overId, InvoiceApprovalSteps.Approve, "{\"decision\":\"approve\"}")));
         Assert.Equal(1, await CountJournalEntriesAsync(factory));
 
         // A SEPARATE over-threshold invoice that is REJECTED posts NO JE → total stays at 1.
-        var rejId = await instantiation.StartInvoiceApprovalAsync(
-            LocalTenantId, "INV-REJECT", 9000m, "1100", "4000", "reject me");
-        await dispatcher.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Event, rejId, InvoiceApprovalSteps.Decide));
+        var rejId = await StartInvoiceApprovalAsync(factory, instantiation, "INV-REJECT", 9000m, "reject me");
+        await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(WorkflowTriggerKind.Event, rejId, InvoiceApprovalSteps.Decide));
         Assert.Equal(WorkflowDispatchResult.Advanced,
-            await dispatcher.DispatchAsync(WorkflowTrigger.For(
+            await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(
                 WorkflowTriggerKind.HumanAction, rejId, InvoiceApprovalSteps.Approve, "{\"decision\":\"reject\"}")));
         Assert.Equal(1, await CountJournalEntriesAsync(factory));   // no post on reject
         Assert.Equal(InvoiceApprovalSteps.Rejected, (await store.LoadAsync(rejId))!.CurrentStep);
@@ -162,8 +172,8 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         var store = NewStore(factory);
         var instantiation = NewInstantiation(store, factory);
 
-        var first = await instantiation.StartInvoiceApprovalAsync(LocalTenantId, "INV-DUP", 1000m, "1100", "4000", "m");
-        var second = await instantiation.StartInvoiceApprovalAsync(LocalTenantId, "INV-DUP", 1000m, "1100", "4000", "m");
+        var first = await StartInvoiceApprovalAsync(factory, instantiation, "INV-DUP", 1000m, "m");
+        var second = await StartInvoiceApprovalAsync(factory, instantiation, "INV-DUP", 1000m, "m");
         Assert.Equal(first, second);
 
         await using var ctx = await factory.CreateDbContextAsync();
@@ -216,10 +226,11 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         rruleServices.AddFoundationScheduling();
         var rrule = rruleServices.BuildServiceProvider().GetRequiredService<IRruleExpansionService>();
         var source = new NodeRecurringScheduleSource(factory, rrule);
-        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler() });
+        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) });
 
         var fixedClock = new FixedClock(new DateTimeOffset(2026, 6, 15, 0, 0, 0, TimeSpan.Zero));
-        var daemon = new WorkflowScheduleDaemon(source, dispatcher, fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance);
+        var daemon = new WorkflowScheduleDaemon(source, dispatcher, fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), store: store);
 
         var before = await CountJournalEntriesAsync(factory);
         await daemon.TickAsync();
@@ -248,8 +259,9 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         // First daemon (first "process boot").
         var daemon1 = new WorkflowScheduleDaemon(
             new NodeRecurringScheduleSource(factory, rrule),
-            new WorkflowTriggerDispatcher(store, new[] { RecurringHandler() }),
-            fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance);
+            new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) }),
+            fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), store: store);
         await daemon1.TickAsync();
         var afterFirstBoot = await CountJournalEntriesAsync(factory);
         Assert.True(afterFirstBoot > 0);
@@ -260,8 +272,9 @@ public sealed class NodeWorkflowInstantiationTests : IAsyncLifetime
         var store2 = NewStore(factory2);
         var daemon2 = new WorkflowScheduleDaemon(
             new NodeRecurringScheduleSource(factory2, rrule),
-            new WorkflowTriggerDispatcher(store2, new[] { RecurringHandler() }),
-            fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance);
+            new WorkflowTriggerDispatcher(store2, new[] { RecurringHandler(factory2) }),
+            fixedClock, NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(), store: store2);
         await daemon2.TickAsync();
 
         Assert.Equal(afterFirstBoot, await CountJournalEntriesAsync(factory2));   // NO double-post across the resume

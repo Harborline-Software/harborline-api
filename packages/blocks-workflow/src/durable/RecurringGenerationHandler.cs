@@ -84,7 +84,8 @@ public interface IRecurringGenerationContext
         WorkflowInstanceRecord instance,
         DateOnly occurrenceDate,
         WorkflowStepKey generateStepKey,
-        DateTimeOffset at);
+        DateTimeOffset at,
+        Harborline.Api.Foundation.Authorization.AuthorizationDecision? admittedDecision = null);
 }
 
 /// <summary>
@@ -145,7 +146,7 @@ public sealed class RecurringGenerationHandler : IWorkflowStepHandler
         // durable counter (0 here — recurring generation has no loop-back); using it keeps the effect key
         // consistent with the dispatcher's advance key.
         var generateKey = new WorkflowStepKey(instance.Id, instance.Iteration, generateStep);
-        var effect = _context.BuildGenerationEffect(instance, occurrence, generateKey, trigger.At);
+        var effect = _context.BuildGenerationEffect(instance, occurrence, generateKey, trigger.At, trigger.AdmittedDecision);
 
         var eventData = JsonSerializer.Serialize(new
         {

@@ -97,7 +97,8 @@ public interface IKgActionApprovalContext
     WorkflowEffect BuildExecuteEffect(
         WorkflowInstanceRecord instance,
         WorkflowStepKey executeStepKey,
-        DateTimeOffset admittedAt);
+        DateTimeOffset admittedAt,
+        Harborline.Api.Foundation.Authorization.AuthorizationDecision? admittedDecision = null);
 }
 
 /// <summary>
@@ -184,7 +185,7 @@ public sealed class GraphRagProposalHandler : IWorkflowStepHandler
                 // atomically onto the advance. Reached ONLY via the approve human-action.
                 var executeKey = new WorkflowStepKey(
                     instance.Id, instance.Iteration, GraphRagProposalSteps.Execute);
-                var effect = _context.BuildExecuteEffect(instance, executeKey, trigger.At);
+                    var effect = _context.BuildExecuteEffect(instance, executeKey, trigger.At, trigger.AdmittedDecision);
                 return WorkflowStepOutcome.Complete(
                     finalStep: GraphRagProposalSteps.Executed,
                     effect: effect,

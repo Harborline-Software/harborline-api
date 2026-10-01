@@ -136,9 +136,10 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
             workflowDecision.RequireAllowed();
 
             AuthorizationDecision? ledgerDecision = null;
-            if (await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
+            if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
+                || await DeclaresLedgerEffectAsync(instance, ct).ConfigureAwait(false))
             {
-                var journalId = NodeLedgerPostingEffect.JournalEntryIdFor(instance).Value;
+                var journalId = JournalIdFor(instance, trigger);
                 ledgerDecision = await _authorizationGate.DecideAsync(
                     authority.Request(
                         AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
@@ -153,6 +154,15 @@ public sealed class WorkflowScheduleDaemon : BackgroundService
                 new WorkflowDispatchAuthority(workflowDecision, ledgerDecision),
                 ct).ConfigureAwait(false);
         }
+    }
+
+    private static string JournalIdFor(WorkflowInstanceRecord instance, WorkflowTrigger trigger)
+    {
+        if (instance.DefinitionKey == RecurringGenerationSteps.DefinitionKey
+            && trigger.Step.StartsWith(RecurringGenerationSteps.GeneratePrefix, StringComparison.Ordinal)
+            && DateOnly.TryParseExact(trigger.Step[RecurringGenerationSteps.GeneratePrefix.Length..], "yyyy-MM-dd", out var occurrence))
+            return NodeRecurringGenerationContext.JournalEntryIdFor(instance, occurrence).Value;
+        return NodeLedgerPostingEffect.JournalEntryIdFor(instance).Value;
     }
 
     private async ValueTask<bool> DeclaresLedgerEffectAsync(

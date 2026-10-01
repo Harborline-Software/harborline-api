@@ -64,6 +64,7 @@ public interface IWorkflowStore
     /// <param name="nextStep">The instance's next step.</param>
     /// <param name="nextStatus">The instance's next status.</param>
     /// <param name="at">The operation instant captured by the kernel boundary.</param>
+    /// <param name="authority">The carried decision that attributes the advance and owns any joined effect.</param>
     /// <param name="ct">Cancellation token.</param>
     Task AdvanceAsync(
         WorkflowStepKey key,
@@ -74,6 +75,7 @@ public interface IWorkflowStore
         string nextStep,
         WorkflowStatus nextStatus,
         DateTimeOffset at,
+        WorkflowDispatchAuthority? authority = null,
         CancellationToken ct = default);
 
     /// <summary>

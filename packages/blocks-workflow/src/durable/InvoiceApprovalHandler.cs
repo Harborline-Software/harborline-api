@@ -149,7 +149,8 @@ public sealed class InvoiceApprovalHandler : IWorkflowStepHandler
             // straight-through auto-post; the bumped value if a send-back round-trip preceded it) so the
             // derived JE source-reference stays consistent with the dispatcher's advance key.
             var postKey = new WorkflowStepKey(instance.Id, instance.Iteration, InvoiceApprovalSteps.Post);
-            var effect = _context.BuildPostEffect(instance, postKey, OperationAt(instance, trigger));
+            var effect = _context.BuildPostEffect(
+                instance, postKey, OperationAt(instance, trigger), trigger.AdmittedDecision);
             return WorkflowStepOutcome.Complete(
                 finalStep: InvoiceApprovalSteps.Posted,
                 effect: effect,

@@ -6,10 +6,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search.Generation;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
+using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
 
@@ -42,6 +45,7 @@ public sealed class KgActionApprovalVerticalFlowTests : IAsyncLifetime
     private NodeKgActionApprovalCutover _cutover = null!;
     private NodeParkedTaskQueryReadModel _tasks = null!;
     private WorkflowTriggerDispatcher _dispatcher = null!;
+    private AuthorizationWriteContext _approvalAuthority;
 
     private static readonly TenantId TenantA = TenantId.FromString("tenant-A");
     private const string Proposal1 = "prop-1";
@@ -56,6 +60,7 @@ public sealed class KgActionApprovalVerticalFlowTests : IAsyncLifetime
 
         // The 3 workflow tables + the JE/GLAccount tables (the execute effect stages a Draft JE).
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialLedger.Data.FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString));
@@ -71,11 +76,17 @@ public sealed class KgActionApprovalVerticalFlowTests : IAsyncLifetime
         // stages a Draft JE onto the advance) + the dispatcher + instantiation + cutover + read model — the
         // exact slice the composition registers.
         var store = new NodeEfWorkflowStore(_factory);
-        var liveContext = new NodeKgActionApprovalContext();
+        var liveContext = new NodeKgActionApprovalContext(new NodeAuditWriteEnlister());
         var handler = new GraphRagProposalHandler(liveContext);
         _dispatcher = new WorkflowTriggerDispatcher(store, new IWorkflowStepHandler[] { handler });
         var instantiation = new NodeWorkflowInstantiationService(store, _factory);
-        _cutover = new NodeKgActionApprovalCutover(instantiation, _dispatcher, TimeProvider.System);
+        _approvalAuthority = TestAuthorization.Write(TenantA, at: TestAuthorization.At);
+        _cutover = new NodeKgActionApprovalCutover(
+            instantiation,
+            _dispatcher,
+            TimeProvider.System,
+            store,
+            TestAuthorization.AllowGate());
         _tasks = new NodeParkedTaskQueryReadModel(_factory);
     }
 
@@ -153,7 +164,7 @@ public sealed class KgActionApprovalVerticalFlowTests : IAsyncLifetime
         var park = await _cutover.ParkForApprovalAsync(TenantA, Proposal1, proposal, ExecInput(4200m));
         Assert.Equal(WorkflowDispatchResult.Parked, park.DecideResult);
 
-        var result = await _cutover.ResumeAsync(park.InstanceId, "approve", note: null);
+        var result = await _cutover.ResumeAsync(park.InstanceId, "approve", note: null, authority: _approvalAuthority);
         Assert.Equal(WorkflowDispatchResult.Advanced, result);
 
         // EXACTLY ONE JE, in DRAFT (the CP action was "draft", not "post" — the post gate still stands).
@@ -174,10 +185,10 @@ public sealed class KgActionApprovalVerticalFlowTests : IAsyncLifetime
         var proposal = ProposalWithAction("Draft the JE.", "Draft JE");
         var park = await _cutover.ParkForApprovalAsync(TenantA, Proposal1, proposal, ExecInput());
 
-        var first = await _cutover.ResumeAsync(park.InstanceId, "approve", null);
+        var first = await _cutover.ResumeAsync(park.InstanceId, "approve", null, authority: _approvalAuthority);
         Assert.Equal(WorkflowDispatchResult.Advanced, first);
 
-        var second = await _cutover.ResumeAsync(park.InstanceId, "approve", null);
+        var second = await _cutover.ResumeAsync(park.InstanceId, "approve", null, authority: _approvalAuthority);
         // The instance is Completed — the redelivered approve is ignored (Terminal), nothing new executes.
         Assert.Equal(WorkflowDispatchResult.Terminal, second);
         Assert.Equal(1, await CountJournalEntriesAsync());
