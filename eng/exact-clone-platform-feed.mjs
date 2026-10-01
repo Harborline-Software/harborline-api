@@ -44,7 +44,14 @@ if (process.argv[1] && process.argv[1].replaceAll('\\', '/').endsWith('eng/exact
   let checkout
   try {
     checkout = resolvePlatformCheckout({apiRoot, scratch, pin})
-    execFileSync(process.execPath, ['eng/build-local-feed.mjs'], {
+    let reused = false
+    if (process.env.HARBORLINE_PLATFORM_FEED_HANDOFF_PATH || process.env.HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256) {
+      const {restoreSameJobFeed} = await import('./same-job-platform-feed.mjs')
+      const result = restoreSameJobFeed(checkout.platform)
+      reused = result.restored
+      console.log(`platform-feed: same-job ${reused ? `materialized ${result.packages} packages at SHA-256 ${result.digest}; fresh API proof` : `${result.reason}; fresh canonical pack`}`)
+    }
+    if (!reused) execFileSync(process.execPath, ['eng/build-local-feed.mjs'], {
       cwd: path.resolve(import.meta.dirname, '..'), stdio: 'inherit',
       env: {...process.env, HARBORLINE_PLATFORM_REPO: checkout.platform},
     })

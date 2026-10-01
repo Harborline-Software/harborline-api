@@ -1,5 +1,9 @@
 name: Pinned platform feed
 description: Build and validate the local NuGet source before restoring API projects
+inputs:
+  same-job-handoff:
+    description: Explicitly prepare complete dependency bytes for this job's fresh exact-clone consumer
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -27,4 +31,13 @@ runs:
       shell: bash
       env:
         HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
-      run: node eng/build-local-feed.mjs
+        SAME_JOB_HANDOFF: ${{ inputs.same-job-handoff }}
+      run: |
+        if [[ "$SAME_JOB_HANDOFF" == 'true' ]]; then
+          node eng/same-job-platform-feed.mjs build "$HARBORLINE_PLATFORM_REPO"
+        elif [[ "$SAME_JOB_HANDOFF" == 'false' ]]; then
+          node eng/build-local-feed.mjs
+        else
+          echo '::error::same-job-handoff must be true or false'
+          exit 1
+        fi
