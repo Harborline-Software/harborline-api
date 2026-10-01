@@ -34,6 +34,9 @@ export function verifyPreflight({apiRoot = process.cwd(), env = process.env,
     if (tool === 'node' && Number(observed.match(/^v?(\d+)/)[1]) < 22) throw new Error(`node requires 22 or newer, got ${observed}`)
   }
   if (plan.lane !== 'shared') readPin(path.join(apiRoot, 'eng/platform-pin.json'))
+  if (plan.lane !== 'host' && !existsSync(path.join(apiRoot, '.feed/packed-version.props'))) {
+    throw new Error('missing .feed/packed-version.props; build the pinned local feed with eng/build-local-feed.mjs before verification')
+  }
   // The platform feed may use its owned public-clone fallback; do not require a sibling checkout.
   // Shared/all do require control's identity scanner before their expensive package steps.
   if (plan.lane !== 'host') identity(apiRoot, env)
