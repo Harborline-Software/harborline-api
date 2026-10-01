@@ -27,10 +27,8 @@ public sealed class WritePipelineExecutorFenceTests
     [
         ("apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget.CompareAndSwapAsync",
             "S5 configuration activation"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ApplyMergeAsync",
-            "S3 hierarchy merge"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync",
-            "S3 hierarchy merge"),
+            "S6 exemption candidate: merge runs its whole pipeline inside the unit it opens, because the displaced set it decides is read there (ticket 216, review round 7); its writes are Merge.CommitAsync"),
         ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 workflow definition lifecycle"),
         ("packages/foundation-forms-engine/IAuthorizedFormEntityWriter.cs|Harborline.Api.Foundation.Forms.Engine.AuthorizedFormEntityWriter.CreateAsync",
