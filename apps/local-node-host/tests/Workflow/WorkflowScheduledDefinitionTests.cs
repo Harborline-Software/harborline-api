@@ -55,10 +55,15 @@ public sealed class WorkflowScheduledDefinitionTests
         Assert.Equal("daily", violation.Locator);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Authored_schedule_advances_instance_when_time_becomes_due(bool recordsOnly)
+    [Fact]
+    public Task Authored_schedule_advances_instance_when_time_becomes_due()
+        => AssertAuthoredScheduleAdvancesAsync(recordsOnly: false);
+
+    [Fact]
+    public Task State_only_schedule_requires_only_records_write()
+        => AssertAuthoredScheduleAdvancesAsync(recordsOnly: true);
+
+    private static async Task AssertAuthoredScheduleAdvancesAsync(bool recordsOnly)
     {
         var directory = Path.Combine(Path.GetTempPath(), "workflow-schedule-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
