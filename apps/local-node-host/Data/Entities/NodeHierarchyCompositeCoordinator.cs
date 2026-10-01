@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Assets.Hierarchy;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.Kernel.Schema;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -46,11 +47,15 @@ public sealed class NodeHierarchyCompositeCoordinator(
     IHierarchyAuthorizedAuditWriter audit,
     AuthorizationGate gate,
     TimeProvider timeProvider,
-    [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator)
+    [FromKeyedServices(CompiledSchemaEntityValidator.RecordWriteKey)] IEntityValidator validator,
+    IWritePipelineObserver? pipelineObserver = null)
     : IHierarchyCompositeCoordinator
 {
     private static readonly AuthorizationOperation RecordsWrite =
         AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite);
+
+    private IHierarchyCompositeUnitOfWork Store => unitOfWork;
+    private IHierarchyAuthorizedAuditWriter AuditWriter => audit;
 
     public async Task<SplitResult> SplitAsync(
         EntityId oldEntity,
@@ -123,35 +128,89 @@ public sealed class NodeHierarchyCompositeCoordinator(
         CancellationToken ct = default)
     {
         var at = timeProvider.GetUtcNow();
-        var authorization = await DecideAllAsync(
-            [child, oldParent, newParent], actor, tenant, at, ct).ConfigureAwait(false);
-        var affectedEdges = await ReadAffectedChildrenAsync(
-            [oldParent], edge => edge.From == child, at, ct).ConfigureAwait(false);
-        await unitOfWork.ExecuteAtomicAsync(async transactionCt =>
+        await WritePipeline.RunAsync(
+            new Reparent(this, child, oldParent, newParent, justification, actor, tenant, at),
+            pipelineObserver, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ck-10 S3 (DES-0029, ADR 0038): a reparent as its six stages. Every decision is made before the atomic unit
+    /// opens, so a refused caller takes no unit; commit opens it and writes the edges and the audit row together.
+    /// Validate refuses a new parent that is the child or one of its descendants, which would close a cycle in
+    /// the closure table.
+    /// </summary>
+    private sealed class Reparent(
+        NodeHierarchyCompositeCoordinator coordinator,
+        EntityId child,
+        EntityId oldParent,
+        EntityId newParent,
+        string justification,
+        ActorId actor,
+        TenantId tenant,
+        DateTimeOffset at)
+        : KernelWrite<IReadOnlyList<EntityEdge>, DateTimeOffset?, DateTimeOffset?, bool>
+    {
+        private CompositeAuthorization authorization = null!;
+        private IReadOnlyList<EntityEdge> displaced = [];
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
+            authorization = await coordinator.DecideAllAsync(
+                [child, oldParent, newParent], actor, tenant, at, ct).ConfigureAwait(false);
+
+        protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
+            displaced = await coordinator.ReadAffectedChildrenAsync(
+                [oldParent], edge => edge.From == child, at, ct).ConfigureAwait(false);
+
+        /// <summary>Several displaced edges: the replacement outlives the longest (review round 9).</summary>
+        protected override ValueTask<DateTimeOffset?> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
+            ValueTask.FromResult(bound.Count == 0 || bound.Any(edge => edge.Validity.ValidTo is null)
+                ? null
+                : bound.Max(edge => edge.Validity.ValidTo));
+
+        protected override async ValueTask<DateTimeOffset?> ValidateAsync(
+            IReadOnlyList<EntityEdge> bound, DateTimeOffset? mutation, CancellationToken ct)
         {
-            authorization.Require(child);
-            authorization.Require(oldParent);
-            authorization.Require(newParent);
-            var originalValidTo = affectedEdges.Count == 0 || affectedEdges.Any(edge => edge.Validity.ValidTo is null) ? null : affectedEdges.Max(edge => edge.Validity.ValidTo); // several displaced edges: the replacement outlives the longest (review round 9)
-            foreach (var edge in affectedEdges)
-                await unitOfWork.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
-            var replacementEdge = await unitOfWork.AddEdgeAsync(
-                child, newParent, EdgeKind.ChildOf, at, null, transactionCt).ConfigureAwait(false);
-            if (originalValidTo is { } validTo)
-                await unitOfWork.InvalidateEdgeAsync(replacementEdge.Id, validTo, transactionCt).ConfigureAwait(false);
-            using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+            if (newParent == child)
+                throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
+            await foreach (var ancestor in coordinator.Store.GetAncestorsAsync(newParent, at, ct).ConfigureAwait(false))
             {
-                op = "reparent",
-                child = child.ToString(),
-                oldParent = oldParent.ToString(),
-                newParent = newParent.ToString(),
-            }));
-            await audit.AppendAsync(new AuditAppend(
-                child, null, Op.Reparent, actor, tenant, at, payload, justification),
-                authorization.Require(child), transactionCt)
-                .ConfigureAwait(false);
-            return true;
-        }, ct).ConfigureAwait(false);
+                if (ancestor.Ancestor == child)
+                    throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
+            }
+            return mutation;
+        }
+
+        protected override async ValueTask CommitAsync(DateTimeOffset? validated, CancellationToken ct)
+        {
+            var store = coordinator.Store;
+            await store.ExecuteAtomicAsync(async transactionCt =>
+            {
+                authorization.Require(child);
+                authorization.Require(oldParent);
+                authorization.Require(newParent);
+                foreach (var edge in displaced)
+                    await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
+                var replacementEdge = await store.AddEdgeAsync(
+                    child, newParent, EdgeKind.ChildOf, at, null, transactionCt).ConfigureAwait(false);
+                if (validated is { } validTo)
+                    await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, transactionCt).ConfigureAwait(false);
+                using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+                {
+                    op = "reparent",
+                    child = child.ToString(),
+                    oldParent = oldParent.ToString(),
+                    newParent = newParent.ToString(),
+                }));
+                await coordinator.AuditWriter.AppendAsync(new AuditAppend(
+                    child, null, Op.Reparent, actor, tenant, at, payload, justification),
+                    authorization.Require(child), transactionCt)
+                    .ConfigureAwait(false);
+                return true;
+            }, ct).ConfigureAwait(false);
+        }
+
+        protected override ValueTask<bool> ReactAsync(DateTimeOffset? validated, CancellationToken ct) =>
+            ValueTask.FromResult(true);
     }
 
     private async Task<CompositeAuthorization> DecideAllAsync(
