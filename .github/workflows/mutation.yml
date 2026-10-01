@@ -6,8 +6,8 @@
 # eng/baselines/mutation-slices.json (days since the epoch mod the slice count; silent-failure slices
 # first). A slice still "pending" there has its score recorded, not enforced; a follow-up PR copies
 # the score from this run's summary into the baselines file. A pull request is never held to that floor: verify.yml's `stryker` job reports the
-# survivors on its changed lines instead. winbox only (macpro is the gate bottleneck; mac16 is the
-# perf lane's). No pull_request trigger, so no fork code reaches the runner.
+# survivors on its changed lines instead. Windows remains the default; mac16 requires committed
+# qualification before routing can select it. No pull_request trigger, so no fork code reaches the runner.
 name: mutation
 
 on:
@@ -44,7 +44,7 @@ jobs:
           BACKGROUND_MUTATION_ROUTE: ${{ vars.BACKGROUND_MUTATION_ROUTE }}
           LOCAL_BACKGROUND_RESERVATION: ${{ vars.LOCAL_BACKGROUND_RESERVATION }}
         run: |
-          node --test .github/workloads/workload-route.test.mjs .github/workloads/select-platform-pin.test.mjs
+          node --test .github/workloads/workload-route.test.mjs .github/workloads/windows-default.test.mjs .github/workloads/select-platform-pin.test.mjs
           python3 .github/workloads/host-workload-lock.test.py
           node .github/workloads/workload-route.mjs
   stryker-full:
@@ -79,6 +79,7 @@ jobs:
         with:
           node-version: 24
       - uses: actions/setup-python@v6
+        if: runner.os != 'Windows'
         with:
           python-version: '3.14'
       - name: Check out Platform main without executing it
@@ -93,7 +94,12 @@ jobs:
         run: node .github/workloads/select-platform-pin.mjs
 
       - name: Reserved full mutation and isolated feed
-        run: python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            source .github/workloads/full-mutation.sh
+          else
+            python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
+          fi
         env:
           HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
           NUGET_PACKAGES: ${{ runner.temp }}/mutation-nuget-${{ github.run_id }}-${{ github.run_attempt }}

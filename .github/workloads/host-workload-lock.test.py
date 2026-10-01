@@ -8,27 +8,29 @@ class LockTests(unittest.TestCase):
         self.env={**os.environ,'HARBORLINE_HOST_LOCK_DIR':self.temp.name,'HARBORLINE_HOST_LOCK_WAIT_SECONDS':'2'}
     def tearDown(self): self.temp.cleanup()
     def launch(self, code, env=None):
-        return subprocess.Popen([sys.executable,str(SCRIPT),'--',sys.executable,'-c',code],env=env or self.env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        return subprocess.Popen([sys.executable,str(SCRIPT),'--',sys.executable,'-c',code],env=env or self.env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     def test_cross_repository_commands_serialize(self):
         marker=Path(self.temp.name)/'active'
-        first=self.launch(f'import pathlib,time; p=pathlib.Path({str(marker)!r}); p.write_text("active"); print("started",flush=True); time.sleep(.3); p.unlink()')
+        first=self.launch(f'import pathlib; p=pathlib.Path({str(marker)!r}); p.write_text("active"); print("started",flush=True); input(); p.unlink()')
         self.assertEqual(first.stdout.readline().strip(),'started')
         second=self.launch(f'import pathlib; assert not pathlib.Path({str(marker)!r}).exists(); print("second")')
+        waiting=second.stderr.readline()
+        self.assertIn('Waiting:',waiting)
+        first.communicate(input="\n",timeout=5)
         out,err=second.communicate(timeout=5)
         self.assertEqual(second.returncode,0,err)
-        self.assertIn('Waiting:',err)
         self.assertEqual(out.strip(),'second')
         first.communicate(timeout=5)
         self.assertEqual(first.returncode,0)
     def test_timeout_does_not_execute_command(self):
-        first=self.launch('import time; print("started",flush=True); time.sleep(.3)')
+        first=self.launch('print("started",flush=True); input()')
         first.stdout.readline()
         second=self.launch('print("MUST NOT RUN")',{**self.env,'HARBORLINE_HOST_LOCK_WAIT_SECONDS':'0'})
         out,err=second.communicate(timeout=5)
         self.assertNotEqual(second.returncode,0)
         self.assertNotIn('MUST NOT RUN',out)
         self.assertIn('command did not start',err)
-        first.communicate(timeout=5)
+        first.communicate(input="\n",timeout=5)
     def test_exit_code_and_release(self):
         first=self.launch('raise SystemExit(7)')
         first.communicate(timeout=5)

@@ -9,7 +9,7 @@ export function route(policy, env) {
   if (reservation !== 'available') return {enabled: false, reason: `Local background reserved: ${reservation}`}
   if (name === 'paused') return {enabled: false, reason: 'Background mutation paused by operator'}
   const target = policy.routes[name]
-  if (!target?.qualified || (name !== 'legacy-windows' && !target.evidence)) return {enabled: false, reason: `Route ${name} has no committed qualification`}
+  if (target?.qualified !== true || (name !== 'legacy-windows' && !target.evidence)) return {enabled: false, reason: `Route ${name} has no committed qualification`}
   return {enabled: true, labels: target.labels, reason: `Eligible route: ${name}; waits for matching idle runner`}
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
