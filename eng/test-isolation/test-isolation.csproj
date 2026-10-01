@@ -11,11 +11,15 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
+    <!-- This metadata-only preflight must not depend on a built private Platform feed. -->
+    <RestoreSources>https://api.nuget.org/v3/index.json</RestoreSources>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)/Roslyn/bincore/Microsoft.CodeAnalysis.dll" />
     <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)/Roslyn/bincore/Microsoft.CodeAnalysis.CSharp.dll" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="Xunit.SkippableFact" />
     <Compile Include="../../apps/local-node-host/tests/TestDoubles/FailureOnlyHttpDiagnostics.cs" Link="FailureOnlyHttpDiagnostics.cs" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />

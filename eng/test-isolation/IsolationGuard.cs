@@ -11,30 +11,40 @@ internal static class IsolationGuard
         public string Key => $"{Path}\t{Type}\t{Operation}";
     }
     internal sealed record LegacyDebt(int Count, string TypeSha256, string Owner, string Reason);
+    private static readonly MetadataReference XunitReference = MetadataReference.CreateFromFile(typeof(Xunit.CollectionAttribute).Assembly.Location);
+    private static readonly MetadataReference SkippableReference = MetadataReference.CreateFromFile(typeof(Xunit.SkippableFactAttribute).Assembly.Location);
+    private static readonly MetadataReference[] References = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
+        .Where(p => Path.GetFileName(p) is "System.Private.CoreLib.dll" or "System.Runtime.dll" or "netstandard.dll")
+        .Select(p => MetadataReference.CreateFromFile(p)).Cast<MetadataReference>()
+        .Concat([XunitReference, SkippableReference]).ToArray();
 
     // Deliberately conservative syntax fence: these member names are forbidden regardless of
     // receiver spelling (including aliases/static imports). This is not a call graph, restoration
     // proof, or arbitrary concurrency-safety claim. New mutating helpers require explicit review.
     internal static Site[] Scan(IReadOnlyDictionary<string, string> files)
     {
-        var roots = files.ToDictionary(p => p.Key, p => CSharpSyntaxTree.ParseText(p.Value).GetRoot());
-        var constants = roots.Values.SelectMany(r => r.DescendantNodes().OfType<FieldDeclarationSyntax>())
-            .Where(f => f.Modifiers.Any(SyntaxKind.ConstKeyword))
-            .SelectMany(f => f.Declaration.Variables.Select(v => new
-            {
-                Key = f.Ancestors().OfType<TypeDeclarationSyntax>().First().Identifier.ValueText + "." + v.Identifier.ValueText,
-                Value = Literal(v.Initializer?.Value),
-            }))
-            .Where(p => p.Value is not null).GroupBy(p => p.Key)
-            .Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single().Value);
-        string? CollectionName(ExpressionSyntax? expression) => Literal(expression)
-            ?? (expression is null ? null : constants.GetValueOrDefault(expression.ToString()));
+        var trees = files.ToDictionary(p => p.Key, p => CSharpSyntaxTree.ParseText(p.Value));
+        var roots = trees.ToDictionary(p => p.Key, p => p.Value.GetRoot());
+        var compilation = CSharpCompilation.Create("HostTestIsolationBinding", trees.Values, References,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var models = trees.Values.ToDictionary(t => t, t => compilation.GetSemanticModel(t));
+        var xunit = (IAssemblySymbol)compilation.GetAssemblyOrModuleSymbol(XunitReference)!;
+        var skippable = (IAssemblySymbol)compilation.GetAssemblyOrModuleSymbol(SkippableReference)!;
+        bool AttributeIs(AttributeSyntax attribute, string name, IAssemblySymbol assembly) =>
+            models[attribute.SyntaxTree].GetSymbolInfo(attribute).Symbol is IMethodSymbol constructor
+            && SymbolEqualityComparer.Default.Equals(constructor.ContainingType, assembly.GetTypeByMetadataName(name));
+        string? CollectionName(ExpressionSyntax? expression) => expression is not null
+            && models[expression.SyntaxTree].GetConstantValue(expression) is { HasValue: true, Value: string value } ? value : null;
         var nonparallel = roots.Values.SelectMany(r => r.DescendantNodes().OfType<AttributeSyntax>())
-            .Where(a => Name(a.Name) == "CollectionDefinition")
-            .Where(a => a.ArgumentList?.Arguments.Any(x => x.NameEquals?.Name.Identifier.ValueText == "DisableParallelization"
-                && x.Expression.IsKind(SyntaxKind.TrueLiteralExpression)) == true)
-            .Select(a => CollectionName(a.ArgumentList?.Arguments.FirstOrDefault()?.Expression))
-            .Where(n => n is not null).ToHashSet(StringComparer.Ordinal);
+            .Where(a => AttributeIs(a, "Xunit.CollectionDefinitionAttribute", xunit))
+            .Select(a => new
+            {
+                Name = CollectionName(a.ArgumentList?.Arguments.FirstOrDefault()?.Expression),
+                Serial = a.ArgumentList?.Arguments.Any(x => x.NameEquals?.Name.Identifier.ValueText == "DisableParallelization"
+                    && x.Expression.IsKind(SyntaxKind.TrueLiteralExpression)) == true,
+            })
+            .Where(d => d.Name is not null).GroupBy(d => d.Name)
+            .Where(g => g.Count() == 1 && g.Single().Serial).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var sites = new List<Site>();
         foreach (var (path, root) in roots)
         {
@@ -52,12 +62,13 @@ internal static class IsolationGuard
                 var owner = node.Ancestors().OfType<TypeDeclarationSyntax>().LastOrDefault();
                 var type = string.Join(".", node.Ancestors().OfType<TypeDeclarationSyntax>().Reverse().Select(t => t.Identifier.ValueText));
                 var collection = owner?.AttributeLists.SelectMany(a => a.Attributes)
-                    .FirstOrDefault(a => Name(a.Name) == "Collection");
+                    .FirstOrDefault(a => AttributeIs(a, "Xunit.CollectionAttribute", xunit));
                 var collectionName = CollectionName(collection?.ArgumentList?.Arguments.FirstOrDefault()?.Expression);
                 // An annotation on an arbitrary helper does not schedule its callers in xUnit.
                 var isTest = owner?.Members.OfType<MethodDeclarationSyntax>()
                     .Any(m => m.AttributeLists.SelectMany(a => a.Attributes)
-                        .Any(a => Name(a.Name) is "Fact" or "Theory" or "SkippableFact" or "SkippableTheory")) == true;
+                        .Any(a => AttributeIs(a, "Xunit.FactAttribute", xunit) || AttributeIs(a, "Xunit.TheoryAttribute", xunit)
+                            || AttributeIs(a, "Xunit.SkippableFactAttribute", skippable) || AttributeIs(a, "Xunit.SkippableTheoryAttribute", skippable))) == true;
                 var privateHelpers = node.Ancestors().OfType<TypeDeclarationSyntax>().TakeWhile(t => t != owner)
                     .All(t => t.Modifiers.Any(SyntaxKind.PrivateKeyword));
                 var declaration = node.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
@@ -91,9 +102,7 @@ internal static class IsolationGuard
         MemberAccessExpressionSyntax m => Name(m.Name),
         QualifiedNameSyntax q => Name(q.Right),
         AliasQualifiedNameSyntax a => Name(a.Name),
-        IdentifierNameSyntax i => i.Identifier.ValueText.Replace("Attribute", "", StringComparison.Ordinal),
+        IdentifierNameSyntax i => i.Identifier.ValueText,
         _ => "",
     };
-    private static string? Literal(ExpressionSyntax? expression) => expression is LiteralExpressionSyntax literal
-        && literal.IsKind(SyntaxKind.StringLiteralExpression) ? literal.Token.ValueText : null;
 }

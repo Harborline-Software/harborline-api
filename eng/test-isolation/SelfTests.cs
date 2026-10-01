@@ -7,7 +7,7 @@ internal static class SelfTests
     internal static void Run()
     {
         const string definition = "[CollectionDefinition(\"serial\", DisableParallelization=true)] class Serial {}";
-        static IsolationGuard.Site[] Scan(string source) => IsolationGuard.Scan(new Dictionary<string, string> { ["fixture.cs"] = source });
+        static IsolationGuard.Site[] Scan(string source) => IsolationGuard.Scan(new Dictionary<string, string> { ["fixture.cs"] = "using Xunit; " + source });
         static void Require(bool condition, string message)
         {
             if (!condition) throw new InvalidOperationException(message);
@@ -72,6 +72,27 @@ internal static class SelfTests
         Require(Scan("class Names { public const string Serial = \"serial\"; } "
             + "[CollectionDefinition(Names.Serial, DisableParallelization=true)] class Serial {} "
             + "[Collection(Names.Serial)] " + unsafeSource).All(s => s.Isolated), "Unique class-qualified const collection names must resolve.");
+        const string customAttributes = "namespace Fake { public class CollectionAttribute : System.Attribute { public CollectionAttribute(string name) {} } "
+            + "public class CollectionDefinitionAttribute : System.Attribute { public CollectionDefinitionAttribute(string name) {} public bool DisableParallelization { get; set; } } "
+            + "public class FactAttribute : System.Attribute {} }";
+        Require(Scan("using Collection = Fake.CollectionAttribute; " + definition + "[Collection(\"serial\")] " + unsafeSource + customAttributes)
+            .All(s => !s.Isolated), "Custom attribute alias must not grant xUnit membership.");
+        Require(Scan(definition + "[global::Fake.Collection(\"serial\")] " + unsafeSource + customAttributes)
+            .All(s => !s.Isolated), "Global qualification of a custom namespace must not grant membership.");
+        Require(Scan("[Fake.CollectionDefinition(\"serial\", DisableParallelization=true)] class Serial {} [Collection(\"serial\")] " + unsafeSource + customAttributes)
+            .All(s => !s.Isolated), "Custom collection definition must not grant isolation.");
+        Require(Scan("using Group = Xunit.CollectionAttribute; using Definition = Xunit.CollectionDefinitionAttribute; "
+            + "[Definition(\"serial\", DisableParallelization=true)] class Serial {} [Group(\"serial\")] " + unsafeSource)
+            .All(s => s.Isolated), "Confidently bound genuine xUnit aliases must remain valid.");
+        Require(Scan(definition + "[global::Xunit.Collection(\"serial\")] " + unsafeSource).All(s => s.Isolated),
+            "Genuine global-qualified xUnit membership must remain valid.");
+        Require(Scan(definition + "[global::Xunit.Collection(\"serial\")] " + unsafeSource
+            + "namespace Xunit { public class CollectionAttribute : System.Attribute { public CollectionAttribute(string name) {} } }")
+            .All(s => !s.Isolated), "A source type shadowing even Xunit.CollectionAttribute must not grant safety.");
+        Require(Scan(definition + "[Collection(\"serial\")] " + unsafeSource.Replace("[Fact]", "[Fake.Fact]", StringComparison.Ordinal) + customAttributes)
+            .All(s => !s.Isolated), "Custom Fact attribute must not make an arbitrary helper a test owner.");
+        Require(Scan(definition + "[CollectionDefinition(\"serial\", DisableParallelization=false)] class Duplicate {} [Collection(\"serial\")] " + unsafeSource)
+            .All(s => !s.Isolated), "Duplicate collection definitions must fail closed.");
         Console.WriteLine("Host isolation and structural HTTP diagnostic self-tests: PASS.");
     }
 }

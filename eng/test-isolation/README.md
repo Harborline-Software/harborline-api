@@ -1,8 +1,9 @@
 # Host-test global mutation preflight
 
 Run `dotnet run --project eng/test-isolation/test-isolation.csproj -- .` with the pinned SDK.
-The existing boundary preflight runs the same command. This builds one SDK-only executable,
-not the API or Platform graph; Roslyn comes from the SDK and there are no NuGet dependencies.
+The existing boundary preflight runs the same command. This builds one small executable,
+not the API or Platform graph; Roslyn comes from the SDK. The repository's centrally pinned
+xUnit and SkippableFact packages supply actual attribute metadata for exemption binding.
 It runs planted refusal controls and diagnostic self-tests before checking host test source.
 
 Scope: `apps/local-node-host/tests/**/*.cs`, excluding bin/obj. Roslyn syntax nodes identify
@@ -12,9 +13,13 @@ are deliberately unrestricted, so aliases and static imports do not bypass those
 Comments and strings do not count. CurrentCulture/CurrentUICulture are thread/async-flow state
 and are outside this process-wide fence. ClearPool is scoped to one pool and is outside it.
 
-A new site passes only in a test type with a Collection attribute whose definition has literal
-DisableParallelization=true. Collection names may be string literals or unique class-qualified
-string constants. Private nested helpers stay within their test owner; externally accessible
+A new site passes only in a test type whose attributes bind to the actual pinned xUnit
+Collection and Fact/Theory (or pinned SkippableFact/Theory) types. The matching xUnit collection
+definition must be unique and have literal DisableParallelization=true. Roslyn constructor
+symbols and metadata assembly identity qualify the exemption, never attribute short spelling.
+Unknown, ambiguous, custom or source-shadowed attributes grant no safety; genuine xUnit aliases
+and global qualification work. Collection names must be semantically resolved string constants.
+Private nested helpers stay within their test owner; externally accessible
 helpers cannot be isolated by decorating the helper class and require caller review. Legacy debt
 must match path, containing type, operation and count exactly: adding a site in an existing type
 fails, and resolved debt must be removed. Each debt row includes a SHA-256 of the declaring type's
