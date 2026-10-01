@@ -11,7 +11,10 @@ const dir = path.resolve(import.meta.dirname, '../../.github/workflows')
 const read = file => readFileSync(path.join(dir, file), 'utf8').replaceAll('\r\n', '\n')
 const guard = (text, job) => text.split(`\n  ${job}:\n`)[1].split(/\n    runs-on:/)[0]
 const STACKED = "!contains(github.event.pull_request.labels.*.name, 'stacked')"
-const PR_LABELS = /\bgithub\s*\.\s*event\s*\.\s*pull_request\s*(?:\.\s*labels\b|\[\s*['"]labels['"]\s*\])/
+// Each property may use dot or quoted index access; inspecting only the last
+// segment misses valid mixed context paths such as github.event['pull_request'].
+const propertyAccess = key => String.raw`(?:\s*\.\s*${key}\b|\s*\[\s*(?:'${key}'|"${key}")\s*\])`
+const PR_LABELS = new RegExp(String.raw`\bgithub${['event', 'pull_request', 'labels'].map(propertyAccess).join('')}`)
 const assertPrLabelReads = (text, file) => assert.doesNotMatch(
   text.replaceAll(STACKED, ''), PR_LABELS,
   `${file}: reads PR labels outside the negated stacked guard`,
@@ -80,4 +83,21 @@ test('PR-label contract accepts runner outputs and rejects unsafe PR-label reads
     'github . event . pull_request . labels[0].name',
     `${STACKED} || contains(github.event.pull_request.labels.*.name, 'run-heavy')`,
   ]) assert.throws(() => assertPrLabelReads(unsafe, 'unsafe fixture'), /reads PR labels outside/)
+})
+
+// Independently written GitHub index-access fixtures: each context segment can
+// use bracket access, including mixed forms. None is an approved stacked guard.
+for (const prLabels of [
+  "github['event'].pull_request.labels",
+  "github.event['pull_request'].labels",
+  "github.event.pull_request['labels']",
+  "github['event']['pull_request'].labels",
+  "github['event'].pull_request['labels']",
+  "github.event['pull_request']['labels']",
+  "github['event']['pull_request']['labels']",
+  "github [ 'event' ] . pull_request [ 'labels' ]",
+]) test(`PR-label contract rejects index access: ${prLabels}`, () => {
+  const unsafe = `contains(${prLabels}.*.name, 'run-heavy')`
+  assert.throws(() => assertPrLabelReads(unsafe, 'index fixture'), /reads PR labels outside/)
+  assert.throws(() => assertPrLabelReads(`${STACKED} || ${unsafe}`, 'guard plus index fixture'), /reads PR labels outside/)
 })
