@@ -35,4 +35,11 @@ public interface INodeAuditWriteEnlister
         JournalEntry entry,
         AuthorizationDecision decision,
         CancellationToken ct = default);
+
+    /// <summary>Stages the audit row for a human-authorized journal draft in the caller's transaction.</summary>
+    Task EnlistJournalDraftedAsync(
+        LocalNodeDbContext ctx,
+        JournalEntry entry,
+        AuthorizationDecision decision,
+        CancellationToken ct = default);
 }

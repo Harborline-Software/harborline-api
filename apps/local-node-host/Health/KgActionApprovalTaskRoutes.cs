@@ -59,16 +59,18 @@ public static class KgActionApprovalTaskRoutes
         IEndpointRouteBuilder app,
         NodeParkedTaskQueryReadModel tasks,
         NodeKgActionApprovalCutover cutover,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(tasks);
         ArgumentNullException.ThrowIfNull(cutover);
         ArgumentNullException.ThrowIfNull(activeTeam);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         MapList(app, tasks, activeTeam);
         MapDetail(app, tasks, activeTeam);
-        MapAction(app, tasks, cutover, activeTeam);
+        MapAction(app, tasks, cutover, activeTeam, timeProvider);
     }
 
     // ── GET /api/local-node/kg-action-tasks — list parked kg-action-approval tasks ────
@@ -101,11 +103,13 @@ public static class KgActionApprovalTaskRoutes
         IEndpointRouteBuilder app,
         NodeParkedTaskQueryReadModel tasks,
         NodeKgActionApprovalCutover cutover,
-        IActiveTeamAccessor activeTeam)
+        IActiveTeamAccessor activeTeam,
+        TimeProvider timeProvider)
     {
         app.MapPost($"{RouteBase}/{{instanceId}}/action", async (
             string instanceId,
             KgActionTaskActionRequest? body,
+            HttpContext http,
             CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Decision))
@@ -133,7 +137,9 @@ public static class KgActionApprovalTaskRoutes
             WorkflowDispatchResult result;
             try
             {
-                result = await cutover.ResumeAsync(instanceId, decision, body.Note, ct).ConfigureAwait(false);
+                result = await cutover.ResumeAsync(
+                    instanceId, decision, body.Note,
+                    FinancialRouteWriteAuthority.Create(http, tenantId, timeProvider), ct).ConfigureAwait(false);
             }
             catch (Exception)
             {

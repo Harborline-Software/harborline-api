@@ -2,6 +2,9 @@ using System.Text.Json;
 
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.IdentityAtlas;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.LocalNodeHost.Data.Search.Generation;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
@@ -42,6 +45,8 @@ public sealed class NodeKgActionApprovalCutover
     private readonly NodeWorkflowInstantiationService _instantiation;
     private readonly IWorkflowTriggerDispatcher _dispatcher;
     private readonly TimeProvider _timeProvider;
+    private readonly IWorkflowStore? _store;
+    private readonly AuthorizationGate? _authorizationGate;
 
     /// <summary>The taint label string the engine basis carries (mirrors <see cref="KgProposalTaint.UntrustedDerived"/>).</summary>
     public const string UntrustedDerivedTaint = "untrusted-derived";
@@ -50,11 +55,17 @@ public sealed class NodeKgActionApprovalCutover
     public NodeKgActionApprovalCutover(
         NodeWorkflowInstantiationService instantiation,
         IWorkflowTriggerDispatcher dispatcher,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IWorkflowStore? store = null,
+        AuthorizationGate? authorizationGate = null)
     {
         _instantiation = instantiation ?? throw new ArgumentNullException(nameof(instantiation));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        if ((store is null) != (authorizationGate is null))
+            throw new ArgumentException("The workflow store and authorization gate must be supplied together.");
+        _store = store;
+        _authorizationGate = authorizationGate;
     }
 
     /// <summary>
@@ -123,6 +134,7 @@ public sealed class NodeKgActionApprovalCutover
         string instanceId,
         string decision,
         string? note,
+        AuthorizationWriteContext? authority = null,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(instanceId);
@@ -130,9 +142,40 @@ public sealed class NodeKgActionApprovalCutover
 
         var at = _timeProvider.GetUtcNow();
         var payload = BuildHumanActionPayload(decision, note);
-        var result = await _dispatcher.DispatchAsync(
-            WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, instanceId, GraphRagProposalSteps.Approve, at, payload),
-            ct).ConfigureAwait(false);
+        var trigger = WorkflowTrigger.For(
+            WorkflowTriggerKind.HumanAction, instanceId, GraphRagProposalSteps.Approve, at, payload);
+        WorkflowDispatchResult result;
+        if (string.Equals(decision, "approve", StringComparison.Ordinal))
+        {
+            var writeAuthority = authority
+                ?? throw new InvalidOperationException("A KG approval requires request authority for its approving human.");
+            if (_store is null || _authorizationGate is null)
+                throw new InvalidOperationException("The KG approval cutover requires the workflow store and authorization gate.");
+            var instance = await _store.LoadAsync(instanceId, ct).ConfigureAwait(false);
+            if (instance is null)
+                return WorkflowDispatchResult.UnknownInstance;
+            var workflowDecision = await _authorizationGate.DecideAsync(
+                writeAuthority.Request(
+                    AuthorizationOperation.Parse(TeamRolePermissions.RecordsWrite),
+                    "record",
+                    instance.Id),
+                ct).ConfigureAwait(false);
+            workflowDecision.RequireAllowed();
+            var journalId = NodeKgActionApprovalContext.JournalEntryIdFor(instance.Id);
+            var admittedDecision = await _authorizationGate.DecideAsync(
+                writeAuthority.Request(
+                    AuthorizationOperation.Parse(TeamRolePermissions.LedgerPost),
+                    "journal-entry",
+                    journalId.Value),
+                ct).ConfigureAwait(false);
+            admittedDecision.RequireAllowed();
+            result = await _dispatcher.DispatchAsync(
+                trigger, new WorkflowDispatchAuthority(workflowDecision, admittedDecision), ct).ConfigureAwait(false);
+        }
+        else
+        {
+            result = await _dispatcher.DispatchAsync(trigger, ct).ConfigureAwait(false);
+        }
 
         // send-back round-trip: the handler parked the instance back on `decide`. Re-drive `decide` so it
         // RE-PARKS on approve — landing the task back in the Inbox in one operator action (mirrors the

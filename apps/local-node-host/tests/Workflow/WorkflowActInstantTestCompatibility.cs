@@ -30,7 +30,8 @@ internal static class WorkflowActInstantTestCompatibility
         DateTimeOffset? at = null,
         CancellationToken ct = default)
         => store.AdvanceAsync(
-            key, effect, resultJson, eventType, eventDataJson, nextStep, nextStatus, at ?? At, ct);
+            key, effect, resultJson, eventType, eventDataJson, nextStep, nextStatus, at ?? At,
+            authority: null, ct: ct);
 
     internal static Task ParkAsync(
         this IWorkflowStore store,

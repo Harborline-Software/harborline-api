@@ -146,17 +146,17 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         var periods = new NodeEfPeriodResolver(_factory);
         var jePosting = new JournalPostingService(
             accounts: new NodeEfAccountResolver(_factory),
-            periods:  periods,
-            store:    journalStore,
-            gate:     gate);
+            periods: periods,
+            store: journalStore,
+            gate: gate);
         var invoicePosting = new InvoicePostingService(
             tenantContext: new ActiveTeamTenantContext(NodeTestActiveTeam.Accessor),
-            invoices:      invoices,
-            numbering:     numbering,
-            tax:           new NoOpTaxCalculator(),
-            journals:      jePosting,
-            events:        null,
-            journalStore:  journalStore, timeProvider: TimeProvider.System);
+            invoices: invoices,
+            numbering: numbering,
+            tax: new NoOpTaxCalculator(),
+            journals: jePosting,
+            events: null,
+            journalStore: journalStore, timeProvider: TimeProvider.System);
 
         var invoiceRepoAccessor = invoices;
         var invoiceNumberingAccessor = numbering;
@@ -167,9 +167,7 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         // THE SEAM UNDER TEST — the live context and audit enlister share one caller-attribution source,
         // so invoice metadata and its co-committed signed audit row name the same actor.
         var liveContext = new NodeLiveInvoiceApprovalContext(
-            new NodeAuditWriteEnlister(_signer.Signer),
-            _attribution,
-            Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Identity());
+            new NodeAuditWriteEnlister(_signer.Signer));
         var approvalHandler = new InvoiceApprovalHandler(
             NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(), liveContext);
         var dispatcher = new WorkflowTriggerDispatcher(workflowStore, new IWorkflowStepHandler[] { approvalHandler });
@@ -265,7 +263,9 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         Assert.Equal(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party, (await InvoiceAsync(invoiceId)).UpdatedBy);
 
         await using var ctx = await _factory.CreateDbContextAsync();
-        var row = Assert.Single(await ctx.Set<NodeAuditEventRow>().ToListAsync());
+        var rows = await ctx.Set<NodeAuditEventRow>().ToListAsync();
+        Assert.Contains(rows, audit => audit.EventType == "Workflow.Advanced");
+        var row = Assert.Single(rows, audit => audit.EventType == NodeAuditWriteEnlister.JournalPostedEventType);
         Assert.Equal(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party.Value, row.Actor);
         Assert.NotNull(row.Signature);
         using var payload = JsonDocument.Parse(row.Payload);
@@ -309,7 +309,9 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionTests : IAsyncLifetim
         Assert.NotEqual(Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.Party, issued.UpdatedBy);
 
         await using var ctx = await _factory.CreateDbContextAsync();
-        var row = Assert.Single(await ctx.Set<NodeAuditEventRow>().ToListAsync());
+        var rows = await ctx.Set<NodeAuditEventRow>().ToListAsync();
+        Assert.Contains(rows, audit => audit.EventType == "Workflow.Advanced");
+        var row = Assert.Single(rows, audit => audit.EventType == NodeAuditWriteEnlister.JournalPostedEventType);
         Assert.Equal(memberParty, row.Actor);
         using var payload = JsonDocument.Parse(row.Payload);
         var authority = payload.RootElement.GetProperty("authority");
@@ -752,9 +754,11 @@ public sealed class NodeLiveInvoiceApprovalAuditAttributionRealCompositionTests
             await using var context = await factory.CreateDbContextAsync(timeout.Token);
             Assert.Equal(1, await context.Set<JournalEntry>()
                 .CountAsync(entry => entry.TenantId == tenant, timeout.Token));
-            var row = Assert.Single(await context.Set<NodeAuditEventRow>()
+            var rows = await context.Set<NodeAuditEventRow>()
                 .Where(entry => entry.TenantId == tenant.Value)
-                .ToListAsync(timeout.Token));
+                .ToListAsync(timeout.Token);
+            Assert.Contains(rows, audit => audit.EventType == "Workflow.Advanced");
+            var row = Assert.Single(rows, audit => audit.EventType == NodeAuditWriteEnlister.JournalPostedEventType);
             using var payload = JsonDocument.Parse(row.Payload);
             var root = payload.RootElement;
             var authority = root.GetProperty("authority");

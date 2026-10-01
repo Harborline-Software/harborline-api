@@ -34,7 +34,7 @@ internal sealed class NodeJournalKernelTransactionPort(LocalNodeDbContext contex
     public static KernelCommand<JournalEntry> Command(LocalNodeDbContext context, JournalEntry entry)
     {
         var audit = context.ChangeTracker.Entries<NodeAuditEventRow>()
-            .Where(row => row.State == EntityState.Added && row.Entity.EventType == NodeAuditWriteEnlister.JournalPostedEventType)
+            .Where(row => row.State == EntityState.Added && row.Entity.EventType is NodeAuditWriteEnlister.JournalPostedEventType or NodeAuditWriteEnlister.JournalDraftedEventType)
             .Select(row => row.Entity)
             .SingleOrDefault()
             ?? throw new InvalidOperationException(
@@ -47,6 +47,40 @@ internal sealed class NodeJournalKernelTransactionPort(LocalNodeDbContext contex
             new(entry.Id.Value, IdempotencyKey(entry), Fingerprint(entry)),
             entry,
             new(audit.AuditId, audit.Actor, audit.OccurredAt, Encoding.UTF8.GetBytes(audit.Payload)));
+    }
+
+    /// <summary>Creates the participant that stages a journal command in the enclosing workflow boundary.</summary>
+    public static IKernelTransactionParticipant<JournalEntry> CreateParticipant(LocalNodeDbContext context) => new Participant(context);
+
+    private sealed class Participant(LocalNodeDbContext context) : IKernelTransactionParticipant<JournalEntry>
+    {
+        private KernelOperationIdentity? _operation;
+        private JournalEntry? _entry;
+
+        public ValueTask StageOperationAsync(KernelOperationIdentity operation, CancellationToken cancellationToken = default)
+        {
+            _operation = operation ?? throw new ArgumentNullException(nameof(operation));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask StageRecordAsync(JournalEntry entry, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(entry);
+            if (_operation?.CommandId != entry.Id.Value)
+                throw new InvalidOperationException("The joined journal entry does not match its kernel operation identity.");
+            context.Set<JournalEntry>().Add(entry);
+            _entry = entry;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask StageAuditAsync(KernelAuditEvidence audit, CancellationToken cancellationToken = default)
+        {
+            if (_entry is null) throw new InvalidOperationException("The joined record must be staged before its audit.");
+            var matches = context.ChangeTracker.Entries<NodeAuditEventRow>().Any(row =>
+                row.State == EntityState.Added && row.Entity.AuditId == audit.AuditId && row.Entity.Actor == audit.ActorId);
+            if (!matches) throw new InvalidOperationException("The joined journal audit evidence does not match a staged audit row.");
+            return ValueTask.CompletedTask;
+        }
     }
 
     /// <summary>

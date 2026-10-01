@@ -165,7 +165,7 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         _fault.AfterReaderOn = "FROM \"journal_entries\"";
         _fault.AfterReader = async () =>
         {
-            try { await _store.SaveAtomicForTestAsync(Tenant, Reversal("JE-CK6-REV-2", "JE-CK6-ORIG")); }
+            try { await OnAFreshFlow(() => _store.SaveAtomicForTestAsync(Tenant, Reversal("JE-CK6-REV-2", "JE-CK6-ORIG"))); }
             catch (Exception ex) { competitorError = ex; }
         };
 
@@ -206,7 +206,7 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         Exception? competitorError = null;
         var racing = new RacingAuditEnlistment(async () =>
         {
-            try { await _store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-RIVAL", sourceReference: null)); }
+            try { await OnAFreshFlow(() => _store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-RIVAL", sourceReference: null))); }
             catch (Exception ex) { competitorError = ex; }
         });
         var store = new NodeEfJournalStore(_factory, NodeJournalWriteAdapters.Create(audit: racing));
@@ -216,6 +216,14 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
         Assert.Equal(5, Assert.IsType<Microsoft.Data.Sqlite.SqliteException>(competitorError).SqliteErrorCode);
         Assert.Null(await FindAsync("JE-CK6-RIVAL"));
         Assert.Equal((1, 1), await CountsAsync());
+    }
+
+    // A real concurrent writer is another request, so it starts on its own async flow. Called from inside the first
+    // save, the rival would otherwise inherit the kernel boundary's ambient execution and be refused as nested.
+    private static Task OnAFreshFlow(Func<Task> work)
+    {
+        using var _ = ExecutionContext.SuppressFlow();
+        return Task.Run(work);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
