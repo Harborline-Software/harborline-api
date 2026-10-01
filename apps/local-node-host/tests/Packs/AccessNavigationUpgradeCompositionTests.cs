@@ -24,6 +24,9 @@ using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
+// The shipping composition uses pooled SQLite connections. Run outside parallel collections:
+// sibling fixtures' process-wide ClearAllPools() can dispose a handle while Open() initializes it.
+[Collection("Harborline process environment")]
 public sealed class AccessNavigationUpgradeCompositionTests
 {
     private static readonly TenantId Tenant = new("29400000-0000-4000-8000-000000000001");
