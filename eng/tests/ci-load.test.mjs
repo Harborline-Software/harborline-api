@@ -8,9 +8,14 @@ import path from 'node:path'
 import test from 'node:test'
 
 const dir = path.resolve(import.meta.dirname, '../../.github/workflows')
-const read = file => readFileSync(path.join(dir, file), 'utf8')
+const read = file => readFileSync(path.join(dir, file), 'utf8').replaceAll('\r\n', '\n')
 const guard = (text, job) => text.split(`\n  ${job}:\n`)[1].split(/\n    runs-on:/)[0]
 const STACKED = "!contains(github.event.pull_request.labels.*.name, 'stacked')"
+const PR_LABELS = /\bgithub\s*\.\s*event\s*\.\s*pull_request\s*(?:\.\s*labels\b|\[\s*['"]labels['"]\s*\])/
+const assertPrLabelReads = (text, file) => assert.doesNotMatch(
+  text.replaceAll(STACKED, ''), PR_LABELS,
+  `${file}: reads PR labels outside the negated stacked guard`,
+)
 
 // The jobs a pull request runs that cost a runner. sbom and dependency-review stay: both are cheap.
 const heavy = {
@@ -54,11 +59,25 @@ test('stryker needs the hosted Windows lane, which an ordinary PR runs, and keep
   assert.ok(guard(text, 'stryker').includes('github.event.pull_request.head.repo.full_name == github.repository'), 'verify.yml stryker: no fork guard')
 })
 
-test('the label is only ever read as a negated contains, so no non-PR run can see it', () => {
+test('PR labels are only read in negated stacked guards; runner outputs are independent', () => {
   // A merge_group, push, schedule or dispatch payload carries no pull_request labels: contains() is
   // false there, so the negation is true and the label cannot skip (or enable) anything outside a PR.
   for (const file of readdirSync(dir).filter(name => /\.ya?ml$/.test(name))) {
     const text = read(file)
-    assert.equal(text.split('labels').length, text.split(STACKED).length, `${file}: reads labels some other way`)
+    assertPrLabelReads(text, file)
   }
+})
+
+// Oracle: the owner contract above constrains PR labels, not runner-routing outputs.
+test('PR-label contract accepts runner outputs and rejects unsafe PR-label reads', () => {
+  const routing = 'labels: ${{ steps.route.outputs.labels }}\nruns-on: ${{ fromJSON(needs.workload-route.outputs.labels) }}'
+  assert.doesNotThrow(() => assertPrLabelReads(routing, 'runner routing'))
+  assert.doesNotThrow(() => assertPrLabelReads(`${routing}\nif: ${STACKED}`, 'stacked guard plus routing'))
+  for (const unsafe of [
+    "contains(github.event.pull_request.labels.*.name, 'stacked')",
+    'github.event.pull_request.labels[0].name',
+    "github.event.pull_request['labels'][0].name",
+    'github . event . pull_request . labels[0].name',
+    `${STACKED} || contains(github.event.pull_request.labels.*.name, 'run-heavy')`,
+  ]) assert.throws(() => assertPrLabelReads(unsafe, 'unsafe fixture'), /reads PR labels outside/)
 })
