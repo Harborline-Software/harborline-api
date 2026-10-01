@@ -9,6 +9,30 @@ check() { if [ "$2" = "$3" ]; then echo "PASS $1"; else echo "FAIL $1 (expected 
 # Exercise the real function by sourcing just its definition out of verify.sh.
 eval "$(sed -n '/^in_lane() {/,/^}/p' "$root/eng/verify.sh")"
 eval "$(sed -n '/^configure_quality() {/,/^}/p' "$root/eng/verify.sh")"
+eval "$(sed -n '/^configure_checkouts() {/,/^}/p' "$root/eng/verify.sh")"
+checkout_checks=$(cd "$root" && {
+  unset HARBORLINE_CONTROL_REPO HARBORLINE_QUALITY_REPO
+  configure_checkouts || exit 1
+  node - "$HARBORLINE_CONTROL_REPO" "$HARBORLINE_QUALITY_REPO" <<'NODE' || exit 1
+const assert = require('node:assert/strict')
+const path = require('node:path')
+const {execFileSync} = require('node:child_process')
+const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {encoding: 'utf8'}).trim()
+const parent = path.dirname(path.dirname(common))
+assert.equal(process.argv[2], path.join(parent, 'harborline-control'))
+assert.equal(process.argv[3], path.join(parent, 'harborline-quality'))
+NODE
+  HARBORLINE_CONTROL_REPO='relative control with spaces'
+  HARBORLINE_QUALITY_REPO='relative quality with spaces'
+  configure_checkouts || exit 1
+  node - "$HARBORLINE_CONTROL_REPO" "$HARBORLINE_QUALITY_REPO" <<'NODE' || exit 1
+const assert = require('node:assert/strict')
+const path = require('node:path')
+assert.equal(process.argv[2], path.resolve('relative control with spaces'))
+assert.equal(process.argv[3], path.resolve('relative quality with spaces'))
+NODE
+})
+check 'checkout defaults and relative overrides survive scratch-clone cwd changes' 0 "$?"
 for lane in all shared host; do
   for flag in '' 1; do
     HARBORLINE_GATE_QUALITY=$flag
