@@ -1,13 +1,16 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Security.Cryptography;
+using System.Text;
 
 internal static class IsolationGuard
 {
-    internal sealed record Site(string Path, string Type, string Operation, bool Isolated)
+    internal sealed record Site(string Path, string Type, string Operation, bool Isolated, string TypeSha256)
     {
         public string Key => $"{Path}\t{Type}\t{Operation}";
     }
+    internal sealed record LegacyDebt(int Count, string TypeSha256, string Owner, string Reason);
 
     // Deliberately conservative syntax fence: these member names are forbidden regardless of
     // receiver spelling (including aliases/static imports). This is not a call graph, restoration
@@ -57,11 +60,20 @@ internal static class IsolationGuard
                         .Any(a => Name(a.Name) is "Fact" or "Theory" or "SkippableFact" or "SkippableTheory")) == true;
                 var privateHelpers = node.Ancestors().OfType<TypeDeclarationSyntax>().TakeWhile(t => t != owner)
                     .All(t => t.Modifiers.Any(SyntaxKind.PrivateKeyword));
-                sites.Add(new(path, type, operation, privateHelpers && isTest && collectionName is not null && nonparallel.Contains(collectionName)));
+                var declaration = node.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+                var code = string.Concat((declaration ?? node).DescendantTokens()
+                    .Select(t => $"{t.RawKind}:{t.Text.Length}:{t.Text}"));
+                var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code))).ToLowerInvariant();
+                sites.Add(new(path, type, operation, privateHelpers && isTest && collectionName is not null && nonparallel.Contains(collectionName), fingerprint));
             }
         }
         return sites.ToArray();
     }
+
+    internal static string[] CheckHashes(Site[] sites, IReadOnlyDictionary<string, LegacyDebt> debt) =>
+        sites.Where(s => !s.Isolated && debt.ContainsKey(s.Key) && s.TypeSha256 != debt[s.Key].TypeSha256)
+            .Select(s => $"{s.Key}: legacy type code changed; {debt[s.Key].Owner} review required ({debt[s.Key].Reason}).")
+            .Distinct().Order(StringComparer.Ordinal).ToArray();
 
     internal static string[] Check(Site[] sites, IReadOnlyDictionary<string, int> debt)
     {

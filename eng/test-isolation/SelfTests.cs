@@ -32,6 +32,12 @@ internal static class SelfTests
         Require(IsolationGuard.Check(Scan(unsafeSource.Replace("SqliteConnection.ClearAllPools();", "SqliteConnection.ClearAllPools(); SqliteConnection.ClearAllPools();", StringComparison.Ordinal)), debt).Length == 1,
             "An additional site in a grandfathered class must fail.");
         Require(IsolationGuard.Check(isolated, debt).Length == 2, "Resolved debt must be removed, not left as an exemption.");
+        var hashedDebt = Scan(unsafeSource).ToDictionary(s => s.Key,
+            s => new IsolationGuard.LegacyDebt(1, s.TypeSha256, "T-1031", "fixture debt"));
+        Require(IsolationGuard.CheckHashes(Scan(unsafeSource.Replace("null", "\"changed\"", StringComparison.Ordinal)), hashedDebt).Length == 2,
+            "Changed existing code at the same site count must fail.");
+        Require(IsolationGuard.CheckHashes(Scan("// harmless comment\n" + unsafeSource.Replace("void Run()", "void  Run ( )", StringComparison.Ordinal)), hashedDebt).Length == 0,
+            "Comments/whitespace do not change a legacy type's code fingerprint.");
 
         var diagnostics = new FailureOnlyHttpDiagnostics();
         var logger = diagnostics.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.BadRequests");

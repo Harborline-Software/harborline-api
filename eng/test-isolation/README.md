@@ -17,14 +17,17 @@ DisableParallelization=true. Collection names may be string literals or unique c
 string constants. Private nested helpers stay within their test owner; externally accessible
 helpers cannot be isolated by decorating the helper class and require caller review. Legacy debt
 must match path, containing type, operation and count exactly: adding a site in an existing type
-fails, and resolved debt must be removed.
+fails, and resolved debt must be removed. Each debt row includes a SHA-256 of the declaring type's
+code tokens, an existing review/disposition owner and a reason. Changing that type's code at the
+same site count also fails; comments and formatting do not affect the fingerprint. This freezes
+the local legacy type, not callers elsewhere in the assembly.
 
 This is a syntax ratchet, not a semantic call graph or proof of restoration/concurrency safety.
 It does not follow indirect calls, delegates/reflection, production mutations invoked by fixtures,
 conditional-compilation branches inactive under default parsing, collection inheritance, or other
 global APIs. The operation list is deliberately small and conservative: a similarly named custom
-method is also flagged. Changing a tracked legacy site's behavior without changing its count
-still needs review. No general isolation claim follows from a green result.
+method is also flagged. An indirect caller can change without changing the frozen helper type;
+that remains outside this guard and needs review. No general isolation claim follows from green.
 
 ## Legacy debt and ownership
 
