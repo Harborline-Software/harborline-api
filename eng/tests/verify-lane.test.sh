@@ -8,6 +8,19 @@ check() { if [ "$2" = "$3" ]; then echo "PASS $1"; else echo "FAIL $1 (expected 
 
 # Exercise the real function by sourcing just its definition out of verify.sh.
 eval "$(sed -n '/^in_lane() {/,/^}/p' "$root/eng/verify.sh")"
+eval "$(sed -n '/^configure_quality() {/,/^}/p' "$root/eng/verify.sh")"
+for lane in all shared host; do
+  for flag in '' 1; do
+    HARBORLINE_GATE_QUALITY=$flag
+    HARBORLINE_VERIFY_QUALITY_RUN=stale-parent-run
+    configure_quality || exit 1
+    expected=0
+    if [ "$lane" = all ] || { [ "$lane" = host ] && [ "$flag" = 1 ]; }; then expected=1; fi
+    actual=0
+    if [ -n "${HARBORLINE_VERIFY_QUALITY_RUN:-}" ] && [ "$HARBORLINE_VERIFY_QUALITY_RUN" != stale-parent-run ] && [ "$HARBORLINE_GATE_QUALITY" = 1 ]; then actual=1; fi
+    check "$lane flag=$flag configures fresh analyzer production" "$expected" "$actual"
+  done
+done
 
 steps=$(grep -oE '^step +[a-z0-9-]+' "$root/eng/verify.sh" | awk '{print $2}')
 # The host lane carries quality only on the ONE host that sets HARBORLINE_GATE_QUALITY, because the

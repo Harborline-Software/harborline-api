@@ -55,6 +55,7 @@ bash "$repo_root/eng/tests/gate-lock-reentry.test.sh" || exit 1
 bash "$repo_root/eng/tests/fixture-git-retry.test.sh" || exit 1
 # Ticket 421: the lane filter. A step that falls out of both lanes would stop running in CI silently.
 bash "$repo_root/eng/tests/verify-lane.test.sh" || exit 1
+node --test "$repo_root/eng/tests/verify-preflight.test.mjs" || exit 1
 
 # Ticket 324: exercise the comparison and receipt refusal on the gate's preflight route.
 node --test "$repo_root/eng/tests/host-baseline.test.mjs" || exit 1

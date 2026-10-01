@@ -21,6 +21,8 @@ import path from 'node:path'
 import {resolveCommand} from './lib/resolve-command.mjs'
 import {baselineArgument, compareHostBaseline, readHostTrx, readVitestJsonAsTrx, capabilityBaselineFor, normalizeIdentity, rosterIdCollisions, unexplainedRosterLoss} from './host-baseline.mjs'
 import {copyCoberturaReport, coverageEnabled, qualityCoveragePaths} from './coverage.mjs'
+import {invalidateQualityProduction, recordQualityProduction} from './quality-production.mjs'
+import {qualityArtifacts} from './quality-step.mjs'
 
 // Vendored from harborline-migration tooling/run-api-exact-clone.mjs (2026-08-20). This was the
 // ONLY clean-clone proof harborline-api had, and it lived in a repo with no remote that is being
@@ -43,6 +45,8 @@ const forceKnownTests = process.argv.includes('--force-known-tests')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
 const collectCoverage = coverageEnabled()
 const coveragePaths = qualityCoveragePaths(apiRoot)
+const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
+if (qualityEnabled) invalidateQualityProduction(apiRoot)
 
 const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
 const dirty = execFileSync('git', ['-C', apiRoot, 'status', '--porcelain'], {encoding: 'utf8'}).trim()
@@ -144,7 +148,6 @@ try {
   const roslynDirectory = path.join(qualityDirectory, 'roslyn')
   const archDirectory = path.join(qualityDirectory, 'arch')
   const eslintDirectory = path.join(qualityDirectory, 'eslint')
-  const qualityEnabled = process.env.HARBORLINE_GATE_QUALITY === '1'
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
@@ -548,6 +551,10 @@ try {
 // Note for the next editor: do not spell that home-directory prefix out here. This comment is
 // itself scanned, and naming the pattern literally fails the very check it describes.
 const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, ...rest}) => rest)}
+if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
+  recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
+    files: qualityArtifacts(apiRoot).sarif})
+}
 // mkdir first: migration already had docs/refoundation/evidence/phase-4/, this repository has no
 // docs/evidence/ at all. Without this the gate runs every step for roughly fifteen minutes and
 // then throws ENOENT on its final line, discarding the verdict it just spent that long computing.

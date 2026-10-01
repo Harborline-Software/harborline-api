@@ -5,6 +5,7 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import {createHash} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
+import {requireQualityProduction} from './quality-production.mjs'
 
 const cliArguments = process.argv.slice(2)
 const optionValue = option => {
@@ -102,6 +103,10 @@ export function runQualityStep({apiRoot = root, env = process.env} = {}) {
   const control = resolveControlPolicy({apiRoot, env})
   if (!control.policyDefaults) refuse('HARBORLINE_CONTROL_REPO', control.reason)
   const artifacts = qualityArtifacts(apiRoot)
+  if (env.HARBORLINE_VERIFY_QUALITY_RUN) {
+    const head = execFileSync('git', ['-C', apiRoot, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
+    requireQualityProduction(apiRoot, {head, run: env.HARBORLINE_VERIFY_QUALITY_RUN, files: artifacts.sarif})
+  }
   const scratch = mkdtempSync(path.join(tmpdir(), 'harborline-api-quality-'))
   const receipt = receiptDirectory(apiRoot)
   const diff = path.join(scratch, 'base-to-head.diff')

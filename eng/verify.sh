@@ -32,6 +32,17 @@ gate_lock_acquire "eng/verify.sh"
 # full run proves everything CI proves.
 lane=${HARBORLINE_VERIFY_LANE:-all}
 case "$lane" in all|shared|host) ;; *) echo "HARBORLINE_VERIFY_LANE must be all, shared or host (got: $lane)" >&2; exit 1 ;; esac
+# A whole-gate run consumes quality, so its producer must run even without the CI flag.
+configure_quality() {
+  unset HARBORLINE_VERIFY_QUALITY_RUN
+  if [ "$lane" = all ]; then export HARBORLINE_GATE_QUALITY=1; fi
+  if [ "$lane" = all ] || { [ "$lane" = host ] && [ "${HARBORLINE_GATE_QUALITY:-}" = 1 ]; }; then
+    HARBORLINE_VERIFY_QUALITY_RUN=$(node -e 'console.log(require("node:crypto").randomUUID())') || return 1
+    export HARBORLINE_VERIFY_QUALITY_RUN
+  fi
+}
+configure_quality || exit 1
+node eng/verify-preflight.mjs || exit 1
 # quality and quality-baseline belong to the HOST lane, not the shared one, because they read what
 # exact-clone produces: run-exact-clone.mjs builds the clone with -p:HarborlineRoslynSarifDirectory
 # and writes both SARIF sets into artifacts/quality. Run them without it and both engines report
