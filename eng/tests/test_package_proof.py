@@ -90,6 +90,10 @@ class PromotionTests(unittest.TestCase):
     def test_success_transfer_and_tarball_hash_binding(self):
         self.consume()
         proof.verify(self.stage, VERSION, seal=True)
+        self.assertEqual(json.loads((self.stage / 'consumer-proof.json').read_text())['schema'],
+                         'harborline-api/consumer-proof/1')
+        self.assertEqual(json.loads((self.stage / 'package-manifest.json').read_text())['schema'],
+                         'harborline-api/package-manifest/1')
         copied = Path(self.temporary.name) / 'downloaded'
         shutil.copytree(self.stage, copied)
         proof.verify(copied, VERSION)
@@ -155,15 +159,62 @@ class PromotionTests(unittest.TestCase):
                 proof.consume(self.stage, VERSION)
         self.assertFalse((self.stage / 'consumer-proof.json').exists())
 
-    def test_wrong_manifest_refused(self):
+    def test_recorded_proof_source_and_repository_bind_to_environment(self):
+        expected = proof.identity(VERSION)
+        for field, value in [('source', 'b' * 40), ('repository', 'other/repo')]:
+            with self.subTest(field=field):
+                recorded = dict(expected, **{field: value})
+                # The production writers build an internally consistent pair for this identity.
+                # identity() guard tests above remain separate from these report-binding cases.
+                with patch.object(proof, 'identity', return_value=recorded):
+                    self.consume()
+                    proof.verify(self.stage, VERSION, seal=True)
+                    proof.verify(self.stage, VERSION)
+                with self.assertRaisesRegex(ValueError, 'consumer proof does not match'):
+                    proof.verify(self.stage, VERSION)
+
+    def test_recorded_manifest_source_and_repository_bind_to_environment(self):
         self.consume()
         proof.verify(self.stage, VERSION, seal=True)
-        manifest = self.stage / 'package-manifest.json'
-        value = json.loads(manifest.read_text())
-        value['identity']['source'] = 'b' * 40
-        manifest.write_text(json.dumps(value))
-        with self.assertRaises(ValueError):
+        path = self.stage / 'package-manifest.json'
+        valid = json.loads(path.read_text())
+        for field, value in [('source', 'b' * 40), ('repository', 'other/repo')]:
+            with self.subTest(field=field):
+                manifest = dict(valid, identity=dict(valid['identity'], **{field: value}))
+                path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(ValueError, 'promotion manifest does not match'):
+                    proof.verify(self.stage, VERSION)
+
+    def schema_refusal(self, filename, schema, refusal):
+        self.consume()
+        proof.verify(self.stage, VERSION, seal=True)
+        path = self.stage / filename
+        value = json.loads(path.read_text())
+        if schema is None:
+            del value['schema']
+        else:
+            value['schema'] = schema
+        path.write_text(json.dumps(value))
+        if filename == 'consumer-proof.json':
+            # Preserve the hash binding so the schema refusal cannot be masked by stale hashes.
+            manifest_path = self.stage / 'package-manifest.json'
+            manifest = json.loads(manifest_path.read_text())
+            manifest['consumerProofSha256'] = proof.digest(path)
+            manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, refusal):
             proof.verify(self.stage, VERSION)
+
+    def test_missing_consumer_proof_schema_refused(self):
+        self.schema_refusal('consumer-proof.json', None, 'consumer proof does not match')
+
+    def test_unknown_consumer_proof_schema_refused(self):
+        self.schema_refusal('consumer-proof.json', 'harborline-api/consumer-proof/999', 'consumer proof does not match')
+
+    def test_missing_package_manifest_schema_refused(self):
+        self.schema_refusal('package-manifest.json', None, 'promotion manifest does not match')
+
+    def test_unknown_package_manifest_schema_refused(self):
+        self.schema_refusal('package-manifest.json', 'harborline-api/package-manifest/999', 'promotion manifest does not match')
 
 
 if __name__ == '__main__':
