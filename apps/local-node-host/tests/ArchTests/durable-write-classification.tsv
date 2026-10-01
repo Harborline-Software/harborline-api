@@ -78,6 +78,7 @@ apps/local-node-host/Data/Search/Vector/Sqlite/Vec0AccelerationSink.cs	3	n/a	der
 apps/local-node-host/Data/Search/Vector/Sqlite/Vec0KnnEngine.cs	1	n/a	vec0 virtual-table DDL
 apps/local-node-host/Data/SqlCipherConnectionInterceptor.cs	2	n/a	PRAGMA key on connection open
 apps/local-node-host/Data/Workflow/NodeEfWorkflowStore.cs	3	record-is-audit	append-only WorkflowEventRecord in the effect transaction (:131-162; NodeWorkflowEngineTests.cs:138); CommitsIndependently effects commit first (:104-108)
+apps/local-node-host/Data/Workflow/NodeWorkflowKernelTransactionPort.cs	1	atomic-audit	workflow advance, Workflow.Advanced audit and joined journal effects commit through one held kernel boundary
 apps/local-node-host/Health/BankAccountRoutes.cs	2	n/a	mock bank-feed connection flag
 apps/local-node-host/Health/ChartOfAccountsManagementRoutes.cs	2	record-is-audit	durable-layer pattern (:62)
 apps/local-node-host/Health/ChartOfAccountsRoutes.cs	1	record-is-audit	durable-layer pattern (:51-54); chart + accounts in one save

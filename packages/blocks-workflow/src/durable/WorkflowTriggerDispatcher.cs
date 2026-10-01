@@ -178,6 +178,7 @@ public sealed class WorkflowTriggerDispatcher : IWorkflowTriggerDispatcher
             nextStep: outcome.NextStep,
             nextStatus: outcome.NextStatus,
             at: operationAt,
+            authority: authority,
             ct: ct).ConfigureAwait(false);
 
         return WorkflowDispatchResult.Advanced;
@@ -234,6 +235,7 @@ public sealed class WorkflowTriggerDispatcher : IWorkflowTriggerDispatcher
                 nextStep: EscalatedStep,
                 nextStatus: WorkflowStatus.Failed,
                 at: at,
+                authority: null,
                 ct: ct).ConfigureAwait(false);
             return WorkflowDispatchResult.Advanced;
         }

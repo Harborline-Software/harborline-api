@@ -171,7 +171,8 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
 
         await _store.SaveAtomicForTestAsync(Tenant, Reversal("JE-CK6-REV-1", "JE-CK6-ORIG"));
 
-        Assert.Equal(5, Assert.IsType<Microsoft.Data.Sqlite.SqliteException>(competitorError).SqliteErrorCode);
+        var refusal = Assert.IsType<Harborline.Kernel.Core.KernelTransactionStateException>(competitorError);
+        Assert.Equal(Harborline.Kernel.Core.KernelTransactionErrors.NestedExecution, refusal.Code);
         Assert.Null(await FindAsync("JE-CK6-REV-2"));
         Assert.Equal("JE-CK6-REV-1", (await FindAsync("JE-CK6-ORIG"))!.ReversedBy?.Value);
         Assert.Equal((2, 2), await CountsAsync());
@@ -213,7 +214,8 @@ public sealed class JournalTransactionBoundaryTests : IAsyncLifetime
 
         await store.SaveAtomicForTestAsync(Tenant, Posted("JE-CK6-FIRST", sourceReference: null));
 
-        Assert.Equal(5, Assert.IsType<Microsoft.Data.Sqlite.SqliteException>(competitorError).SqliteErrorCode);
+        var refusal = Assert.IsType<Harborline.Kernel.Core.KernelTransactionStateException>(competitorError);
+        Assert.Equal(Harborline.Kernel.Core.KernelTransactionErrors.NestedExecution, refusal.Code);
         Assert.Null(await FindAsync("JE-CK6-RIVAL"));
         Assert.Equal((1, 1), await CountsAsync());
     }

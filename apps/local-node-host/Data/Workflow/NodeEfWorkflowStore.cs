@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -96,10 +97,19 @@ public sealed class NodeEfWorkflowStore : IWorkflowStore
         string nextStep,
         WorkflowStatus nextStatus,
         DateTimeOffset at,
+        WorkflowDispatchAuthority? authority = null,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(eventType);
         ArgumentException.ThrowIfNullOrEmpty(nextStep);
+
+        if (authority is not null)
+        {
+            await AdvanceThroughKernelAsync(
+                    key, effect, resultJson, eventType, eventDataJson, nextStep, nextStatus, at, authority, ct)
+                .ConfigureAwait(false);
+            return;
+        }
 
         if (effect?.CommitsIndependently == true)
         {
@@ -160,6 +170,39 @@ public sealed class NodeEfWorkflowStore : IWorkflowStore
         // unique-index violation) leaves the un-committed transaction to dispose with nothing persisted.
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         await tx.CommitAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task AdvanceThroughKernelAsync(
+        WorkflowStepKey key,
+        WorkflowEffect? effect,
+        string resultJson,
+        string eventType,
+        string eventDataJson,
+        string nextStep,
+        WorkflowStatus nextStatus,
+        DateTimeOffset at,
+        WorkflowDispatchAuthority authority,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        await using var context = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var port = new NodeWorkflowKernelTransactionPort(context);
+        await KernelTransactionBoundary.ExecutePreparedAsync(
+            async cancellationToken =>
+            {
+                if (effect is not null)
+                    await effect.StageAsync(port.Context, cancellationToken).ConfigureAwait(false);
+                var advance = new NodeWorkflowAdvance(
+                    key, authority.WorkflowDecision.Request.Tenant.Value, resultJson, eventType,
+                    eventDataJson, nextStep, nextStatus, at);
+                return new KernelCommand<NodeWorkflowAdvance>(
+                    advance.Operation(), advance,
+                    new KernelAuditEvidence(
+                        Guid.NewGuid().ToString("D"), authority.WorkflowDecision.Request.Principal.Value, at,
+                        System.Text.Encoding.UTF8.GetBytes(eventDataJson)));
+            },
+            port,
+            ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

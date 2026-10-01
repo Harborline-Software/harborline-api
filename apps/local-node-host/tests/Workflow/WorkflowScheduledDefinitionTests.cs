@@ -18,6 +18,7 @@ using Harborline.Api.Foundation.Scheduling;
 using Harborline.Api.Foundation.Scheduling.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 using Harborline.Api.LocalNodeHost.Tests.Search;
@@ -177,11 +178,13 @@ public sealed class WorkflowScheduledDefinitionTests
         var services = new ServiceCollection();
         services.AddSingleton(clock);
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialLedger.Data.FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>(); // the ledger module is never registered without periods
         services.AddDbContextFactory<LocalNodeDbContext>(options =>
             options.UseSqlite($"Data Source={databasePath};Pooling=False"));
         services.AddSingleton<IWorkflowStore, NodeEfWorkflowStore>();
+        services.AddSingleton<INodeAuditWriteEnlister, NodeAuditWriteEnlister>();
         services.AddSingleton(searchFactory);
         TestAuthorization.AddMemberRosterConstraints(services);
         services.AddNodeAuthorizationModel();

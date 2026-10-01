@@ -9,6 +9,10 @@ using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Financial;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -57,6 +61,15 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 /// </remarks>
 public sealed class NodeKgActionApprovalContext : IKgActionApprovalContext
 {
+    private readonly INodeAuditWriteEnlister? _audit;
+
+    /// <summary>Constructs the context for legacy isolated tests; execution refuses until composition supplies the audit seam.</summary>
+    public NodeKgActionApprovalContext()
+    {
+    }
+
+    /// <summary>Constructs the context with the required atomic audit enlistment seam.</summary>
+    public NodeKgActionApprovalContext(INodeAuditWriteEnlister audit) => _audit = audit ?? throw new ArgumentNullException(nameof(audit));
     /// <inheritdoc />
     public KgActionApprovalBasis BuildBasis(WorkflowInstanceRecord instance)
     {
@@ -75,7 +88,8 @@ public sealed class NodeKgActionApprovalContext : IKgActionApprovalContext
     public WorkflowEffect BuildExecuteEffect(
         WorkflowInstanceRecord instance,
         WorkflowStepKey executeStepKey,
-        DateTimeOffset admittedAt)
+        DateTimeOffset admittedAt,
+        AuthorizationDecision? admittedDecision = null)
     {
         ArgumentNullException.ThrowIfNull(instance);
         var state = ParseState(instance);
@@ -99,12 +113,13 @@ public sealed class NodeKgActionApprovalContext : IKgActionApprovalContext
 
         // The Draft JE id is derived deterministically from the instance id (the bug-1337 byte-stable v5
         // technique) so a crash-resume re-derives the IDENTICAL JE and collides on the unique source-ref index.
-        var jeId = new JournalEntryId("JE-" + DeriveActionJeGuid(instance.Id).ToString("N"));
+        var jeId = JournalEntryIdFor(instance.Id);
         var sourceRef = "kg-action:" + instance.Id;
 
         var entryDate = DateOnly.FromDateTime(admittedAt.UtcDateTime);
 
-        return new WorkflowEffect((uow, _) =>
+        var decision = admittedDecision ?? throw new InvalidOperationException("A KG approval requires its carried human authorization decision.");
+        return new WorkflowEffect(async (uow, ct) =>
         {
             var ctx = (LocalNodeDbContext)uow;
             var entry = new JournalEntry(
@@ -125,8 +140,12 @@ public sealed class NodeKgActionApprovalContext : IKgActionApprovalContext
                 // a draft, not a post.
                 Status = JournalEntryStatus.Draft,
             };
-            ctx.Set<JournalEntry>().Add(entry);
-            return Task.CompletedTask;
+            var audit = _audit ?? throw new InvalidOperationException("The KG approval context requires the journal audit enlister.");
+            await audit.EnlistJournalDraftedAsync(ctx, entry, decision, ct).ConfigureAwait(false);
+            await KernelTransactionBoundary.JoinAsync(
+                NodeJournalKernelTransactionPort.Command(ctx, entry),
+                NodeJournalKernelTransactionPort.CreateParticipant(ctx),
+                ct).ConfigureAwait(false);
         });
     }
 
@@ -205,6 +224,10 @@ public sealed class NodeKgActionApprovalContext : IKgActionApprovalContext
 
         return new Guid(ms);
     }
+
+    /// <summary>Derives the stable journal-entry identity for one approved KG action instance.</summary>
+    internal static JournalEntryId JournalEntryIdFor(string instanceId) =>
+        new("JE-" + DeriveActionJeGuid(instanceId).ToString("N"));
 
     private readonly record struct KgActionState(
         string ProposalText,

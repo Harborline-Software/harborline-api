@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Harborline.Api.Blocks.FinancialAr.Data;
+using Harborline.Api.Blocks.FinancialAr.Models;
 using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Blocks.FinancialLedger.Data;
@@ -9,6 +11,7 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Persistence;
 using Harborline.Api.Foundation.Scheduling.DependencyInjection;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Workflow;
 
 using Xunit;
@@ -38,6 +41,7 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var factory = NewFactory();
         await using var ctx = await factory.CreateDbContextAsync();
         await ctx.Database.EnsureCreatedAsync();
+        await WorkflowJoinTestComposition.SeedFinancialPrerequisitesAsync(factory);
     }
 
     public Task DisposeAsync()
@@ -52,6 +56,8 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IHarborlineEntityModule, FinancialLedgerEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, ArEntityModule>();
+        services.AddSingleton<IHarborlineEntityModule, AuditEventEntityModule>();
         services.AddSingleton<IHarborlineEntityModule, WorkflowEntityModule>();
         services.AddDbContextFactory<LocalNodeDbContext>(o => o.UseSqlite($"Data Source={_dbPath};Pooling=False"));
         return services.BuildServiceProvider().GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
@@ -66,16 +72,18 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         return await ctx.Set<JournalEntry>().CountAsync(j => j.TenantId == LocalTenantId);
     }
 
-    private static IWorkflowStepHandler InvoiceHandler()
-        => new InvoiceApprovalHandler(
-            NodeWorkflowDefinitions.InvoiceApprovalThresholdTable(),
-            new NodeInvoiceApprovalContext());
+    private static IWorkflowStepHandler InvoiceHandler() => WorkflowJoinTestComposition.CreateInvoiceHandler();
 
-    private static IWorkflowStepHandler RecurringHandler()
-        => new RecurringGenerationHandler(new NodeRecurringGenerationContext());
+    private static IWorkflowStepHandler RecurringHandler(IDbContextFactory<LocalNodeDbContext> factory) =>
+        WorkflowJoinTestComposition.CreateRecurringHandler(factory);
 
-    private async Task<string> SeedApprovalInstanceAsync(IWorkflowStore store, string id, decimal amount)
+    private async Task<string> SeedApprovalInstanceAsync(
+        IDbContextFactory<LocalNodeDbContext> factory,
+        IWorkflowStore store,
+        string id,
+        decimal amount)
     {
+        await WorkflowJoinTestComposition.SeedDraftInvoiceAsync(factory, LocalTenantId, id, amount);
         await store.CreateInstanceAsync(new WorkflowInstanceRecord
         {
             Id = id,
@@ -84,7 +92,7 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
             DefinitionVersion = NodeWorkflowDefinitions.InvoiceApprovalV1Version,   // D7 — pinned at instantiation
             CurrentStep = InvoiceApprovalSteps.Decide,
             Status = WorkflowStatus.Running,
-            StateJson = $"{{\"amount\":{amount.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+            StateJson = $"{{\"invoiceId\":\"{id}\",\"amount\":{amount.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
                         "\"debitAccount\":\"1100\",\"creditAccount\":\"4000\",\"memo\":\"approval test\"}",
         });
         return id;
@@ -99,10 +107,10 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
     {
         var factory = NewFactory();
         var store = NewStore(factory);
-        await SeedApprovalInstanceAsync(store, "appr-under", 1000m);
+        await SeedApprovalInstanceAsync(factory, store, "appr-under", 1000m);
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
-        var result = await dispatcher.DispatchAsync(
+        var result = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.Event, "appr-under", InvoiceApprovalSteps.Decide));
 
         Assert.Equal(WorkflowDispatchResult.Advanced, result);
@@ -117,11 +125,11 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
     {
         var factory = NewFactory();
         var store = NewStore(factory);
-        await SeedApprovalInstanceAsync(store, "appr-over", 7500m);
+        await SeedApprovalInstanceAsync(factory, store, "appr-over", 7500m);
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
         // decide → PARK on the approve human-task. NO JE yet (the CP post is not reached).
-        var decided = await dispatcher.DispatchAsync(
+        var decided = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.Event, "appr-over", InvoiceApprovalSteps.Decide));
         Assert.Equal(WorkflowDispatchResult.Parked, decided);
         Assert.Equal(0, await CountJournalEntriesAsync(factory));
@@ -130,7 +138,7 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         Assert.Equal(InvoiceApprovalSteps.Approve, parked.CurrentStep);
 
         // human approve → advance to the CP post step WITH the effect → EXACTLY ONE JE.
-        var approved = await dispatcher.DispatchAsync(
+        var approved = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, "appr-over", InvoiceApprovalSteps.Approve,
                 "{\"decision\":\"approve\"}"));
         Assert.Equal(WorkflowDispatchResult.Advanced, approved);
@@ -138,7 +146,7 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         Assert.Equal(WorkflowStatus.Completed, (await store.LoadAsync("appr-over"))!.Status);
 
         // Redelivered approve (idempotency hit) → no-op, still EXACTLY ONE JE.
-        var again = await dispatcher.DispatchAsync(
+        var again = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, "appr-over", InvoiceApprovalSteps.Approve,
                 "{\"decision\":\"approve\"}"));
         Assert.Equal(WorkflowDispatchResult.Terminal, again);   // instance is Completed now
@@ -150,12 +158,12 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
     {
         var factory = NewFactory();
         var store = NewStore(factory);
-        await SeedApprovalInstanceAsync(store, "appr-rej", 7500m);
+        await SeedApprovalInstanceAsync(factory, store, "appr-rej", 7500m);
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
-        await dispatcher.DispatchAsync(
+        await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.Event, "appr-rej", InvoiceApprovalSteps.Decide));
-        var rejected = await dispatcher.DispatchAsync(
+        var rejected = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.HumanAction, "appr-rej", InvoiceApprovalSteps.Approve,
                 "{\"decision\":\"reject\"}"));
 
@@ -174,11 +182,13 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var handler = (InvoiceApprovalHandler)InvoiceHandler();
         var instance = new WorkflowInstanceRecord
         {
-            Id = "arch-A", TenantId = LocalTenantId.Value,
+            Id = "arch-A",
+            TenantId = LocalTenantId.Value,
             DefinitionKey = InvoiceApprovalSteps.DefinitionKey,
             DefinitionVersion = NodeWorkflowDefinitions.InvoiceApprovalV1Version,
-            CurrentStep = InvoiceApprovalSteps.Decide, Status = WorkflowStatus.Running,
-            StateJson = "{\"amount\":9000,\"debitAccount\":\"1100\",\"creditAccount\":\"4000\",\"memo\":\"m\"}",
+            CurrentStep = InvoiceApprovalSteps.Decide,
+            Status = WorkflowStatus.Running,
+            StateJson = "{\"invoiceId\":\"arch-A\",\"amount\":9000,\"debitAccount\":\"1100\",\"creditAccount\":\"4000\",\"memo\":\"m\"}",
         };
 
         var outcome = await handler.DecideAsync(
@@ -206,10 +216,10 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var factory = NewFactory();
         var store = NewStore(factory);
         // $5000.00 exactly is UNDER the strictly-> $5k gate → auto-post.
-        await SeedApprovalInstanceAsync(store, "appr-edge", 5000m);
+        await SeedApprovalInstanceAsync(factory, store, "appr-edge", 5000m);
         var dispatcher = new WorkflowTriggerDispatcher(store, new[] { InvoiceHandler() });
 
-        var result = await dispatcher.DispatchAsync(
+        var result = await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher,
             WorkflowTrigger.For(WorkflowTriggerKind.Event, "appr-edge", InvoiceApprovalSteps.Decide));
         Assert.Equal(WorkflowDispatchResult.Advanced, result);   // auto-post (not parked)
         Assert.Equal(1, await CountJournalEntriesAsync(factory));
@@ -238,22 +248,22 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var factory = NewFactory();
         var store = NewStore(factory);
         await SeedRecurringInstanceAsync(store, "rec-1", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 7, 1));
-        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler() });
+        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) });
 
         var step = RecurringGenerationSteps.GenerateStep(new DateOnly(2026, 7, 1));
 
         // First tick → advance + post ONE JE.
         Assert.Equal(WorkflowDispatchResult.Advanced,
-            await dispatcher.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-1", step)));
+            await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-1", step)));
         Assert.Equal(1, await CountJournalEntriesAsync(factory));
 
         // RESTART (fresh factory over the same db) + re-deliver the SAME occurrence tick → idempotency guard
         // hits, no-op, still EXACTLY ONE JE.
         var factory2 = NewFactory();
         var store2 = NewStore(factory2);
-        var dispatcher2 = new WorkflowTriggerDispatcher(store2, new[] { RecurringHandler() });
+        var dispatcher2 = new WorkflowTriggerDispatcher(store2, new[] { RecurringHandler(factory2) });
         Assert.Equal(WorkflowDispatchResult.ReplayedNoOp,
-            await dispatcher2.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-1", step)));
+            await WorkflowJoinTestComposition.DispatchAsync(store2, dispatcher2, WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-1", step)));
         Assert.Equal(1, await CountJournalEntriesAsync(factory2));
     }
 
@@ -263,11 +273,11 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var factory = NewFactory();
         var store = NewStore(factory);
         await SeedRecurringInstanceAsync(store, "rec-2", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 7, 1));
-        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler() });
+        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) });
 
-        await dispatcher.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-2",
+        await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-2",
             RecurringGenerationSteps.GenerateStep(new DateOnly(2026, 7, 1))));
-        await dispatcher.DispatchAsync(WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-2",
+        await WorkflowJoinTestComposition.DispatchAsync(store, dispatcher, WorkflowTrigger.For(WorkflowTriggerKind.Schedule, "rec-2",
             RecurringGenerationSteps.GenerateStep(new DateOnly(2026, 8, 1))));
 
         Assert.Equal(2, await CountJournalEntriesAsync(factory));
@@ -280,7 +290,7 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var store = NewStore(factory);
         // A monthly schedule that started in the past, so as-of-now there are due occurrences to generate.
         await SeedRecurringInstanceAsync(store, "rec-wired", "FREQ=MONTHLY;BYMONTHDAY=1", new DateOnly(2026, 6, 1));
-        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler() });
+        var dispatcher = new WorkflowTriggerDispatcher(store, new[] { RecurringHandler(factory) });
 
         // The PRODUCTION schedule source (RRULE over the recoverable schedule rows) + the daemon.
         var rruleServices = new ServiceCollection();
@@ -293,7 +303,9 @@ public sealed class NodeWorkflowSlice2Tests : IAsyncLifetime
         var now = new DateTimeOffset(2026, 6, 15, 0, 0, 0, TimeSpan.Zero);
         var fixedClock = new FixedClock(now);
         var daemon = new WorkflowScheduleDaemon(source, dispatcher, fixedClock,
-            NullLogger<WorkflowScheduleDaemon>.Instance);
+            NullLogger<WorkflowScheduleDaemon>.Instance,
+            authorizationGate: Harborline.Api.LocalNodeHost.Tests.Authorization.TestAuthorization.AllowGate(),
+            store: store);
 
         var before = await CountJournalEntriesAsync(factory);
         await daemon.TickAsync();

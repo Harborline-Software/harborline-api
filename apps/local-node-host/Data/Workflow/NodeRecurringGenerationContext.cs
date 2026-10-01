@@ -5,9 +5,14 @@ using System.Text;
 using System.Text.Json;
 
 using Harborline.Api.Blocks.FinancialLedger.Models;
+using Harborline.Api.Blocks.FinancialLedger.Services;
 using Harborline.Api.Blocks.Workflow.Durable;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data;
+using Harborline.Kernel.Core;
 
 namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 
@@ -37,13 +42,29 @@ namespace Harborline.Api.LocalNodeHost.Data.Workflow;
 /// </remarks>
 public sealed class NodeRecurringGenerationContext : IRecurringGenerationContext
 {
+    private readonly INodeAuditWriteEnlister? _audit;
+    private readonly JournalPostingService? _posting;
+
+    /// <summary>Constructs the context for legacy isolated tests; a generation refuses until composition supplies its audit and posting seams.</summary>
+    public NodeRecurringGenerationContext()
+    {
+    }
+
+    /// <summary>Constructs the recurring effect over the verified posting service and atomic audit seam.</summary>
+    public NodeRecurringGenerationContext(INodeAuditWriteEnlister audit, IJournalPostingService posting)
+    {
+        _audit = audit ?? throw new ArgumentNullException(nameof(audit));
+        _posting = posting as JournalPostingService
+            ?? throw new InvalidOperationException("Recurring generation requires the verification-capable JournalPostingService.");
+    }
 
     /// <inheritdoc />
     public WorkflowEffect? BuildGenerationEffect(
         WorkflowInstanceRecord instance,
         DateOnly occurrenceDate,
         WorkflowStepKey generateStepKey,
-        DateTimeOffset at)
+        DateTimeOffset at,
+        AuthorizationDecision? admittedDecision = null)
     {
         var state = ParseState(instance);
         var tenant = new TenantId(instance.TenantId);
@@ -55,7 +76,8 @@ public sealed class NodeRecurringGenerationContext : IRecurringGenerationContext
             $"recurring:{state.ScheduleId}:{occurrenceDate:yyyy-MM-dd}");
         var amount = state.Amount;
 
-        return new WorkflowEffect((uow, _) =>
+        var decision = admittedDecision ?? throw new InvalidOperationException("Recurring generation requires its carried ledger decision.");
+        return new WorkflowEffect(async (uow, ct) =>
         {
             var ctx = (LocalNodeDbContext)uow;
             var je = new JournalEntry(
@@ -69,13 +91,28 @@ public sealed class NodeRecurringGenerationContext : IRecurringGenerationContext
                     new(new GLAccountId(state.CreditAccount), 0m, amount),
                 },
                 createdAtUtc: new Instant(at),
-                sourceReference: sourceRef)
-            {
-                Status = JournalEntryStatus.Posted,
-            };
-            ctx.Set<JournalEntry>().Add(je);
-            return Task.CompletedTask;
+                sourceReference: sourceRef);
+            var posting = _posting ?? throw new InvalidOperationException("Recurring generation requires the JournalPostingService.");
+            var audit = _audit ?? throw new InvalidOperationException("Recurring generation requires the journal audit enlister.");
+            var result = await posting.PostAsync(je, decision, decision.Request.Principal, decision.Request.At,
+                async (posted, _) =>
+                {
+                    await audit.EnlistJournalPostedAsync(ctx, posted, decision, ct).ConfigureAwait(false);
+                    await KernelTransactionBoundary.JoinAsync(
+                        NodeJournalKernelTransactionPort.Command(ctx, posted),
+                        NodeJournalKernelTransactionPort.CreateParticipant(ctx),
+                        ct).ConfigureAwait(false);
+                }, ct).ConfigureAwait(false);
+            if (!result.IsSuccess) throw new InvalidOperationException($"Recurring journal posting failed: {result.Error}.");
         });
+    }
+
+    /// <summary>Derives the journal id that a schedule daemon must authorize for one recurring occurrence.</summary>
+    internal static JournalEntryId JournalEntryIdFor(WorkflowInstanceRecord instance, DateOnly occurrenceDate)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        var state = ParseState(instance);
+        return new JournalEntryId("JE-" + DeriveOccurrenceGuid(state.ScheduleId, occurrenceDate).ToString("N"));
     }
 
     private static RecurringState ParseState(WorkflowInstanceRecord instance)
