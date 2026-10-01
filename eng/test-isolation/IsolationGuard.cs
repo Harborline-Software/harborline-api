@@ -62,6 +62,7 @@ internal static class IsolationGuard
                     .All(t => t.Modifiers.Any(SyntaxKind.PrivateKeyword));
                 var declaration = node.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault();
                 var code = string.Concat((declaration ?? node).DescendantTokens()
+                    .Select(t => (t.RawKind, Text: t.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal)))
                     .Select(t => $"{t.RawKind}:{t.Text.Length}:{t.Text}"));
                 var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code))).ToLowerInvariant();
                 sites.Add(new(path, type, operation, privateHelpers && isTest && collectionName is not null && nonparallel.Contains(collectionName), fingerprint));

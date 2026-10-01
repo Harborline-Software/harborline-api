@@ -38,6 +38,9 @@ internal static class SelfTests
             "Changed existing code at the same site count must fail.");
         Require(IsolationGuard.CheckHashes(Scan("// harmless comment\n" + unsafeSource.Replace("void Run()", "void  Run ( )", StringComparison.Ordinal)), hashedDebt).Length == 0,
             "Comments/whitespace do not change a legacy type's code fingerprint.");
+        const string rawLiteral = "class T { string s = \"\"\"\nline one\nline two\n\"\"\"; void F() { ClearAllPools(); } }";
+        Require(Scan(rawLiteral).Single().TypeSha256 == Scan(rawLiteral.Replace("\n", "\r\n", StringComparison.Ordinal)).Single().TypeSha256,
+            "Raw-string physical line endings must not make Windows/Linux debt inventories disagree.");
 
         var diagnostics = new FailureOnlyHttpDiagnostics();
         var logger = diagnostics.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.BadRequests");

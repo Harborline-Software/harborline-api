@@ -19,7 +19,7 @@ helpers cannot be isolated by decorating the helper class and require caller rev
 must match path, containing type, operation and count exactly: adding a site in an existing type
 fails, and resolved debt must be removed. Each debt row includes a SHA-256 of the declaring type's
 code tokens, an existing review/disposition owner and a reason. Changing that type's code at the
-same site count also fails; comments and formatting do not affect the fingerprint. This freezes
+same site count also fails; comments, formatting and physical CRLF/LF differences do not affect the fingerprint. This freezes
 the local legacy type, not callers elsewhere in the assembly.
 
 This is a syntax ratchet, not a semantic call graph or proof of restoration/concurrency safety.
