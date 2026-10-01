@@ -28,20 +28,37 @@ permissions:
   contents: read
 
 jobs:
-  stryker-full:
+  workload-route:
     if: vars.ACTIONS_ENABLED == 'true'
-    runs-on: [self-hosted, Windows, winbox]
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.route.outputs.enabled }}
+      labels: ${{ steps.route.outputs.labels }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Explain background routing
+        id: route
+        env:
+          BACKGROUND_MUTATION_ROUTE: ${{ vars.BACKGROUND_MUTATION_ROUTE }}
+          LOCAL_BACKGROUND_RESERVATION: ${{ vars.LOCAL_BACKGROUND_RESERVATION }}
+        run: node .github/workloads/workload-route.mjs
+  stryker-full:
+    needs: workload-route
+    if: vars.ACTIONS_ENABLED == 'true' && needs.workload-route.outputs.enabled == 'true'
+    runs-on: ${{ fromJSON(needs.workload-route.outputs.labels) }}
     timeout-minutes: 360
     defaults:
       run:
         shell: bash
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      NUGET_PACKAGES: C:\nuget-runner
       # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
       VSTEST_CONNECTION_TIMEOUT: '300'
     steps:
       - name: Git Bash on PATH for the service account
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
@@ -51,19 +68,29 @@ jobs:
         with:
           clean: true
 
-      - name: Platform pin and local feed
-        run: |
-          plat="$USERPROFILE/Projects/Harborline/lanes/platform-pin-stryker"
-          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          [ -d "$plat/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$plat"
-          git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" && git -C "$plat" clean -fdxq
-          HARBORLINE_PLATFORM_REPO="$plat" node eng/build-local-feed.mjs
-
-      - name: Mutation (full, break from the baselines file)
-        run: |
-          dotnet tool restore
-          node eng/mutation-report.mjs --full ${SLICE:+--slice "$SLICE"}
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Read the recorded platform pin
+        id: platform_pin
+        run: echo "commit=$(node -p "require('./eng/platform-pin.json').commit")" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: ${{ steps.platform_pin.outputs.commit }}
+          path: .platform
+          persist-credentials: false
+      - name: Reserved full mutation and isolated feed
+        run: python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
         env:
+          HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+          NUGET_PACKAGES: ${{ runner.temp }}/mutation-nuget-${{ github.run_id }}-${{ github.run_attempt }}
           SLICE: ${{ inputs.slice }}
 
       - name: Mutation reports
