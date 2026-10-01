@@ -20,6 +20,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Kernel.Runtime.Teams;
+using Harborline.Api.Kernel.Schema;
 using Harborline.Api.LocalNodeHost.Data.Configuration;
 using Harborline.Api.LocalNodeHost.Data.Financial;
 using Harborline.Api.LocalNodeHost.Data.Identity;
@@ -440,6 +441,26 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         var suite = VerificationSuite.Parse(suiteDocument, out var refusals);
         Assert.Empty(refusals);
         Assert.NotNull(suite);
+        Assert.True(PackFormDefinitionContent.TryParse(candidateDocument, out var request, out _, out var parseError), parseError);
+        var schemas = new InMemorySchemaRegistry(new FrozenClock(Frozen));
+        var schema = await schemas.RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request,
+            new FormDefinitionId("records/" + recordType)));
+        foreach (var row in suite!.Cases.Single(item => item.CaseId == "invoice-total").Rows)
+        {
+            // The production runner's rule graph alone does not validate the submitted wire shape.
+            // Exercise the same production schema synthesis/registry boundary used by form submission.
+            var values = row.Values["values"];
+            var validation = await schemas.ValidateAsync(schema.Id, System.Text.Encoding.UTF8.GetBytes(values));
+            Assert.True(validation.IsValid, fixtureName + ": " + row.RowId);
+            var wrongType = JsonNode.Parse(values)!.AsObject();
+            wrongType["quantity"] = "two";
+            Assert.False((await schemas.ValidateAsync(schema.Id,
+                System.Text.Encoding.UTF8.GetBytes(wrongType.ToJsonString()))).IsValid);
+            var extraField = JsonNode.Parse(values)!.AsObject();
+            extraField["undeclared"] = "must refuse";
+            Assert.False((await schemas.ValidateAsync(schema.Id,
+                System.Text.Encoding.UTF8.GetBytes(extraField.ToJsonString()))).IsValid);
+        }
         var packageKey = "verification." + fixtureName;
         var definitionKey = "records/" + recordType;
         Seed(packageKey, (definitionKey, PackContentKind.FormDefinition, candidateDocument));

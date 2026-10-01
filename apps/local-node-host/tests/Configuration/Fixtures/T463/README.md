@@ -8,7 +8,9 @@ documents in the existing `SaveFormDefinitionRequest` format accepted by
 `PackFormDefinitionContent`. They use the supported legacy request-only pack body,
 as the pre-existing invoice tests do. The second is a journal **intake form**, not a
 ledger posting definition. These candidates exercise field authorization and a
-computed total. They do not represent replacement asset or ledger packs.
+computed total. `fieldsMeta` explicitly types quantity, unitPrice and total as
+numbers, and declares supplier as text. These are numeric rule examples, not a
+money primitive contract. They do not represent replacement asset or ledger packs.
 
 The existing test store installs each document unchanged as `FormDefinition`
 content at version `1.0.0`, with stable keys `records/asset` and `records/journal`
@@ -53,20 +55,22 @@ record JSON and the unregistered posting action. It prints the producer assembly
 SHA-256 and admitted suite digests. Build provenance must be supplied by the caller:
 a cached build is admission evidence only, never proof for the API source revision.
 
-```powershell
-pwsh -NoProfile -File eng/test-t463-fixture-admission.ps1 -AssemblyDirectory <existing-feed-directory> -FutureAcceptance
-```
-
-The opt-in future probe exits nonzero while `ledger.post` is unregistered. Its
-required passing counterpart verifies that the existing catalog refuses this
-unknown action. When posting becomes supported, migrate the negative capability
-probe to real acceptance; do not replace posting with `records.create`. There are
-no skipped tests, CI-wide red tests, waived failures or mock execution evidence.
+`ledger-post.future.suite.json` is an inadmissible negative catalog input; its
+production admission refusal is a required regression, not posting acceptance.
+Future scenarios in `expectations.json` are explicitly **NON-EXECUTABLE pending
+specifications**. There is no future-acceptance switch or permanently failing
+test marker. When a production posting adapter exists, replace the catalog
+boundary regression with real admission and runner-outcome acceptance that can
+turn green. Do not substitute `records.create` for posting. There are no skipped
+tests, CI-wide red tests, waived failures or mock execution evidence.
 
 When the heavy slot is available, run the existing host project with filter
 `FullyQualifiedName~VerificationRunnerTests.File_authored_candidates`. Its two
-new cases check real candidate parsing, preparation, production rule/authorization
-execution, exact results and preservation of the effective-generation digest.
+new cases check real candidate parsing, production schema synthesis/validation of
+every accepted row, refusal of wrong numeric types and undeclared fields,
+preparation, production rule/authorization execution, exact results and
+preservation of the effective-generation digest. They remain unrun; production
+schema acceptance and host execution are not claimed from suite admission alone.
 
 ## Missing capabilities and owners
 

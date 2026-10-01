@@ -35,6 +35,14 @@
         "writeRoles": [
           "invoice.approver"
         ]
+      },
+      "supplier": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "Supplier"
+          }
+        }
       }
     },
     "sections": [
@@ -47,6 +55,7 @@
           }
         },
         "fields": [
+          "supplier",
           "quantity",
           "unitPrice",
           "total",
@@ -74,5 +83,27 @@
         "action": "Compute"
       }
     ]
+  },
+  "fieldsMeta": {
+    "quantity": {
+      "type": "number",
+      "required": false
+    },
+    "unitPrice": {
+      "type": "number",
+      "required": false
+    },
+    "total": {
+      "type": "number",
+      "required": false
+    },
+    "status": {
+      "type": "text",
+      "required": false
+    },
+    "supplier": {
+      "type": "text",
+      "required": false
+    }
   }
 }

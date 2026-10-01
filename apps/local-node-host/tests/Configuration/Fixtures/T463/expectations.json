@@ -112,5 +112,7 @@
       },
       "status": "unregistered-action"
     }
-  ]
+  ],
+  "futureAcceptanceExecutable": false,
+  "futureAcceptanceLimit": "Pending specification only; no executable ledger posting adapter or durable mutation observation exists in this harness."
 }

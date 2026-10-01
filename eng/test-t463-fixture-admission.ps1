@@ -1,12 +1,11 @@
 <#
 T-463 lightweight fixture admission. Uses the released production parser, never a model engine.
 Provide an already built Platform/feed directory. No restore, compilation, persistence or activation.
-FutureAcceptance is an opt-in red probe, outside required regression checks.
+Future posting expectations are a non-executable manifest, outside these regression checks.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$AssemblyDirectory,
-    [switch]$FutureAcceptance
+    [Parameter(Mandatory)][string]$AssemblyDirectory
 )
 $ErrorActionPreference = 'Stop'
 $fixtureRoot = Join-Path $PSScriptRoot '../apps/local-node-host/tests/Configuration/Fixtures/T463'
@@ -54,13 +53,5 @@ foreach ($name in @('asset.suite.json', 'ledger.suite.json')) {
     Require-Refusal (Admit $invalidFact) 'verification-fixture-fact-invalid' "$name malformed initial record"
 }
 $unsupported = Admit (Read-Suite 'ledger-post.future.suite.json')
-if ($FutureAcceptance) {
-    # Acceptance asks the production admission boundary to admit a real posting case.
-    # The exception is driven by that boundary's actual refusals, never a fabricated outcome.
-    if ($null -eq $unsupported.Suite) {
-        throw "EXPECTED RED T-463/T-544: production admission refused ledger.post: $($unsupported.Codes -join ','). No execution or no-mutation evidence was produced."
-    }
-    throw 'Posting suite admitted; host posting execution is still unbound in this probe. Run real host acceptance before claiming a pass.'
-}
 Require-Refusal $unsupported $oracle.requiredRefusals.unknownAction 'ledger posting capability boundary'
 Write-Output 'PASS required admission regressions. Asset/ledger persistence, no-mutation observations and governed release acceptance remain NOT IMPLEMENTED in this harness.'
