@@ -625,6 +625,89 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Null((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
     }
 
+    [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the member narrowing commits delivers both legs and the conferral once on restart")]
+    public async Task Crash_after_the_member_narrowing_commit_delivers_both_legs_and_the_conferral_once_on_restart()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin,
+            grantAudit: new CrashingAuditTrail(), memberRoleSet: NarrowedMemberSet);
+        var original = await ConferNarrowableGrantAsync(fixture);
+        var before = (await RestartAndDrainTwiceAsync(fixture)).Select(record => record.AuditId).ToHashSet();
+
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.NarrowMemberGrantAsync(
+            fixture.Handle, TenantId, original, [TeamRolePermissions.MembersManage],
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+
+        var legs = (await RestartAndDrainTwiceAsync(fixture)).Where(record => !before.Contains(record.AuditId)).ToList();
+        // All three share the decided instant, so the trail's order between them is not part of the contract.
+        Assert.Equal(
+            new[] { "AuthorizationAdmissionGrantConferred", "CapabilityDelegated", "CapabilityRevoked" },
+            legs.Select(record => record.EventType.Value).Order(StringComparer.Ordinal).ToArray());
+        Assert.All(legs, record =>
+        {
+            Assert.Equal(Now, record.OccurredAt);
+            Assert.Equal(new ActorId("principal-admin"), record.Actor);
+            Assert.NotNull(record.AuthoritySnapshot);
+        });
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        Assert.NotNull((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original)).RevokedAtUnixMs);
+        var reissued = (await grants.Grants.AsNoTracking()
+            .SingleAsync(g => g.SubjectId == "principal-narrowed" && g.RevokedAtUnixMs == null)).GrantId;
+        var grantLegs = legs.Where(record => record.EventType != NodeEfAuthorizationConfigurationStore.AdmissionGrantConferredEventType).ToList();
+        Assert.All(grantLegs, record =>
+        {
+            Assert.Equal(original, record.Target!.Value.RecordId);
+            Assert.Equal("member-narrowed", record.Payload.Payload.Body["reason"]?.ToString());
+            Assert.Equal(reissued, record.Payload.Payload.Body["successor_grant_id"]?.ToString());
+        });
+        Assert.Single(grantLegs.Select(record => record.Payload.Payload.Body["correlation_id"]?.ToString()).Distinct());
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 grant: a member narrowing refused at commit stages no audit entry and leaves the grant live")]
+    public async Task A_member_narrowing_refused_at_commit_stages_no_audit_entry()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, memberRoleSet: NarrowedMemberSet);
+        var original = await ConferNarrowableGrantAsync(fixture);
+        await RestartAndDrainTwiceAsync(fixture);
+        long ownerVersion;
+        await using (var grants = fixture.GrantFactory.CreateDbContext())
+        {
+            ownerVersion = (await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original)).OwnerVersion;
+            // The reissue's insert is refused inside the narrowing's one save, after both legs and their audit are staged.
+            await grants.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER t1048h_refuse_reissue BEFORE INSERT ON search_grants BEGIN SELECT RAISE(ABORT, 't1048h'); END;");
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Authority.NarrowMemberGrantAsync(
+            fixture.Handle, TenantId, original, [TeamRolePermissions.MembersManage],
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+
+        await using (var grants = fixture.GrantFactory.CreateDbContext())
+        {
+            await grants.Database.ExecuteSqlRawAsync("DROP TRIGGER t1048h_refuse_reissue;");
+            // Only the setup conferral's entry, already delivered: the refused narrowing staged nothing.
+            var row = Assert.Single(await grants.AuditOutbox.AsNoTracking().ToListAsync());
+            Assert.Equal("AuthorizationAdmissionGrantConferred", row.EventType);
+            Assert.NotNull(row.PublishedAtUnixMs);
+            var grant = await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == original);
+            Assert.Null(grant.RevokedAtUnixMs);
+            Assert.Equal(ownerVersion, grant.OwnerVersion);
+            Assert.Equal(1, await grants.Grants.CountAsync(g => g.SubjectId == "principal-narrowed"));
+        }
+    }
+
+    /// <summary>The narrowable member's admission set, as the fixture's closure answers it for a per-admission role.</summary>
+    private static readonly PermissionSet NarrowedMemberSet =
+        PermissionSet.Of(TeamRolePermissions.MembersManage, Permission.ContactsRead);
+
+    /// <summary>Confers an admission grant through the one production derivation, so the narrowing can reissue it.</summary>
+    private static async Task<string> ConferNarrowableGrantAsync(Fixture fixture)
+    {
+        var grant = await new NodeEfAuthorizationConfigurationStore(fixture.GrantFactory, new InMemoryRoleVocabulary([]))
+            .ConferAdmissionGrantAsync(new TenantId(TenantId), "principal-narrowed", "principal-admin",
+                NarrowedMemberSet, Now, TestAdmissions.SignedBy("principal-admin", "principal-narrowed"));
+        return Assert.IsType<AccessGrant>(grant).GrantId.ToString();
+    }
+
     /// <summary>The process is gone: a new trail and outbox open the same grant file, drain at startup, and drain again.</summary>
     private static async Task<List<AuditRecord>> RestartAndDrainTwiceAsync(Fixture fixture)
     {
@@ -1142,13 +1225,14 @@ public sealed class AdminTeamAccessAuthorityTests
 
         /// <summary>
         /// Ticket 362 - the set a grant holds IN FORCE is its role's atoms. When a test declares what the
-        /// seeded member role carries, answer with that; otherwise keep the install-wide Administrator atom
+        /// seeded member role (or a per-admission role, T-1048) carries, answer with that; otherwise keep the install-wide Administrator atom
         /// this fixture has always answered with.
         /// </summary>
         public ValueTask<PermissionAtomSet> RolePermissionsAsync(
             TenantId tenantId, RoleReference role, CancellationToken ct = default) =>
             ValueTask.FromResult(
-                memberRoleSet is not null && role == AccessGrantAuthorizationSeed.MemberRole
+                memberRoleSet is not null && (role == AccessGrantAuthorizationSeed.MemberRole
+                    || role.Name.StartsWith(AccessGrantAuthorizationSeed.AdmissionRolePrefix, StringComparison.Ordinal))
                     ? Atoms(memberRoleSet)
                     : Manage);
     }
@@ -1218,11 +1302,11 @@ public sealed class AdminTeamAccessAuthorityTests
             GrantRevocation revocation,
             Guid correlationId,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
             return inner.NarrowAsync(
-                tenant, current, narrowed, revocation, correlationId, admittedDecision, cancellationToken);
+                tenant, current, narrowed, revocation, correlationId, admittedDecision, audit, cancellationToken);
         }
     }
 
