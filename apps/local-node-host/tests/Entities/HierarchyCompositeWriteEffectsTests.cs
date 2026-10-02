@@ -139,8 +139,11 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal((OldA, At), (internalEdge.To, internalEdge.Validity.ValidTo));
         await foreach (var ancestor in h.Hierarchy.GetAncestorsAsync(OldB, At))
             Assert.Equal(0, ancestor.Depth);
-        Assert.Contains(await h.ParentEdges(OldB, At),
-            edge => edge.Kind == EdgeKind.SupersededBy && edge.To == Merged);
+        // GetParentsAsync exposes ChildOf edges only; inspect the distinct supersession write itself.
+        var supersession = Assert.Single(h.Hierarchy.Added, edge =>
+            edge.From == OldB && edge.Kind == EdgeKind.SupersededBy);
+        Assert.Equal((Merged, At, (DateTimeOffset?)null),
+            (supersession.To, supersession.Validity.ValidFrom, supersession.Validity.ValidTo));
         Assert.Equal([KidA], result.ReassignedChildren);
         Assert.Equal(Merged, Assert.Single(await h.ParentEdges(KidA, At)).To);
         Assert.Null(await h.Entities.GetAsync(OldB));
