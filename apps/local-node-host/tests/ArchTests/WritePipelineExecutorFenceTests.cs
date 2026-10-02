@@ -44,8 +44,6 @@ public sealed class WritePipelineExecutorFenceTests
             "S3 form submit record"),
         ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 form definition lifecycle"),
-        ("packages/foundation/Assets/Entities/IEntityStore.cs|Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateBatchAsync",
-            "S3 raw-port batch fan-out, no production caller"),
         ("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs|Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync",
             "S3 definition lifecycle"),
     ];
