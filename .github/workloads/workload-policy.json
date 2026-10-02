@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "ticket": "T-679",
+  "maxHeavyJobsPerMachine": 1,
+  "routes": {
+    "legacy-windows": {
+      "qualified": true,
+      "labels": [
+        "self-hosted",
+        "Windows",
+        "winbox"
+      ]
+    },
+    "mac16": {
+      "qualified": false,
+      "labels": [
+        "self-hosted",
+        "macOS",
+        "X64",
+        "mac16"
+      ],
+      "evidence": null
+    }
+  },
+  "scheduleUtc": "0 7 * * *"
+}

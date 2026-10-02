@@ -75,6 +75,30 @@ public sealed class PackActivationPipelineTests
     }
 
     [Fact]
+    public async Task Activation_under_a_projection_read_lease_refuses_without_a_transaction_or_state_change()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        using (PackProjectionActivationBarrier.Read())
+        {
+            var outcome = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
+
+            Assert.False(outcome.Activated);
+            Assert.Equal(PackInstallCodes.ActivateProjectionFailed, outcome.Error);
+            Assert.Equal("A projection read lease cannot be upgraded to activation.", outcome.Detail);
+            Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+            Assert.Null(_store.GetActive(Tenant, PackKey));
+            var refusal = Assert.Single(_audit.Query(Tenant));
+            Assert.Equal(PackInstallAuditAction.Refused, refusal.Action);
+            Assert.Equal("pack.install.activate.projection_failed", refusal.Detail);
+        }
+
+        _stages.Entered.Clear();
+        var retry = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
+        Assert.True(retry.Activated, retry.Error + " " + retry.Detail);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+    }
+
+    [Fact]
     public async Task A_refused_activation_decision_stops_at_authorize_and_nothing_becomes_active()
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -119,7 +143,9 @@ public sealed class PackActivationPipelineTests
         Assert.True(outcome.Deactivated, outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
-        Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated && entry.PackKey == PackKey);
+        var audit = Assert.Single(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated);
+        Assert.Equal(PackKey, audit.PackKey);
+        Assert.Equal("pack.install.deactivated", audit.Detail);
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.PreDecision);
     }
 
