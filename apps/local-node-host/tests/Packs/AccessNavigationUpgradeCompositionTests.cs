@@ -64,7 +64,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
             await using (var restarted = await UnattributedGrantCompositionTests.OpenAsync(directory))
             {
                 await AssertNavigationAsync(restarted.Services);
-                var outcome = restarted.Services.GetRequiredService<IPackInstaller>().Deactivate(
+                var outcome = await restarted.Services.GetRequiredService<IPackInstaller>().DeactivateAsync(
                     Context(restarted.Services), PackKey, "1.1.3");
                 Assert.True(outcome.Deactivated);
                 using var after = await NavigationAsync(restarted.Services);

@@ -179,7 +179,7 @@ public sealed class PackDependencyClosureActivationTests
     }
 
     [Fact]
-    public void Deactivate_refuses_while_an_active_pack_depends_on_it_and_names_every_dependent()
+    public async Task Deactivate_refuses_while_an_active_pack_depends_on_it_and_names_every_dependent()
     {
         Seed("test.c", "1.0.0");
         Seed("test.b", "1.0.0", ("test.c", "1.0.0"));
@@ -189,7 +189,7 @@ public sealed class PackDependencyClosureActivationTests
         Assert.True(Activate("test.b", "1.0.0").Activated);
         Assert.True(Activate("test.a", "1.0.0").Activated);
 
-        var outcome = _installer.Deactivate(Tenant, "test.c", "1.0.0", Now, "operator");
+        var outcome = await _installer.DeactivateAsync(Tenant, "test.c", "1.0.0", Now, "operator");
 
         Assert.False(outcome.Deactivated);
         Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
@@ -200,27 +200,27 @@ public sealed class PackDependencyClosureActivationTests
     }
 
     [Fact]
-    public void Deactivate_proceeds_once_no_active_pack_depends_on_it()
+    public async Task Deactivate_proceeds_once_no_active_pack_depends_on_it()
     {
         Seed("test.b", "1.0.0", ("test.b", "1.0.0"));
         Seed("test.a", "1.0.0", ("test.b", "1.0.0"));
         Assert.True(Activate("test.b", "1.0.0").Activated);
         Assert.True(Activate("test.a", "1.0.0").Activated);
 
-        Assert.True(_installer.Deactivate(Tenant, "test.a", "1.0.0", Now, "operator").Deactivated);
-        var outcome = _installer.Deactivate(Tenant, "test.b", "1.0.0", Now, "operator");
+        Assert.True((await _installer.DeactivateAsync(Tenant, "test.a", "1.0.0", Now, "operator")).Deactivated);
+        var outcome = await _installer.DeactivateAsync(Tenant, "test.b", "1.0.0", Now, "operator");
 
         Assert.True(outcome.Deactivated, outcome.Error);
         Assert.Null(_store.GetActive(Tenant, "test.b"));
     }
 
     [Fact]
-    public void Deactivate_refuses_the_platform_pack_while_a_pack_that_declares_it_is_active()
+    public async Task Deactivate_refuses_the_platform_pack_while_a_pack_that_declares_it_is_active()
     {
         Seed("test.a", "1.0.0", (PlatformPackTestPreload.PackKey, "1.0.0"));
         Assert.True(Activate("test.a", "1.0.0").Activated);
 
-        var outcome = _installer.Deactivate(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
+        var outcome = await _installer.DeactivateAsync(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
 
         Assert.False(outcome.Deactivated);
         Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
@@ -229,14 +229,14 @@ public sealed class PackDependencyClosureActivationTests
     }
 
     [Fact]
-    public void Deactivate_refuses_the_platform_pack_while_any_other_pack_is_active_declared_or_not()
+    public async Task Deactivate_refuses_the_platform_pack_while_any_other_pack_is_active_declared_or_not()
     {
         Seed("test.b", "1.0.0");
         Seed("test.a", "1.0.0");
         Assert.True(Activate("test.b", "1.0.0").Activated);
         Assert.True(Activate("test.a", "1.0.0").Activated);
 
-        var outcome = _installer.Deactivate(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
+        var outcome = await _installer.DeactivateAsync(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
 
         Assert.False(outcome.Deactivated);
         Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
@@ -245,9 +245,9 @@ public sealed class PackDependencyClosureActivationTests
     }
 
     [Fact]
-    public void Deactivate_of_the_platform_pack_proceeds_when_no_other_pack_is_active()
+    public async Task Deactivate_of_the_platform_pack_proceeds_when_no_other_pack_is_active()
     {
-        var outcome = _installer.Deactivate(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
+        var outcome = await _installer.DeactivateAsync(Tenant, PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version, Now, "operator");
 
         Assert.True(outcome.Deactivated, outcome.Error);
     }

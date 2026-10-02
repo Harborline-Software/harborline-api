@@ -169,7 +169,7 @@ public sealed class PackReplacementRemovalTests
         await world.InstallAndActivateAsync("1.0.0", withView: true, withReport: true);
         await world.ProjectAsync();
 
-        var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.0.0", Now, "test-operator");
+        var deactivation = await world.Installer.DeactivateAsync(Tenant, PackKey, "1.0.0", Now, "test-operator");
         Assert.True(deactivation.Deactivated, deactivation.Error);
         var down = await world.ProjectAsync();
         Assert.Null(await world.ReadViewAsync());
@@ -278,7 +278,7 @@ public sealed class PackReplacementRemovalTests
         // That deactivate pass refuses nothing, so a leg gated only on "zero refusals" would run with an
         // empty admitted set — 1.1.0 now Inactive, 1.0.0 still Superseded — and retract the replaced
         // package's every definition. Removal belongs to an ACTIVE replacement only.
-        var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.1.0", Now, "test-operator");
+        var deactivation = await world.Installer.DeactivateAsync(Tenant, PackKey, "1.1.0", Now, "test-operator");
         Assert.False(deactivation.Deactivated);
         Assert.Equal(PackInstallCodes.DeactivateNotActive, deactivation.Error);
         await world.ProjectAsync();

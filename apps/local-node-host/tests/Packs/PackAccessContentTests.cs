@@ -158,7 +158,7 @@ public sealed class PackAccessContentTests
         await world.ProjectAsync();
         Assert.NotNull(await world.Vocabulary.ResolveAsync(PackRole));
 
-        var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.0.0", Now, "test-operator");
+        var deactivation = await world.Installer.DeactivateAsync(Tenant, PackKey, "1.0.0", Now, "test-operator");
         Assert.True(deactivation.Deactivated, deactivation.Error);
         var down = await world.ProjectAsync();
 
@@ -226,7 +226,7 @@ public sealed class PackAccessContentTests
         Assert.Single(await world.Definitions.ListAsync(Tenant));
         Assert.Empty(await world.Definitions.ListAsync(OtherTenant));
 
-        var deactivation = world.Installer.Deactivate(Tenant, PackKey, "1.0.0", Now, "test-operator");
+        var deactivation = await world.Installer.DeactivateAsync(Tenant, PackKey, "1.0.0", Now, "test-operator");
         Assert.True(deactivation.Deactivated, deactivation.Error);
         await world.ProjectAsync();
 

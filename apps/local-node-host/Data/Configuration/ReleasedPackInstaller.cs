@@ -222,7 +222,8 @@ public sealed class ReleasedPackInstaller
         var narrowed = new List<string>();
         foreach (var (edit, patch, decision) in narrowings)
         {
-            var result = _installer.Narrow(context, edit.PackageKey, edit.DefinitionKey, patch, decision);
+            var result = await _installer.NarrowAsync(
+                context, edit.PackageKey, edit.DefinitionKey, patch, decision, CancellationToken.None).ConfigureAwait(false);
             if (!result.Recorded)
                 return outcome with
                 {

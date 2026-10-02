@@ -913,7 +913,7 @@ public sealed class AuthorizationWriteStageTests
         // A new unreviewed local decision fails here.
         Assert.Equal(2, Count(source, "AuthorizeOrAudit(tenant"));
         Assert.Contains("var decision = AuthorizeOrAudit(", source, StringComparison.Ordinal);
-        var narrow = source[source.IndexOf("public PackNarrowingOutcome Narrow", StringComparison.Ordinal)..];
+        var narrow = source[source.IndexOf("private sealed class Narrowing(", StringComparison.Ordinal)..];
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_store.GetActive(");
         AssertBefore(narrow, "decision.RequireAllowedReaction(", "_mutations.SaveOverride(");
         var install = source[source.IndexOf("public PackInstallOutcome Install", StringComparison.Ordinal)..];
@@ -940,11 +940,11 @@ public sealed class AuthorizationWriteStageTests
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
             installer.Activate(context, "pack", "1.0.0")));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Task.Run(() =>
-            installer.Deactivate(context, "pack", "1.0.0")));
+            installer.DeactivateAsync(context, "pack", "1.0.0")));
         var deniedNarrowing = await TestAuthorization.Gate(false).DecideAsync(
             new AuthorizationWriteContext(new ActorId(context.Principal!), context.Tenant, context.Now)
                 .Request(AuthorizationOperation.Parse(Permission.PackagesOperate), "pack", "pack"));
-        Assert.Throws<AuthorizationDeniedException>(() => installer.Narrow(
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => installer.NarrowAsync(
             context, "pack", "content", new JsonObject(), deniedNarrowing));
         Assert.Equal(0, verifier.CallCount);
         Assert.Equal(0, store.CallCount);
@@ -1233,7 +1233,7 @@ public sealed class AuthorizationWriteStageTests
 
         await AssertRetiredAtBothLifecycles(leaked);
 
-        var deactivated = installer.Deactivate(context with { Now = at.AddMinutes(1) }, pack.PackKey, pack.Version);
+        var deactivated = await installer.DeactivateAsync(context with { Now = at.AddMinutes(1) }, pack.PackKey, pack.Version);
         Assert.True(deactivated.Deactivated);
         Assert.True(deactivated.Projected);
         var deactivationAuthority = dispatcher.Captured[1];

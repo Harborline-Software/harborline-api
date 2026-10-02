@@ -107,12 +107,12 @@ public sealed class PackInstallPrincipalTests
         Assert.True(fixture.Installer.Activate(
             Tenant, outcome.PackKey, outcome.Version, Now, "test-operator").Activated);
 
-        Assert.Throws<ArgumentNullException>(() =>
-            fixture.Installer.Deactivate(Tenant, outcome.PackKey, outcome.Version, Now));
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            fixture.Installer.DeactivateAsync(Tenant, outcome.PackKey, outcome.Version, Now));
         var refusal = Assert.Single(fixture.Audit.Query(Tenant), e => e.PreDecision);
         Assert.Equal(PackInstallCodes.DeactivateRefusedNoPrincipal, refusal.Detail);
 
-        var deactivated = fixture.Installer.Deactivate(
+        var deactivated = await fixture.Installer.DeactivateAsync(
             Tenant, outcome.PackKey, outcome.Version, Now, "test-operator");
         Assert.True(deactivated.Deactivated, deactivated.Error);
         var deactivatedRow = Assert.Single(
