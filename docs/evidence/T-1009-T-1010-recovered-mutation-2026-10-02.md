@@ -6,17 +6,17 @@ killing tests; it does not certify `kernel-core-ck-4` or close either ticket.
 
 ## Report identities and availability
 
-The exact bytes are prepared in local archive commit `2eaf29b79246ed46088e1d173603dbb2e974656c`
-on `archive/pr341-tenancy-founder-mutation-20261002`, under
-`docs/evidence/mutation/`. Publication approval is pending: the destination
-repository is public, and these reports embed host source and test snapshots.
-No reachable remote archive is claimed yet.
+The exact bytes are published on `archive/pr341-tenancy-founder-mutation-20261002`
+at commit `2eaf29b79246ed46088e1d173603dbb2e974656c`, under
+`docs/evidence/mutation/`, following the owner's explicit approval of this public
+archive disclosure. A fresh remote fetch verified that all three report bytes
+and the manifest match the SHA-256 values and byte counts prepared locally.
 
 | Raw report | SHA-256 |
 | --- | --- |
-| `t1010-founder-attach.json` | `093a7e844006088b4f456121df13e393e14c934d3c8440db5bb9ecdc1f62a1ac` |
-| `t1009-tenancy-inputs.json` | `63a48cdc3f17d5e8462ced7d0471abf7265a15fbf0e6e4ea56f637e55878275a` |
-| `t1009-locator-attach-web-authorities.json` | `68135a3a6b2ed2f32d6d837f444d97d7aa5d86ea765bdac3b3e7241b48ad78bc` |
+| [t1010-founder-attach.json](https://github.com/Harborline-Software/harborline-api/blob/2eaf29b79246ed46088e1d173603dbb2e974656c/docs/evidence/mutation/t1010-founder-attach.json) | `093a7e844006088b4f456121df13e393e14c934d3c8440db5bb9ecdc1f62a1ac` |
+| [t1009-tenancy-inputs.json](https://github.com/Harborline-Software/harborline-api/blob/2eaf29b79246ed46088e1d173603dbb2e974656c/docs/evidence/mutation/t1009-tenancy-inputs.json) | `63a48cdc3f17d5e8462ced7d0471abf7265a15fbf0e6e4ea56f637e55878275a` |
+| [t1009-locator-attach-web-authorities.json](https://github.com/Harborline-Software/harborline-api/blob/2eaf29b79246ed46088e1d173603dbb2e974656c/docs/evidence/mutation/t1009-locator-attach-web-authorities.json) | `68135a3a6b2ed2f32d6d837f444d97d7aa5d86ea765bdac3b3e7241b48ad78bc` |
 
 The store report contains all five changed test files exactly as at the source
 head above, after normalizing line endings. The combined locator / attach / web
@@ -35,6 +35,16 @@ mutator and replacement. IDs change between runs. The table below uses the later
 combined report for founder, locator and web-authority entries, and the final
 store report for store entries. Killing-test names are resolved from each raw
 report's `testFiles` using its `killedBy` IDs.
+
+An independent read-only review reproduced all 38 matches, resolved each named
+killing test and verified the three raw-report hashes. The recovered final-store
+command selected `**/Identity/TenantMembershipAuthorityStore.cs` with filter
+`FullyQualifiedName~TenantMembershipAuthorityStoreTests`, through
+`node eng/mutation-report.mjs --only apps/local-node-host/tests/tests.csproj --scoped`.
+Logs identify Stryker.NET 5.0.0 and pinned Windows SDK
+`11.0.100-rc.1.26425.128`. The historical scoped config disabled since and set
+break 0; it supplies no whole-slice floor proof. The exact combined-run filter
+and execution-time Platform dependency pin were not independently recovered.
 
 | Baseline ID | File:line | Mutator | Recovered mutant ID | Raw status | Named killing test |
 | --- | --- | --- | --- | --- | --- |
