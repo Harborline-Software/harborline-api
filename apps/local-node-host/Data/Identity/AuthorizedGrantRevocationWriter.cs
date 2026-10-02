@@ -5,30 +5,37 @@ using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
+using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Search;
+using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 
 namespace Harborline.Api.LocalNodeHost.Data.Identity;
 
 /// <summary>Decision-bearing boundary for an admitted admin grant revocation.</summary>
 internal interface IAuthorizedGrantRevocationWriter
 {
+    // T-1048 (DES-0029 ck-6): each write takes the act's audit records, already signed, and stages them in its own
+    // commit, so a crash after the commit leaves them owed to the outbox drain instead of lost.
     Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default);
+        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null);
 
     /// <summary>Atomically narrows a grant's scope without changing its role or subject.</summary>
     Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
         GrantRevocation revocation, AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null);
 
     Task<AccessGrant?> RevokeAsync(
         TenantId tenant,
         GrantId grant,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null);
 
     /// <summary>Ledger L618 — the atomic Administrator handover, under the same admitted decision.</summary>
     Task<AdministratorHandover?> HandoverAsync(
@@ -37,7 +44,8 @@ internal interface IAuthorizedGrantRevocationWriter
         AccessGrant successor,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null);
 
     /// <summary>
     /// Ticket 362 — the atomic revoke-and-reissue that narrows a member's conferred grant, under the same
@@ -65,23 +73,28 @@ internal sealed class AuthorizedGrantRevocationWriter(
     private IGrantStore Grants => grants;
 
     public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", grant.ToString());
         if (actor != admittedDecision.Request.Principal || at != admittedDecision.DecidedAt)
             throw new ArgumentException("Review attribution must match the admitted decision.", nameof(admittedDecision));
-        return grants.RecordReviewAsync(tenant, grant, at, actor, cancellationToken);
+        return Stage(audit, admittedDecision) is { } stage && grants is NodeEfGrantStore durable
+            ? durable.RecordReviewAsync(tenant, grant, at, actor, stage, cancellationToken)
+            : grants.RecordReviewAsync(tenant, grant, at, actor, cancellationToken);
     }
 
     public Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
         GrantRevocation revocation, AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());
-        return grants.NarrowScopeAsync(tenant, current, narrowed, successor, revocation, cancellationToken);
+        return Stage(audit, admittedDecision) is { } stage && grants is NodeEfGrantStore durable
+            ? durable.NarrowScopeAsync(tenant, current, narrowed, successor, revocation, stage, cancellationToken)
+            : grants.NarrowScopeAsync(tenant, current, narrowed, successor, revocation, cancellationToken);
     }
 
     public async Task<AccessGrant?> RevokeAsync(
@@ -89,12 +102,14 @@ internal sealed class AuthorizedGrantRevocationWriter(
         GrantId grant,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null)
     {
         ArgumentNullException.ThrowIfNull(revocation);
         ArgumentNullException.ThrowIfNull(admittedDecision);
         return await WritePipeline.RunAsync(
-            new GrantRevoke(this, tenant, grant, revocation, admittedDecision), pipelineObserver, cancellationToken)
+            new GrantRevoke(this, tenant, grant, revocation, admittedDecision, Stage(audit, admittedDecision)),
+            pipelineObserver, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -104,12 +119,26 @@ internal sealed class AuthorizedGrantRevocationWriter(
         AccessGrant successor,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<AuditRecord>? audit = null)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());
-        return grants.HandoverAdministratorAsync(tenant, current, successor, revocation, cancellationToken);
+        return Stage(audit, admittedDecision) is { } stage && grants is NodeEfGrantStore durable
+            ? durable.HandoverAdministratorAsync(tenant, current, successor, revocation, stage, cancellationToken)
+            : grants.HandoverAdministratorAsync(tenant, current, successor, revocation, cancellationToken);
     }
+
+    /// <summary>
+    /// The commit hook that stages <paramref name="audit"/> under the decision the write was validated against.
+    /// A store other than the node's durable one has no commit to join (ponytail: the in-memory test stores), so the
+    /// caller's post-commit append stays its only delivery.
+    /// </summary>
+    private static Action<NodeLocalSearchDbContext>? Stage(IReadOnlyList<AuditRecord>? audit, AuthorizationDecision decision) =>
+        audit is not { Count: > 0 } ? null : db =>
+        {
+            foreach (var record in audit) NodeAuditOutbox.StageRecord(db, record, decision);
+        };
 
     public Task<AdmissionGrantNarrowing?> NarrowAsync(
         TenantId tenant,
@@ -141,7 +170,8 @@ internal sealed class AuthorizedGrantRevocationWriter(
         TenantId tenant,
         GrantId grant,
         GrantRevocation revocation,
-        AuthorizationDecision admittedDecision)
+        AuthorizationDecision admittedDecision,
+        Action<NodeLocalSearchDbContext>? stage)
         : KernelWrite<AccessGrant, GrantRevocation, GrantRevocation, AccessGrant?>
     {
         private AccessGrant? revoked;
@@ -167,7 +197,9 @@ internal sealed class AuthorizedGrantRevocationWriter(
                 : throw new ArgumentException("Revocation attribution must match the admitted decision.", nameof(mutation));
 
         protected override async ValueTask CommitAsync(GrantRevocation validated, CancellationToken ct) =>
-            revoked = await writer.Grants.RevokeAsync(tenant, grant, validated, ct).ConfigureAwait(false);
+            revoked = stage is not null && writer.Grants is NodeEfGrantStore durable
+                ? await durable.RevokeAsync(tenant, grant, validated, stage, ct).ConfigureAwait(false)
+                : await writer.Grants.RevokeAsync(tenant, grant, validated, ct).ConfigureAwait(false);
 
         protected override ValueTask<AccessGrant?> ReactAsync(GrantRevocation validated, CancellationToken ct) =>
             ValueTask.FromResult(revoked);

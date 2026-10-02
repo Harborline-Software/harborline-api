@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -548,11 +550,40 @@ public sealed class AdminTeamAccessAuthorityTests
             fixture.Handle, TenantId, WebGrantId, successorPrincipalId: "principal-admin"));
 
         var legs = await RestartAndDrainTwiceAsync(fixture);
+        // Both legs share the decided instant, so the trail's order between them is not part of the contract.
         Assert.Equal(
-            new[] { AuditEventType.CapabilityDelegated, AuditEventType.CapabilityRevoked },
-            legs.Select(record => record.EventType).ToArray());
+            new[] { "CapabilityDelegated", "CapabilityRevoked" },
+            legs.Select(record => record.EventType.Value).Order(StringComparer.Ordinal).ToArray());
         Assert.All(legs, record => Assert.Equal(WebGrantId, record.Target!.Value.RecordId));
         Assert.Single(legs.Select(record => record.Payload.Payload.Body["correlation_id"]).Distinct());
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 grant: a revocation the store refuses at commit stages no audit entry")]
+    public async Task A_revocation_refused_at_commit_stages_no_audit_entry()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin);
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+        var tenant = new TenantId(TenantId);
+        var admin = new ActorId("principal-admin");
+        var decision = TestAuthorization.AllowedDecision(
+            tenant, WebGrantId, "members", TeamRolePermissions.MembersManage, "principal-admin", Now);
+        var target = new AuthorizationWriteContext(admin, tenant, Now)
+            .Request(AuthorizationOperation.Parse(TeamRolePermissions.MembersManage), "members", WebGrantId);
+        var signed = await new Ed25519Signer(KeyPair.Generate()).SignAsync(
+            new AuditPayload(new Dictionary<string, object?> { ["grant_id"] = WebGrantId }), Now, Guid.NewGuid());
+        var audit = new AuditRecord(Guid.NewGuid(), tenant, AuditEventType.CapabilityRevoked, Now, signed,
+            ImmutableArray<AttestingSignature>.Empty, Actor: admin, Target: target.Target, Act: target.Act);
+
+        // The only Administrator in force: the store's own guard refuses inside the commit transaction.
+        await Assert.ThrowsAsync<LastAdministratorRefusedException>(() =>
+            new AuthorizedGrantRevocationWriter(new NodeEfGrantStore(fixture.GrantFactory), fixture.GrantFactory).RevokeAsync(
+                tenant, new GrantId(Guid.Parse(WebGrantId)),
+                new GrantRevocation(admin, Now, new GrantReason(GrantReasonCodes.RevocationOffboarding, WebGrantId)),
+                decision, audit: [audit]));
+
+        await using var grants = fixture.GrantFactory.CreateDbContext();
+        Assert.Equal(0, await grants.AuditOutbox.CountAsync());
+        Assert.Null((await grants.Grants.AsNoTracking().SingleAsync(g => g.GrantId == WebGrantId)).RevokedAtUnixMs);
     }
 
     /// <summary>The process is gone: a new trail and outbox open the same grant file, drain at startup, and drain again.</summary>
@@ -1096,20 +1127,21 @@ public sealed class AdminTeamAccessAuthorityTests
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
         public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
+            IReadOnlyList<AuditRecord>? audit = null)
         {
             decisions.Add(admittedDecision);
-            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken);
+            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken, audit);
         }
 
         public Task<GrantScopeNarrowing?> NarrowScopeAsync(
             TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
             GrantRevocation revocation, AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null)
         {
             decisions.Add(admittedDecision);
             return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
-                admittedDecision, cancellationToken);
+                admittedDecision, cancellationToken, audit);
         }
 
         public Task<AccessGrant?> RevokeAsync(
@@ -1117,10 +1149,11 @@ public sealed class AdminTeamAccessAuthorityTests
             GrantId grant,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<AuditRecord>? audit = null)
         {
             decisions.Add(admittedDecision);
-            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, cancellationToken);
+            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, cancellationToken, audit);
         }
 
         public Task<AdministratorHandover?> HandoverAsync(
@@ -1129,10 +1162,11 @@ public sealed class AdminTeamAccessAuthorityTests
             AccessGrant successor,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<AuditRecord>? audit = null)
         {
             decisions.Add(admittedDecision);
-            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, cancellationToken);
+            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, cancellationToken, audit);
         }
 
         // Ticket 362 - the narrowing's single store transaction, under the same admitted decision.
