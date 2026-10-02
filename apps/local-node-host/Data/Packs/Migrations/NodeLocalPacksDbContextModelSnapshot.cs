@@ -377,6 +377,7 @@ partial class NodeLocalPacksDbContextModelSnapshot : ModelSnapshot
                     {
                         t.ExcludeFromMigrations();
                     });
+            });
 #pragma warning restore 612, 618
     }
 }
