@@ -209,7 +209,12 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                 brokeGlass = true;
             }
 
-            return ValueTask.FromResult(new InstallSealed(mutation.Plan, mutation.Transaction!, brokeGlass));
+            // T-1048: the audit entries travel into the commit, so a durable store stages them with the seed layer.
+            var transaction = mutation.Transaction! with
+            {
+                Audit = new PackCommitAudit(AuditEntries(mutation.Plan, brokeGlass), decision),
+            };
+            return ValueTask.FromResult(new InstallSealed(mutation.Plan, transaction, brokeGlass));
         }
 
         /// <summary>ATOMIC apply (S-7): the seed layer, watermark and re-attached overrides commit all-or-nothing.</summary>
@@ -223,27 +228,36 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         {
             var plan = validated.Plan;
             var preview = plan.Preview;
-            // Durable audit. The break-glass ceremony is a DISTINCT, loud entry (S-8) recorded first.
-            if (validated.BrokeGlass)
-            {
-                installer._audit.AppendAuthorized(new PackInstallAuditEntry(
+            // The same entry instances the commit carried: a store that staged them is delivering them already.
+            foreach (var entry in validated.Transaction.Audit!.Entries)
+                installer._audit.AppendAuthorized(entry, decision);
+
+            return ValueTask.FromResult(new PackInstallOutcome(
+                true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview,
+                validated.BrokeGlass, decision));
+        }
+
+        /// <summary>The break-glass ceremony is a DISTINCT, loud entry (S-8), recorded first.</summary>
+        private PackInstallAuditEntry[] AuditEntries(InstallPlan plan, bool brokeGlass)
+        {
+            var preview = plan.Preview;
+            var installed = new PackInstallAuditEntry(
+                context.Tenant, plan.SuccessAction, preview.PackKey, preview.Version,
+                context.Now, plan.SignerKeyId, plan.Epoch,
+                Detail: plan.SuccessAction == PackInstallAuditAction.Upgraded ? PackInstallCodes.Upgraded : PackInstallCodes.Installed,
+                ActingPrincipal: context.Principal);
+            if (!brokeGlass) return [installed];
+            return
+            [
+                new PackInstallAuditEntry(
                     context.Tenant, PackInstallAuditAction.BreakGlassOverride, preview.PackKey, preview.Version,
                     context.Now, plan.SignerKeyId, plan.Epoch,
                     Detail: string.Join(",", preview.RefusalCodes),
                     BreakGlassJustification: context.BreakGlass!.Justification,
                     BreakGlassAuthorizingPrincipal: context.BreakGlass.AuthorizingPrincipal,
-                    ActingPrincipal: context.Principal), decision);
-            }
-
-            installer._audit.AppendAuthorized(new PackInstallAuditEntry(
-                context.Tenant, plan.SuccessAction, preview.PackKey, preview.Version,
-                context.Now, plan.SignerKeyId, plan.Epoch,
-                Detail: plan.SuccessAction == PackInstallAuditAction.Upgraded ? PackInstallCodes.Upgraded : PackInstallCodes.Installed,
-                ActingPrincipal: context.Principal), decision);
-
-            return ValueTask.FromResult(new PackInstallOutcome(
-                true, plan.SuccessAction, preview.PackKey, preview.Version, Array.Empty<string>(), preview,
-                validated.BrokeGlass, decision));
+                    ActingPrincipal: context.Principal),
+                installed,
+            ];
         }
 
         private PackInstallOutcome AuditRefusal(InstallPlan plan)
@@ -472,6 +486,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         private AuthorizationDecision decision = null!;
         private string principal = null!;
         private PackActivationOutcome outcome = null!;
+        private PackInstallAuditEntry activated = null!;
         private Func<Task<AggregateException?>>? observers;
 
         protected override ValueTask AuthorizeAsync(CancellationToken ct)
@@ -547,6 +562,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         protected override ValueTask CommitAsync(ActivationBound validated, CancellationToken ct)
         {
             var authority = new PackProjectionAuthority(decision, packKey, version, tenant, new ActorId(principal), now);
+            activated = new PackInstallAuditEntry(tenant, PackInstallAuditAction.Activated, packKey, version, now, null, null,
+                "pack.install.activated", ActingPrincipal: principal);
             PackProjectionTransaction? transaction = null;
             try
             {
@@ -575,7 +592,8 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                         transaction.Enlist(installer._projector);
                         foreach (var resolution in ownershipResolutions ?? new Dictionary<string, string>())
                             installer._mutations.RecordKeyOwnership(tenant, resolution.Key, resolution.Value);
-                        installer.ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version, Admission(authority));
+                        installer.ProjectionStore().ActivateAndRecordProjectionAdmission(tenant, packKey, version,
+                            Admission(authority) with { Audit = new PackCommitAudit([activated], decision) });
                         var result = installer._projector?.Project(authority, ct);
                         if (Admitted(result))
                         {
@@ -611,10 +629,10 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             // A notification failure cannot turn a committed activation into a reported rollback.
             try
             {
-                installer._audit.AppendAuthorized(new PackInstallAuditEntry(tenant,
-                    outcome.Activated ? PackInstallAuditAction.Activated : PackInstallAuditAction.Refused,
-                    packKey, version, now, null, null, outcome.Error ?? "pack.install.activated",
-                    ActingPrincipal: principal), decision);
+                installer._audit.AppendAuthorized(outcome.Activated
+                    ? activated
+                    : new PackInstallAuditEntry(tenant, PackInstallAuditAction.Refused, packKey, version, now, null, null,
+                        outcome.Error ?? "pack.install.activated", ActingPrincipal: principal), decision);
             }
             catch (Exception exception) when (outcome.Activated)
             {
@@ -654,6 +672,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         private string? refusal;
         private IReadOnlyList<string> dependents = [];
         private PackProjectionAuthority? projectionAuthority;
+        private PackInstallAuditEntry? deactivated;
 
         protected override ValueTask AuthorizeAsync(CancellationToken ct)
         {
@@ -718,9 +737,13 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     {
                         var candidate = new PackProjectionAuthority(
                             decision, packKey, version, tenant, new ActorId(principal), now);
+                        var entry = new PackInstallAuditEntry(
+                            tenant, PackInstallAuditAction.Deactivated, packKey, version, now, null, null,
+                            "pack.install.deactivated", ActingPrincipal: principal);
                         installer.ProjectionStore().DeactivateAndRecordProjectionAdmission(
-                            tenant, packKey, version, Admission(candidate));
+                            tenant, packKey, version, Admission(candidate) with { Audit = new PackCommitAudit([entry], decision) });
                         projectionAuthority = candidate;
+                        deactivated = entry;
                     }
                     catch (PackTransitionStateException)
                     {
@@ -739,10 +762,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
                     tenant, packKey, version, now, principal, refusal, decision, dependents);
             }
 
-            installer._audit.AppendAuthorized(new PackInstallAuditEntry(
-                tenant, PackInstallAuditAction.Deactivated, packKey, version, now, null, null,
-                "pack.install.deactivated",
-                ActingPrincipal: principal), decision);
+            installer._audit.AppendAuthorized(deactivated!, decision);
             var outcome = new PackDeactivationOutcome(true, packKey, version, null, Decision: decision);
             return await installer.ProjectAsync(outcome, projectionAuthority!).ConfigureAwait(false);
         }

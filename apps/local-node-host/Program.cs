@@ -1517,7 +1517,9 @@ var durablePackStores = new ConditionalWeakTable<IServiceProvider, Lazy<Harborli
 Harborline.Api.LocalNodeHost.Data.Packs.DurablePackInstallStore DurablePackStore(IServiceProvider provider) =>
     durablePackStores.GetValue(provider, static sp => new Lazy<Harborline.Api.LocalNodeHost.Data.Packs.DurablePackInstallStore>(
         () => new Harborline.Api.LocalNodeHost.Data.Packs.DurablePackInstallStore(
-            sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>()),
+            sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<Harborline.Api.LocalNodeHost.Data.Packs.NodeLocalPacksDbContext>>(),
+            // T-1048 (DES-0029 ck-6): install, activation and deactivation stage their audit in the same commit.
+            sp.GetRequiredService<IPackInstallAudit>() as KernelAuditPackInstallAudit),
         LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 builder.Services.AddSingleton<Harborline.Api.Foundation.Packs.Install.IPackInstallStore>(sp =>
     new Harborline.Api.LocalNodeHost.Data.Packs.DurablePackInstallStoreReader(

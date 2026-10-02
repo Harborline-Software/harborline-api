@@ -117,11 +117,14 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260928120000_AddConfigurationRecoveries",
         // DES-0029 ck-6: an activation's evidence outbox row carries its captured authority and last delivery error.
         "20260929180000_AddConfigurationEvidenceAuthority",
+        // T-1048: the packs context maps the audit outbox (excluded from its migrations) so a pack install,
+        // activation or deactivation stages its audit on its own save.
+        "20261002120000_PacksMapsAuditOutbox",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_60_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_61_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 
