@@ -143,7 +143,7 @@ public sealed class PackActivationPipelineTests
         Assert.True(outcome.Deactivated, outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
-        var audit = Assert.Single(_audit.Query(Tenant).Where(entry => entry.Action == PackInstallAuditAction.Deactivated));
+        var audit = Assert.Single(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated);
         Assert.Equal(PackKey, audit.PackKey);
         Assert.Equal("pack.install.deactivated", audit.Detail);
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.PreDecision);
