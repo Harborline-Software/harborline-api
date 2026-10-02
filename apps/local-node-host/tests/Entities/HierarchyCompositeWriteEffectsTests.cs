@@ -124,6 +124,24 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal([KidA.ToString(), KidB.ToString()], Strings(payload, "reassigned"));
     }
 
+    [Fact(DisplayName = "ck-10 S3: merging a record with its own child dissolves the edge between them and reparents only the outside children")]
+    public async Task Merge_OfARecordWithItsOwnChild_ReparentsOnlyOutsideChildren()
+    {
+        var h = await Harness.CreateAsync(OldA, OldB);
+        await h.Hierarchy.AddEdgeAsync(OldB, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+
+        var result = await h.MergeAsync(h.Coordinator, Options("merged", Tenant));
+
+        // The merged-away child is superseded and deleted, never parented under the record it was merged into.
+        Assert.DoesNotContain(await h.ParentEdges(OldB, At), edge => edge.To == Merged);
+        Assert.Equal([KidA], result.ReassignedChildren);
+        Assert.Equal(Merged, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Null(await h.Entities.GetAsync(OldB));
+        var payload = Assert.Single(await h.AuditRows()).Payload.RootElement;
+        Assert.Equal([KidA.ToString()], Strings(payload, "reassigned"));
+    }
+
     [Fact(DisplayName = "ck-10 S3: a reparent writes one reparent audit row naming the child and both parents")]
     public async Task Reparent_WritesOneAuditRow()
     {
