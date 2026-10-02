@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -146,6 +147,14 @@ public sealed class WritePipelineExecutorFenceTests
     // Oracle: the exemption requires execution in the atomic callback, not merely in the same method.
     [InlineData("return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", true)]
     [InlineData("return unit.ExecuteAtomicAsync(async ct => { return await WritePipeline.RunAsync(write, observer, ct); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => WritePipeline.RunAsync(write, observer, ct));", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => { return WritePipeline.RunAsync(write, observer, ct); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { await WritePipeline.RunAsync(write, observer, ct).ConfigureAwait(false); return Done(); });", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => { _ = WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { WritePipeline.RunAsync(write, observer, ct); return await Done(); });", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => { var pending = WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { return WritePipeline.RunAsync(write, observer, ct); });", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => WritePipeline.RunAsync(write, observer, ct));", false)]
     [InlineData("await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(ct => Done());", false)]
     [InlineData("Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(ct => Done());", false)]
     [InlineData("return unit.ExecuteAtomicAsync(ct => { Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
@@ -176,8 +185,32 @@ public sealed class WritePipelineExecutorFenceTests
             return function is AnonymousFunctionExpressionSyntax { Parent: ArgumentSyntax argument }
                 && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
                 && atomic.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ExecuteAtomicAsync" }
-                && atomic.ArgumentList.Arguments[0] == argument;
+                && atomic.ArgumentList.Arguments[0] == argument
+                && CompletesExecutorBeforeCallbackReturns(call, function);
         });
+    }
+
+    private static bool CompletesExecutorBeforeCallbackReturns(
+        InvocationExpressionSyntax call, SyntaxNode callback)
+    {
+        // A task merely created inside the callback can outlive the atomic scope. Require direct await or
+        // task return; accepting arbitrary assignments would need data-flow proof of their eventual await.
+        ExpressionSyntax task = call;
+        while (true)
+        {
+            if (task.Parent is ParenthesizedExpressionSyntax parentheses)
+                task = parentheses;
+            else if (task.Parent is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ConfigureAwait" } member
+                && member.Expression == task
+                && member.Parent is InvocationExpressionSyntax configureAwait)
+                task = configureAwait;
+            else break;
+        }
+        if (task.Parent is AwaitExpressionSyntax) return true;
+        // An async callback can return the executor task as its result rather than await it.
+        return callback is AnonymousFunctionExpressionSyntax anonymous && anonymous.AsyncKeyword.IsKind(SyntaxKind.None)
+            && (task.Parent is ReturnStatementSyntax
+                || callback is LambdaExpressionSyntax lambda && lambda.Body == task);
     }
 
     [Fact(DisplayName = "ck-10 fence: the record writer commits only from its KernelWrite commit stages, EF saves included")]
