@@ -512,8 +512,11 @@ internal sealed partial class AdminTeamAccessAuthority(
 
         if (!revokeMembership)
         {
-            _ = await CorrelatedGrantReplayAsync(decision, MemberRevocationReasons.Offboarding,
+            var correlatedReplay = await CorrelatedGrantReplayAsync(decision, MemberRevocationReasons.Offboarding,
                 AuditEventType.CapabilityRevoked, cancellationToken).ConfigureAwait(false);
+            if (correlatedReplay is not null)
+                return new(AdminRevokeMemberStatus.Revoked)
+                { AuditId = correlatedReplay.AuditId, CorrelationId = AuditCorrelation(correlatedReplay) };
             if (existing.Status == GrantStatus.Revoked && await OriginalGrantAuditAsync(decision,
                 AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding, cancellationToken).ConfigureAwait(false) is { } replay)
                 return new(AdminRevokeMemberStatus.Revoked) { AuditId = replay.AuditId, CorrelationId = AuditCorrelation(replay) };
@@ -558,7 +561,12 @@ internal sealed partial class AdminTeamAccessAuthority(
             ? await _partyReader.ResolveAsync(tenant, new PrincipalUserId(existing.Subject.Value), cancellationToken)
                 .ConfigureAwait(false)
             : null;
-        // Preserve roster refusal ordering when attributable; a missing party never blocks the grant leg.
+        var correlationId = authority.CorrelationId ?? Guid.NewGuid();
+        var audit = await PrepareGrantAuditAsync(
+                tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
+                correlationId, successorGrant: null, cancellationToken)
+            .ConfigureAwait(false);
+        // Prepare the signed evidence before either durable effect. A missing party never blocks the grant leg.
         if (revokedParty is not null)
         {
             // Ticket 294 slice 2a — the roster edge is keyed by the principal, so the signed removal names it.
@@ -567,11 +575,6 @@ internal sealed partial class AdminTeamAccessAuthority(
                     MemberRevocationReasons.Offboarding, correlationId: null, decision, cancellationToken)
                 .ConfigureAwait(false);
         }
-        var correlationId = authority.CorrelationId ?? Guid.NewGuid();
-        var audit = await PrepareGrantAuditAsync(
-                tenant, target, decision, AuditEventType.CapabilityRevoked, MemberRevocationReasons.Offboarding,
-                correlationId, successorGrant: null, cancellationToken)
-            .ConfigureAwait(false);
         if (existing.Status is not GrantStatus.Revoked)
         {
             var revoked = await _grantRevocations.RevokeAsync(tenant, target, revocation,
