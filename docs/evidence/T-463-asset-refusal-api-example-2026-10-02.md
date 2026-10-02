@@ -78,3 +78,16 @@ fixture's HTTP 403. After the fix all four scenarios passed: author-only sequenc
 stopping after one request, moved effective generation refusal, and proposal identity mismatch refusal.
 This is client routing/transport evidence, not a mock engine or production authorization proof.
 The three new C# host tests and live HTTP node invocation remain UNRUN.
+
+## Prepared isolated HTTP integration (UNRUN)
+
+Merged the PR332 native-loader fix normally; all three loader scenarios, 13 admission probes and four
+client-routing scenarios passed again. No force push or production C# changes.
+
+Added `ConfigurationProposalRouteTests.The_api_example_runs_proposal_save_and_read_against_the_isolated_http_host`:
+invokes the actual copied PowerShell client against the existing ephemeral Kestrel/temporary SQLCipher
+fixture, then checks one Saved version, unchanged effective identity, zero release/effective/projection
+rows. The fixture's outer package gate permits requests; this is real HTTP workflow proof when run,
+not production author-only authorization proof. It covers Proposal mode only; VerifyInstalled live
+script invocation remains owed. The child has a 30-second timeout and no operational instance is used.
+This new integration test is UNRUN pending parent capacity release, as are the three asset tests.
