@@ -206,11 +206,10 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Cancellation_reaching_evidence_publication_surfaces_as_cancellation_after_a_durable_switch()
+    public async Task Cancellation_reaching_evidence_publication_returns_the_committed_switch_and_leaves_the_row_owed()
     {
-        // Pins today's behaviour (T-519 review, item 5): publication runs after the durable commit with the request's
-        // token, and DeliverAsync's single-flight wait observes it, so a cancelled caller gets an
-        // OperationCanceledException although the switch committed. The row stays owed for the drain.
+        // T-519 review, item 5: publication runs after the durable commit with the request's token. A cancelled
+        // publication must not turn the committed switch into a cancellation; the row stays owed for the drain.
         var trail = new InMemoryAuditTrail();
         using var evidence = new ConfigurationEvidenceOutbox(_db.Factory, trail, trail, new Ed25519Signer(KeyPair.Generate()),
             TimeProvider.System, NullLogger<ConfigurationEvidenceOutbox>.Instance);
@@ -220,7 +219,10 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
         using var cts = new CancellationTokenSource();
         target.CrashPoint = at => { if (at == "after-commit") cts.Cancel(); };
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await ActivateAsync(target, request, cts.Token));
+        var outcome = await ActivateAsync(target, request, cts.Token);
+
+        Assert.True(cts.IsCancellationRequested);
+        Assert.Null(outcome.Decision.Refusal);
 
         Assert.Equal(WritePipelineStage.React, _observer.Stages[^1]);
         Assert.Equal(candidate, target.ReadEffective(Tenant).Digest);

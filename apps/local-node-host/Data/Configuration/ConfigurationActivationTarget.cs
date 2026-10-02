@@ -227,9 +227,10 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
             CrashPoint?.Invoke("before-publish");
             if (_evidence is not null) await _evidence.DeliverAsync(tenant.Value, intent.Id, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
-            // Committed but unpublished: the outbox row is the evidence that publication is owed.
+            // Committed but unpublished, cancellation included: the outbox row is the evidence that publication is
+            // owed, and the caller is answered with the switch that committed rather than a cancellation.
             _ = exception;
         }
         return outcome;
