@@ -2405,7 +2405,8 @@ builder.Services.AddNodeForms(
             // Ticket 331 slice 2: an ACCEPTED record write is recorded the same way, and its id is the
             // one the 201 carries.
             sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizedActAudit>(),
-            // T-1048 (DES-0029 ck-6): each write commits its audit with the change and react only delivers it.
+            // T-1048 (DES-0029 ck-6): EF legal-entity writes enlist audit in their save; react delivers it.
+            // Generic records remain volatile with best-effort post-commit audit. T-616/T-619 own the durable boundary.
             outbox: sp.GetService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());

@@ -5,26 +5,30 @@ using Harborline.Api.Blocks.FinancialLedger.Models;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Assets.Entities;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.LocalNodeHost.Data;
 using Harborline.Api.LocalNodeHost.Data.Entities;
+using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Audit;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Xunit;
 
 namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
-/// T-1048 (DES-0029 ck-6): every <see cref="NodeEntityWriter"/> write commits its accepted-act audit with the
-/// change, so a crash after the commit and before react loses nothing. The crash is the process stopping on
-/// entry to react; recovery is a new harness (new outbox, trail and reader) over the same encrypted
-/// <c>local-node.db</c>, whose drain delivers the owed entry exactly once.
+/// T-1048 (DES-0029 ck-6): legal-entity writes commit the row and audit in one EF transaction. A simulated
+/// stop on entry to react leaves both durable, and a fresh harness delivers the owed audit once.
+/// Generic records use a volatile store and best-effort post-commit audit; the interruption cases below
+/// pin that limitation, without claiming process-loss recovery. T-616 owns the durable Records boundary.
 /// </summary>
 public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
 {
@@ -47,7 +51,7 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
 
     public async Task DisposeAsync() => await _audit.DisposeAsync();
 
-    [Fact(DisplayName = "T-1048: a legal-entity create that crashes after its commit delivers its audit once after a restart")]
+    [Fact(DisplayName = "T-1048: a legal-entity create interrupted after commit delivers its audit once through a fresh harness")]
     public async Task LegalEntityCreate_CrashAfterCommit_DeliversItsAuditOnceAfterRestart()
     {
         var id = new LegalEntityId("t1048f-legal");
@@ -58,23 +62,25 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
         await using var restarted = _audit.Reopen();
         await using (var db = LocalNode(restarted))
             Assert.Equal("Crash LLC", (await db.Set<LegalEntity>().SingleAsync(row => row.Id == id)).LegalName);
-        await AssertDeliveredOnceAsync(restarted, NodeEntityWriter.RecordWrittenEventType, "t1048f-legal", "legal-entity");
+        await AssertDeliveredOnceAsync(restarted, new AuditEventType("RecordWritten"), "t1048f-legal", "legal-entity");
     }
 
-    [Fact(DisplayName = "T-1048: a record create that crashes after its commit delivers its audit once after a restart")]
-    public async Task RecordCreate_CrashAfterCommit_DeliversItsAuditOnceAfterRestart()
+    [Fact(DisplayName = "T-1048 scope: a generic create interrupted before react leaves no durable audit receipt")]
+    public async Task RecordCreate_InterruptedBeforeReact_LeavesNoDurableAuditReceipt()
     {
         using var body = JsonDocument.Parse("""{"name":"created"}""");
 
         await Assert.ThrowsAsync<ProcessStopped>(async () =>
             await Writer(new CrashBeforeReact()).CreateAsync(Schema, body, Options("t1048f-created"), Authority));
 
+        var id = new EntityId("entity", "test", "t1048f-created");
+        Assert.Equal("created", (await _entities.GetAsync(id))!.Body.RootElement.GetProperty("name").GetString());
         await using var restarted = _audit.Reopen();
-        await AssertDeliveredOnceAsync(restarted, NodeEntityWriter.RecordWrittenEventType, "t1048f-created", Schema.Value);
+        await AssertNoGenericRecoveryAsync(restarted, id, new AuditEventType("RecordWritten"));
     }
 
-    [Fact(DisplayName = "T-1048: a record update that crashes after its commit delivers its audit once after a restart")]
-    public async Task RecordUpdate_CrashAfterCommit_DeliversItsAuditOnceAfterRestart()
+    [Fact(DisplayName = "T-1048 scope: a generic update interrupted before react leaves no durable audit receipt")]
+    public async Task RecordUpdate_InterruptedBeforeReact_LeavesNoDurableAuditReceipt()
     {
         var id = await SeedAsync("t1048f-updated");
         using var body = JsonDocument.Parse("""{"name":"after"}""");
@@ -82,33 +88,96 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
         await Assert.ThrowsAsync<ProcessStopped>(async () =>
             await Writer(new CrashBeforeReact()).UpdateAsync(id, body, new UpdateOptions(Actor), Authority));
 
+        Assert.Equal("after", (await _entities.GetAsync(id))!.Body.RootElement.GetProperty("name").GetString());
         await using var restarted = _audit.Reopen();
-        await AssertDeliveredOnceAsync(restarted, NodeEntityWriter.RecordWrittenEventType, "t1048f-updated", Schema.Value);
+        await AssertNoGenericRecoveryAsync(restarted, id, new AuditEventType("RecordWritten"));
     }
 
-    [Fact(DisplayName = "T-1048: a record delete that crashes after its commit delivers its audit once after a restart")]
-    public async Task RecordDelete_CrashAfterCommit_DeliversItsAuditOnceAfterRestart()
+    [Fact(DisplayName = "T-1048 scope: a generic delete interrupted before react leaves no durable audit receipt")]
+    public async Task RecordDelete_InterruptedBeforeReact_LeavesNoDurableAuditReceipt()
     {
         var id = await SeedAsync("t1048f-deleted");
 
         await Assert.ThrowsAsync<ProcessStopped>(async () =>
             await Writer(new CrashBeforeReact()).DeleteAsync(id, new DeleteOptions(Actor, Justification: "gone"), Authority));
 
+        Assert.Null(await _entities.GetAsync(id));
+        Assert.Equal(At, (await _entities.GetAsync(id, VersionSelector.AtSequence(2)))!.DeletedAt);
         await using var restarted = _audit.Reopen();
-        await AssertDeliveredOnceAsync(restarted, NodeEntityWriter.RecordDeletedEventType, "t1048f-deleted", Schema.Value);
+        await AssertNoGenericRecoveryAsync(restarted, id, new AuditEventType("RecordDeleted"));
     }
 
-    [Fact(DisplayName = "T-1048: an uninterrupted write returns the id of the audit it committed, already delivered")]
-    public async Task Create_ReturnsTheCommittedAuditId_Delivered()
+    [Fact(DisplayName = "T-1048: an uninterrupted legal-entity write returns the committed audit id, already delivered")]
+    public async Task LegalEntityCreate_ReturnsTheCommittedAuditId_Delivered()
     {
-        using var body = JsonDocument.Parse("""{"name":"live"}""");
+        var written = await Writer().CreateLegalEntityAsync(
+            new CreateLegalEntityCommand(new LegalEntityId("t1048f-live"), "Live LLC", "Llc", "DisregardedEntity", null), Authority);
 
-        var written = await Writer().CreateWithReceiptAsync(Schema, body, Options("t1048f-live"), Authority);
-
-        var record = Assert.Single(await _audit.DeliveredAsync(Tenant, NodeEntityWriter.RecordWrittenEventType));
+        var record = Assert.Single(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordWritten")));
+        Assert.NotNull(written.AuditId);
         Assert.Equal(written.AuditId, record.AuditId);
         Assert.Equal(Actor, record.Actor);
         Assert.Empty(await OwedAsync(_audit));
+    }
+
+    [Fact]
+    public async Task LegalEntityCreate_AuditStagingFailure_RollsBackTheLegalEntity()
+    {
+        await _audit.ExecuteAsync("CREATE TRIGGER t1048f_legal_audit_fault BEFORE INSERT ON search_audit_outbox BEGIN SELECT RAISE(ABORT, 'legal audit staging failure'); END;");
+        var failure = await Assert.ThrowsAsync<DbUpdateException>(async () => await Writer().CreateLegalEntityAsync(
+            new CreateLegalEntityCommand(new LegalEntityId("t1048f-audit-fault"), "Fault LLC", "Llc", "DisregardedEntity", null), Authority));
+        var sqlite = Assert.IsType<SqliteException>(failure.InnerException);
+        Assert.Equal(19, sqlite.SqliteErrorCode);
+        Assert.Equal(1811, sqlite.SqliteExtendedErrorCode);
+        Assert.Contains("legal audit staging failure", sqlite.Message, StringComparison.Ordinal);
+        await using var db = LocalNode(_audit);
+        Assert.Empty(await db.Set<LegalEntity>().ToListAsync());
+        Assert.Equal(0, await StagedCountAsync(_audit));
+        Assert.Empty(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordWritten")));
+    }
+
+    [Fact]
+    public async Task GenericCreate_ReturnsItsBestEffortAuditId_WithoutAnOutboxReceipt()
+    {
+        using var body = JsonDocument.Parse("""{"name":"live"}""");
+        var written = await Writer().CreateWithReceiptAsync(Schema, body, Options("t1048f-generic-live"), Authority);
+        var record = Assert.Single(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordWritten")));
+        Assert.NotNull(written.AuditId);
+        Assert.Equal(written.AuditId, record.AuditId);
+        Assert.Equal("t1048f-generic-live", record.Payload.Payload.Body["recordId"]?.ToString());
+        Assert.Equal(0, await StagedCountAsync(_audit));
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("update")]
+    [InlineData("delete")]
+    public async Task GenericWrite_AuditAppendFailure_PreservesTheCommittedVolatileEffect(string operation)
+    {
+        var id = new EntityId("entity", "test", "t1048f-best-effort");
+        if (operation != "create") await SeedAsync("t1048f-best-effort");
+        await _audit.ExecuteAsync("CREATE TRIGGER t1048f_generic_audit_fault BEFORE INSERT ON search_audit_trail BEGIN SELECT RAISE(ABORT, 'generic audit append failure'); END;");
+        using var body = JsonDocument.Parse("""{"name":"after"}""");
+        if (operation == "create")
+        {
+            var written = await Writer().CreateWithReceiptAsync(Schema, body, Options("t1048f-best-effort"), Authority);
+            Assert.Null(written.AuditId);
+        }
+        else if (operation == "update")
+            await Writer().UpdateAsync(id, body, new UpdateOptions(Actor), Authority);
+        else
+            await Writer().DeleteAsync(id, new DeleteOptions(Actor, Justification: "gone"), Authority);
+        var stored = Assert.IsType<Entity>(await _entities.GetAsync(id,
+            operation == "delete" ? VersionSelector.AtSequence(2) : VersionSelector.Latest));
+        if (operation == "delete")
+        {
+            Assert.Null(await _entities.GetAsync(id));
+            Assert.Equal(At, stored.DeletedAt);
+        }
+        else Assert.Equal("after", stored.Body.RootElement.GetProperty("name").GetString());
+        Assert.Equal(0, await StagedCountAsync(_audit));
+        Assert.Empty(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordWritten")));
+        Assert.Empty(await _audit.DeliveredAsync(Tenant, new AuditEventType("RecordDeleted")));
     }
 
     [Fact(DisplayName = "T-1048: a legal-entity create refused at commit stages no audit")]
@@ -159,6 +228,7 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
         _entities,
         NullEntityValidator.Instance,
         TestAuthorization.AllowGate(),
+        accepted: new AuthorizedActAudit(_audit.Trail, new Ed25519Signer(KeyPair.Generate()), NullLogger<AuthorizedActAudit>.Instance),
         pipelineObserver: observer,
         outbox: _audit.Outbox);
 
@@ -171,6 +241,15 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
 
     private static CreateOptions Options(string localPart) =>
         new("entity", "test", localPart, Actor, Tenant, ExplicitLocalPart: localPart);
+
+    private static async Task AssertNoGenericRecoveryAsync(DurableAuditHarness restarted, EntityId id, AuditEventType eventType)
+    {
+        var freshStore = new InMemoryEntityStore(new InMemoryAssetStorage(), TimeProvider.System);
+        Assert.Null(await freshStore.GetAsync(id));
+        Assert.Equal(0, await StagedCountAsync(restarted));
+        Assert.Empty(await restarted.DeliveredAsync(Tenant, eventType));
+        Assert.Empty(await OwedAsync(restarted));
+    }
 
     private static async Task AssertDeliveredOnceAsync(
         DurableAuditHarness restarted, AuditEventType eventType, string recordId, string schema)
@@ -209,7 +288,7 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
         public LocalNodeDbContext CreateDbContext() => LocalNode(harness);
     }
 
-    /// <summary>The process stopping: nothing after commit runs, and nothing in memory survives the restart.</summary>
+    /// <summary>Simulates interruption before react; this is not an operating-system process kill.</summary>
     private sealed class ProcessStopped : Exception;
 
     private sealed class CrashBeforeReact(bool crash = true) : IWritePipelineObserver

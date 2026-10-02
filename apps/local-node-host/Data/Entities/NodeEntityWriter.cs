@@ -20,7 +20,10 @@ namespace Harborline.Api.LocalNodeHost.Data.Entities;
 /// </summary>
 public sealed record LegalEntityWritten(LegalEntity Entity, Guid? AuditId);
 
-/// <summary>A generic persisted record and the accepted decision audit that authorized it.</summary>
+/// <summary>
+/// A generic record and its best-effort post-commit accepted-decision audit. The current generic store is
+/// volatile: it shares no transaction with the durable audit trail and has no restart-recovery guarantee.
+/// </summary>
 public sealed record EntityWritten(EntityId Entity, Guid? AuditId);
 
 public sealed record CreateLegalEntityCommand(
@@ -49,9 +52,8 @@ public sealed class NodeEntityWriter(
 
     /// <summary>
     /// Records the accepted write against the ONE decision that permitted it and returns that entry's
-    /// audit id. Every accepted write on this coordinator goes through here, so no write path is
-    /// addressable while a sibling is silent. It carries the record's identity and schema and never a
-    /// member of its body.
+    /// audit id. Generic records use this best-effort post-commit path; legal entities use it only when
+    /// no durable outbox is composed. It carries the record's identity and schema and never its body.
     /// </summary>
     private ValueTask<Guid?> RecordAcceptedAsync(
         AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema, string recordId,
@@ -75,46 +77,6 @@ public sealed class NodeEntityWriter(
             ? null
             : Audit.NodeAuditOutbox.StageAuthorized(db, eventType, decision,
                 new Dictionary<string, string?> { ["recordId"] = recordId, ["schema"] = schema.Value });
-
-    /// <summary>
-    /// Opens the <c>local-node.db</c> transaction a record-store write commits its audit in, with the audit staged on
-    /// it. The record store is in-memory and has no transaction to join, so the commit stage saves the audit inside
-    /// this transaction, mutates the store, then commits: a store refusal rolls the audit back, and a crash before
-    /// the commit loses the in-memory record with it.
-    /// </summary>
-    private async ValueTask<StagedAudit> StageAcceptedAsync(
-        AuthorizationDecision decision, Kernel.Audit.AuditEventType eventType, SchemaId schema, string recordId,
-        CancellationToken ct)
-    {
-        if (outbox is null) return new StagedAudit(null, null);
-        var db = await factory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        try
-        {
-            await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-            return new StagedAudit(db, StageAccepted(db, decision, eventType, schema, recordId));
-        }
-        catch
-        {
-            await db.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-    }
-
-    /// <summary>An audit staged in an open transaction; disposing it uncommitted rolls the audit back.</summary>
-    private sealed class StagedAudit(DbContext? db, Guid? id) : IAsyncDisposable
-    {
-        /// <summary>The context the commit stage saves the staged audit on; null when no outbox is composed.</summary>
-        public DbContext? Db => db;
-
-        public Guid? Id => id;
-
-        public async ValueTask CommitAsync(CancellationToken ct)
-        {
-            if (db is not null) await db.Database.CommitTransactionAsync(ct).ConfigureAwait(false);
-        }
-
-        public ValueTask DisposeAsync() => db?.DisposeAsync() ?? ValueTask.CompletedTask;
-    }
 
     /// <summary>
     /// React: delivers the audit commit staged now (the drain daemon delivers it if this delivery fails, and the
@@ -389,7 +351,6 @@ public sealed class NodeEntityWriter(
     {
         private AuthorizationDecision decision = null!;
         private EntityId created;
-        private Guid? staged;
 
         // holds RW-1 · closes RW-H4: the gate decides first; validation runs only after RequireAllowed,
         // so an unauthorized caller learns nothing about the schema.
@@ -422,21 +383,14 @@ public sealed class NodeEntityWriter(
             (await writer.AdmitAsync(decision, mutation.Schema, body, mutation.Options.Tenant, mutation.Options.Binding,
                 authority, ct).ConfigureAwait(false), mutation.Options);
 
-        // Bind proved the store derives recordId, so the audit staged before the create names the created record.
-        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct)
-        {
-            await using var audit = await writer.StageAcceptedAsync(
-                decision, RecordWrittenEventType, validated.Body.Schema, recordId, ct).ConfigureAwait(false);
-            if (audit.Db is { } db) await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        // The volatile generic store has no durable transaction to enlist. T-616 owns that future boundary.
+        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
             created = await entities.CreateAsync(validated.Body, validated.Options, ct).ConfigureAwait(false);
-            await audit.CommitAsync(ct).ConfigureAwait(false);
-            staged = audit.Id;
-        }
 
         protected override async ValueTask<EntityWritten> ReactAsync(
             (ValidatedRecordBody Body, CreateOptions Options) validated, CancellationToken ct) =>
-            new(created, await writer.DeliverAcceptedAsync(
-                staged, decision, RecordWrittenEventType, validated.Body.Schema, created.LocalPart, ct).ConfigureAwait(false));
+            new(created, await writer.RecordAcceptedAsync(
+                decision, RecordWrittenEventType, validated.Body.Schema, created.LocalPart, ct).ConfigureAwait(false));
     }
 
     /// <summary>A generic record update as its six ADR 0038 stages.</summary>
@@ -451,7 +405,6 @@ public sealed class NodeEntityWriter(
     {
         private AuthorizationDecision decision = null!;
         private VersionId version;
-        private Guid? staged;
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             decision = await writer.DecideAsync(authority, id.LocalPart, ct).ConfigureAwait(false);
@@ -475,20 +428,13 @@ public sealed class NodeEntityWriter(
             (await writer.AdmitAsync(decision, bound.Schema, body, bound.Tenant, bound.Binding, authority, ct)
                 .ConfigureAwait(false), mutation);
 
-        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, UpdateOptions Options) validated, CancellationToken ct)
-        {
-            await using var audit = await writer.StageAcceptedAsync(
-                decision, RecordWrittenEventType, validated.Body.Schema, id.LocalPart, ct).ConfigureAwait(false);
-            if (audit.Db is { } db) await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        protected override async ValueTask CommitAsync((ValidatedRecordBody Body, UpdateOptions Options) validated, CancellationToken ct) =>
             version = await entities.UpdateAsync(id, validated.Body, validated.Options, ct).ConfigureAwait(false);
-            await audit.CommitAsync(ct).ConfigureAwait(false);
-            staged = audit.Id;
-        }
 
         protected override async ValueTask<VersionId> ReactAsync(
             (ValidatedRecordBody Body, UpdateOptions Options) validated, CancellationToken ct)
         {
-            await writer.DeliverAcceptedAsync(staged, decision, RecordWrittenEventType, validated.Body.Schema, id.LocalPart, ct)
+            await writer.RecordAcceptedAsync(decision, RecordWrittenEventType, validated.Body.Schema, id.LocalPart, ct)
                 .ConfigureAwait(false);
             return version;
         }
@@ -507,7 +453,6 @@ public sealed class NodeEntityWriter(
         : KernelWrite<Entity, DeleteOptions, (Entity Record, DeleteOptions Options), EntityId>
     {
         private AuthorizationDecision decision = null!;
-        private Guid? staged;
 
         protected override async ValueTask AuthorizeAsync(CancellationToken ct) =>
             decision = await writer.DecideAsync(authority, id.LocalPart, ct).ConfigureAwait(false);
@@ -527,19 +472,12 @@ public sealed class NodeEntityWriter(
             Entity bound, DeleteOptions mutation, CancellationToken ct) =>
             ValueTask.FromResult((bound, mutation));
 
-        protected override async ValueTask CommitAsync((Entity Record, DeleteOptions Options) validated, CancellationToken ct)
-        {
-            await using var audit = await writer.StageAcceptedAsync(
-                decision, RecordDeletedEventType, validated.Record.Schema, id.LocalPart, ct).ConfigureAwait(false);
-            if (audit.Db is { } db) await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        protected override async ValueTask CommitAsync((Entity Record, DeleteOptions Options) validated, CancellationToken ct) =>
             await entities.DeleteAsync(id, validated.Options, ct).ConfigureAwait(false);
-            await audit.CommitAsync(ct).ConfigureAwait(false);
-            staged = audit.Id;
-        }
 
         protected override async ValueTask<EntityId> ReactAsync((Entity Record, DeleteOptions Options) validated, CancellationToken ct)
         {
-            await writer.DeliverAcceptedAsync(staged, decision, RecordDeletedEventType, validated.Record.Schema, id.LocalPart, ct)
+            await writer.RecordAcceptedAsync(decision, RecordDeletedEventType, validated.Record.Schema, id.LocalPart, ct)
                 .ConfigureAwait(false);
             return id;
         }

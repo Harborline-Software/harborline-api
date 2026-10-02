@@ -1,0 +1,13 @@
+# T-1048f: legal-entity audit scope
+
+The owner approved the narrower API #350 scope on 2026-10-02: keep the atomic guarantee on the existing durable EF legal-entity write, preserve the generic record store's best-effort behavior explicitly, and track the durable generic transaction boundary separately.
+
+`NodeEntityWriter.LegalEntityCreate` adds the legal entity and its captured-authority accepted-decision outbox row to the same `LocalNodeDbContext.SaveChangesAsync`. A failed save commits neither. Delivery signs the stored audit payload. React delivers the committed receipt; a fresh audit harness over the same database can recover an owed receipt. The interrupted-React fixture throws at the stage boundary; it is not evidence of an operating-system process kill.
+
+Generic create, update and delete still use the host's `AddHarborlineAssetsInMemory` composition. They mutate that volatile store and then call `AuthorizedActAudit` in React. A successful append can return an addressable audit id. An append failure leaves the mutation standing; create returns a null audit id. An interruption before React leaves no durable audit receipt, and a fresh generic store has no recovered record. These paths neither enlist in the SQLite audit transaction nor claim atomicity or restart recovery.
+
+The exact durable-write inventory therefore counts one save in `NodeEntityWriter.cs`, for the EF legal-entity path. The generic mutations are outside that durable-write count; their limitation remains named in the inventory evidence and regression fixtures.
+
+The follow-up already has an owner: [T-616, Records write interpreter and atomic admission](https://github.com/Harborline-Software/harborline-control/blob/main/tickets/T-616-records-write-interpreter-and-atomic-admission/ticket.md), item 4, requires the record, idempotency identity, amendment evidence and audit evidence inside one transaction. The platform owns that released boundary. [T-619, Records released navigation and API/app consumption](https://github.com/Harborline-Software/harborline-control/blob/main/tickets/T-619-records-released-navigation-and-api-app-consumption/ticket.md) owns consumption in API. This correction creates no duplicate ticket or new durability architecture, and makes no claim that either follow-up is complete.
+
+Validation is pending the coordinator's next available Windows test slot. The prepared fixtures cover legal-entity/audit rollback and fresh-harness delivery, generic uninterrupted audit receipts, generic store refusals, and the explicit generic interruption/append-failure limitations.
