@@ -481,7 +481,7 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
     [InlineData("account id of 65 characters")]
     [InlineData("blank actor account id")]
     [InlineData("actor account id of 65 characters")]
-    [InlineData("blank evidence digest")]
+    [InlineData("blank evidence digest of 64 characters")]
     [InlineData("evidence digest of 63 characters")]
     [InlineData("evidence digest of 65 characters")]
     [InlineData("blank canonical principal id")]
@@ -540,7 +540,8 @@ public sealed class TenantMembershipAuthorityStoreTests(ITestOutputHelper output
             ["evidence digest of 64 characters"] = e => e with { EvidenceDigest = new string('B', 64) },
             ["evidence digest of 63 characters"] = e => e with { EvidenceDigest = new string('B', 63) },
             ["evidence digest of 65 characters"] = e => e with { EvidenceDigest = new string('B', 65) },
-            ["blank evidence digest"] = e => e with { EvidenceDigest = " " },
+            // 64 spaces: a shorter blank would be refused by the length check alone, hiding the blank guard.
+            ["blank evidence digest of 64 characters"] = e => e with { EvidenceDigest = new string(' ', 64) },
             ["canonical principal id of 256 characters"] =
                 e => e with { Mutation = e.Mutation with { CanonicalPrincipalId = new string('p', 256) } },
             ["canonical principal id of 257 characters"] =
