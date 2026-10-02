@@ -86,7 +86,7 @@ public sealed class NodeWorkflowInstantiationService
             Id = instanceId,
             TenantId = tenantId.Value,
             DefinitionKey = GrantIssuanceSteps.DefinitionKey,
-            DefinitionVersion = "1.0.1",
+            DefinitionVersion = "1.0.3",
             CurrentStep = GrantIssuanceSteps.Approve,
             Status = WorkflowStatus.Running,
             StateJson = GrantIssuanceHandler.SerializeRequest(request),

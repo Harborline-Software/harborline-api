@@ -218,6 +218,10 @@ public sealed class KernelClockIntegrationTests
             effectiveFrom: null, capturedAt: FrozenAt.AddDays(-30), omittedAs: omission);
 
         Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        // Oracle: the shipped Access 1.1.6 pack publishes access.privileged-grant-review@1.0.3.
+        var workflow = await fixture.Services.GetRequiredService<IWorkflowStore>().LoadAsync(
+            NodeWorkflowInstantiationService.AccessGrantInstanceId(body.GetProperty("instanceId").GetString()!));
+        Assert.Equal("1.0.3", Assert.IsType<WorkflowInstanceRecord>(workflow).DefinitionVersion);
         var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
         Assert.Equal(FrozenAt, grant.GrantedAt);
         Assert.Equal(FrozenAt, grant.Validity.ValidFrom);

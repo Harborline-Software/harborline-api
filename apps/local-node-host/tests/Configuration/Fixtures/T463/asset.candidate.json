@@ -1,0 +1,109 @@
+{
+  "overlay": {
+    "fields": {
+      "quantity": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "quantity"
+          }
+        }
+      },
+      "unitPrice": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "unitPrice"
+          }
+        }
+      },
+      "total": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "total"
+          }
+        }
+      },
+      "status": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "status"
+          }
+        },
+        "writeRoles": [
+          "invoice.approver"
+        ]
+      },
+      "supplier": {
+        "label": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "Supplier"
+          }
+        }
+      }
+    },
+    "sections": [
+      {
+        "id": "asset",
+        "title": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "asset"
+          }
+        },
+        "fields": [
+          "supplier",
+          "quantity",
+          "unitPrice",
+          "total",
+          "status"
+        ],
+        "access": {
+          "readRoles": [
+            "invoice.author",
+            "invoice.approver"
+          ],
+          "writeRoles": [
+            "invoice.author",
+            "invoice.approver"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "id": "asset.total",
+        "tier": "JsonLogic",
+        "scope": "Field",
+        "scopeTarget": "total",
+        "expression": "{\"*\":[{\"var\":\"quantity\"},{\"var\":\"unitPrice\"}]}",
+        "action": "Compute"
+      }
+    ]
+  },
+  "fieldsMeta": {
+    "quantity": {
+      "type": "number",
+      "required": false
+    },
+    "unitPrice": {
+      "type": "number",
+      "required": false
+    },
+    "total": {
+      "type": "number",
+      "required": false
+    },
+    "status": {
+      "type": "text",
+      "required": false
+    },
+    "supplier": {
+      "type": "text",
+      "required": false
+    }
+  }
+}

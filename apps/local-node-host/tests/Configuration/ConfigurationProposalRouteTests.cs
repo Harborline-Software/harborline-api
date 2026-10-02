@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -389,6 +390,43 @@ public sealed class ConfigurationProposalRouteTests : IAsyncLifetime
             Assert.Equal("configuration-package-not-active",
                 (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         }
+    }
+
+    [Fact]
+    public async Task The_api_example_runs_proposal_save_and_read_against_the_isolated_http_host()
+    {
+        // The actual client script calls the production routes on this fixture's ephemeral Kestrel
+        // host and temporary SQLCipher database. The package gate permits requests; this is HTTP
+        // workflow evidence, not an author-only authorization-engine proof.
+        var baseline = await EffectiveDigestAsync();
+        var processInfo = new ProcessStartInfo("pwsh")
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        processInfo.ArgumentList.Add("-NoProfile");
+        processInfo.ArgumentList.Add("-Command");
+        processInfo.ArgumentList.Add("& $env:T463_EXAMPLE_SCRIPT -BaseUri $env:T463_EXAMPLE_URI -Mode Proposal -Headers @{ 'X-Test-Desktop'='1' } -ProposalId 't463-live-example' -PackageKey 'acme.finance' -CandidateFile $env:T463_EXAMPLE_CANDIDATE -Rationale 'Independent live example'");
+        processInfo.Environment["T463_EXAMPLE_SCRIPT"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "t463-configuration.ps1");
+        processInfo.Environment["T463_EXAMPLE_URI"] = _client.BaseAddress!.AbsoluteUri;
+        processInfo.Environment["T463_EXAMPLE_CANDIDATE"] = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463", "asset.candidate.json");
+        using var process = Process.Start(processInfo)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var errors = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+        Assert.True(process.ExitCode == 0, await errors);
+        using var result = JsonDocument.Parse(await output);
+        Assert.Equal("Proposal", result.RootElement.GetProperty("mode").GetString());
+        Assert.Equal(baseline, result.RootElement.GetProperty("baselineDigest").GetString());
+        Assert.Equal(baseline, result.RootElement.GetProperty("effectiveDigest").GetString());
+        Assert.Equal(1, result.RootElement.GetProperty("savedVersion").GetProperty("ordinal").GetInt32());
+        Assert.Equal("Independent live example", Assert.Single(SavedVersionRows()).Rationale);
+        Assert.Empty(ReleasedRows());
+        Assert.Empty(EffectiveRows());
+        Assert.Empty(PreparedProjections());
+        Assert.Equal(baseline, await EffectiveDigestAsync());
     }
 
     private async Task<JsonElement> StartAsync(string proposalId)

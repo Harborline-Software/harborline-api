@@ -51,17 +51,20 @@ internal static class PackRouteAuthorization
 
     /// <summary>
     /// Resolves <paramref name="operation"/> for <paramref name="packKey"/> through the gate and returns the
-    /// fail-closed refusal when the single decision denies, or <see langword="null"/> when the act may
-    /// proceed. A blank <paramref name="packKey"/> means the route addresses no one pack and the request is
-    /// built install-wide; the gate refuses that shape unless the operation is declared install-wide.
+    /// node's one rendered and audited refusal (T-380) when the single decision denies, or
+    /// <see langword="null"/> when the act may proceed. A blank <paramref name="packKey"/> means the route
+    /// addresses no one pack and the request is built install-wide; the gate refuses that shape unless the
+    /// operation is declared install-wide.
     /// </summary>
     internal static async ValueTask<IResult?> RefusalAsync(
+        HttpContext http,
         AuthorizationGate gate,
         AuthorizationWriteContext authority,
         AuthorizationOperation operation,
         string? packKey,
         CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(gate);
 
         // A pack key is caller-supplied on the activate/deactivate/compose bodies. Canonicalising it runs
@@ -78,10 +81,12 @@ internal static class PackRouteAuthorization
         }
         catch (ArgumentException)
         {
-            return PackRouteAuthz.Denied(operation.Value);
+            return await RequestAuthorization.PreDecidedAsync(http, authority, operation.Value, ct).ConfigureAwait(false);
         }
 
         var decision = await gate.DecideAsync(request, ct).ConfigureAwait(false);
-        return decision.Verdict == AuthorizationVerdict.Allowed ? null : PackRouteAuthz.Denied(operation.Value);
+        return decision.Verdict == AuthorizationVerdict.Allowed
+            ? null
+            : await RequestAuthorization.RefusedAsync(http, decision, ct).ConfigureAwait(false);
     }
 }

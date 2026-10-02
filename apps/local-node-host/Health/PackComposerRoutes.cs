@@ -95,7 +95,7 @@ public static class PackComposerRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             // The single-shot export names its pack in the body — that pack is the record target.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Author, request.Key, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Author, request.Key, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -190,7 +190,7 @@ public static class PackComposerRoutes
             // Verify NEVER mutates and the uploaded artifact is not yet a pack record — the act addresses
             // the install, so it carries no record target and rides the install-wide declaration.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Author, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Author, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -303,20 +303,6 @@ public static class PackComposerRoutes
         }
         return Enum.TryParse(raw, ignoreCase: true, out value);
     }
-}
-
-/// <summary>Shared fail-closed, accessible authorization-denial shape for the <c>/packs/*</c> routes
-/// (council A-1). Stable localizable <c>code</c> + the required <c>permission</c> so the Harborline App renders an
-/// accessible denial; the English <c>error</c> is a developer aid only.</summary>
-internal static class PackRouteAuthz
-{
-    /// <summary>The stable, localizable denial code the Harborline App localizes off.</summary>
-    public const string DeniedCode = "pack.authz.denied";
-
-    /// <summary>A 403 fail-closed denial naming the missing permission.</summary>
-    public static IResult Denied(string permission) => Results.Json(
-        new { error = "You do not have permission for this action.", code = DeniedCode, permission },
-        statusCode: StatusCodes.Status403Forbidden);
 }
 
 // ── Wire DTOs (local to the route) ─────────────────────────────────────────────
