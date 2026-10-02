@@ -56,6 +56,9 @@ foreach ($name in @('asset.suite.json', 'ledger.suite.json')) {
     $invalidFact = Read-Suite $name
     $invalidFact.fixtures[0].facts[0].body = '{'
     Require-Refusal (Admit $invalidFact) 'verification-fixture-fact-invalid' "$name malformed initial record"
+    $missingFixture = Read-Suite $name
+    $missingFixture.cases[0].fixtureId = 'not-declared'
+    Require-Refusal (Admit $missingFixture) 'verification-fixture-unknown' "$name unresolved fixture reference"
 }
 $unsupported = Admit (Read-Suite 'ledger-post.future.suite.json')
 Require-Refusal $unsupported $oracle.requiredRefusals.unknownAction 'ledger posting capability boundary'

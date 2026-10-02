@@ -493,6 +493,79 @@ public sealed class VerificationRunnerTests : IAsyncLifetime
         Assert.Equal(baseline, _target.ReadEffective(_tenant).Digest);
     }
 
+    [Fact]
+    public async Task An_asset_suite_with_an_unresolved_fixture_refuses_without_a_receipt_or_effective_change()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463");
+        Seed("verification.asset", ("records/asset", PackContentKind.FormDefinition,
+            await File.ReadAllTextAsync(Path.Combine(root, "asset.candidate.json"))));
+        var baseline = _target.ReadEffective(_tenant).Digest;
+        var prepared = _target.Prepare(_tenant, baseline, ["finance.access", "verification.asset"],
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["records/asset"] = "verification.asset" }, Frozen);
+        Assert.NotNull(prepared.Preparation?.Prepared);
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, "asset.suite.json")))!;
+        document["cases"]![0]!["fixtureId"] = "not-declared";
+        using var response = await _client.PostAsJsonAsync(ConfigurationActivationRoutes.VerifyRoute, new
+        {
+            expectedBaselineDigest = baseline,
+            candidateDigest = prepared.Preparation!.Candidate.Digest,
+            receiptId = "receipt-asset-unresolved",
+            suite = document.ToJsonString(),
+        });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("refused", body.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("receiptDigest").ValueKind);
+        Assert.Contains(body.GetProperty("refusals").EnumerateArray(),
+            item => item.GetProperty("code").GetString() == "verification-fixture-unknown");
+        Assert.Equal(baseline, _target.ReadEffective(_tenant).Digest);
+    }
+
+    [Fact]
+    public async Task An_asset_field_type_change_is_incompatible_with_the_existing_numeric_examples()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463");
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, "asset.candidate.json")))!;
+        document["fieldsMeta"]!["quantity"]!["type"] = "text";
+        Assert.True(PackFormDefinitionContent.TryParse(document.ToJsonString(), out var request, out _, out var error), error);
+        var schemas = new InMemorySchemaRegistry(new FrozenClock(Frozen));
+        var schema = await schemas.RegisterAsync(BuilderSchemaSynthesizer.Synthesize(request, new FormDefinitionId("records/asset")));
+        // Independent wire values: quantity was numeric in the admitted asset example. This proves
+        // schema incompatibility, not migration/refinement admission of a changed definition version.
+        var validation = await schemas.ValidateAsync(schema.Id,
+            System.Text.Encoding.UTF8.GetBytes("""{"supplier":"supplier-1","quantity":2,"unitPrice":100}"""));
+        Assert.False(validation.IsValid);
+    }
+
+    [Fact]
+    public async Task An_asset_candidate_that_widens_approval_authority_fails_only_the_authority_claim()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "Configuration", "Fixtures", "T463");
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, "asset.candidate.json")))!;
+        document["overlay"]!["fields"]!["status"]!["writeRoles"]!.AsArray().Add("invoice.author");
+        Seed("verification.asset-widened", ("records/asset", PackContentKind.FormDefinition, document.ToJsonString()));
+        var suite = VerificationSuite.Parse(await File.ReadAllTextAsync(Path.Combine(root, "asset.suite.json")), out var admission);
+        Assert.Empty(admission);
+        Assert.NotNull(suite);
+        var baseline = _target.ReadEffective(_tenant).Digest;
+        var prepared = _target.Prepare(_tenant, baseline, ["finance.access", "verification.asset-widened"],
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["records/asset"] = "verification.asset-widened" }, Frozen);
+        Assert.NotNull(prepared.Preparation?.Prepared);
+        var run = await _runner.RunAsync(_tenant, "receipt-asset-widened", prepared.Preparation!.Candidate.Digest, baseline, suite!);
+        Assert.Empty(run.Refusals);
+        Assert.NotNull(run.Receipt);
+        Assert.Equal(VerificationStatus.Failed, run.Receipt.Status);
+        Assert.Equal(VerificationStatus.Failed, Outcome(run.Receipt, "approval-authority").Status);
+        Assert.Equal("true", Actual(Outcome(run.Receipt, "approval-authority"), "outcome.accepted"));
+        foreach (var (rowId, total) in Rows)
+        {
+            var outcome = Outcome(run.Receipt, "invoice-total", rowId);
+            Assert.Equal(VerificationStatus.Passed, outcome.Status);
+            Assert.Equal(total.ToString(CultureInfo.InvariantCulture), Actual(outcome, "record.number"));
+        }
+        Assert.Equal(baseline, _target.ReadEffective(_tenant).Digest);
+    }
+
     private string Candidate(string owner, string baseline)
     {
         var prepared = _target.Prepare(_tenant, baseline,
