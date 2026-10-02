@@ -206,7 +206,7 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.NarrowAsync(Context(), PackKey, ContentKey, JsonNode.Parse("""{"extra":"added"}""")!, Decision());
 
         Assert.False(outcome.Recorded);
-        Assert.Equal(PackTenantNarrowing.WideningRefusedCode, outcome.RefusalCode);
+        Assert.Equal("pack.overlay.widens_definition", outcome.RefusalCode);
         Assert.Equal("/extra", outcome.WideningPath);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         var stored = Assert.Single(_store.GetOverrides(Tenant, PackKey));
