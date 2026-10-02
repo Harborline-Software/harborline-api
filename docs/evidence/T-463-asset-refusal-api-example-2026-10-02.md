@@ -1,5 +1,10 @@
 # T-463 asset refusals and API example: bounded follow-up
 
+**Current measured host status:** at reconciled source `2464f9ad`, all 16 bounded verifier/Proposal
+HTTP cases passed with the canonical pinned dependencies. See
+[native validation evidence](T-463-bounded-host-validation-2026-10-02.md). UNRUN statements below
+are historical checkpoints; VerifyInstalled live client mode and full lifecycle acceptance remain owed.
+
 Base: API PR #332 head `29f036ca0f1fe55804b05925e843c0c388b0b333`, still open/ready at refresh.
 API origin/main `bf60fed771208e64c0155ecfedca1bbed022e2b2`; Control origin/main
 `e1618e95ffd8f4afb40afac102ad131f6ed59a80`. Isolated worktree/branch:
