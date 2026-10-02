@@ -118,17 +118,22 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<IReadOnlyList<(ValidatedRecordBody Body, CreateOptions Options)>> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, IReadOnlyList<SplitTarget> mutation, CancellationToken ct)
         {
+            ValidateTargetTenants(mutation, tenant);
             var admitted = new List<(ValidatedRecordBody, CreateOptions)>(mutation.Count);
             for (var index = 0; index < mutation.Count; index++)
             {
                 var target = mutation[index];
-                if (target.Options.Tenant != tenant)
-                    throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
                 admitted.Add((await ValidatedRecordBody.AdmitAsync(
                     coordinator.Validator, authorization.Require(replacementIds[index]), target.Schema, target.Body,
                     tenant, target.Options.Binding, ct).ConfigureAwait(false), target.Options));
             }
             return admitted;
+        }
+
+        private static void ValidateTargetTenants(IReadOnlyList<SplitTarget> newEntities, TenantId tenant)
+        {
+            if (newEntities.Any(target => target.Options.Tenant != tenant))
+                throw new ArgumentException("A split target tenant does not match the admitted composite.", nameof(newEntities));
         }
 
         protected override async ValueTask CommitAsync(
@@ -252,14 +257,19 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<ValidatedRecordBody> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, CreateOptions mutation, CancellationToken ct)
         {
-            if (mutation.Tenant != tenant)
-                throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
+            ValidateTargetTenant(mutation, tenant);
             authorization = await coordinator.DecideAllAsync(
                 bound.Select(edge => edge.From), actor, tenant, at, ct, authorization).ConfigureAwait(false);
             // Ticket 366: the merge target is a record, admitted from the decision that admitted it.
             return await ValidatedRecordBody.AdmitAsync(
                 coordinator.Validator, authorization.Require(expectedNewId), newSchema, newBody, tenant,
                 mutation.Binding, ct).ConfigureAwait(false);
+        }
+
+        private static void ValidateTargetTenant(CreateOptions newOptions, TenantId tenant)
+        {
+            if (newOptions.Tenant != tenant)
+                throw new ArgumentException("The merge target tenant does not match the admitted composite.", nameof(newOptions));
         }
 
         protected override async ValueTask CommitAsync(ValidatedRecordBody validated, CancellationToken ct)
@@ -277,11 +287,15 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 {
                     authorization.Require(edge.From);
                     authorization.Require(newId);
-                    await store.InvalidateEdgeAsync(edge.Id, at, ct).ConfigureAwait(false);
+                    // An edge committed by a later-admitted act may start after this merge's admitted clock.
+                    // Close it at its start (an empty half-open interval), never before it, and preserve that
+                    // scheduled start on the replacement. Entity and audit admission remain at the merge clock.
+                    var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                    await store.InvalidateEdgeAsync(edge.Id, start, ct).ConfigureAwait(false);
                     if (oldEntities.Contains(edge.From))
                         continue;
                     var replacementEdge = await store.AddEdgeAsync(
-                        edge.From, newId, EdgeKind.ChildOf, at, null, ct).ConfigureAwait(false);
+                        edge.From, newId, EdgeKind.ChildOf, start, null, ct).ConfigureAwait(false);
                     if (edge.Validity.ValidTo is { } validTo)
                         await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, ct).ConfigureAwait(false);
                     reassigned.Add(edge.From);
@@ -363,7 +377,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<DateTimeOffset?> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, DateTimeOffset? mutation, CancellationToken ct)
         {
-            await RefuseCycleAsync(mutation, ct).ConfigureAwait(false);
+            await RefuseCycleAsync(newParent, mutation, ct).ConfigureAwait(false);
             return mutation;
         }
 
@@ -372,7 +386,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// inside the atomic unit, where the answer is authoritative, because an opposing reparent can commit
         /// between the two (each moving one entity under the other) and both would otherwise pass validate.
         /// </summary>
-        private async ValueTask RefuseCycleAsync(DateTimeOffset? validTo, CancellationToken ct)
+        private async ValueTask RefuseCycleAsync(EntityId newParent, DateTimeOffset? validTo, CancellationToken ct)
         {
             if (newParent == child)
                 throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
@@ -411,7 +425,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(child);
                 authorization.Require(oldParent);
                 authorization.Require(newParent);
-                await RefuseCycleAsync(validated, transactionCt).ConfigureAwait(false);
+                await RefuseCycleAsync(newParent, validated, transactionCt).ConfigureAwait(false);
                 var current = await coordinator.ReadAffectedChildrenAsync(
                     [oldParent], edge => edge.From == child, at, transactionCt).ConfigureAwait(false);
                 if (!SameEdgeState(current, displaced))
