@@ -444,7 +444,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
     }
 
     /// <summary>An audited refusal thrown from the stage that refused; it carries the caller's outcome.</summary>
-#pragma warning disable CA1032, CA1064 // A private control-flow carrier, never seen outside this class.
+#pragma warning disable CA1032, CA1064 // A private control-flow signal, never seen outside this class.
     private sealed class Refused(object outcome) : Exception
 #pragma warning restore CA1032, CA1064
     {
