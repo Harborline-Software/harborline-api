@@ -15,6 +15,7 @@ using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Validation;
 using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Runtime;
+using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
@@ -164,6 +165,53 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Empty(Admissions().ListIncompleteProjectionAdmissions());
         Assert.Equal(installed, _store.ListInstalled(Tenant));
         Assert.Equal(audited, _audit.Query(Tenant).Count);
+    }
+
+    [Fact(DisplayName = "ck-10 S5c: a pending admission survives a durable store restart, and a new installer's reconcile completes it and makes the definitions live")]
+    public async Task A_pending_admission_is_completed_by_a_new_installer_over_the_restarted_durable_store()
+    {
+        // The registry stands in for the durable definition store, which outlives the process.
+        var reports = PackActivationPipelineTests.Reports();
+        await using var origin = await PacksTestStore.CreateAsync();
+        {
+            // The first process records an activation and its projection admission, then dies before projecting.
+            var store = new DurablePackInstallStore(origin.Factory);
+            PlatformPackTestPreload.Activate(store, Tenant);
+            PackActivationPipelineTests.CommitReportPack(store, Tenant);
+            ((IPackProjectionAdmissionStore)store).ActivateAndRecordProjectionAdmission(
+                Tenant, PackActivationPipelineTests.ReportPackKey, "1.0.0",
+                new PackProjectionAdmission(Guid.NewGuid(), PackActivationPipelineTests.ReportPackKey, "1.0.0", Tenant,
+                    new ActorId("test-operator"), Now, ["s5c-derivation"], Projected: false));
+        }
+        Assert.Null(await reports.GetDefinitionAsync(Tenant.Value, PackActivationPipelineTests.ReportKey, PackActivationPipelineTests.ItemVersion));
+
+        await using var restart = PacksTestStore.Reopen(origin);
+        var reopened = new DurablePackInstallStore(restart.Factory);
+        var audit = new InMemoryPackInstallAudit();
+        var stages = new StageRecorder();
+        var reconciler = (IPackProjectionReconciler)PackActivationPipelineTests.Installer(reopened, audit, stages);
+        reconciler.AttachProjector(PackActivationPipelineTests.Projector(reopened, reports));
+        Assert.Contains(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions(),
+            admission => admission.PackId == PackActivationPipelineTests.ReportPackKey);
+
+        await reconciler.ReconcilePendingAsync();
+
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], stages.Entered);
+        Assert.Empty(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions());
+        var live = await reports.GetDefinitionAsync(Tenant.Value, PackActivationPipelineTests.ReportKey, PackActivationPipelineTests.ItemVersion);
+        Assert.NotNull(live);
+
+        // A second reconcile has nothing pending and writes nothing: same installed rows, no audit, same definition.
+        var installed = System.Text.Json.JsonSerializer.Serialize(reopened.ListInstalled(Tenant));
+        stages.Entered.Clear();
+
+        await reconciler.ReconcilePendingAsync();
+
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], stages.Entered);
+        Assert.Empty(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions());
+        Assert.Equal(installed, System.Text.Json.JsonSerializer.Serialize(reopened.ListInstalled(Tenant)));
+        Assert.Empty(audit.Query(Tenant));
+        Assert.Same(live, await reports.GetDefinitionAsync(Tenant.Value, PackActivationPipelineTests.ReportKey, PackActivationPipelineTests.ItemVersion));
     }
 
     private IPackProjectionAdmissionStore Admissions() => _store;
