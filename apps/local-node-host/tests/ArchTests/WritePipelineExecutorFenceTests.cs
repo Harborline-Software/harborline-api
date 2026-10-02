@@ -27,8 +27,6 @@ public sealed class WritePipelineExecutorFenceTests
     [
         ("apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget.CompareAndSwapAsync",
             "S5 configuration activation"),
-        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync",
-            "S6 exemption candidate: merge runs its whole pipeline inside the unit it opens, because the displaced set it decides is read there (ticket 216, review round 7); its writes are Merge.CommitAsync"),
         ("packages/blocks-workflow/src/durable/AuthorizedWorkflowDefinitionLifecycle.cs|Harborline.Api.Blocks.Workflow.Durable.AuthorizedWorkflowDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
             "S3 workflow definition lifecycle"),
         ("packages/foundation-forms/AuthorizedFormDefinitionLifecycle.cs|Harborline.Api.Foundation.Forms.AuthorizedFormDefinitionLifecycle+EntityWriterBackend.RegisterAsync",
@@ -52,6 +50,19 @@ public sealed class WritePipelineExecutorFenceTests
     ];
 
     internal static string[] NotYetOnTheExecutorRows() => [.. NotYetOnTheExecutor.Select(row => row.Key)];
+    /// <summary>
+    /// ck-10 S6: admitted-write sites that stay off the executor for good, each with its reason. An exempt site must itself
+    /// run <see cref="WritePipeline.RunAsync"/> inside the unit it opens, so its writes are still a KernelWrite's commit
+    /// stage; the fence checks that, not only the row.
+    /// </summary>
+    private static readonly (string Key, string Reason)[] ExemptFromTheExecutor =
+    [
+        ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.MergeAsync",
+            "Unit opener: merge reads the displaced children it decides inside its atomic unit (ticket 216, review round 7), so the whole pipeline runs inside the unit it opens; its writes are Merge.CommitAsync"),
+    ];
+
+    internal static string[] ExemptFromTheExecutorRows() => [.. ExemptFromTheExecutor.Select(row => row.Key)];
+
 
     /// <summary>Admitted-write commit sites in production that are not a KernelWrite commit stage.</summary>
     internal static string[] DiscoveredOffExecutorKeys() => Classify(ProductionAssemblies()).Off;
@@ -82,12 +93,15 @@ public sealed class WritePipelineExecutorFenceTests
         var assemblies = ProductionAssemblies();
         var (onExecutor, off) = Classify(assemblies);
 
-        var reviewed = NotYetOnTheExecutor.Select(row => row.Key).Order(StringComparer.Ordinal).ToArray();
+        var exempt = ExemptFromTheExecutor.Select(row => row.Key).ToArray();
+        Assert.Empty(exempt.Intersect(NotYetOnTheExecutor.Select(row => row.Key), StringComparer.Ordinal));
+        var reviewed = NotYetOnTheExecutor.Select(row => row.Key).Concat(exempt).Order(StringComparer.Ordinal).ToArray();
         Assert.True(reviewed.SequenceEqual(off, StringComparer.Ordinal),
             "ck-10 not-yet-on-the-executor inventory mismatch.\nUnreviewed (move onto WritePipeline.RunAsync, or review with a slice):\n"
             + string.Join("\n", off.Except(reviewed))
             + "\nStale (on the executor now; delete the row):\n" + string.Join("\n", reviewed.Except(off)));
         Assert.All(NotYetOnTheExecutor, row => Assert.StartsWith("S", row.Slice, StringComparison.Ordinal));
+        Assert.All(ExemptFromTheExecutor, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason)));
 
         // The authorization configuration writer and the admission conferral commit from a KernelWrite.
         Assert.Contains(onExecutor, key => key.Contains("AuthorizationDefinitionWriter+ConfigurationWrite.CommitAsync", StringComparison.Ordinal));
@@ -95,6 +109,27 @@ public sealed class WritePipelineExecutorFenceTests
         // ck-10 S2: the generic record create, update and delete commit from a KernelWrite.
         foreach (var write in new[] { "RecordCreate", "RecordUpdate", "RecordDelete" })
             Assert.Contains(onExecutor, key => key.Contains($"NodeEntityWriter+{write}.CommitAsync", StringComparison.Ordinal));
+    }
+
+    [Fact(DisplayName = "ck-10 S6 fence: every exempt site runs the executor inside the unit it opens")]
+    public void EveryExemptSiteRunsTheExecutorInsideItsUnit()
+    {
+        var runCallers = RawMutationPortSymbolInventoryTests.DiscoverCalls(ProductionAssemblies(),
+                target => target.DeclaringType == typeof(WritePipeline) && target.Name == nameof(WritePipeline.RunAsync))
+            .Select(site => site.Symbol)
+            .ToArray();
+
+        Assert.All(ExemptFromTheExecutor, row =>
+        {
+            var caller = row.Key[(row.Key.IndexOf('|') + 1)..];
+            var method = caller[(caller.LastIndexOf('.') + 1)..];
+            var type = caller[..caller.LastIndexOf('.')];
+            // The call is in the method itself or in a closure the compiler lifted out of it.
+            Assert.True(
+                runCallers.Any(symbol => symbol.StartsWith(type, StringComparison.Ordinal)
+                    && (symbol.Contains($".{method}(", StringComparison.Ordinal) || symbol.Contains($"<{method}>", StringComparison.Ordinal))),
+                $"Exempt site {caller} does not run WritePipeline.RunAsync inside its unit; move it onto the executor or remove the exemption.");
+        });
     }
 
     [Fact(DisplayName = "ck-10 fence: the record writer commits only from its KernelWrite commit stages, EF saves included")]
