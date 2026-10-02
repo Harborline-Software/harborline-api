@@ -285,16 +285,16 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     {
         var canonical = new string('k', length);
         _rawKeyOverride = " \t\u00a0" + canonical + "\u00a0\t ";
-        var first = await CreateAsync("placeholder");
+        var first = await PostAsync("placeholder", "Ops Checking");
         _rawKeyOverride = null;
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(canonical, Assert.Single(await KeysAsync()).Key);
 
-        var warm = await CreateAsync(canonical);
+        var warm = await PostAsync(canonical, "Ops Checking");
         Assert.Equal(HttpStatusCode.Created, warm.StatusCode);
         Assert.Equal(first.Headers.Location, warm.Headers.Location);
         await RestartHostAsync();
-        var cold = await CreateAsync(canonical);
+        var cold = await PostAsync(canonical, "Ops Checking");
         Assert.Equal(HttpStatusCode.Created, cold.StatusCode);
         Assert.Equal(first.Headers.Location, cold.Headers.Location);
         Assert.Equal(await first.Content.ReadAsStringAsync(), await cold.Content.ReadAsStringAsync());
@@ -306,7 +306,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     public async Task TrimmedKey_AboveTwoHundredCharactersIsRejectedBeforeDurableCreate()
     {
         _rawKeyOverride = " " + new string('k', 201) + " ";
-        Assert.Equal(HttpStatusCode.BadRequest, (await CreateAsync("placeholder")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync("placeholder", "Ops Checking")).StatusCode);
         Assert.Empty(await AccountsAsync());
         Assert.Empty(await KeysAsync());
     }
