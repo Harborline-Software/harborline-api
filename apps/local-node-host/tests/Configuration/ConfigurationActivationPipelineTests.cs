@@ -97,6 +97,41 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Reused_intent_with_different_inputs_settles_at_bind_as_reused()
+    {
+        var (request, candidate) = Prepare(_target, "intent-reused-inputs");
+        await ActivateAsync(_target, request);
+        _observer.Stages.Clear();
+        var differentReason = new ConfigurationActivationRequest(request.Prepared, request.Principal,
+            new ConfigurationEvidenceIntent("intent-reused-inputs", "a different reason"));
+
+        var outcome = await ActivateAsync(_target, differentReason);
+
+        Assert.Equal("configuration-evidence-intent-reused", outcome.Decision.Refusal?.Code);
+        Assert.Equal([WritePipelineStage.Authorize, WritePipelineStage.Bind], _observer.Stages);
+        Assert.Equal(candidate, _target.ReadEffective(Tenant).Digest);
+        Assert.Single(Outbox());
+    }
+
+    [Fact]
+    public async Task An_allowed_activation_on_a_stale_baseline_is_refused_at_validate_without_writing()
+    {
+        var (first, firstCandidate) = Prepare(_target, "intent-baseline-first");
+        var (second, _) = Prepare(_target, "intent-baseline-second");
+        await ActivateAsync(_target, first);
+        _observer.Stages.Clear();
+
+        var outcome = await ActivateAsync(_target, second);
+
+        Assert.Equal("configuration-baseline-stale", outcome.Decision.Refusal?.Code);
+        Assert.Equal(
+            [WritePipelineStage.Authorize, WritePipelineStage.Bind, WritePipelineStage.Mutate, WritePipelineStage.Validate],
+            _observer.Stages);
+        Assert.Equal(firstCandidate, _target.ReadEffective(Tenant).Digest);
+        Assert.Single(Outbox());
+    }
+
+    [Fact]
     public async Task Missing_prepared_projection_refuses_at_validate_without_writing()
     {
         var (request, _) = Prepare(_target, "intent-validate-refused");
