@@ -197,13 +197,13 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
     // the location or variable names of its serialization destructuring.
     const redactorBlock = source.slice(source.indexOf('const ANSI ='), source.indexOf('\n// `expectNonZero`', source.indexOf('const ANSI =')))
     const redactEvidence = new Function('clone', 'scratch', redactorBlock + '\nreturn redactEvidence')(path.join(dir, 'clone'), dir)
-    const persistenceCall = source.split('\n').find(line => line.startsWith('const persisted ='))
+    const persistenceCall = source.split('\n').find(line => line.trimStart().startsWith('persisted ='))
     assert.ok(persistenceCall, 'runner must persist step evidence')
     const report = {status: 'FAIL', apiCommit: 'fixture-head', steps: [{id: 'host-baseline-match', passed: false,
       fullOutput: `${String.fromCharCode(27)}[31m${path.join(dir, 'clone', 'tests')}: unexpected failure\n`,
       rawOutput: 'private raw diagnostic'}]}
     const persisted = new Function('persistStepEvidence', 'report', 'apiRoot', 'redactEvidence',
-      persistenceCall + '\nreturn persisted')(persistStepEvidence, report, dir, redactEvidence)
+      'let persisted;\n' + persistenceCall + '\nreturn persisted')(persistStepEvidence, report, dir, redactEvidence)
     assert.equal(persisted.status, 'FAIL')
     assert.equal(persisted.steps[0].passed, false)
     assert.equal('fullOutput' in persisted.steps[0], false)

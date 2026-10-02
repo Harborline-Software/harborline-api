@@ -130,6 +130,7 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
 }
 
 let report
+let persisted
 try {
   if (collectCoverage) {
     rmSync(path.join(apiRoot, 'artifacts', 'quality', 'coverage'), {recursive: true, force: true})
@@ -538,7 +539,17 @@ try {
     recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     steps,
   }
+} catch (error) {
+  steps.push({id: 'report-assembly', passed: false,
+    tail: redactEvidence(error instanceof Error ? error.stack ?? error.message : String(error))})
+  report = {
+    schemaVersion: 1, repository: 'harborline-api', gate: 'destination-exact-clone',
+    baselineProvenance, status: 'FAIL', apiCommit: head,
+    recordedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), steps,
+  }
 } finally {
+  // Preserve captured command output before removing scratch, including an aborted report.
+  persisted = persistStepEvidence({report, apiRoot, redactEvidence})
   if (!retainScratch) rmSync(scratch, {recursive: true, force: true})
 }
 
@@ -549,7 +560,6 @@ try {
 // Keep complete failed-step output in the existing ignored evidence directory, using the
 // same path and ANSI redaction as the report tail. Raw output stays out of recorded JSON;
 // the report references a relative artifact path, and passing reports stay compact.
-const persisted = persistStepEvidence({report, apiRoot, redactEvidence})
 if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
     files: qualityArtifacts(apiRoot).sarif})

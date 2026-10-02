@@ -137,3 +137,34 @@ test('an authoritative baseline failure retains the originating test output', ()
     assert.match(runner, /fullOutput: capabilityComparison\.passed === false \? capabilityTests\.fullOutput : undefined/)
   } finally { rmSync(root, {recursive: true, force: true}) }
 })
+
+
+test('runner reporting exceptions retain redacted failed command output before scratch cleanup', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-aborted-'))
+  try {
+    const source = readFileSync(path.join(apiRoot, 'eng/run-exact-clone.mjs'), 'utf8').replaceAll('\r\n', '\n')
+    const handler = source.slice(source.indexOf('} catch (error) {\n  steps.push'),
+      source.indexOf('\n// Record the report whatever its status.'))
+    assert.ok(handler.length > 0, 'runner exception handler must exist')
+    const output = 'FIRST FAILED COMMAND\n' + 'later diagnostic\n'.repeat(30) + 'private-scratch/clone/test\n'
+    let cleaned = false
+    const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
+      'redactEvidence', 'persistStepEvidence', 'rmSync',
+      'let report; let persisted; const retainScratch = false; try { throw new Error("private-scratch/clone/missing.trx")\n' +
+      handler + '\nreturn {report, persisted}')(
+      [{id: 'dotnet-build', passed: false, exitCode: 1, fullOutput: output, rawOutput: 'RAW PRIVATE OUTPUT'}],
+      'fixture-head', {}, root, 'private-scratch', text => text.replaceAll('private-scratch/clone', '<exact-clone>'),
+      persistStepEvidence, () => {
+        assert.equal(readFileSync(path.join(root, '.claude', 'gate-evidence',
+          'exact-clone-fixture-head-dotnet-build.log'), 'utf8'),
+          'FIRST FAILED COMMAND\n' + 'later diagnostic\n'.repeat(30) + '<exact-clone>/test\n')
+        cleaned = true
+      })
+    assert.equal(cleaned, true)
+    assert.equal(result.report.status, 'FAIL')
+    assert.equal(result.persisted.steps[0].exitCode, 1)
+    assert.equal(result.persisted.steps[1].id, 'report-assembly')
+    assert.match(result.persisted.steps[1].tail, /<exact-clone>\/missing\.trx/)
+    assert.doesNotMatch(JSON.stringify(result.persisted), /private-scratch|RAW PRIVATE OUTPUT|FIRST FAILED COMMAND/)
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
