@@ -217,7 +217,7 @@ internal static class RequestAuthorization
     }
 
     /// <summary>The pre-decision refusal, audited against the authority the act carried.</summary>
-    private static ValueTask<IResult> PreDecidedAsync(
+    internal static ValueTask<IResult> PreDecidedAsync(
         HttpContext http,
         AuthorizationWriteContext authority,
         string permission,

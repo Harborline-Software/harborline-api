@@ -36,6 +36,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 /// ck-10 S5b (DES-0029): pack activation, deactivation and narrowing each run the six ADR 0038 stages
 /// through <see cref="WritePipeline.RunAsync"/>. Every case asserts the stages the real installer entered
 /// and the store's state, not only the returned outcome.
+/// Refusal-code oracles are literal public contract values, independent of production constants.
 /// </summary>
 public sealed class PackActivationPipelineTests
 {
@@ -75,6 +76,30 @@ public sealed class PackActivationPipelineTests
     }
 
     [Fact]
+    public async Task Activation_under_a_projection_read_lease_refuses_without_a_transaction_or_state_change()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        using (PackProjectionActivationBarrier.Read())
+        {
+            var outcome = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
+
+            Assert.False(outcome.Activated);
+            Assert.Equal("pack.install.activate.projection_failed", outcome.Error);
+            Assert.Equal("A projection read lease cannot be upgraded to activation.", outcome.Detail);
+            Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+            Assert.Null(_store.GetActive(Tenant, PackKey));
+            var refusal = Assert.Single(_audit.Query(Tenant));
+            Assert.Equal(PackInstallAuditAction.Refused, refusal.Action);
+            Assert.Equal("pack.install.activate.projection_failed", refusal.Detail);
+        }
+
+        _stages.Entered.Clear();
+        var retry = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
+        Assert.True(retry.Activated, retry.Error + " " + retry.Detail);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+    }
+
+    [Fact]
     public async Task A_refused_activation_decision_stops_at_authorize_and_nothing_becomes_active()
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -84,7 +109,7 @@ public sealed class PackActivationPipelineTests
 
         Assert.Equal([Authorize], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
-        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == PackInstallCodes.RefusedAuthorizationDenied);
+        Assert.Contains(_audit.Query(Tenant), entry => entry.PreDecision && entry.Detail == "pack.install.refused.authorization_denied");
     }
 
     [Fact]
@@ -93,11 +118,11 @@ public sealed class PackActivationPipelineTests
         var refused = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(refused.Activated);
-        Assert.Equal(PackInstallCodes.ActivatePlatformPackRequired, refused.Error);
+        Assert.Equal("pack.install.activate.platform_pack_required", refused.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
         Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Refused
-            && entry.PackKey == PackKey && entry.Detail!.StartsWith(PackInstallCodes.ActivatePlatformPackRequired, StringComparison.Ordinal));
+            && entry.PackKey == PackKey && entry.Detail!.StartsWith("pack.install.activate.platform_pack_required", StringComparison.Ordinal));
 
         // Recovery: the platform pack becomes active, and the same activation now commits.
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -119,7 +144,9 @@ public sealed class PackActivationPipelineTests
         Assert.True(outcome.Deactivated, outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
-        Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated && entry.PackKey == PackKey);
+        var audit = Assert.Single(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated);
+        Assert.Equal(PackKey, audit.PackKey);
+        Assert.Equal("pack.install.deactivated", audit.Detail);
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.PreDecision);
     }
 
@@ -143,7 +170,7 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.DeactivateAsync(Context(), PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version);
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.dependents_active", outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Equal(PlatformPackTestPreload.Version, _store.GetActive(Tenant, PlatformPackTestPreload.PackKey)?.Version);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
@@ -179,7 +206,7 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.NarrowAsync(Context(), PackKey, ContentKey, JsonNode.Parse("""{"extra":"added"}""")!, Decision());
 
         Assert.False(outcome.Recorded);
-        Assert.Equal(PackTenantNarrowing.WideningRefusedCode, outcome.RefusalCode);
+        Assert.Equal("pack.overlay.widens_definition", outcome.RefusalCode);
         Assert.Equal("/extra", outcome.WideningPath);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         var stored = Assert.Single(_store.GetOverrides(Tenant, PackKey));
@@ -264,8 +291,8 @@ public sealed class PackActivationPipelineTests
     }
 
     [Theory(DisplayName = "ck-10 S5b: a projection that refuses or throws inside the activation transaction leaves the pointer, key ownership and admission as before")]
-    [InlineData(false, PackInstallCodes.ActivateProjectionRefused)]
-    [InlineData(true, PackInstallCodes.ActivateProjectionFailed)]
+    [InlineData(false, "pack.install.activate.projection_refused")]
+    [InlineData(true, "pack.install.activate.projection_failed")]
     public async Task A_failed_projection_rolls_back_the_whole_activation(bool projectorThrows, string expectedError)
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -295,7 +322,7 @@ public sealed class PackActivationPipelineTests
 
         var outcome = await installer.ActivateAsync(Context(ownership: new Dictionary<string, string> { [ContentKey] = PackKey }), PackKey, "1.0.0");
 
-        Assert.Equal(PackInstallCodes.ActivateProjectionRefused, outcome.Error);
+        Assert.Equal("pack.install.activate.projection_refused", outcome.Error);
         Assert.Empty(mutations.GetKeyOwnership(Tenant));
         Assert.Null(projection.GetActive(Tenant, PackKey));
         Assert.Empty(((IPackProjectionAdmissionStore)projection).ListIncompleteProjectionAdmissions());
@@ -312,7 +339,7 @@ public sealed class PackActivationPipelineTests
         var outcome = await installer.ActivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(outcome.Activated);
-        Assert.Equal(PackInstallCodes.ActivateNotInstalled, outcome.Error);
+        Assert.Equal("pack.install.activate.not_installed", outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
     }
@@ -328,7 +355,7 @@ public sealed class PackActivationPipelineTests
 
         var refused = Assert.Single(_audit.Query(Tenant), entry => entry.PackKey == PackKey);
         Assert.Equal(PackInstallAuditAction.Refused, refused.Action);
-        Assert.Equal(PackInstallCodes.ActivateProjectionRefused, refused.Detail);
+        Assert.Equal("pack.install.activate.projection_refused", refused.Detail);
 
         projector.Result = () => null;
         var activated = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
@@ -365,7 +392,7 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.not_active", outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
     }
@@ -379,15 +406,15 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.DeactivateAsync(Context(), PackKey, "2.0.0");
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.not_active", outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
     }
 
     [Theory(DisplayName = "ck-10 S5b: a blank pack key, content key or principal is refused before any decision, audited, with nothing changed")]
-    [InlineData(" ", ContentKey, "test-operator", PackInstallCodes.RefusedBlankPackKey, "packKey")]
-    [InlineData(PackKey, " ", "test-operator", PackInstallCodes.NarrowUnknownContentKey, "contentKey")]
-    [InlineData(PackKey, ContentKey, " ", PackInstallCodes.NarrowRefusedNoPrincipal, "principal")]
+    [InlineData(" ", ContentKey, "test-operator", "pack.install.refused.blank_pack_key", "packKey")]
+    [InlineData(PackKey, " ", "test-operator", "pack.install.narrow.unknown_content_key", "contentKey")]
+    [InlineData(PackKey, ContentKey, " ", "pack.install.narrow.no_principal", "principal")]
     public async Task A_blank_narrowing_input_is_refused_before_the_decision(
         string packKey, string contentKey, string principal, string expectedCode, string expectedParam)
     {
@@ -457,9 +484,9 @@ public sealed class PackActivationPipelineTests
     }
 
     [Theory(DisplayName = "ck-10 S5b: a blank activation pack key, version or principal throws after its pre-decision audit, with no decision and nothing active")]
-    [InlineData(" ", "1.0.0", "test-operator", PackInstallCodes.RefusedBlankPackKey, "packKey")]
-    [InlineData(PackKey, " ", "test-operator", PackInstallCodes.RefusedBlankVersion, "version")]
-    [InlineData(PackKey, "1.0.0", " ", PackInstallCodes.ActivateRefusedNoPrincipal, "actingPrincipal")]
+    [InlineData(" ", "1.0.0", "test-operator", "pack.install.refused.blank_pack_key", "packKey")]
+    [InlineData(PackKey, " ", "test-operator", "pack.install.refused.blank_version", "version")]
+    [InlineData(PackKey, "1.0.0", " ", "pack.install.activate.no_principal", "actingPrincipal")]
     public async Task A_blank_activation_input_is_refused_before_the_decision(
         string packKey, string version, string principal, string expectedCode, string expectedParam)
     {
@@ -478,9 +505,9 @@ public sealed class PackActivationPipelineTests
     }
 
     [Theory(DisplayName = "ck-10 S5b: a blank deactivation pack key, version or principal throws after its pre-decision audit, with no decision and the pack still active")]
-    [InlineData(" ", "1.0.0", "test-operator", PackInstallCodes.RefusedBlankPackKey, "packKey")]
-    [InlineData(PackKey, " ", "test-operator", PackInstallCodes.RefusedBlankVersion, "version")]
-    [InlineData(PackKey, "1.0.0", " ", PackInstallCodes.DeactivateRefusedNoPrincipal, "actingPrincipal")]
+    [InlineData(" ", "1.0.0", "test-operator", "pack.install.refused.blank_pack_key", "packKey")]
+    [InlineData(PackKey, " ", "test-operator", "pack.install.refused.blank_version", "version")]
+    [InlineData(PackKey, "1.0.0", " ", "pack.install.deactivate.no_principal", "actingPrincipal")]
     public async Task A_blank_deactivation_input_is_refused_before_the_decision(
         string packKey, string version, string principal, string expectedCode, string expectedParam)
     {
@@ -505,7 +532,7 @@ public sealed class PackActivationPipelineTests
     {
         var outcome = await _installer.NarrowAsync(Context(), PackKey, ContentKey, JsonNode.Parse("""{"note":null}""")!, Decision());
 
-        AssertNarrowingRefused(outcome, PackInstallCodes.NarrowNotActive, ContentKey, [Authorize, Bind]);
+        AssertNarrowingRefused(outcome, "pack.install.narrow.not_active", ContentKey, [Authorize, Bind]);
         Assert.Empty(_store.GetOverrides(Tenant, PackKey));
     }
 
@@ -516,7 +543,7 @@ public sealed class PackActivationPipelineTests
 
         var outcome = await _installer.NarrowAsync(Context(), PackKey, "missing-item", JsonNode.Parse("""{"note":null}""")!, Decision());
 
-        AssertNarrowingRefused(outcome, PackInstallCodes.NarrowUnknownContentKey, "missing-item", [Authorize, Bind]);
+        AssertNarrowingRefused(outcome, "pack.install.narrow.unknown_content_key", "missing-item", [Authorize, Bind]);
         Assert.Empty(_store.GetOverrides(Tenant, PackKey));
     }
 
@@ -572,11 +599,11 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.not_active", outcome.Error);
         Assert.Empty(outcome.Dependents!);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Null(_store.GetActive(Tenant, PackKey));
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Equal("pack.install.deactivate.not_active", AssertSingleDeactivationRefusal(before).Detail);
         Assert.Equal(admissions, Admissions(_store));
     }
 
@@ -596,11 +623,11 @@ public sealed class PackActivationPipelineTests
         var outcome = await installer.DeactivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.not_active", outcome.Error);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
         Assert.Null(projection.GetActive(Tenant, PackKey));
-        Assert.Equal(PackInstallCodes.DeactivateNotActive, AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Equal("pack.install.deactivate.not_active", AssertSingleDeactivationRefusal(before).Detail);
         Assert.Empty(((IPackProjectionAdmissionStore)projection).ListIncompleteProjectionAdmissions());
     }
 
@@ -621,12 +648,12 @@ public sealed class PackActivationPipelineTests
         var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
 
         Assert.False(outcome.Deactivated);
-        Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
+        Assert.Equal("pack.install.deactivate.dependents_active", outcome.Error);
         Assert.Equal([dependent], outcome.Dependents!);
         Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
         Assert.Equal("1.0.0", _store.GetActive(Tenant, dependent)?.Version);
-        Assert.Equal($"{PackInstallCodes.DeactivateDependentsActive}: {dependent}", AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Equal($"pack.install.deactivate.dependents_active: {dependent}", AssertSingleDeactivationRefusal(before).Detail);
         Assert.Equal(admissions, Admissions(_store));
     }
 

@@ -827,10 +827,14 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
             // The caller's guard owns the decision; validate its evidence before reading or mutating state.
             decision.RequireAllowedReaction(
                 AuthorizationOperation.Parse(Permission.PackagesOperate), tenant, "pack", packKey);
-            var matchesContext = decision.Request.Principal == new ActorId(principal) && decision.Request.At == now;
-            if (!matchesContext)
-                throw new ArgumentException("The narrowing context must match the admitting decision.", nameof(decision));
+            RequireMatchingContext(decision, principal, now);
             return ValueTask.CompletedTask;
+        }
+
+        private static void RequireMatchingContext(AuthorizationDecision decision, string principal, DateTimeOffset now)
+        {
+            if (decision.Request.Principal != new ActorId(principal) || decision.Request.At != now)
+                throw new ArgumentException("The narrowing context must match the admitting decision.", nameof(decision));
         }
 
         protected override ValueTask<NarrowingBound?> BindAsync(CancellationToken ct)

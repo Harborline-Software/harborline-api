@@ -144,8 +144,9 @@ public static class PackNavigationRoutes
                 var authority = PackRouteAuthorization.Authority(http, tenant, time);
                 foreach (var entry in Entries)
                 {
-                    if (await PackRouteAuthorization.RefusalAsync(gate, authority, entry.Value, null, ct)
-                            .ConfigureAwait(false) is null)
+                    // A filter on a read, not a refused act: a hidden entry is decided but never audited.
+                    var decision = await gate.DecideAsync(authority.InstallWide(entry.Value), ct).ConfigureAwait(false);
+                    if (decision.Verdict == AuthorizationVerdict.Allowed)
                         admitted.Add(entry.Key);
                 }
             }
