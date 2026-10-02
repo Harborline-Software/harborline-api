@@ -79,6 +79,33 @@ public sealed class WritePipelineExecutorTests
         Assert.Empty(write.Entered);
     }
 
+    [Fact(DisplayName = "ck-10 executor: cancellation after commit does not stop react, which runs with a token that cannot cancel")]
+    public async Task CancellationAfterCommitStillRunsReact()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var write = new ProbeWrite { OnCommit = cancellation.Cancel };
+
+        var result = await WritePipeline.RunAsync(write, null, cancellation.Token);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal("reacted:sealed:mutated:bound", result);
+        Assert.Equal(WritePipeline.Order, write.Entered);
+        Assert.False(write.ReactToken.CanBeCanceled);
+    }
+
+    [Fact(DisplayName = "ck-10 executor: cancellation before commit still stops the write before it commits")]
+    public async Task CancellationBeforeCommitStopsTheWrite()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var write = new ProbeWrite { OnValidate = cancellation.Cancel };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            WritePipeline.RunAsync(write, null, cancellation.Token).AsTask());
+
+        Assert.False(write.Committed);
+        Assert.Equal(WritePipelineStage.Validate, write.Entered[^1]);
+    }
+
     private sealed class StageRefused(WritePipelineStage stage) : Exception(stage.ToString())
     {
         public WritePipelineStage Stage { get; } = stage;
@@ -94,6 +121,9 @@ public sealed class WritePipelineExecutorTests
     {
         public WritePipelineStage? Refuse { get; init; }
         public bool Settled { get; init; }
+        public Action? OnValidate { get; init; }
+        public Action? OnCommit { get; init; }
+        public CancellationToken ReactToken { get; private set; }
         public List<WritePipelineStage> Entered { get; } = [];
         public object? Mutation { get; private set; }
         public object? Validated { get; private set; }
@@ -124,6 +154,7 @@ public sealed class WritePipelineExecutorTests
         protected override ValueTask<object> ValidateAsync(string bound, object mutation, CancellationToken ct)
         {
             Enter(WritePipelineStage.Validate);
+            OnValidate?.Invoke();
             Validated = mutation;
             Sealed = new Box("sealed:" + mutation);
             return ValueTask.FromResult(Sealed);
@@ -133,12 +164,14 @@ public sealed class WritePipelineExecutorTests
         {
             Enter(WritePipelineStage.Commit);
             CommittedValue = validated;
+            OnCommit?.Invoke();
             return ValueTask.CompletedTask;
         }
 
         protected override ValueTask<string> ReactAsync(object validated, CancellationToken ct)
         {
             ReactedValue = validated;
+            ReactToken = ct;
             Enter(WritePipelineStage.React);
             return ValueTask.FromResult("reacted:" + validated);
         }
