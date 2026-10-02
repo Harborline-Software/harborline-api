@@ -142,6 +142,27 @@ public sealed class BankAccountWritePipelineTests
         Assert.Equal(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero), (DateTimeOffset)stored.UpdatedAtUtc);
     }
 
+    [Fact(DisplayName = "ck-10 S4: a request cancelled after the create commits still returns the committed account, and a retry sees it")]
+    public async Task Create_CancelledAfterCommit_ReturnsTheCommittedAccount_AndARetrySeesIt()
+    {
+        var h = new Harness();
+        using var cancellation = new CancellationTokenSource();
+        h.Accounts.AfterWrite = cancellation.Cancel;
+
+        var created = await h.Writer.CreateAsync(Account("acct-1", Tenant, "Ops Checking"), Authority, cancellation.Token);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(SixStages, h.Stages);
+        Assert.Equal(created, h.Accounts.Rows[new BankAccountId("acct-1")]);
+
+        h.Stages.Clear();
+        h.Accounts.AfterWrite = null;
+        var archived = await h.Writer.ArchiveAsync(new BankAccountId("acct-1"), Authority);
+        Assert.Equal(SixStages, h.Stages);
+        Assert.Single(h.Accounts.Rows);
+        Assert.NotNull(archived!.ArchivedAt);
+    }
+
     private static BankAccount Account(string id, TenantId tenant, string displayName) => new(
         new BankAccountId(id), tenant, default, default, displayName, null, default, default,
         0m, (Instant)Before, null, (Instant)Before, (Instant)Before);
@@ -164,6 +185,7 @@ public sealed class BankAccountWritePipelineTests
         public Dictionary<BankAccountId, BankAccount> Rows { get; } = [];
         public int Reads { get; private set; }
         public int Writes { get; private set; }
+        public Action? AfterWrite { get; set; }
 
         public void Seed(BankAccount account) => Rows[account.Id] = account;
 
@@ -180,6 +202,7 @@ public sealed class BankAccountWritePipelineTests
         {
             Writes++;
             Rows.Add(account.Id, account);
+            AfterWrite?.Invoke();
             return Task.CompletedTask;
         }
 
