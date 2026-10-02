@@ -131,6 +131,82 @@ public sealed class FounderTenantMembershipAttachTests
             grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
     }
 
+    /// <summary>
+    /// T-1010 (ck-4 tenant-slice triage, G group 7): the attach stops at the first missing input and reports which
+    /// kind of stop it was, writing no tenant authority. Without the early returns each path ran on into a later
+    /// exception instead of the status the hosted runner keys its retry on.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Founder_attach_without_the_founder_account_is_skipped_and_writes_no_tenant_authority()
+    {
+        await using var fixture = await AttachFixture.CreateAsync();
+        await using (var context = fixture.IdentityFactory.CreateDbContext())
+        {
+            // The rows that reference the account would refuse the delete; the attach must cope with the damage.
+            await context.Database.OpenConnectionAsync();
+            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF");
+            context.Accounts.RemoveRange(context.Accounts.Where(a => a.AccountId == fixture.RootGrant.AccountId));
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(
+            FounderTenantMembershipAttachStatus.SkippedNoFounder,
+            await fixture.Service.RunAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            await fixture.Grants.SnapshotAsync(fixture.Tenant),
+            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Founder_attach_without_the_installation_identity_is_skipped_and_writes_no_tenant_authority()
+    {
+        await using var fixture = await AttachFixture.CreateAsync();
+        await using (var context = fixture.IdentityFactory.CreateDbContext())
+        {
+            await context.Database.OpenConnectionAsync();
+            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF");
+            context.InstallationIdentities.RemoveRange(context.InstallationIdentities);
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(
+            FounderTenantMembershipAttachStatus.SkippedNoFounder,
+            await fixture.Service.RunAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            await fixture.Grants.SnapshotAsync(fixture.Tenant),
+            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Founder_attach_whose_party_binding_never_resolves_is_unavailable_and_writes_no_tenant_authority()
+    {
+        await using var fixture = await AttachFixture.CreateAsync(partyNeverResolves: true);
+
+        Assert.Equal(
+            FounderTenantMembershipAttachStatus.Unavailable,
+            await fixture.Service.RunAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            await fixture.Grants.SnapshotAsync(fixture.Tenant),
+            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+    }
+
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public async Task Founder_attach_with_no_issuable_claim_and_nothing_redeemed_is_unavailable_and_writes_no_tenant_authority()
+    {
+        await using var fixture = await AttachFixture.CreateAsync(founderUsernameClearedAfterCeremony: true);
+
+        Assert.Equal(
+            FounderTenantMembershipAttachStatus.Unavailable,
+            await fixture.Service.RunAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            await fixture.Grants.SnapshotAsync(fixture.Tenant),
+            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+    }
+
     private sealed class AttachFixture : IAsyncDisposable
     {
         private readonly string _homePath;
@@ -139,6 +215,7 @@ public sealed class FounderTenantMembershipAttachTests
         private readonly AlwaysLeaseCoordinator _leases;
 
         private AttachFixture(
+            InstallationFounderBootstrapServiceTests.IdentityContextFactory identityFactory,
             string homePath,
             string tenantPath,
             SqlCipherEncryptedStore tenantStore,
@@ -149,6 +226,7 @@ public sealed class FounderTenantMembershipAttachTests
             IGrantStore grants,
             FounderTenantMembershipAttachService service)
         {
+            IdentityFactory = identityFactory;
             _homePath = homePath;
             _tenantPath = tenantPath;
             _tenantStore = tenantStore;
@@ -160,13 +238,15 @@ public sealed class FounderTenantMembershipAttachTests
             Service = service;
         }
 
+        public InstallationFounderBootstrapServiceTests.IdentityContextFactory IdentityFactory { get; }
         public TenantId Tenant { get; }
         public PrincipalUserId FounderPrincipal { get; }
         public InstallationAccessGrantRecord RootGrant { get; }
         public IGrantStore Grants { get; }
         public FounderTenantMembershipAttachService Service { get; }
 
-        public static async Task<AttachFixture> CreateAsync(bool activeTeamDiverged = false)
+        public static async Task<AttachFixture> CreateAsync(
+            bool activeTeamDiverged = false, bool partyNeverResolves = false, bool founderUsernameClearedAfterCeremony = false)
         {
             var team = new TeamId(Guid.NewGuid());
             var tenant = ActiveTeamTenantContext.ProjectTenantId(team);
@@ -187,14 +267,15 @@ public sealed class FounderTenantMembershipAttachTests
                  Convert.ToBase64String(new byte[16]) + "$" +
                  Convert.ToBase64String(new byte[32]);
             var rootFingerprint = string.Join(":", Enumerable.Repeat("AB", 32));
+            var webClientOptions = new NodeWebClientOptions
+            {
+                Enabled = true,
+                FounderUsername = "founder",
+                FounderPasswordHash = credential,
+            };
             var founderCeremony = new InstallationFounderBootstrapCeremony(
                 bootstrap,
-                Options.Create(new NodeWebClientOptions
-                {
-                    Enabled = true,
-                    FounderUsername = "founder",
-                    FounderPasswordHash = credential,
-                }),
+                Options.Create(webClientOptions),
                 rootFingerprint,
                 identityFactory,
                 time,
@@ -204,6 +285,11 @@ public sealed class FounderTenantMembershipAttachTests
                 InstallationFounderBootstrapCeremonyStatus.Established,
                 (await founderCeremony.RunAsync()).Status);
             await BootstrapClaimRedemptionTests.CreateGrantTablesAsync(homePath);
+            if (founderUsernameClearedAfterCeremony)
+            {
+                // The ceremony established the founder, but no claim can be issued for the tenant any more.
+                webClientOptions.FounderUsername = "";
+            }
 
             InstallationAccessGrantRecord rootGrant;
             await using (var context = identityFactory.CreateDbContext())
@@ -240,7 +326,9 @@ public sealed class FounderTenantMembershipAttachTests
                 tenant,
                 InstallationFounderBootstrapCeremony.CorrelationId);
             const string rosterPartyId = "os:founder#15800001";
-            var partyReader = new FixedPartyReader(tenant, founderPrincipal, rosterPartyId);
+            ICanonicalPrincipalPartyReader partyReader = partyNeverResolves
+                ? new UnresolvablePartyReader()
+                : new FixedPartyReader(tenant, founderPrincipal, rosterPartyId);
             var grantIssuance = new InitialGrantIssuanceService(
                 grants, TestAuthorization.AllowGate(), time);
             var redemption = new BootstrapClaimRedemptionService(
@@ -263,6 +351,7 @@ public sealed class FounderTenantMembershipAttachTests
                 time);
 
             return new AttachFixture(
+                identityFactory,
                 homePath,
                 tenantPath,
                 tenantStore,
@@ -317,6 +406,15 @@ public sealed class FounderTenantMembershipAttachTests
             string accountId,
             TenantMembershipSnapshot membership,
             CancellationToken cancellationToken) => Task.FromResult(membership.AuthorizationEpoch);
+    }
+
+    private sealed class UnresolvablePartyReader : ICanonicalPrincipalPartyReader
+    {
+        public ValueTask<CanonicalPartyBinding?> ResolveAsync(
+            TenantId requestedTenant,
+            PrincipalUserId requestedPrincipal,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<CanonicalPartyBinding?>(null);
     }
 
     private sealed class FixedPartyReader(
