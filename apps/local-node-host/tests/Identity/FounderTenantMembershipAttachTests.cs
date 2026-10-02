@@ -36,6 +36,19 @@ public sealed class FounderTenantMembershipAttachTests
     /// restart derives the SAME principal and the attach replays rather than minting a second
     /// identity — and must NOT vary with the account id, which a governed recovery may change.
     /// </summary>
+    /// <summary>T-1009: the genesis roster party provider refuses a missing party id at construction.</summary>
+    [Theory]
+    [Trait("Holds", "kernel-core-ck-4")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Roster_party_provider_refuses_a_missing_party_id(string? partyId)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new FounderRosterPartyProvider(partyId!));
+
+        Assert.Equal("partyId", exception.ParamName);
+    }
+
     [Fact]
     public void Principal_Is_Deterministic_In_Tenant_And_Ceremony_Only()
     {

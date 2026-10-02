@@ -20,6 +20,35 @@ public sealed class WebTenantSwitchAuthorityTests
     private const string OldTenantId = "11111111-1111-1111-1111-111111111111";
     private const string TargetTenantId = "22222222-2222-2222-2222-222222222222";
 
+    /// <summary>
+    /// T-1009: the switch authority validates its session options at construction, so a
+    /// non-positive absolute lifetime cannot reach a rotated session. No database is opened.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-4")]
+    public void Switch_authority_refuses_session_options_with_a_non_positive_lifetime()
+    {
+        var identityFactory = new IdentityContextFactory(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+            Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db"));
+        var resolver = new FixedPartitionResolver();
+        var time = new FixedTimeProvider(Now);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new WebTenantSwitchAuthority(
+            identityFactory,
+            sessionFactory,
+            new WebSelectedSessionStore(sessionFactory),
+            new FixedCandidateLocator(listTarget: true),
+            new InstallationIdentityCoordinatorService(
+                identityFactory, resolver, new AcceptingAdmission(), time, TestAuthorization.Gate(true)),
+            resolver,
+            new FixedPartyReader(null),
+            Options.Create(new SessionOptions { AbsoluteLifetime = TimeSpan.Zero }),
+            time));
+
+        Assert.Equal("AbsoluteLifetime", exception.ParamName);
+    }
+
     [Fact]
     [Trait("PlanCard", "MTW-01C")]
     public async Task Switch_Completes_Both_Tenant_Heads_Before_Atomic_Rotation()
