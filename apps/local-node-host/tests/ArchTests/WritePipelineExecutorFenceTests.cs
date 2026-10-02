@@ -24,8 +24,6 @@ public sealed class WritePipelineExecutorFenceTests
     /// <summary>Admitted write paths that commit outside the executor: path | caller, and the slice that moves it.</summary>
     private static readonly (string Key, string Slice)[] NotYetOnTheExecutor =
     [
-        ("apps/local-node-host/Data/Configuration/ConfigurationActivationTarget.cs|Harborline.Api.LocalNodeHost.Data.Configuration.ConfigurationActivationTarget.CompareAndSwapAsync",
-            "S5 configuration activation"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator+<>c__DisplayClass_0.<ReparentAsync>b__0",
             "S3 hierarchy reparent"),
         ("apps/local-node-host/Data/Entities/NodeHierarchyCompositeCoordinator.cs|Harborline.Api.LocalNodeHost.Data.Entities.NodeHierarchyCompositeCoordinator.ApplyMergeAsync",
