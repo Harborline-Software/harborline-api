@@ -202,6 +202,43 @@ public sealed class KernelClockIntegrationTests
         Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
     }
 
+    [Theory(DisplayName = "T-1017 L940: an omitted effective-from starts the grant at the admitted instant on the server clock")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    [InlineData("absent")]
+    [InlineData("blank")]
+    public async Task Access_grant_form_defaults_an_omitted_effective_from_to_the_admitted_instant(string omission)
+    {
+        // The host clock is frozen far from the wall clock and the client's captured_at is skewed 30 days,
+        // so a default read from either one lands on a different instant than the admitted FrozenAt.
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(
+            effectiveFrom: null, capturedAt: FrozenAt.AddDays(-30), omittedAs: omission);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(FrozenAt, grant.Validity.ValidFrom);
+    }
+
+    [Fact(DisplayName = "T-1017: a future effective-from is still admitted as the client supplied it")]
+    [Trait("Holds", "kernel-core-ck-9")]
+    public async Task Access_grant_form_admits_a_future_effective_from_as_supplied()
+    {
+        var clock = new MutableHostClock(FrozenAt);
+        await using var fixture = await ProductionFixture.CreateAsync(clock);
+        await fixture.PrepareAsync("access-grant");
+
+        var (status, body) = await fixture.AccessGrantSubmitAsync(effectiveFrom: FrozenAt.AddDays(7), capturedAt: null);
+
+        Assert.True(status == HttpStatusCode.Created, $"{status}: {body}");
+        var grant = Assert.Single(await fixture.AccessGrantsForAsync(AccessGrantRecipient));
+        Assert.Equal(FrozenAt, grant.GrantedAt);
+        Assert.Equal(new DateTimeOffset(2026, 7, 30, 2, 0, 0, TimeSpan.Zero), grant.Validity.ValidFrom);
+    }
+
     private const string AccessGrantRecipient = "principal-k3-recipient";
 
     [Fact]
@@ -634,19 +671,22 @@ public sealed class KernelClockIntegrationTests
         }
 
         // K3: the preloaded Access pack's grant form, the one live route that takes a client effective-from.
+        // A null effectiveFrom is sent as omittedAs says: "absent" (no member), "null" (JSON null) or "blank".
+        // The form schema refuses a JSON null text value before any projection, so only absent and blank reach the default.
         internal async Task<(HttpStatusCode Status, JsonElement Body)> AccessGrantSubmitAsync(
-            DateTimeOffset effectiveFrom, DateTimeOffset? capturedAt)
+            DateTimeOffset? effectiveFrom, DateTimeOffset? capturedAt, string omittedAs = "absent")
         {
-            var candidate = new Dictionary<string, string>
+            var candidate = new Dictionary<string, string?>
             {
                 ["person"] = AccessGrantRecipient,
                 ["role"] = "administrator",
                 ["scope"] = "/",
                 ["residency"] = "cache",
-                ["effectiveFrom"] = effectiveFrom.ToString("O"),
                 ["effectiveTo"] = "",
                 ["reason"] = "manual",
             };
+            if (effectiveFrom is { } from) candidate["effectiveFrom"] = from.ToString("O");
+            else if (omittedAs != "absent") candidate["effectiveFrom"] = omittedAs == "null" ? null : "   ";
             if (capturedAt is { } captured) candidate["captured_at"] = captured.ToString("O");
             using var client = Client();
             using var response = await client.PostAsJsonAsync(

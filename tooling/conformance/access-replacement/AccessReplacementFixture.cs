@@ -13,7 +13,8 @@ namespace Harborline.Api.Conformance;
 /// <summary>Public test fixture material only; never use this signing identity for a node or trust root.</summary>
 internal static class AccessReplacementFixture
 {
-    internal const string SourcePath = "_shared/packs/access-administration/access-administration-pack.export.json";
+    // T-1017: the shipped pack moved on to 1.1.6; these fixtures stay derived from the released 1.1.3 bytes.
+    internal const string SourcePath = "_shared/conformance/packs/access-replacement/access-administration-pack-1.1.3.export.json";
     internal const string DirectoryPath = "_shared/conformance/packs/access-replacement";
     internal const string ArtifactName = "access-administration-pack-1.1.4.export.json";
     internal const string T742ArtifactName = "access-administration-pack-1.1.5.export.json";

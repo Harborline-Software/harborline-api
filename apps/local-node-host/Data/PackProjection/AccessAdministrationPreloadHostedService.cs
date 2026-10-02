@@ -59,7 +59,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
     public const string PackKey = "harborline.access-administration";
 
     /// <summary>The preloaded package's pinned version.</summary>
-    public const string PackVersion = "1.1.3";
+    public const string PackVersion = "1.1.6";
 
     /// <summary>
     /// The install provenance this preload records: shipped with every installation, and replaceable by
