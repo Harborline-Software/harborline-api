@@ -34,7 +34,7 @@ public sealed class BankAccountCreateKeyRow
     /// <summary>The account the first request created.</summary>
     public required string AccountId { get; init; }
 
-    /// <summary>The first request's 201 body, verbatim; a replay answers with it and reads nothing else.</summary>
+    /// <summary>The serialized first response DTO; replay deserializes it and reconstructs Location from AccountId.</summary>
     public required string Response { get; init; }
 
     /// <summary>The admitted instant of the first request.</summary>

@@ -15,7 +15,8 @@ namespace Harborline.Api.LocalNodeHost.Health;
 /// <summary>
 /// Applies the node-wide Idempotency-Key contract to every mutating local-node route.
 /// Successful responses are replayed byte-for-byte for the same session principal, tenant,
-/// method, canonical path, query, key, and payload; the handler is never re-entered on a replay.
+/// method, canonical path, query, key, and payload. Durable bank creates validate the header here
+/// and enter their handler on every request to recheck authorization and durable expiry.
 /// </summary>
 internal static class NodeMutationIdempotency
 {
@@ -61,7 +62,11 @@ internal static class NodeMutationIdempotency
                 return;
             }
 
-            if (key is null)
+            // Durable bank creates own normalization, authorization, and the original expiry.
+            // Header validation still applies before entering the route.
+            if (key is null || (HttpMethods.IsPost(context.Request.Method) &&
+                string.Equals(context.Request.Path.Value?.TrimEnd('/'),
+                    BankAccountRoutes.RouteBase, StringComparison.OrdinalIgnoreCase)))
             {
                 await next(context).ConfigureAwait(false);
                 return;

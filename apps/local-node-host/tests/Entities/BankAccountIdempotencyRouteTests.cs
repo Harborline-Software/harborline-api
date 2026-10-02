@@ -47,8 +47,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.Entities;
 
 /// <summary>
 /// T-1047: <c>POST /api/local-node/bank-accounts</c> honours a durable <c>Idempotency-Key</c> scoped to the tenant and
-/// the acting principal (ADR-0100; DES-0006). The fixture installs no process-local replay cache
-/// (<c>NodeMutationIdempotency</c>), so every retry here sees what a restarted node sees: only the SQLite store.
+/// the acting principal (ADR-0100; DES-0006). The fixture composes the production idempotency middleware with the routes and SQLite store.
 /// </summary>
 public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
 {
@@ -56,6 +55,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     private static readonly TeamId OtherTeamId = new(Guid.Parse("7e570000-0000-0000-0000-0000000000bb"));
     private const string ReusedCode = "authorization.idempotency_key_reused";
 
+    private readonly MutableAuthorizationContext _authorization = new();
+    private bool _writerAllowed = true;
+    private int _writerDecisions;
     private readonly CommitHooks _hooks = new();
     private readonly MutableClock _clock = new(T0);
     private readonly SwitchableActiveTeam _team = new(NodeTestActiveTeam.TestTeamId);
@@ -66,21 +68,27 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        _dir = Path.Combine(Path.GetTempPath(), "harborline-bank-idem-" + Guid.NewGuid().ToString("N"));
+        await StartHostAsync();
+    }
+
+    private async Task StartHostAsync()
+    {
         var builder = WebApplication.CreateBuilder();
         Harborline.Api.LocalNodeHost.Tests.Authorization.TestDesktopOperator.AddTestDesktopOperator(builder.Services);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
 
-        _dir = Path.Combine(Path.GetTempPath(), "harborline-bank-idem-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         var connectionString = $"Data Source={Path.Combine(_dir, "bank-idem.db")};Pooling=False";
         builder.Services.AddSingleton<IHarborlineEntityModule, BankingEntityModule>();
         builder.Services.AddSingleton<IHarborlineEntityModule, BankAccountCreateKeyEntityModule>();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt => opt.UseSqlite(connectionString).AddInterceptors(_hooks));
 
-        var authorization = new MutableAuthorizationContext();
+        var authorization = _authorization;
         authorization.Allow(TeamRolePermissions.RecordsWrite);
         builder.Services.AddSingleton<Harborline.Api.Foundation.Authorization.IAuthorizationContext>(authorization);
+        builder.Services.AddSingleton<IActiveTeamAccessor>(_team);
         builder.Services.AddTestKernelClock();
         builder.Services.AddSingleton(Harborline.Api.LocalNodeHost.Tests.Authorization.TestRouteGate.Following(
             permission => authorization.HasPermission(permission)));
@@ -101,13 +109,17 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
             await next(http);
         });
 
+        AuthorizationDenialTranslation.Use(_app);
+        NodeMutationIdempotency.UseOnce(_app, _clock);
+
         var repository = new NodeEfBankAccountRepository(_factory);
         BankingServices banking = (repository, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!);
         BankAccountRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
             banking,
             _team,
-            new NodeBankAccountWriter(repository, Authorization.TestAuthorization.AllowGate(), createKeys: repository),
+            new NodeBankAccountWriter(repository, Authorization.TestAuthorization.Gate(
+                _ => _writerAllowed, _ => Interlocked.Increment(ref _writerDecisions)), createKeys: repository),
             _clock);
 
         await _app.StartAsync();
@@ -128,6 +140,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     public async Task KeyedRetry_ReplaysTheFirstResponse()
     {
         var first = await PostAsync("bank-key-1", "Ops Checking");
+        await RestartHostAsync();
         var retry = await PostAsync("bank-key-1", "Ops Checking");
 
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
@@ -230,6 +243,11 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     public async Task KeyExpiresAfter24Hours()
     {
         var first = await PostAsync("bank-key-7", "Ops Checking");
+        await RestartHostAsync();
+        _clock.Now = T0 + TimeSpan.FromHours(23);
+        var nearExpiry = await PostAsync("bank-key-7", "Ops Checking");
+        Assert.Equal(first.Headers.Location, nearExpiry.Headers.Location);
+        Assert.Equal(new DateTimeOffset(2026, 10, 3, 9, 0, 0, TimeSpan.Zero), Assert.Single(await KeysAsync()).ExpiresAt);
         _clock.Now = T0 + TimeSpan.FromHours(24) - TimeSpan.FromSeconds(1);
         var withinWindow = await PostAsync("bank-key-7", "Ops Checking");
         _clock.Now = T0 + TimeSpan.FromHours(24);
@@ -254,6 +272,72 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         Assert.Equal(2, (await AccountsAsync()).Count);
         Assert.Empty(await KeysAsync());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("one,two")]
+    public async Task InvalidKey_IsRejectedBeforeDurableCreate(string key)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, BankAccountRoutes.RouteBase)
+        {
+            Content = JsonContent.Create(new { displayName = "Ops Checking" }),
+        };
+        request.Headers.TryAddWithoutValidation(IdempotencyContract.HeaderName, key);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.SendAsync(request)).StatusCode);
+        Assert.Empty(await AccountsAsync());
+        Assert.Empty(await KeysAsync());
+    }
+
+    private async Task RestartHostAsync()
+    {
+        _client.Dispose();
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+        await StartHostAsync();
+    }
+
+    [Fact]
+    public async Task WarmReplay_RechecksRoutePermission()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await PostAsync("revoked", "Ops Checking")).StatusCode);
+        _authorization.DenyAll();
+        Assert.Equal(HttpStatusCode.Forbidden, (await PostAsync("revoked", "Ops Checking")).StatusCode);
+        Assert.Single(await AccountsAsync());
+        Assert.Single(await KeysAsync());
+    }
+
+    [Fact]
+    public async Task WarmReplay_RechecksWriterPermission()
+    {
+        Assert.Equal(HttpStatusCode.Created, (await PostAsync("writer-revoked", "Ops Checking")).StatusCode);
+        _writerAllowed = false;
+        Assert.Equal(HttpStatusCode.Forbidden, (await PostAsync("writer-revoked", "Ops Checking")).StatusCode);
+        Assert.Equal(2, _writerDecisions);
+        Assert.Single(await AccountsAsync());
+        Assert.Single(await KeysAsync());
+    }
+
+    [Fact]
+    public async Task EquivalentBodies_ReplayWarmAndAfterRestart()
+    {
+        var first = await PostAsync("normalized", "Ops Checking");
+        const string equivalent = "{\"currencyCode\":\"USD\",\"institutionName\":\" First Harbor \" ,\"displayName\":\" Ops Checking \"}";
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, BankAccountRoutes.RouteBase)
+            {
+                Content = new StringContent(equivalent, System.Text.Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Add(IdempotencyContract.HeaderName, "normalized");
+            var replay = await _client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+            Assert.Equal(first.Headers.Location, replay.Headers.Location);
+            Assert.Equal(await first.Content.ReadAsStringAsync(), await replay.Content.ReadAsStringAsync());
+            await RestartHostAsync();
+        }
+        Assert.Single(await AccountsAsync());
+        Assert.Single(await KeysAsync());
     }
 
     private Task<HttpResponseMessage> PostAsync(string? key, string displayName, string? party = null)
