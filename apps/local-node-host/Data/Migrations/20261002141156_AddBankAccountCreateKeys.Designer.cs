@@ -3,6 +3,7 @@ using System;
 using Harborline.Api.LocalNodeHost.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,14 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Migrations;
 
 [DbContext(typeof(LocalNodeDbContext))]
-partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
+[Migration("20261002141156_AddBankAccountCreateKeys")]
+partial class _20261002141156_AddBankAccountCreateKeys
 {
-    // If you encounter a merge conflict in the line below, it means you need to
-    // discard one of the migration branches and recreate its migrations on top of
-    // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261002141156_AddBankAccountCreateKeys";
-
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
         modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");

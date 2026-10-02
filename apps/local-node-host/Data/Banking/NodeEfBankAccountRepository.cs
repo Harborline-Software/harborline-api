@@ -96,6 +96,43 @@ public sealed class NodeEfBankAccountRepository : IBankAccountRepository, IBankA
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>T-1047: the remembered create key for this tenant, principal and key, live or expired.</summary>
+    public async Task<BankAccountCreateKeyRow?> FindCreateKeyAsync(
+        TenantId tenantId, string principal, string key, CancellationToken ct = default)
+    {
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return await ctx.Set<BankAccountCreateKeyRow>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(k => k.TenantId == tenantId.Value && k.Principal == principal && k.Key == key, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// T-1047: adds the account and its create key in one transaction, so a crash leaves both or neither. An
+    /// expired row for the same scoped key is replaced in that transaction; a live one fails the commit on the
+    /// key's primary key, and the account rolls back with it.
+    /// </summary>
+    public async Task AddWithCreateKeyAsync(BankAccount account, BankAccountCreateKeyRow key, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(key);
+        if (account.TenantId.Value != key.TenantId || account.Id.Value != key.AccountId)
+            throw new ArgumentException("The create key does not name this account.", nameof(key));
+
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var tx = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        // ISO-8601 UTC text of one fixed width, so the stored-instant comparison is ordinal and exact.
+        await ctx.Set<BankAccountCreateKeyRow>()
+            .Where(k => k.TenantId == key.TenantId && k.Principal == key.Principal && k.Key == key.Key
+                && k.ExpiresAt <= key.CreatedAt)
+            .ExecuteDeleteAsync(ct)
+            .ConfigureAwait(false);
+        ctx.Set<BankAccount>().Add(account);
+        ctx.Set<BankAccountCreateKeyRow>().Add(key);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     public async Task UpdateAsync(BankAccount account, CancellationToken ct = default)
     {
