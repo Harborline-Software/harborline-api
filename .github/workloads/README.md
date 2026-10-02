@@ -1,0 +1,26 @@
+# Background workload routing (T-679)
+
+`workload-policy.json` records eligible routes and the UTC schedule. An unset
+operator route preserves Windows; mac16 remains disabled pending qualification.
+The hosted routing job explains pauses and reservations before local dispatch.
+
+Operator contract and activation prerequisites:
+https://github.com/Harborline-Software/harborline-control/blob/main/docs/workload-routing.md
+
+Focused checks (no mutation or gate execution):
+
+```sh
+node --test .github/workloads/workload-route.test.mjs
+python .github/workloads/host-workload-lock.test.py
+```
+
+Vendored helpers are identical in API, App and Platform. Keep them synchronized.
+macOS exclusion and cancellation require native qualification before activation.
+Keep one heavy agent per machine; Windows multi-agent cancellation is unsupported.
+
+The enabled Windows route executes the full script directly and relies on the
+existing single registered runner for CI job serialization. It does not acquire
+the Python host lock and does not exclude manual or orphaned processes. Do not
+add a second Windows agent without a separately qualified exclusion mechanism.
+Only the dormant non-Windows full route uses the explicit host lock. A mac16
+operator variable cannot enable it while committed qualification is false.

@@ -106,6 +106,17 @@ public sealed class WritePipelineExecutorTests
         Assert.Equal(WritePipelineStage.Validate, write.Entered[^1]);
     }
 
+    [Fact(DisplayName = "ck-10 executor: a missing write is refused before any stage")]
+    public async Task AMissingWriteIsRefused()
+    {
+        var observer = new Observer();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            WritePipeline.RunAsync<string, object, object, string>(null!, observer, CancellationToken.None).AsTask());
+
+        Assert.Empty(observer.Stages);
+    }
+
     private sealed class StageRefused(WritePipelineStage stage) : Exception(stage.ToString())
     {
         public WritePipelineStage Stage { get; } = stage;

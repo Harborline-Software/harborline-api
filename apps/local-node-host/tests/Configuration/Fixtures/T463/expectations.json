@@ -1,0 +1,118 @@
+{
+  "source": "T-463 independent literal examples; DES-0044 governance-ck-2; production service source cited in README",
+  "requiredAdmission": {
+    "asset.suite.json": "admitted",
+    "ledger.suite.json": "admitted"
+  },
+  "requiredRefusals": {
+    "emptyAssertions": "verification-assertion-required",
+    "wrongExpectedType": "verification-expected-invalid",
+    "unknownAction": "verification-action-unknown"
+  },
+  "futureAcceptance": [
+    {
+      "id": "asset-create",
+      "ticket": [
+        "T-463",
+        "T-549"
+      ],
+      "command": {
+        "action": "records.create",
+        "recordType": "asset",
+        "values": {
+          "quantity": 2,
+          "unitPrice": 100
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "total": 200,
+        "recordDelta": 1
+      },
+      "status": "not-implemented-in-verification-runner"
+    },
+    {
+      "id": "asset-denied-no-mutation",
+      "ticket": [
+        "T-463",
+        "T-549",
+        "T-975"
+      ],
+      "actor": "clerk",
+      "command": {
+        "action": "records.create",
+        "recordType": "asset",
+        "values": {
+          "status": "approved"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "refusalCode": "records-authority-insufficient",
+        "refusalPointer": "/values/status",
+        "recordDelta": 0,
+        "auditDelta": 0,
+        "effectiveGenerationDelta": 0
+      },
+      "status": "no-durable-observation-channel"
+    },
+    {
+      "id": "ledger-balanced-post",
+      "ticket": [
+        "T-463",
+        "T-544"
+      ],
+      "command": {
+        "action": "ledger.post",
+        "debit": 200,
+        "credit": 200
+      },
+      "expected": {
+        "accepted": true,
+        "postingDelta": 2,
+        "balanceSum": 0
+      },
+      "status": "unregistered-action"
+    },
+    {
+      "id": "ledger-unbalanced-no-mutation",
+      "ticket": [
+        "T-463",
+        "T-544"
+      ],
+      "command": {
+        "action": "ledger.post",
+        "debit": 200,
+        "credit": 199
+      },
+      "expected": {
+        "accepted": false,
+        "postingDelta": 0,
+        "journalDelta": 0,
+        "effectiveGenerationDelta": 0
+      },
+      "status": "unregistered-action"
+    },
+    {
+      "id": "ledger-denied-no-mutation",
+      "ticket": [
+        "T-463",
+        "T-544"
+      ],
+      "actor": "clerk",
+      "command": {
+        "action": "ledger.post",
+        "debit": 200,
+        "credit": 200
+      },
+      "expected": {
+        "accepted": false,
+        "postingDelta": 0,
+        "journalDelta": 0
+      },
+      "status": "unregistered-action"
+    }
+  ],
+  "futureAcceptanceExecutable": false,
+  "futureAcceptanceLimit": "Pending specification only; no executable ledger posting adapter or durable mutation observation exists in this harness."
+}
