@@ -5,8 +5,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import {execFileSync} from 'node:child_process'
-import {evidenceTarget, FAIL_EVIDENCE_RELATIVE} from '../exact-clone-evidence.mjs'
+import {execFileSync, spawnSync} from 'node:child_process'
+import {existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {evidenceTarget, FAIL_EVIDENCE_RELATIVE, persistStepEvidence} from '../exact-clone-evidence.mjs'
 
 const apiRoot = path.resolve(import.meta.dirname, '..', '..')
 const evidencePath = path.join(apiRoot, 'docs/evidence/exact-clone.json')
@@ -35,4 +37,80 @@ test('run-exact-clone.mjs uses evidenceTarget (no second writer path)', async ()
   const src = readFileSync(path.join(apiRoot, 'eng/run-exact-clone.mjs'), 'utf8')
   assert.match(src, /evidenceTarget\(\{record, status: report\.status, apiRoot, evidencePath\}\)/)
   assert.doesNotMatch(src, /exact-clone-fail\.json/)
+})
+
+const diagnosticHead = '0123456789abcdef0123456789abcdef01234567'
+
+test('a planted failing process retains the first failure and every stdout/stderr line beyond the tail', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-diagnostic-'))
+  try {
+    const stdout = ['FIRST FAILED CASE', ...Array.from({length: 30}, (_, i) => `later line ${i}`)].join('\n') + '\n'
+    const stderr = 'trap: unexpected EOF while looking for a matching parenthesis\n'
+    const result = spawnSync(process.execPath, ['-e',
+      `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(7)`], {encoding: 'utf8'})
+    assert.equal(result.status, 7)
+    const output = result.stdout + result.stderr
+    const original = {status: 'FAIL', apiCommit: diagnosticHead, steps: [{id: 'boundary-check',
+      passed: false, exitCode: result.status, fullOutput: output, rawOutput: output,
+      tail: output.trimEnd().split('\n').slice(-14).join('\n')}]}
+    const persisted = persistStepEvidence({report: original, apiRoot: root, redactEvidence: text => text})
+    const [step] = persisted.steps
+    assert.equal(step.outputFile, path.join('.claude', 'gate-evidence',
+      'exact-clone-0123456789abcdef0123456789abcdef01234567-boundary-check.log'))
+    assert.equal(readFileSync(path.join(root, step.outputFile), 'utf8'), stdout + stderr)
+    assert.doesNotMatch(step.tail, /FIRST FAILED CASE/)
+    assert.equal(step.passed, false)
+    assert.equal(step.exitCode, 7)
+    assert.equal(persisted.status, 'FAIL')
+    assert.equal('fullOutput' in step, false)
+    assert.equal('rawOutput' in step, false)
+    assert.equal(original.steps[0].fullOutput, output)
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
+
+test('failure output is redacted before writing and the report carries only a relative artifact path', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-diagnostic-'))
+  try {
+    const report = {status: 'FAIL', apiCommit: diagnosticHead, steps: [{id: 'boundary-check', passed: false,
+      fullOutput: 'private-scratch/clone/eng/test.sh: first failed case\n'}]}
+    const persisted = persistStepEvidence({report, apiRoot: root,
+      redactEvidence: text => text.replaceAll('private-scratch/clone', '<exact-clone>')})
+    const [step] = persisted.steps
+    assert.equal(typeof step.outputFile, 'string')
+    assert.equal(path.isAbsolute(step.outputFile), false)
+    assert.equal(readFileSync(path.join(root, step.outputFile), 'utf8'), '<exact-clone>/eng/test.sh: first failed case\n')
+    assert.doesNotMatch(JSON.stringify(persisted), /private-scratch/)
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
+
+test('a successful process keeps the passing report unchanged and creates no diagnostic directory', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-diagnostic-'))
+  try {
+    const result = spawnSync(process.execPath, ['-e', 'process.stdout.write("passing fixture")'], {encoding: 'utf8'})
+    assert.equal(result.status, 0)
+    const report = {status: 'PASS', apiCommit: diagnosticHead, steps: [{id: 'boundary-check', passed: true,
+      exitCode: 0, fullOutput: result.stdout, rawOutput: result.stdout, tail: 'passing fixture'}]}
+    assert.deepEqual(persistStepEvidence({report, apiRoot: root,
+      redactEvidence: () => { throw new Error('passing output must not be written') }}),
+      {status: 'PASS', apiCommit: diagnosticHead, steps: [{id: 'boundary-check', passed: true,
+        exitCode: 0, tail: 'passing fixture'}]})
+    assert.equal(existsSync(path.join(root, '.claude')), false)
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
+
+test('baseline-permitted nonzero exits and synthetic failures have no new output log', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-diagnostic-'))
+  try {
+    const report = {status: 'FAIL', apiCommit: diagnosticHead, steps: [
+      {id: 'dotnet-host-tests', passed: true, exitCode: 1, fullOutput: 'known baseline failures'},
+      {id: 'host-baseline-match', passed: false, tail: 'baseline mismatch'},
+    ]}
+    const persisted = persistStepEvidence({report, apiRoot: root,
+      redactEvidence: () => { throw new Error('there is no failed command output to write') }})
+    assert.deepEqual(persisted.steps, [
+      {id: 'dotnet-host-tests', passed: true, exitCode: 1},
+      {id: 'host-baseline-match', passed: false, tail: 'baseline mismatch'},
+    ])
+    assert.equal(existsSync(path.join(root, '.claude')), false)
+  } finally { rmSync(root, {recursive: true, force: true}) }
 })

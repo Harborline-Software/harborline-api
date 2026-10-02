@@ -14,7 +14,7 @@
 // Usage: node tooling/run-api-exact-clone.mjs [--record]
 import {execFileSync, spawnSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
-import {evidenceTarget} from './exact-clone-evidence.mjs'
+import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -544,17 +544,10 @@ try {
 // a full re-run to learn why it failed — the same evidence-destruction pattern as piping a test
 // run through `tail`. The report carries its own status; consumers check that, not the file's
 // existence. This matches run-platform-exact-clone.mjs, which records its failures too.
-// `persisted` drops each step's fullOutput, which is a working value for the baseline comparisons
-// above and not evidence. Writing `report` here instead was a defect: it persisted every runner's
-// full console output, and on a Windows host that output carries the scratch clone path, which
-// sits under the per-user temp directory and so trips
-// committed-control-plane-has-no-personal-path. It never fired on macOS, whose mkdtemp returns a
-// path under /var/folders instead. Each step still keeps its 14-line `tail`, so a failure remains
-// readable without a re-run.
-//
-// Note for the next editor: do not spell that home-directory prefix out here. This comment is
-// itself scanned, and naming the pattern literally fails the very check it describes.
-const persisted = {...report, steps: report.steps.map(({fullOutput, rawOutput, ...rest}) => rest)}
+// Keep complete failed-step output in the existing ignored evidence directory, using the
+// same path and ANSI redaction as the report tail. Raw output stays out of recorded JSON;
+// the report references a relative artifact path, and passing reports stay compact.
+const persisted = persistStepEvidence({report, apiRoot, redactEvidence})
 if (qualityEnabled && report.status === 'PASS' && !knownTestsWriteRefused) {
   recordQualityProduction(apiRoot, {head, run: process.env.HARBORLINE_VERIFY_QUALITY_RUN,
     files: qualityArtifacts(apiRoot).sarif})
@@ -574,6 +567,7 @@ process.stdout.write(`${JSON.stringify({status: report.status, apiCommit: head.s
 if (report.status === 'FAIL') {
   for (const step of persisted.steps.filter(step => step.passed === false)) {
     process.stdout.write(`${step.id}:\n`)
+    if (step.outputFile) process.stdout.write(`  full output: ${step.outputFile}\n`)
     for (const line of (step.tail ?? '').split('\n')) process.stdout.write(`  ${line}\n`)
   }
 }
