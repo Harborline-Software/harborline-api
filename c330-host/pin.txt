@@ -1,0 +1,6 @@
+job=c330-host worktree=ck10s4 commit=31bd0926
+scope=--scoped **/Data/Financial/NodeBankAccountWriter.cs --scoped **/Data/Identity/AuthorizedGrantRevocationWriter.cs
+filter=FullyQualifiedName~BankAccount|FullyQualifiedName~GrantRevocation|FullyQualifiedName~AdminTeamAccess|FullyQualifiedName~AuthorizationWriteStageTests|FullyQualifiedName~Mtw2TwoUserAcceptanceE2E
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s4\.config\dotnet-tools.json
+started=2026-10-02T05:35:06Z
+finished=2026-10-02T05:40:13Z exit=0

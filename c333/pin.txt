@@ -1,0 +1,6 @@
+job=c333 worktree=ck10s5a commit=02a254ea
+scope=--scoped **/Data/Configuration/ConfigurationActivationTarget.cs
+filter=FullyQualifiedName~.Tests.Configuration.
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5a\.config\dotnet-tools.json
+started=2026-10-02T05:41:31Z
+finished=2026-10-02T05:47:42Z exit=0

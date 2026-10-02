@@ -1,0 +1,6 @@
+job=j329 worktree=t380 commit=23cdec5b
+scope=--scoped **/Health/PackRouteAuthorization.cs
+filter=FullyQualifiedName~PackRoutePermissionTests|FullyQualifiedName~WebPlaneAuthorizationFenceTests|FullyQualifiedName~.Tests.Feed.|FullyQualifiedName~.Tests.Configuration.|FullyQualifiedName~PackNavigation
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\t380\.config\dotnet-tools.json
+started=2026-10-02T05:15:16Z
+finished=2026-10-02T05:19:37Z exit=0

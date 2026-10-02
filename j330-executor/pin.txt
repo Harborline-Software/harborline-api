@@ -1,0 +1,6 @@
+job=j330-executor worktree=ck10s4 commit=9a184866
+scope=--project Harborline.Kernel.Runtime.csproj --scoped **/WritePipelineStage.cs
+filter=FullyQualifiedName~WritePipeline|FullyQualifiedName~RecordWritePipelineTests|FullyQualifiedName~BankAccountWritePipelineTests|FullyQualifiedName~GrantRevocationWritePipelineTests|FullyQualifiedName~AuthorizationWriteStageTests
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s4\.config\dotnet-tools.json
+started=2026-10-02T05:00:40Z
+finished=2026-10-02T05:01:54Z exit=0
