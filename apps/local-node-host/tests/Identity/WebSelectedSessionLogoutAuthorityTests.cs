@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -14,6 +15,54 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
 {
     private static readonly DateTimeOffset Now =
         new(2026, 7, 18, 15, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Recovery_pages_past_stalled_tied_homes_and_revisits_them_after_delivering_a_later_audit()
+    {
+        await using var fixture = await LogoutFixture.CreateAsync();
+        fixture.IdentityStop.Armed = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Authority.LogoutAsync(LogoutFixture.RawHandle));
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            var owed = await db.Coordinators.AsNoTracking().SingleAsync();
+            foreach (var id in new[] { "stalled-a", "stalled-b" })
+            {
+                var stalled = JsonSerializer.Deserialize<InstallationIdentityCoordinatorRecord>(JsonSerializer.Serialize(owed))!;
+                stalled.CorrelationId = id;
+                stalled.CreatedAtUtc = Now.AddDays(-1);
+                db.Coordinators.Add(stalled);
+            }
+            await db.SaveChangesAsync();
+        }
+        var attempts = new Dictionary<string, int>();
+        var recovery = fixture.Restart(inner => new StalledRecovery(inner, attempts));
+        await recovery.RecoverPendingAsync(limit: 2);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+            Assert.DoesNotContain(await db.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+        await recovery.RecoverPendingAsync(limit: 2);
+        await recovery.RecoverPendingAsync(limit: 2);
+        Assert.Equal(2, attempts["stalled-a"]);
+        Assert.Equal(2, attempts["stalled-b"]);
+        await using (var db = fixture.IdentityFactory.CreateDbContext())
+        {
+            Assert.Single(await db.AuditEnvelopes.ToListAsync(), row => row.EventType == "WebUserSessionLogoutCompleted");
+            Assert.All(await db.Coordinators.Where(row => row.CorrelationId == "stalled-a" || row.CorrelationId == "stalled-b").ToListAsync(),
+                row => Assert.Equal(InstallationIdentityCoordinatorState.Preparing, row.State));
+        }
+    }
+
+    private sealed class StalledRecovery(IInstallationIdentityHomeRecovery inner, Dictionary<string, int> attempts)
+        : IInstallationIdentityHomeRecovery
+    {
+        public string CommandType => inner.CommandType;
+        public Task RecoverAsync(InstallationIdentityCoordinatorRecord home, CancellationToken cancellationToken)
+        {
+            if (!home.CorrelationId.StartsWith("stalled-", StringComparison.Ordinal))
+                return inner.RecoverAsync(home, cancellationToken);
+            attempts[home.CorrelationId] = attempts.GetValueOrDefault(home.CorrelationId) + 1;
+            return home.CorrelationId == "stalled-a" ? throw new InvalidOperationException("stalled recovery") : Task.CompletedTask;
+        }
+    }
 
     [Fact]
     [Trait("PlanCard", "SES-08C")]
@@ -229,7 +278,8 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
         /// A fresh host over the same identity and session files, as its recovery drain. The
         /// recording tenant store stands in for the tenant file, so it carries over.
         /// </summary>
-        public InstallationIdentityCoordinatorRecoveryService Restart()
+        public InstallationIdentityCoordinatorRecoveryService Restart(
+            Func<IInstallationIdentityHomeRecovery, IInstallationIdentityHomeRecovery>? decorate = null)
         {
             var identityFactory = new InstallationFounderBootstrapServiceTests.IdentityContextFactory(
                 _identityPath);
@@ -247,7 +297,7 @@ public sealed class WebSelectedSessionLogoutAuthorityTests
                     new AcceptingAdmission(),
                     new FixedTimeProvider(Now.AddMinutes(1)),
                     TestAuthorization.Gate(true)),
-                homeRecoveries: [authority]);
+                homeRecoveries: [decorate?.Invoke(authority) ?? authority]);
         }
 
         public static async Task<LogoutFixture> CreateAsync()
