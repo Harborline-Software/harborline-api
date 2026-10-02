@@ -78,7 +78,7 @@ public static class PackComposeRoutes
             // The act composes ONE named pack — that pack is the record target, so a grant scoped to a
             // different pack refuses here.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, Authority(http, tenant, time), PackOperation.Author, request.Key, ct)
+                .RefusalAsync(http, gate, Authority(http, tenant, time), PackOperation.Author, request.Key, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -130,7 +130,7 @@ public static class PackComposeRoutes
             // The draft names the pack this act reads; a draft that does not exist names none, and the
             // install-wide shape is what the caller must then hold to learn that it is absent.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, Authority(http, tenant, time), PackOperation.Author, draft?.Key, ct)
+                .RefusalAsync(http, gate, Authority(http, tenant, time), PackOperation.Author, draft?.Key, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -147,7 +147,7 @@ public static class PackComposeRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(
-                    gate, Authority(http, tenant, time), PackOperation.Author,
+                    http, gate, Authority(http, tenant, time), PackOperation.Author,
                     ceremony.GetDraft(id, tenant)?.Key, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
@@ -183,7 +183,7 @@ public static class PackComposeRoutes
             var tenant = NodeTenant.Resolve(activeTeam);
             var refusal = await PackRouteAuthorization
                 .RefusalAsync(
-                    gate, Authority(http, tenant, time), PackOperation.Author,
+                    http, gate, Authority(http, tenant, time), PackOperation.Author,
                     ceremony.GetDraft(id, tenant)?.Key, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)

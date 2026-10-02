@@ -208,7 +208,7 @@ public sealed class WebPlaneAuthorizationFenceTests
         var body = await response.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         using var doc = JsonDocument.Parse(body);
-        Assert.Equal("pack.authz.denied", doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal("authorization.permission_required", doc.RootElement.GetProperty("code").GetString());
         Assert.Equal(Permission.PackagesOperate, doc.RootElement.GetProperty("permission").GetString());
     }
 
