@@ -972,15 +972,16 @@ public sealed partial class AccessAdministrationPreloadTests : IAsyncLifetime
     }
 
     /// <summary>Activates the platform pack, then the released 1.1.3 Access pack from its byte-pinned conformance copy.</summary>
-    private async Task InstallReleased113Async()
+    private async Task InstallReleased113Async(TenantId? tenant = null)
     {
-        await _platformPreload.PreloadAsync(Tenant, CancellationToken.None);
+        var selectedTenant = tenant ?? Tenant;
+        await _platformPreload.PreloadAsync(selectedTenant, CancellationToken.None);
         var source = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,
             "Conformance", "Packs", "access-replacement", "access-administration-pack-1.1.3.export.json"));
         Assert.Equal("B6F84FEF3FFB4323167D5C9D1831098784A88B59BFD903198743AB9ADD4BB486", Convert.ToHexString(SHA256.HashData(source)));
         var bytes = await ExportAsync(ReadExactLegacyPlatformRequest(source, _signer.Signer.IssuerId.ToBase64Url())
             with { Exposes = ["access.holders"], InterfaceVersion = 1 });
-        var context = new PackInstallContext(Tenant, new InMemoryPackTrustStore([
+        var context = new PackInstallContext(selectedTenant, new InMemoryPackTrustStore([
                 new PackTrustRoot(TrustScope.OwnRoster, new PackFileCodec().TryDecode(bytes)!.Envelope!.IssuerId, 1, TrustRootStatus.Current),
             ]), PackRevocationList.Empty, TimeProvider.System.GetUtcNow(), PackInstallRoutes.RevocationMaxAge,
             Principal: TestDesktopOperator.Principal);
