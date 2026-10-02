@@ -365,8 +365,9 @@ public sealed class HierarchyCompositeWriteEffectsTests
         var h = await Harness.CreateAsync();
         await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
         await h.Hierarchy.AddEdgeAsync(OldB, East, EdgeKind.ChildOf, At.AddDays(-1));
+        var later = h.CoordinatorOver(h.Entities, At.AddDays(1));
         h.Hierarchy.BeforeAtomic = () =>
-            h.Coordinator.ReparentAsync(OldB, East, KidA, "later-first", Actor, Tenant, At.AddDays(1));
+            later.ReparentAsync(OldB, East, KidA, "later-first", Actor, Tenant, At.AddDays(1));
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             h.Coordinator.ReparentAsync(KidA, OldA, OldB, "earlier-second", Actor, Tenant, At));
@@ -374,7 +375,9 @@ public sealed class HierarchyCompositeWriteEffectsTests
         // Oracle: the committed later move survives, while the overlapping reverse move writes nothing.
         Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At.AddDays(1))).To);
         Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
-        Assert.Equal("later-first", Assert.Single(await h.AuditRows()).Justification);
+        var audit = Assert.Single(await h.AuditRows());
+        Assert.Equal("later-first", audit.Justification);
+        Assert.Equal(At.AddDays(1), audit.At);
     }
 
     [Fact]
@@ -392,6 +395,38 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Empty(await h.ParentEdges(KidA, At.AddDays(1)));
         Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
         Assert.Equal("nonoverlapping", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FutureMultihopDescendant_RefusesOnlyWhenAllPathIntervalsOverlap(bool overlap)
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidB, EdgeKind.ChildOf,
+            overlap ? At.AddHours(36) : At.AddDays(2));
+
+        var move = () => h.Coordinator.ReparentAsync(KidA, OldA, OldB, "multihop", Actor, Tenant, At);
+        if (overlap)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(move);
+            Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At)).To);
+            Assert.Empty(await h.AuditRows());
+        }
+        else
+        {
+            await move();
+            Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+            Assert.Equal("multihop", Assert.Single(await h.AuditRows()).Justification);
+        }
+        // Oracle: each leg separately overlaps the open-ended new edge; only the literal common
+        // interval [At+36h, At+48h) forms a cycle. Touching legs have no simultaneous descendant path.
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(KidB, At.AddHours(36))).To);
+        Assert.Empty(await h.ParentEdges(KidB, At.AddDays(2)));
+        Assert.Equal(KidB, Assert.Single(await h.ParentEdges(OldB, At.AddDays(2))).To);
     }
 
     private static CreateOptions Options(string localPart, TenantId tenant) =>
@@ -446,9 +481,9 @@ public sealed class HierarchyCompositeWriteEffectsTests
             return harness;
         }
 
-        public NodeHierarchyCompositeCoordinator CoordinatorOver(IEntityMutationStore entities) => new(
+        public NodeHierarchyCompositeCoordinator CoordinatorOver(IEntityMutationStore entities, DateTimeOffset? admittedAt = null) => new(
             entities, Hierarchy, new HierarchyAuthorizedAuditWriter(Audit),
-            TestAuthorization.Gate(true), new FixedTimeProvider(At), NullEntityValidator.Instance, this);
+            TestAuthorization.Gate(true), new FixedTimeProvider(admittedAt ?? At), NullEntityValidator.Instance, this);
 
         public Task<MergeResult> MergeAsync(NodeHierarchyCompositeCoordinator coordinator, CreateOptions options) =>
             coordinator.MergeAsync(
