@@ -228,7 +228,7 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        // The child signals by a file, not its stdout: a redirected child's output can reach the parent only at exit.
+        // The child signals by a file. Its output is awaited only once it has exited (reading it sooner blocks until exit).
         var readyFile = databasePath + ".t1048g-ready";
         startInfo.ArgumentList.Add(typeof(SubjectErasureAutonomousRecoveryTests).Assembly.Location);
         startInfo.Environment[SubjectErasureChildProcess.DatabaseVariable] = databasePath;
@@ -240,7 +240,8 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
             var deadline = DateTime.UtcNow.AddSeconds(120);
             while (!File.Exists(readyFile))
             {
-                Assert.False(child.HasExited, "The erasing child exited before the injected point: " + await stdout + await stderr);
+                if (child.HasExited)
+                    Assert.Fail("The erasing child exited before the injected point: " + await stdout + await stderr);
                 Assert.True(DateTime.UtcNow < deadline, "The erasing child did not reach the injected point within 120s.");
                 await Task.Delay(50);
             }
