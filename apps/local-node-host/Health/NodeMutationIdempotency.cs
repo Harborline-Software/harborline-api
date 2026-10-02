@@ -68,6 +68,12 @@ internal static class NodeMutationIdempotency
                 string.Equals(context.Request.Path.Value?.TrimEnd('/'),
                     BankAccountRoutes.RouteBase, StringComparison.OrdinalIgnoreCase)))
             {
+                // The durable route must consume the same canonical key whose length was validated.
+                if (key is not null)
+                {
+                    context.Request.Headers[HeaderName] = key;
+                }
+
                 await next(context).ConfigureAwait(false);
                 return;
             }

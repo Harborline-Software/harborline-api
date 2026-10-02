@@ -56,6 +56,7 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
     private const string ReusedCode = "authorization.idempotency_key_reused";
 
     private readonly MutableAuthorizationContext _authorization = new();
+    private string? _rawKeyOverride;
     private bool _writerAllowed = true;
     private int _writerDecisions;
     private readonly CommitHooks _hooks = new();
@@ -103,6 +104,9 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         // The desktop plane; a request carrying X-Test-Party is a selected-session member instead.
         _app.Use(async (http, next) =>
         {
+            // Preserve raw whitespace for contract tests; HTTP transports can strip header OWS.
+            if (_rawKeyOverride is not null)
+                http.Request.Headers[IdempotencyContract.HeaderName] = _rawKeyOverride;
             http.Features.Set(DesktopPlaneRequestFeature.Instance);
             if (http.Request.Headers["X-Test-Party"] is { Count: 1 } party)
                 http.Features.Set(Member(party[0]!, NodeTenant.Resolve(_team)));
@@ -271,6 +275,39 @@ public sealed class BankAccountIdempotencyRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         Assert.Equal(2, (await AccountsAsync()).Count);
+        Assert.Empty(await KeysAsync());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(200)]
+    public async Task TrimmedKey_UsesOneBoundedDurableIdentityWarmAndAfterRestart(int length)
+    {
+        var canonical = new string('k', length);
+        _rawKeyOverride = " \t\u00a0" + canonical + "\u00a0\t ";
+        var first = await CreateAsync("placeholder");
+        _rawKeyOverride = null;
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(canonical, Assert.Single(await KeysAsync()).Key);
+
+        var warm = await CreateAsync(canonical);
+        Assert.Equal(HttpStatusCode.Created, warm.StatusCode);
+        Assert.Equal(first.Headers.Location, warm.Headers.Location);
+        await RestartHostAsync();
+        var cold = await CreateAsync(canonical);
+        Assert.Equal(HttpStatusCode.Created, cold.StatusCode);
+        Assert.Equal(first.Headers.Location, cold.Headers.Location);
+        Assert.Equal(await first.Content.ReadAsStringAsync(), await cold.Content.ReadAsStringAsync());
+        Assert.Single(await AccountsAsync());
+        Assert.Equal(canonical, Assert.Single(await KeysAsync()).Key);
+    }
+
+    [Fact]
+    public async Task TrimmedKey_AboveTwoHundredCharactersIsRejectedBeforeDurableCreate()
+    {
+        _rawKeyOverride = " " + new string('k', 201) + " ";
+        Assert.Equal(HttpStatusCode.BadRequest, (await CreateAsync("placeholder")).StatusCode);
+        Assert.Empty(await AccountsAsync());
         Assert.Empty(await KeysAsync());
     }
 

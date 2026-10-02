@@ -4,6 +4,7 @@ import {readFileSync, writeFileSync, copyFileSync, existsSync, mkdtempSync, mkdi
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import * as host from '../host-baseline.mjs'
+import {persistStepEvidence} from '../exact-clone-evidence.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const fixture = path.join(import.meta.dirname, 'host-results.trx')
@@ -150,7 +151,7 @@ test('TRX reader failures and incomplete results always produce a red named reas
 })
 
 test('exact-clone uses TRX for named results and retains the raw diagnostic file on every red verdict', () => {
-  const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8')
+  const source = readFileSync(path.join(root, 'eng/run-exact-clone.mjs'), 'utf8').replaceAll('\r\n', '\n')
   const hostBlock = source.slice(source.indexOf('  const hostResultsDirectory ='), source.indexOf("  run('analyzer-canary'"))
   assert.ok(hostBlock.length > 0, 'host results setup must exist')
   const dir = mkdtempSync(path.join(tmpdir(), 'host-trx-runner-'))
@@ -192,6 +193,25 @@ test('exact-clone uses TRX for named results and retains the raw diagnostic file
       assert.ok(actual.hostComparison.tail.includes(outputFile))
     }
     assert.match(source, /if \(!retainScratch\) rmSync\(scratch, \{recursive: true, force: true\}\)/)
-    assert.match(source, /\{fullOutput, rawOutput, \.\.\.rest\}/)
+    // Exercise the runner's actual redactor and persistence call rather than pinning
+    // the location or variable names of its serialization destructuring.
+    const redactorBlock = source.slice(source.indexOf('const ANSI ='), source.indexOf('\n// `expectNonZero`', source.indexOf('const ANSI =')))
+    const redactEvidence = new Function('clone', 'scratch', redactorBlock + '\nreturn redactEvidence')(path.join(dir, 'clone'), dir)
+    const persistenceCall = source.split('\n').find(line => line.startsWith('const persisted ='))
+    assert.ok(persistenceCall, 'runner must persist step evidence')
+    const report = {status: 'FAIL', apiCommit: 'fixture-head', steps: [{id: 'host-baseline-match', passed: false,
+      fullOutput: `${String.fromCharCode(27)}[31m${path.join(dir, 'clone', 'tests')}: unexpected failure\n`,
+      rawOutput: 'private raw diagnostic'}]}
+    const persisted = new Function('persistStepEvidence', 'report', 'apiRoot', 'redactEvidence',
+      persistenceCall + '\nreturn persisted')(persistStepEvidence, report, dir, redactEvidence)
+    assert.equal(persisted.status, 'FAIL')
+    assert.equal(persisted.steps[0].passed, false)
+    assert.equal('fullOutput' in persisted.steps[0], false)
+    assert.equal('rawOutput' in persisted.steps[0], false)
+    assert.equal(path.isAbsolute(persisted.steps[0].outputFile), false)
+    assert.equal(readFileSync(path.join(dir, persisted.steps[0].outputFile), 'utf8'),
+      `<exact-clone>${path.sep}tests: unexpected failure\n`)
+    assert.doesNotMatch(JSON.stringify(persisted), /private raw diagnostic|unexpected failure/)
+
   } finally { rmSync(dir, {recursive: true, force: true}) }
 })
