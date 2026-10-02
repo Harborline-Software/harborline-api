@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -312,7 +313,11 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         await InstallAndActivateAsync();
         await _harness.ExecuteAsync("CREATE TRIGGER t1048b_fault BEFORE INSERT ON pack_overrides BEGIN SELECT RAISE(ABORT, 't1048b'); END;");
 
-        await Assert.ThrowsAnyAsync<Exception>(() => NarrowAsync());
+        var failure = await Assert.ThrowsAsync<DbUpdateException>(() => NarrowAsync());
+        var sqlite = Assert.IsType<SqliteException>(failure.InnerException);
+        Assert.Equal(19, sqlite.SqliteErrorCode);
+        Assert.Equal(1811, sqlite.SqliteExtendedErrorCode);
+        Assert.Contains("t1048b", sqlite.Message, StringComparison.Ordinal);
 
         Assert.Empty(_store.GetOverrides(Tenant, PackKey));
         Assert.Equal(["Activated", "Installed"], await OutboxActionsAsync(_harness));
