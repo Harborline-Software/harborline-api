@@ -77,7 +77,7 @@ internal static class ConfigurationProposalRoutes
             CancellationToken ct)
         {
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
-            return (authority, await PackRouteAuthorization.RefusalAsync(gate, authority, operation, null, ct).ConfigureAwait(false));
+            return (authority, await PackRouteAuthorization.RefusalAsync(http, gate, authority, operation, null, ct).ConfigureAwait(false));
         }
 
         selectedSession.MapPost(ProposalsRoute, async (HttpContext http, StartProposedChangeDto request, CancellationToken ct) =>

@@ -52,7 +52,7 @@ internal static class ConfigurationActivationRoutes
         {
             var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
-            var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
+            var refusal = await PackRouteAuthorization.RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
             try
             {
@@ -72,7 +72,7 @@ internal static class ConfigurationActivationRoutes
                 return Results.BadRequest(new { error = "expectedBaselineDigest and activePackageKeys are required." });
             var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
-            var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
+            var refusal = await PackRouteAuthorization.RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
             var ownership = (request.Ownership ?? [])
                 .Where(owner => !string.IsNullOrWhiteSpace(owner.DefinitionKey) && !string.IsNullOrWhiteSpace(owner.PackageKey))
@@ -101,7 +101,7 @@ internal static class ConfigurationActivationRoutes
                 return Results.BadRequest(new { error = "expectedBaselineDigest, candidateDigest and evidenceIntent {id, reason} are required." });
             var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
-            var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
+            var refusal = await PackRouteAuthorization.RefusalAsync(http, gate, authority, PackOperation.Operate, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
             var intent = new ConfigurationEvidenceIntent(request.EvidenceIntent.Id, request.EvidenceIntent.Reason);
             var principal = authority.Principal.Value;
@@ -169,7 +169,7 @@ internal static class ConfigurationActivationRoutes
                 return Results.BadRequest(new { error = "expectedBaselineDigest, candidateDigest, receiptId and suite are required." });
             var tenant = Tenant();
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
-            var refusal = await PackRouteAuthorization.RefusalAsync(gate, authority, PackOperation.Author, null, ct).ConfigureAwait(false);
+            var refusal = await PackRouteAuthorization.RefusalAsync(http, gate, authority, PackOperation.Author, null, ct).ConfigureAwait(false);
             if (refusal is not null) return refusal;
 
             // The suite arrives as a wire document and is re-admitted through the platform's own Declare,
