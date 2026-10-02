@@ -66,17 +66,23 @@ public sealed class NodeBankAccountWriter(
         decision.RequireAllowed();
     }
 
-    /// <summary>A new account. Bind refuses an account for another tenant only after the decision, so a
-    /// caller the gate refuses learns nothing about the body it sent.</summary>
+    /// <summary>A new account. Bind refuses an account for another tenant, or one that already exists, only after the
+    /// decision, so a caller the gate refuses learns nothing about the body it sent.</summary>
     private sealed class AccountCreate(NodeBankAccountWriter writer, BankAccount account, AuthorizationWriteContext authority)
         : KernelWrite<BankAccount, BankAccount, BankAccount, BankAccount>
     {
         protected override ValueTask AuthorizeAsync(CancellationToken ct) => writer.DecideAsync(authority, account.Id, ct);
 
-        protected override ValueTask<BankAccount?> BindAsync(CancellationToken ct) =>
-            account.TenantId == authority.Tenant
-                ? ValueTask.FromResult<BankAccount?>(account)
-                : throw new ArgumentException("The bank account tenant does not match the write authority.", nameof(account));
+        /// <summary>A create binds a new account: another tenant's account is refused, and so is an id that already
+        /// exists, so a repeated create cannot write the account twice.</summary>
+        protected override async ValueTask<BankAccount?> BindAsync(CancellationToken ct)
+        {
+            if (account.TenantId != authority.Tenant)
+                throw new ArgumentException("The bank account tenant does not match the write authority.", nameof(account));
+            if (await writer.Accounts.GetByIdAsync(authority.Tenant, account.Id, ct).ConfigureAwait(false) is not null)
+                throw new InvalidOperationException($"Bank account '{account.Id.Value}' already exists.");
+            return account;
+        }
 
         protected override ValueTask<BankAccount> MutateAsync(BankAccount bound, CancellationToken ct) =>
             ValueTask.FromResult(bound with
