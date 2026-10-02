@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
@@ -31,7 +32,7 @@ using static Harborline.Api.Kernel.Runtime.WritePipelineStage;
 namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 /// <summary>
-/// T-1048 (DES-0029 ck-6): pack install, activation and deactivation stage their audit entry in the SAME
+/// T-1048 (DES-0029 ck-6): pack install, activation, deactivation and (T-1048b) narrowing stage their audit entry in the SAME
 /// transaction as the durable pack change. A process that dies after the commit and before react leaves the entry
 /// owed in the audit outbox; a restarted host over the same encrypted file delivers it exactly once. A write refused
 /// at commit stages nothing.
@@ -177,6 +178,44 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         Assert.Equal(["Activated", "Installed"], await OutboxActionsAsync(_harness));
         Assert.Equal(["Installed", "Activated", "Refused"], await TrailActionsAsync(_harness));
     }
+
+    [Fact(DisplayName = "T-1048b: a crash after the narrowing commit leaves its audit owed, and a restarted host delivers it once")]
+    public async Task A_crash_after_the_narrowing_commit_is_delivered_once_after_restart()
+    {
+        await InstallAndActivateAsync();
+        _stages.CrashAt = React;
+
+        await Assert.ThrowsAsync<SimulatedCrash>(() => NarrowAsync());
+
+        await AssertOwedAndUndeliveredAsync("Narrowed");
+        await using var restarted = _harness.Reopen();
+        var stored = Assert.Single(new DurablePackInstallStore(restarted.Store.PacksFactory).GetOverrides(Tenant, PackKey));
+        Assert.Equal(("t1048-form", "{\"title\":null}"), (stored.ContentKey, stored.OverlayPatch.ToJsonString()));
+        await AssertDeliveredOnceAsync(restarted, "Narrowed");
+    }
+
+    [Fact(DisplayName = "T-1048b: a narrowing whose commit fails stages no audit and records none")]
+    public async Task A_narrowing_refused_at_commit_stages_nothing()
+    {
+        await InstallAndActivateAsync();
+        await _harness.ExecuteAsync("CREATE TRIGGER t1048b_fault BEFORE INSERT ON pack_overrides BEGIN SELECT RAISE(ABORT, 't1048b'); END;");
+
+        await Assert.ThrowsAnyAsync<Exception>(() => NarrowAsync());
+
+        Assert.Empty(_store.GetOverrides(Tenant, PackKey));
+        Assert.Equal(["Activated", "Installed"], await OutboxActionsAsync(_harness));
+        Assert.Equal(["Installed", "Activated"], await TrailActionsAsync(_harness));
+    }
+
+    private async Task InstallAndActivateAsync()
+    {
+        Assert.True((await _installer.InstallAsync(await PackAsync(), Context())).Installed);
+        Assert.True((await _installer.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+    }
+
+    private Task<PackNarrowingOutcome> NarrowAsync() => _installer.NarrowAsync(
+        Context(), PackKey, "t1048-form", JsonNode.Parse("""{"title":null}""")!,
+        TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now));
 
     private (DurablePackInstallStore Store, PackInstaller Installer) Compose(DurableAuditHarness harness, IPackProjectionDispatcher? projector)
     {

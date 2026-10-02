@@ -66,6 +66,12 @@ public sealed record PackSeedItem(
 /// <param name="OverlayPatch">The RFC-7396 patch (the tenant's edit relative to the seed it was authored on).</param>
 public sealed record PackTenantOverride(string ContentKey, JsonNode OverlayPatch)
 {
+    /// <summary>
+    /// T-1048b: the audit of the narrowing that saves this row, staged by a durable store in the save's own commit. It
+    /// is not stored on the override row, so a read back, and a <see cref="DeepCopy"/>, carry null.
+    /// </summary>
+    public PackCommitAudit? Audit { get; init; }
+
     /// <summary>Deep-copies the overlay patch (JsonNode is mutable; never share a live tree across records).</summary>
     public PackTenantOverride DeepCopy() => new(ContentKey, OverlayPatch.DeepClone());
 }

@@ -799,6 +799,7 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
         private readonly DateTimeOffset now = context.Now;
         private readonly string? principal = context.Principal;
         private InstalledPack active = null!;
+        private PackInstallAuditEntry narrowed = null!;
 
         protected override ValueTask AuthorizeAsync(CancellationToken ct)
         {
@@ -898,16 +899,19 @@ public sealed class PackInstaller : IPackInstaller, IPackProjectionReconciler
 
         protected override ValueTask CommitAsync(PackTenantOverride validated, CancellationToken ct)
         {
-            installer._mutations.SaveOverride(tenant, packKey, validated);
+            // T-1048b: the narrowing's audit rides the save, so a durable store stages it in the same commit.
+            narrowed = new PackInstallAuditEntry(
+                tenant, PackInstallAuditAction.Narrowed, packKey, active.Version, now, null, null,
+                $"pack.install.narrowed:{contentKey}",
+                ActingPrincipal: principal);
+            installer._mutations.SaveOverride(
+                tenant, packKey, validated with { Audit = new PackCommitAudit([narrowed], decision) });
             return ValueTask.CompletedTask;
         }
 
         protected override ValueTask<PackNarrowingOutcome> ReactAsync(PackTenantOverride validated, CancellationToken ct)
         {
-            installer._audit.AppendAuthorized(new PackInstallAuditEntry(
-                tenant, PackInstallAuditAction.Narrowed, packKey, active.Version, now, null, null,
-                $"pack.install.narrowed:{contentKey}",
-                ActingPrincipal: principal), decision);
+            installer._audit.AppendAuthorized(narrowed, decision);
             return ValueTask.FromResult(new PackNarrowingOutcome(true, packKey, contentKey, Decision: decision));
         }
     }

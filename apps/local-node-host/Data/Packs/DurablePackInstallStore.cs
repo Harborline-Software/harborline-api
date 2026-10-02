@@ -86,7 +86,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     /// <c>AddSqlCipherLocalNodeDbContext</c>).</summary>
     /// <param name="factory">The packs context factory.</param>
     /// <param name="audit">
-    /// T-1048 (DES-0029 ck-6): when present, an install, activation or deactivation stages its carried
+    /// T-1048 (DES-0029 ck-6): when present, an install, activation, deactivation or narrowing stages its carried
     /// <see cref="PackCommitAudit"/> through this adapter in the same transaction as the change, as an audit outbox
     /// entry. Null stages nothing, and the installer's post-commit append records the audit.
     /// </param>
@@ -232,6 +232,7 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
                 row.OverlayJson = json;
             }
 
+            StageAudit(ctx, tenantOverride.Audit);
             ctx.SaveChanges();
         }
     }
