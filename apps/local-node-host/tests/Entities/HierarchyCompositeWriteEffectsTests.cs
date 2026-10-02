@@ -218,8 +218,10 @@ public sealed class HierarchyCompositeWriteEffectsTests
                 call.Arg<CreateOptions>() with { Nonce = "rogue", ExplicitLocalPart = "rogue" },
                 call.Arg<CancellationToken>()));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        // The commit-time Require(newId) would also throw for the rogue id; the message shows the minted-id check fired first.
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             h.MergeAsync(h.CoordinatorOver(mintsRogue), Options("merged", Tenant)));
+        Assert.Contains("minted an id different from the pre-authorized merge target", refused.Message, StringComparison.Ordinal);
 
         Assert.Null(await h.Entities.GetAsync(rogue));
         await h.AssertNothingWrittenAsync([OldA, OldB], Merged);
