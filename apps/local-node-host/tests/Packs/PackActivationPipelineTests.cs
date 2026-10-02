@@ -159,6 +159,7 @@ public sealed class PackActivationPipelineTests
         var stored = Assert.Single(_store.GetOverrides(Tenant, PackKey));
         Assert.Equal(ContentKey, stored.ContentKey);
         Assert.Equal("""{"note":null}""", stored.OverlayPatch.ToJsonString());
+        Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.PreDecision);
     }
 
     [Fact]
@@ -254,6 +255,197 @@ public sealed class PackActivationPipelineTests
         Assert.Empty(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions());
     }
 
+    [Theory(DisplayName = "ck-10 S5b: a projection that refuses or throws inside the activation transaction leaves the pointer, key ownership and admission as before")]
+    [InlineData(false, PackInstallCodes.ActivateProjectionRefused)]
+    [InlineData(true, PackInstallCodes.ActivateProjectionFailed)]
+    public async Task A_failed_projection_rolls_back_the_whole_activation(bool projectorThrows, string expectedError)
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        ((IPackProjectionReconciler)_installer).AttachProjector(projectorThrows
+            ? new ProjectorDouble(() => throw new InvalidOperationException("projector down"))
+            : new ProjectorDouble(() => new RefusedProjection()));
+
+        var outcome = await _installer.ActivateAsync(Context(ownership: new Dictionary<string, string> { [ContentKey] = PackKey }), PackKey, "1.0.0");
+
+        Assert.False(outcome.Activated);
+        Assert.Equal(expectedError, outcome.Error);
+        Assert.Null(_store.GetActive(Tenant, PackKey));
+        Assert.Equal(PackLifecycleState.Draft, _store.GetVersion(Tenant, PackKey, "1.0.0")?.Lifecycle);
+        Assert.Empty(_store.GetKeyOwnership(Tenant));
+        Assert.Empty(((IPackProjectionAdmissionStore)_store).ListIncompleteProjectionAdmissions());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a split composition rolls back the mutation face and the projection-admission face when the projection refuses")]
+    public async Task A_refused_projection_rolls_back_each_enlisted_store_face()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        var mutations = new InMemoryPackInstallStore();
+        var projection = new InMemoryPackInstallStore();
+        CommitPack(projection, PackKey, "1.0.0", Item(ContentKey, PackContentKind.FormDefinition, Seed));
+        var installer = SplitInstaller(mutations, projection);
+        ((IPackProjectionReconciler)installer).AttachProjector(new ProjectorDouble(() => new RefusedProjection()));
+
+        var outcome = await installer.ActivateAsync(Context(ownership: new Dictionary<string, string> { [ContentKey] = PackKey }), PackKey, "1.0.0");
+
+        Assert.Equal(PackInstallCodes.ActivateProjectionRefused, outcome.Error);
+        Assert.Empty(mutations.GetKeyOwnership(Tenant));
+        Assert.Null(projection.GetActive(Tenant, PackKey));
+        Assert.Empty(((IPackProjectionAdmissionStore)projection).ListIncompleteProjectionAdmissions());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a transition-state failure inside the activation transaction reports the version as not installed")]
+    public async Task A_transition_state_failure_at_commit_maps_to_not_installed()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        // The projection-admission face has never seen this version, so its pointer flip is a transition-state failure.
+        var projection = new InMemoryPackInstallStore();
+        var installer = SplitInstaller(_store, projection);
+
+        var outcome = await installer.ActivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.False(outcome.Activated);
+        Assert.Equal(PackInstallCodes.ActivateNotInstalled, outcome.Error);
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        Assert.Null(_store.GetActive(Tenant, PackKey));
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a refusal reached at commit is audited as Refused with its code, a committed activation as Activated")]
+    public async Task The_react_audit_records_the_committed_action()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        var projector = new ProjectorDouble(() => new RefusedProjection());
+        ((IPackProjectionReconciler)_installer).AttachProjector(projector);
+
+        Assert.False((await _installer.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+
+        var refused = Assert.Single(_audit.Query(Tenant), entry => entry.PackKey == PackKey);
+        Assert.Equal(PackInstallAuditAction.Refused, refused.Action);
+        Assert.Equal(PackInstallCodes.ActivateProjectionRefused, refused.Detail);
+
+        projector.Result = () => null;
+        var activated = await _installer.ActivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.True(activated.Activated, activated.Error + " " + activated.Detail);
+        Assert.Null(activated.Detail);
+        var entries = _audit.Query(Tenant).Where(entry => entry.PackKey == PackKey).ToArray();
+        Assert.Equal(2, entries.Length);
+        Assert.Equal(PackInstallAuditAction.Activated, entries[1].Action);
+        Assert.Equal("pack.install.activated", entries[1].Detail);
+    }
+
+    [Theory(DisplayName = "ck-10 S5b: an audit or observer failure after commit still reports the activation, with the failure in its detail")]
+    [InlineData(true, false, "Activation committed; audit notification failed: audit down")]
+    [InlineData(false, true, "Projection committed; post-commit notification or cleanup failed. (observer down)")]
+    [InlineData(true, true, "Activation committed; audit notification failed: audit down Projection committed; post-commit notification or cleanup failed. (observer down)")]
+    public async Task A_notification_failure_after_commit_keeps_the_activation(bool auditFails, bool observerFails, string expectedDetail)
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        var installer = Installer(_store, new ActivatedAuditDouble(_audit, auditFails), _stages);
+        ((IPackProjectionReconciler)installer).AttachProjector(new ProjectorDouble(() => null, observerFails));
+
+        var outcome = await installer.ActivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.True(outcome.Activated, outcome.Error);
+        Assert.Equal(expectedDetail, outcome.Detail);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+        Assert.Empty(((IPackProjectionAdmissionStore)_store).ListIncompleteProjectionAdmissions());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: deactivating with nothing active is refused at validate")]
+    public async Task Deactivating_when_nothing_is_active_is_refused_at_validate()
+    {
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.False(outcome.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
+        Assert.Null(_store.GetActive(Tenant, PackKey));
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: deactivating a version other than the active one is refused at validate and the active version stays")]
+    public async Task Deactivating_a_version_that_is_not_active_is_refused_at_validate()
+    {
+        CommitPack(_store, PackKey, "2.0.0", Item(ContentKey, PackContentKind.FormDefinition, Seed));
+        await ActivateAsync();
+
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "2.0.0");
+
+        Assert.False(outcome.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+    }
+
+    [Theory(DisplayName = "ck-10 S5b: a blank pack key, content key or principal is refused before any decision, audited, with nothing changed")]
+    [InlineData(" ", ContentKey, "test-operator", PackInstallCodes.RefusedBlankPackKey)]
+    [InlineData(PackKey, " ", "test-operator", PackInstallCodes.NarrowUnknownContentKey)]
+    [InlineData(PackKey, ContentKey, " ", PackInstallCodes.NarrowRefusedNoPrincipal)]
+    public async Task A_blank_narrowing_input_is_refused_before_the_decision(string packKey, string contentKey, string principal, string expectedCode)
+    {
+        await ActivateAsync();
+        var before = _audit.Query(Tenant).Count;
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _installer.NarrowAsync(Context(principal), packKey, contentKey, JsonNode.Parse("""{"note":null}""")!, Decision()));
+
+        Assert.Equal([Authorize], _stages.Entered);
+        var refusal = Assert.Single(_audit.Query(Tenant).Skip(before));
+        Assert.True(refusal.PreDecision);
+        Assert.Equal(PackInstallAuditAction.Refused, refusal.Action);
+        Assert.Equal(expectedCode, refusal.Detail);
+        Assert.Empty(_store.GetOverrides(Tenant, PackKey));
+    }
+
+    [Theory(DisplayName = "ck-10 S5b: a carried decision for another principal or another instant is refused with the override unchanged")]
+    [InlineData("other-operator", 0)]
+    [InlineData("test-operator", 1)]
+    public async Task A_decision_that_does_not_match_the_narrowing_context_is_refused(string decisionPrincipal, int decisionOffsetMinutes)
+    {
+        await ActivateAsync();
+        var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate,
+            principal: decisionPrincipal, at: Now.AddMinutes(decisionOffsetMinutes));
+
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() =>
+            _installer.NarrowAsync(Context(), PackKey, ContentKey, JsonNode.Parse("""{"note":null}""")!, decision));
+
+        Assert.Equal("decision", refused.ParamName);
+        Assert.Equal([Authorize], _stages.Entered);
+        Assert.Empty(_store.GetOverrides(Tenant, PackKey));
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: narrowing a cascade-defaults item admits it composed with the stored overrides")]
+    public async Task Narrowing_a_cascade_item_admits_the_composed_cascade()
+    {
+        var admission = SeedCascadePack();
+        var installer = Installer(_store, _audit, _stages, admission);
+
+        var outcome = await installer.NarrowAsync(Context(), CascadePackKey, "cascade-a", JsonNode.Parse("""{"note":null}""")!, CascadeDecision());
+
+        Assert.True(outcome.Recorded, outcome.RefusalCode);
+        var composed = Assert.Single(admission.Admitted);
+        Assert.Equal(
+            [("cascade-a", """{"label":"reviewed"}"""), ("cascade-b", """{"tone":"formal"}""")],
+            composed.Select(item => (item.Key, item.CanonicalJson)).ToArray());
+        Assert.Equal(
+            [("cascade-b", """{"size":null}"""), ("cascade-a", """{"note":null}""")],
+            _store.GetOverrides(Tenant, CascadePackKey).Select(o => (o.ContentKey, o.OverlayPatch.ToJsonString())).ToArray());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: narrowing a non-cascade item stores its override without composing the cascade")]
+    public async Task Narrowing_a_non_cascade_item_does_not_compose_the_cascade()
+    {
+        var admission = SeedCascadePack();
+        var installer = Installer(_store, _audit, _stages, admission);
+
+        var outcome = await installer.NarrowAsync(Context(), CascadePackKey, "form-c", JsonNode.Parse("""{"note":null}""")!, CascadeDecision());
+
+        Assert.True(outcome.Recorded, outcome.RefusalCode);
+        Assert.Empty(admission.Admitted);
+        Assert.Equal(
+            [("cascade-b", """{"size":null}"""), ("form-c", """{"note":null}""")],
+            _store.GetOverrides(Tenant, CascadePackKey).Select(o => (o.ContentKey, o.OverlayPatch.ToJsonString())).ToArray());
+    }
+
     private async Task ActivateAsync()
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -264,28 +456,95 @@ public sealed class PackActivationPipelineTests
     private static AuthorizationDecision Decision() =>
         TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now);
 
-    private static PackInstallContext Context() => new(
+    private static PackInstallContext Context(
+        string principal = "test-operator", IReadOnlyDictionary<string, string>? ownership = null) => new(
         Tenant, new InMemoryPackTrustStore([]), PackRevocationList.Empty, Now, TimeSpan.FromHours(1),
-        Principal: "test-operator");
+        Principal: principal, OwnershipResolutions: ownership);
 
-    private void SeedPack()
-    {
-        var item = new PackSeedItem(ContentKey, PackContentKind.FormDefinition, "1.0.0", Seed,
-            Harborline.Api.Foundation.Blobs.Cid.FromBytes(System.Text.Encoding.UTF8.GetBytes(Seed)));
-        _store.Commit(new PackInstallTransaction(Tenant,
-            new InstalledPack(PackKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [item],
+    private void SeedPack() => CommitPack(_store, PackKey, "1.0.0", Item(ContentKey, PackContentKind.FormDefinition, Seed));
+
+    private static PackSeedItem Item(string key, PackContentKind kind, string json) =>
+        new(key, kind, "1.0.0", json, Harborline.Api.Foundation.Blobs.Cid.FromBytes(System.Text.Encoding.UTF8.GetBytes(json)));
+
+    private static void CommitPack(IPackInstallMutationStore store, string packKey, string version, params PackSeedItem[] items) =>
+        store.Commit(new PackInstallTransaction(Tenant,
+            new InstalledPack(packKey, version, PackScopeTier.Horizontal, PackLifecycleState.Draft, items,
                 new Dictionary<string, int>(), Now, PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]), 1,
                 TrustScope.OwnRoster, [new PackDependencyRef(PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version)]),
-            new PackInstallWatermark(PackKey, "1.0.0", new Dictionary<string, int>()), []));
-    }
+            new PackInstallWatermark(packKey, version, new Dictionary<string, int>()), []));
 
     private const string ReportPackKey = "test.s5b-report";
     private const string ReportKey = "s5b.report";
     private const string ItemVersion = "1.0.0";
 
-    private static PackInstaller Installer(IPackInstallStore store, IPackInstallAudit audit, IWritePipelineObserver observer) =>
+    private static PackInstaller Installer(
+        IPackInstallStore store, IPackInstallAudit audit, IWritePipelineObserver observer, IPackContentAdmission? admission = null) =>
         new(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
-            new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.AllowGate(), pipelineObserver: observer);
+            admission ?? new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.AllowGate(), pipelineObserver: observer);
+
+    private PackInstaller SplitInstaller(IPackInstallMutationStore mutations, IPackProjectionAdmissionStore projection) =>
+        new(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), _store, mutations, projection,
+            new WorkflowRefusingPackContentAdmission(), _audit, TestAuthorization.AllowGate(), pipelineObserver: _stages);
+
+    private const string CascadePackKey = "test.s5b-cascade";
+
+    private static AuthorizationDecision CascadeDecision() =>
+        TestAuthorization.AllowedDecision(Tenant, CascadePackKey, "pack", Permission.PackagesOperate, at: Now);
+
+    /// <summary>Two cascade-defaults items and a form, active, with a stored override on the second cascade item.</summary>
+    private RecordingAdmission SeedCascadePack()
+    {
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        CommitPack(_store, CascadePackKey, "1.0.0",
+            Item("cascade-a", PackContentKind.CascadeDefaults, Seed),
+            Item("cascade-b", PackContentKind.CascadeDefaults, """{"tone":"formal","size":"large"}"""),
+            Item("form-c", PackContentKind.FormDefinition, Seed));
+        _store.Activate(Tenant, CascadePackKey, "1.0.0");
+        _store.SaveOverride(Tenant, CascadePackKey, new PackTenantOverride("cascade-b", JsonNode.Parse("""{"size":null}""")!));
+        return new RecordingAdmission();
+    }
+
+    private sealed class RecordingAdmission : IPackContentAdmission
+    {
+        public List<PackComposedItem[]> Admitted { get; } = [];
+
+        public PackAdmissionResult Admit(IReadOnlyList<PackComposedItem> composed, TenantId tenant)
+        {
+            Admitted.Add(composed.ToArray());
+            return PackAdmissionResult.Admissible;
+        }
+    }
+
+    private sealed class RefusedProjection : IPackProjectionRefusalReport
+    {
+        public bool ProjectionRefused => true;
+    }
+
+    private sealed class ProjectorDouble(Func<object?> result, bool observerFails = false) : IPackProjectionDispatcher
+    {
+        public Func<object?> Result { get; set; } = result;
+
+        public void StageProjection(PackProjectionTransaction transaction)
+        {
+            if (observerFails) transaction.AfterCommit(() => throw new InvalidOperationException("observer down"));
+        }
+
+        public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default) => Result();
+    }
+
+    /// <summary>Records into the shared audit, failing only the post-commit Activated entry when asked.</summary>
+    private sealed class ActivatedAuditDouble(IPackInstallAudit inner, bool fails) : IPackInstallAudit
+    {
+        public void Append(PackInstallAuditEntry entry) => inner.Append(entry);
+
+        public void AppendAuthorized(PackInstallAuditEntry entry, AuthorizationDecision decision)
+        {
+            if (fails && entry.Action == PackInstallAuditAction.Activated) throw new InvalidOperationException("audit down");
+            inner.AppendAuthorized(entry, decision);
+        }
+
+        public IReadOnlyList<PackInstallAuditEntry> Query(TenantId tenant) => inner.Query(tenant);
+    }
 
     private static InMemoryReportDefinitionRegistry Reports() => new(new AcceptAllReports());
 
