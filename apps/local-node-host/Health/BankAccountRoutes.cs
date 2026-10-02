@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using Harborline.Api.Blocks.Banking.Feed;
 using Harborline.Api.Blocks.Banking.Import;
@@ -358,6 +359,7 @@ public static class BankAccountRoutes
     // ── POST /api/local-node/bank-accounts/{accountId}/accept-match ────────────
     private static void MapAcceptMatch(IEndpointRouteBuilder app, BankingServices b, IActiveTeamAccessor activeTeam)
     {
+        var ledgerAccounts = app.ServiceProvider.GetService<Harborline.Api.Blocks.FinancialLedger.Services.IAccountResolver>();
         app.MapPost($"{RouteBase}/{{accountId}}/accept-match", async (string accountId, MatchLinkBody body, CancellationToken ct) =>
         {
             var LocalTenantId = NodeTenant.Resolve(activeTeam);
@@ -373,16 +375,23 @@ public static class BankAccountRoutes
 
             var statementLine = await b.LineRepo.GetByIdAsync(LocalTenantId, link.StatementLine, ct).ConfigureAwait(false);
             if (statementLine is null) return Results.BadRequest(new { error = "statement_line_not_found" });
+            if (statementLine.AccountId != account.Id)
+                return Results.BadRequest(new { error = "statement_line_account_mismatch" });
+
+            // The bound statement owner supplies the ledger reference. A newly created account may omit
+            // its chart, so recover that chart from the existing node ledger resolver before applying locks.
+            var chart = account.LinkedLedgerAccount.ChartId;
+            if (chart is null && ledgerAccounts is not null)
+                chart = (await ledgerAccounts.GetAsync(account.LinkedLedgerAccount.GLAccountId, ct).ConfigureAwait(false))?.ChartId;
+            if (chart is not { } chartId)
+                return Results.BadRequest(new { error = "bank_account_chart_unresolved" });
 
             // Server-derive the covering fiscal period from the line's PostedAt (never trust the
             // client) so the AcceptMatchService Locked + bank-rec-lock gates run against the real
             // period. If no period covers the date, the accept proceeds with no fiscal gate (single-
-            // device tenants may not have opened a period yet — the bank-rec lock still applies).
+            // device tenants may not have opened a period yet). An unresolved chart is refused above.
             var postedDate = DateOnly.FromDateTime(statementLine.PostedAt.Value.UtcDateTime);
-            // An account with no chart has no covering period either.
-            FiscalPeriod? period = account.LinkedLedgerAccount.ChartId is { } chartId
-                ? await b.PeriodRepo.FindByChartAndDateAsync(chartId, postedDate, ct).ConfigureAwait(false)
-                : null;
+            var period = await b.PeriodRepo.FindByChartAndDateAsync(chartId, postedDate, ct).ConfigureAwait(false);
 
             try
             {

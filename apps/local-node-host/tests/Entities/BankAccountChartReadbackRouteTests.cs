@@ -12,6 +12,12 @@ using Microsoft.Extensions.Logging;
 
 using Harborline.Api.Blocks.Banking.Data;
 using Harborline.Api.Blocks.Banking.Models;
+using Harborline.Api.Blocks.Banking.Matching;
+using Harborline.Api.Blocks.FinancialLedger.Models;
+using Harborline.Api.Blocks.FinancialLedger.Services;
+using Harborline.Api.Blocks.FinancialPeriods.Models;
+using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Integrations.Payments;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -61,6 +67,9 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
         _dir = Path.Combine(Path.GetTempPath(), "harborline-bank-chart-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         builder.Services.AddSingleton<IHarborlineEntityModule, BankingEntityModule>();
+        builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialLedger.Data.FinancialLedgerEntityModule>();
+        builder.Services.AddSingleton<IHarborlineEntityModule, Harborline.Api.Blocks.FinancialPeriods.Data.FinancialPeriodsEntityModule>();
+        builder.Services.AddSingleton<IAccountResolver, NodeEfAccountResolver>();
         builder.Services.AddDbContextFactory<LocalNodeDbContext>(opt =>
             opt.UseSqlite($"Data Source={Path.Combine(_dir, "bank.db")};Pooling=False"));
         builder.Services.AddDbContextFactory<NodeLocalBankFeedDbContext>(opt =>
@@ -88,8 +97,14 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
         });
 
         var accounts = new NodeEfBankAccountRepository(_factory);
+        var lines = new NodeEfStatementLineRepository(_factory);
+        var links = new NodeEfMatchLinkRepository(_factory);
+        var reconciliations = new NodeEfReconciliationRepository(_factory);
+        var periods = new NodeEfFiscalPeriodRepository(_factory);
         BankingServices banking = (
-            accounts, new NodeEfStatementLineRepository(_factory), null!, null!, null!, null!, null!, null!, null!, null!,
+            accounts, lines, links, reconciliations, periods, null!,
+            new AcceptMatchService(links, lines, reconciliations, periods, TimeProvider.System,
+                new ReconciliationLockLease(TimeProvider.System)), null!, null!, null!,
             feedFactory);
         BankAccountRoutes.Map(
             _app.MapDeviceReachableProductDataGroup(),
@@ -110,6 +125,68 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
         await _app.DisposeAsync();
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }
         catch { /* best-effort temp cleanup */ }
+    }
+
+    [Theory]
+    [InlineData(false, "bank_account_chart_unresolved")]
+    [InlineData(true, "statement_line_account_mismatch")]
+    public async Task AcceptMatch_RefusesUnresolvedChartOrAnotherAccountsLine(bool wrongAccount, string expectedError)
+    {
+        var account = await CreateAccountAsync("owner");
+        var selected = wrongAccount ? await CreateAccountAsync("other") : account;
+        var link = await ProposeAsync(account);
+
+        var response = await _client.PostAsJsonAsync($"{BankAccountRoutes.RouteBase}/{selected.Value}/accept-match", new { matchLinkId = link.Value });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(expectedError, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        Assert.Equal(MatchLinkState.Proposed, (await new NodeEfMatchLinkRepository(_factory).GetByIdAsync(NodeTenant.Resolve(NodeTestActiveTeam.Accessor), link))!.State);
+    }
+
+    [Fact]
+    public async Task AcceptMatch_ResolvesNullChartThroughLedgerAccount_AndHonorsLockedPeriod()
+    {
+        var account = await CreateAccountAsync("owner");
+        var link = await ProposeAsync(account);
+        var chart = new ChartOfAccountsId("match-chart");
+        var now = new Instant(DateTimeOffset.Parse("2026-10-02T12:00:00Z"));
+        await using (var db = await _factory.CreateDbContextAsync())
+        {
+            db.Set<GLAccount>().Add(new GLAccount(new GLAccountId("match-gl"), "1010", "Cash", GLAccountType.Asset, ChartId: chart));
+            db.Set<FiscalPeriod>().Add(FiscalPeriod.CreateOpen(new FiscalPeriodId("match-period"), chart,
+                new FiscalYearId("match-year"), FiscalPeriodKind.Monthly, "October", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), now)
+                with { Status = FiscalPeriodStatus.Locked, LockedAtUtc = now });
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.PostAsJsonAsync($"{BankAccountRoutes.RouteBase}/{account.Value}/accept-match", new { matchLinkId = link.Value });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var refusal = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("accept_rejected", refusal.GetProperty("error").GetString());
+        Assert.Equal("FiscalPeriodLocked", refusal.GetProperty("reason").GetString());
+        Assert.Equal(MatchLinkState.Proposed, (await new NodeEfMatchLinkRepository(_factory).GetByIdAsync(NodeTenant.Resolve(NodeTestActiveTeam.Accessor), link))!.State);
+    }
+
+    private async Task<BankAccountId> CreateAccountAsync(string name)
+    {
+        var response = await _client.PostAsJsonAsync(BankAccountRoutes.RouteBase, new { displayName = name, linkedLedgerAccountId = "match-gl" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return new BankAccountId((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!);
+    }
+
+    private async Task<MatchLinkId> ProposeAsync(BankAccountId account)
+    {
+        var tenant = NodeTenant.Resolve(NodeTestActiveTeam.Accessor);
+        var now = new Instant(DateTimeOffset.Parse("2026-10-02T12:00:00Z"));
+        var line = StatementLineId.NewId();
+        var link = MatchLinkId.NewId();
+        await new NodeEfStatementLineRepository(_factory).AddAsync(new StatementLine(line, tenant, account, null, now,
+            125m, new CurrencyCode("USD"), "Deposit", false, ReconciliationState.Proposed,
+            new ImportSourceRef(ImportSourceKind.FileImport, "match-batch", 0), null, now));
+        await new NodeEfMatchLinkRepository(_factory).AddAsync(new MatchLink(link, tenant, line,
+            new LedgerTransactionRef(new JournalEntryId("match-entry")), 125m, MatchLinkState.Proposed, null));
+        return link;
     }
 
     [Fact(DisplayName = "T-1049: an account created through the route reads back by id and by list from the SQLite store")]
