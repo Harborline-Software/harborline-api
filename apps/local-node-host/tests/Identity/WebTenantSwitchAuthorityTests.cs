@@ -287,6 +287,75 @@ public sealed class WebTenantSwitchAuthorityTests
         };
     }
 
+    /// <summary>
+    /// T-1048 (ck-6): the process stops after the old-tenant revocation head commits and before the
+    /// target head and the home receipt. A fresh authority over the same files, driven only by the
+    /// startup recovery drain, writes exactly one Completed envelope; a second drain and the client's
+    /// later retry add none. Recovery does not rotate: the old session stays live until the retry.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_crash_after_a_tenant_head_commits_owes_one_envelope_that_the_recovery_drain_writes()
+    {
+        await using var fixture = await SwitchFixture.CreateAsync();
+        fixture.TargetStore.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SwitchAsync(SwitchFixture.OldHandle, TargetTenantId));
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        var (restarted, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        await recovery.RecoverPendingAsync();
+
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
+            var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+            Assert.Equal(home.CorrelationId, envelope.CorrelationId);
+            Assert.Equal(Now, envelope.OccurredAtUtc);
+        }
+        var store = new WebSelectedSessionStore(fixture.SessionFactory);
+        Assert.NotNull(await store.FindActiveAsync(
+            Digest(SwitchFixture.OldHandle),
+            fixture.AccountSecurityVersion,
+            Now));
+
+        Assert.NotNull(await restarted.SwitchAsync(SwitchFixture.OldHandle, TargetTenantId));
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    /// <summary>
+    /// T-1048 (ck-6): a switch refused at commit (the target receipt names another tenant) owes no
+    /// envelope, and the recovery drain does not invent one.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_switch_refused_at_commit_gets_no_envelope_from_the_recovery_drain()
+    {
+        await using var fixture = await SwitchFixture.CreateAsync();
+        fixture.TargetStore.ReceiptTenantId = "33333333-3333-3333-3333-333333333333";
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SwitchAsync(SwitchFixture.OldHandle, TargetTenantId));
+
+        await fixture.Restart().Recovery.RecoverPendingAsync();
+
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        Assert.Equal(
+            InstallationIdentityCoordinatorState.Committing,
+            (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+    }
+
+    private static async Task<InstallationAuditEnvelopeRecord[]> CompletedEnvelopesAsync(
+        IDbContextFactory<NodeLocalInstallationIdentityDbContext> factory)
+    {
+        await using var identity = factory.CreateDbContext();
+        return await identity.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "WebTenantSwitchCompleted")
+            .ToArrayAsync();
+    }
+
     private sealed class SwitchFixture : IAsyncDisposable
     {
         internal const string OldHandle =
@@ -296,6 +365,7 @@ public sealed class WebTenantSwitchAuthorityTests
         internal static readonly DateTimeOffset AbsoluteExpiry = Now.AddHours(8);
 
         private readonly string _directory;
+        private readonly FixedPartitionResolver _resolver;
 
         private SwitchFixture(
             string directory,
@@ -304,9 +374,11 @@ public sealed class WebTenantSwitchAuthorityTests
             long accountSecurityVersion,
             RecordingMembershipStore oldStore,
             RecordingMembershipStore targetStore,
+            FixedPartitionResolver resolver,
             WebTenantSwitchAuthority authority)
         {
             _directory = directory;
+            _resolver = resolver;
             IdentityFactory = identityFactory;
             SessionFactory = sessionFactory;
             AccountSecurityVersion = accountSecurityVersion;
@@ -321,6 +393,38 @@ public sealed class WebTenantSwitchAuthorityTests
         internal RecordingMembershipStore OldStore { get; }
         internal RecordingMembershipStore TargetStore { get; }
         internal WebTenantSwitchAuthority Authority { get; }
+
+        /// <summary>
+        /// A fresh host over the same identity and session files. The recording tenant stores stand
+        /// in for the tenant files, so they carry over as the durable tenant state.
+        /// </summary>
+        internal (WebTenantSwitchAuthority Authority, InstallationIdentityCoordinatorRecoveryService Recovery)
+            Restart()
+        {
+            var identityFactory = new IdentityContextFactory(Path.Combine(_directory, "identity.db"));
+            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+                Path.Combine(_directory, "sessions.db"));
+            var coordinator = new InstallationIdentityCoordinatorService(
+                identityFactory,
+                _resolver,
+                new AcceptingAdmission(),
+                new FixedTimeProvider(Now),
+                TestAuthorization.Gate(true));
+            var authority = new WebTenantSwitchAuthority(
+                identityFactory,
+                sessionFactory,
+                new WebSelectedSessionStore(sessionFactory),
+                new FixedCandidateLocator(true),
+                coordinator,
+                _resolver,
+                new FixedPartyReader(null),
+                Options.Create(new SessionOptions()),
+                new FixedTimeProvider(Now));
+            return (authority, new InstallationIdentityCoordinatorRecoveryService(
+                identityFactory,
+                coordinator,
+                homeRecoveries: [authority]));
+        }
 
         internal static async Task<SwitchFixture> CreateAsync(
             bool listTarget = true,
@@ -424,6 +528,7 @@ public sealed class WebTenantSwitchAuthorityTests
                 account.SecurityVersion,
                 oldStore,
                 targetStore,
+                resolver,
                 authority);
         }
 

@@ -290,6 +290,74 @@ public sealed class WebTenantSelectionAuthorityTests
         Assert.StartsWith("identity.session_selection_payload_invalid:", exception.Message);
     }
 
+    /// <summary>
+    /// T-1048 (ck-6): the process stops after the tenant selection head commits and before the home
+    /// records its receipt. A fresh authority over the same files, driven only by the startup recovery
+    /// drain, writes exactly one Completed envelope; a second drain and the client's later retry add
+    /// none. Recovery mints no session: the retry does.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_crash_after_tenant_finalization_owes_one_envelope_that_the_recovery_drain_writes()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        fixture.Store.ThrowAfterFinalizeOnce = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+
+        var (restarted, recovery) = fixture.Restart();
+        await recovery.RecoverPendingAsync();
+        await recovery.RecoverPendingAsync();
+
+        await using (var identity = fixture.IdentityFactory.CreateDbContext())
+        {
+            var home = await identity.Coordinators.AsNoTracking().SingleAsync();
+            Assert.Equal(InstallationIdentityCoordinatorState.Completed, home.State);
+            var envelope = Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+            Assert.Equal(home.CorrelationId, envelope.CorrelationId);
+            Assert.Equal(Now, envelope.OccurredAtUtc);
+        }
+        await using (var sessions = fixture.SessionFactory.CreateDbContext())
+        {
+            Assert.Empty(await sessions.UserSessions.AsNoTracking().ToArrayAsync());
+        }
+
+        Assert.NotNull(await restarted.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+        Assert.Single(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+    }
+
+    /// <summary>
+    /// T-1048 (ck-6): a selection refused at commit (the tenant receipt names another tenant) owes no
+    /// envelope, and the recovery drain does not invent one.
+    /// </summary>
+    [Fact]
+    [Trait("Holds", "kernel-core-ck-6")]
+    public async Task A_selection_refused_at_commit_gets_no_envelope_from_the_recovery_drain()
+    {
+        await using var fixture = await SelectionFixture.CreateAsync();
+        fixture.Store.ReceiptTenantId = fixture.UnusableTenantId;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Authority.SelectAsync(fixture.ChallengeHandle, fixture.TenantId));
+
+        await fixture.Restart().Recovery.RecoverPendingAsync();
+
+        Assert.Empty(await CompletedEnvelopesAsync(fixture.IdentityFactory));
+        await using var identity = fixture.IdentityFactory.CreateDbContext();
+        Assert.Equal(
+            InstallationIdentityCoordinatorState.Committing,
+            (await identity.Coordinators.AsNoTracking().SingleAsync()).State);
+    }
+
+    private static async Task<InstallationAuditEnvelopeRecord[]> CompletedEnvelopesAsync(
+        IDbContextFactory<NodeLocalInstallationIdentityDbContext> factory)
+    {
+        await using var identity = factory.CreateDbContext();
+        return await identity.AuditEnvelopes.AsNoTracking()
+            .Where(row => row.EventType == "WebTenantSelectionCompleted")
+            .ToArrayAsync();
+    }
+
     private sealed class SelectionFixture : IAsyncDisposable
     {
         private readonly string _directory;
@@ -342,6 +410,42 @@ public sealed class WebTenantSelectionAuthorityTests
         public InstallationIdentityCutoverOrchestrator Cutover { get; }
 
         public WebTenantSelectionAuthority Authority { get; }
+
+        /// <summary>
+        /// A fresh host over the same identity and session files. The recording tenant stores stand
+        /// in for the tenant files, so they carry over as the durable tenant state.
+        /// </summary>
+        public (WebTenantSelectionAuthority Authority, InstallationIdentityCoordinatorRecoveryService Recovery)
+            Restart()
+        {
+            var identityFactory = new IdentityContextFactory(Path.Combine(_directory, "identity.db"));
+            var sessionFactory = new WebAccountAccessChallengeIssuerTests.SessionContextFactory(
+                Path.Combine(_directory, "session.db"));
+            var coordinator = new InstallationIdentityCoordinatorService(
+                identityFactory,
+                Resolver,
+                new AcceptingAdmission(),
+                new FixedTimeProvider(Now),
+                TestAuthorization.Gate(true));
+            var authority = new WebTenantSelectionAuthority(
+                identityFactory,
+                sessionFactory,
+                Candidates,
+                coordinator,
+                Resolver,
+                Parties,
+                new InstallationIdentityCutoverOrchestrator(
+                    identityFactory,
+                    new FixedTimeProvider(Now),
+                    Harborline.Api.LocalNodeHost.Data.Identity.InstallationAuthorityVersionRegistry
+                        .CreateDefault([new TestSignInPath("test-successor")])),
+                Options.Create(new SessionOptions()),
+                new FixedTimeProvider(Now));
+            return (authority, new InstallationIdentityCoordinatorRecoveryService(
+                identityFactory,
+                coordinator,
+                homeRecoveries: [authority]));
+        }
 
         public static async Task<SelectionFixture> CreateAsync()
         {

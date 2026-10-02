@@ -36,7 +36,8 @@ public interface IWebTenantSelectionAuthority
 /// Challenge-only tenant selection. The challenge nonce is the replay key for one durable R3-H
 /// transition; a selected handle is returned only after tenant and installation audit heads complete.
 /// </summary>
-internal sealed class WebTenantSelectionAuthority : IWebTenantSelectionAuthority
+internal sealed class WebTenantSelectionAuthority
+    : IWebTenantSelectionAuthority, IInstallationIdentityHomeRecovery
 {
     internal const string CommandType = "WebTenantSelection";
     internal const int PayloadSchemaVersion = 1;
@@ -215,34 +216,11 @@ internal sealed class WebTenantSelectionAuthority : IWebTenantSelectionAuthority
                     .ConfigureAwait(false);
             }
 
-            TenantSessionSelectionReceipt receipt;
-            if (home.State == InstallationIdentityCoordinatorState.Committing)
-            {
-                receipt = await partition.Memberships.FinalizeSessionSelectionAsync(
-                        home.CorrelationId,
-                        home.CommandFingerprint,
-                        _timeProvider.GetUtcNow(),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                ValidateTenantReceipt(home, receipt);
-                home = await PersistReceiptAndFinalizeAsync(home.CorrelationId, receipt, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                receipt = DeserializeReceipt(home.FinalReceiptsJson);
-            }
-
-            if (home.State != InstallationIdentityCoordinatorState.Finalizing ||
-                !string.Equals(receipt.TenantId, authority.Membership.TenantId, StringComparison.Ordinal))
-            {
-                return null;
-            }
-
-            await RequireDurableTenantReceiptAsync(partition, home, receipt, cancellationToken)
-                .ConfigureAwait(false);
-
-            home = await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            home = await RollCommittedForwardAsync(
+                    home,
+                    partition,
+                    authority.Membership.TenantId,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (home.State != InstallationIdentityCoordinatorState.Completed)
             {
@@ -270,6 +248,87 @@ internal sealed class WebTenantSelectionAuthority : IWebTenantSelectionAuthority
                 // The bounded lease expires fail-safe; recovery must reacquire before another write.
             }
         }
+    }
+
+    string IInstallationIdentityHomeRecovery.CommandType => CommandType;
+
+    /// <summary>
+    /// The recovery drain's arm. Once the tenant selection is finalized the home owes its Completed
+    /// envelope whether or not the client ever retries the challenge. Recovery mints no session: a
+    /// later retry with the challenge finds Completed and mints it.
+    /// </summary>
+    async Task IInstallationIdentityHomeRecovery.RecoverAsync(
+        InstallationIdentityCoordinatorRecord home,
+        CancellationToken cancellationToken)
+    {
+        var tenantId = ValidateStoredSelection(home)[0];
+        var partition = await _partitions.ResolveAsync(tenantId, cancellationToken).ConfigureAwait(false);
+        var lease = await partition.Leases.AcquireAsync(
+                $"identity.membership:{tenantId}",
+                LeaseDuration,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (lease is null)
+        {
+            return;
+        }
+        try
+        {
+            await RollCommittedForwardAsync(home, partition, tenantId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            try
+            {
+                await partition.Leases.ReleaseAsync(lease, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The bounded lease expires fail-safe; recovery must reacquire before another write.
+            }
+        }
+    }
+
+    /// <summary>Committing, then Finalizing, then Completed with its envelope; each step idempotent.</summary>
+    private async Task<InstallationIdentityCoordinatorRecord> RollCommittedForwardAsync(
+        InstallationIdentityCoordinatorRecord home,
+        TenantIdentityAuthorityPartition partition,
+        string tenantId,
+        CancellationToken cancellationToken)
+    {
+        TenantSessionSelectionReceipt receipt;
+        if (home.State == InstallationIdentityCoordinatorState.Committing)
+        {
+            receipt = await partition.Memberships.FinalizeSessionSelectionAsync(
+                    home.CorrelationId,
+                    home.CommandFingerprint,
+                    _timeProvider.GetUtcNow(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            ValidateTenantReceipt(home, receipt);
+            home = await PersistReceiptAndFinalizeAsync(home.CorrelationId, receipt, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else if (home.State == InstallationIdentityCoordinatorState.Finalizing)
+        {
+            receipt = DeserializeReceipt(home.FinalReceiptsJson);
+        }
+        else
+        {
+            return home;
+        }
+
+        if (!string.Equals(receipt.TenantId, tenantId, StringComparison.Ordinal))
+        {
+            return home;
+        }
+
+        await RequireDurableTenantReceiptAsync(partition, home, receipt, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await CompleteWithInstallationAuditAsync(home.CorrelationId, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task RequireDurableTenantReceiptAsync(
