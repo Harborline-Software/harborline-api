@@ -103,14 +103,37 @@ test('baseline-permitted nonzero exits and synthetic failures have no new output
   try {
     const report = {status: 'FAIL', apiCommit: diagnosticHead, steps: [
       {id: 'dotnet-host-tests', passed: true, exitCode: 1, fullOutput: 'known baseline failures'},
-      {id: 'host-baseline-match', passed: false, tail: 'baseline mismatch'},
+      {id: 'host-baseline-match', passed: true, tail: 'permitted baseline'},
+      {id: 'unrelated-synthetic-failure', passed: false},
     ]}
     const persisted = persistStepEvidence({report, apiRoot: root,
       redactEvidence: () => { throw new Error('there is no failed command output to write') }})
     assert.deepEqual(persisted.steps, [
       {id: 'dotnet-host-tests', passed: true, exitCode: 1},
-      {id: 'host-baseline-match', passed: false, tail: 'baseline mismatch'},
+      {id: 'host-baseline-match', passed: true, tail: 'permitted baseline'},
+      {id: 'unrelated-synthetic-failure', passed: false},
     ])
     assert.equal(existsSync(path.join(root, '.claude')), false)
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
+
+
+test('an authoritative baseline failure retains the originating test output', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-diagnostic-'))
+  try {
+    const fixture = 'UNEXPECTED FAILED TEST\n' + 'later passing test\n'.repeat(30)
+    for (const id of ['host-baseline-match', 'capability-baseline-match']) {
+      const report = {status: 'FAIL', apiCommit: diagnosticHead, steps: [
+        {id: 'informational-test-command', passed: true, exitCode: 1, fullOutput: fixture},
+        {id, passed: false, fullOutput: fixture},
+      ]}
+      const persisted = persistStepEvidence({report, apiRoot: root, redactEvidence: text => text})
+      assert.equal('outputFile' in persisted.steps[0], false)
+      assert.equal(readFileSync(path.join(root, persisted.steps[1].outputFile), 'utf8'), fixture)
+      assert.equal(persisted.steps[1].passed, false)
+    }
+    const runner = readFileSync(path.join(apiRoot, 'eng/run-exact-clone.mjs'), 'utf8')
+    assert.match(runner, /fullOutput: hostComparison\.passed === false \? hostTests\.fullOutput : undefined/)
+    assert.match(runner, /fullOutput: capabilityComparison\.passed === false \? capabilityTests\.fullOutput : undefined/)
   } finally { rmSync(root, {recursive: true, force: true}) }
 })

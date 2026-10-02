@@ -500,6 +500,7 @@ try {
   steps.push({
     id: 'host-baseline-match',
     ...hostComparison,
+    fullOutput: hostComparison.passed === false ? hostTests.fullOutput : undefined,
     baseline: BASELINES.host,
     expected: hostBaseline.totals, observed: hostCounts,
     newFailures,
@@ -522,6 +523,7 @@ try {
   steps.push({
     id: 'capability-baseline-match',
     ...capabilityComparison,
+    fullOutput: capabilityComparison.passed === false ? capabilityTests.fullOutput : undefined,
     baseline: BASELINES.capability,
     expected: capabilityBaseline.totals, observed: capabilityTrx.counts,
     newFailures: capabilityNewFailures,
