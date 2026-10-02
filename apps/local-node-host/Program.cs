@@ -2404,7 +2404,9 @@ builder.Services.AddNodeForms(
             sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizationRefusalAudit>(),
             // Ticket 331 slice 2: an ACCEPTED record write is recorded the same way, and its id is the
             // one the 201 carries.
-            sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizedActAudit>()));
+            sp.GetService<Harborline.Api.LocalNodeHost.Health.AuthorizedActAudit>(),
+            // T-1048 (DES-0029 ck-6): each write commits its audit with the change and react only delivers it.
+            outbox: sp.GetService<Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditOutbox>()));
         services.AddSingleton<Harborline.Api.Foundation.Assets.Entities.IEntityWriteCoordinator>(sp =>
             sp.GetRequiredService<Harborline.Api.LocalNodeHost.Data.Entities.NodeEntityWriter>());
         services.AddSingleton<Harborline.Api.LocalNodeHost.Data.Entities.IHierarchyAuthorizedAuditWriter>(sp =>

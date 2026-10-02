@@ -42,7 +42,7 @@ public sealed class NodeAuditOutbox(
     /// </summary>
     /// <returns>The staged entry's audit id.</returns>
     public static Guid StageAuthorized(
-        NodeLocalSearchDbContext db,
+        DbContext db,
         AuditEventType eventType,
         AuthorizationDecision decision,
         IReadOnlyDictionary<string, string?> body,
@@ -57,7 +57,7 @@ public sealed class NodeAuditOutbox(
         var entry = new Dictionary<string, string?>(body, StringComparer.Ordinal);
         if (request.CorrelationId is { } correlation) entry["correlation_id"] = correlation.ToString("D");
         var id = auditId ?? Guid.NewGuid();
-        db.AuditOutbox.Add(new AuditOutboxRow
+        db.Set<AuditOutboxRow>().Add(new AuditOutboxRow
         {
             AuditId = id.ToString("D"),
             TenantId = request.Tenant.Value,
