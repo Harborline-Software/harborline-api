@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.Packs.Install.Audit;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.Data.Audit;
+using Harborline.Api.LocalNodeHost.Data.Search;
 
 namespace Harborline.Api.LocalNodeHost.Health;
 
@@ -69,7 +70,8 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
     /// commit carries the pack change. Nothing is saved here; a signing or capture fault throws, so the change fails
     /// rather than committing unaudited.
     /// </summary>
-    internal void Stage(DbContext write, PackInstallAuditEntry entry, AuthorizationDecision decision)
+    /// <returns>The staged id that the next entry in this ceremony names as its predecessor.</returns>
+    internal Guid Stage(DbContext write, PackInstallAuditEntry entry, AuthorizationDecision decision, Guid? predecessorAuditId = null)
     {
         ArgumentNullException.ThrowIfNull(write);
         ArgumentNullException.ThrowIfNull(entry);
@@ -77,10 +79,13 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
         // The entry's own header must be the act decided, as the direct authorized append checks; the staged row
         // then carries the decision's header, which this proves equal.
         CapturedAuditAuthority.Capture(entry.Tenant, entry.Actor, entry.OccurredAtUtc, entry.Target, entry.Act, decision);
-        NodeAuditOutbox.StageSignedAsync(write, _signer, entry.Tenant, PackInstallEventType, entry.OccurredAtUtc,
+        var id = NodeAuditOutbox.StageSignedAsync(write, _signer, entry.Tenant, PackInstallEventType, entry.OccurredAtUtc,
                 Body(entry, decision), decision)
             .AsTask().GetAwaiter().GetResult();
+        write.Set<AuditOutboxRow>().Local.Single(row => row.AuditId == id.ToString("D"))
+            .PredecessorAuditId = predecessorAuditId?.ToString("D");
         _staged.AddOrUpdate(entry, entry);
+        return id;
     }
 
     /// <summary>The pack-install audit event type on the unified trail.</summary>
@@ -105,12 +110,12 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
             throw new ArgumentException("An authorized pack audit entry cannot be flagged preDecision.", nameof(entry));
         _mirror.AppendAuthorized(entry, decision);
         if (_staged.Remove(entry))
-            Deliver(entry);
+            Deliver();
         else
             AppendCore(entry, decision);
     }
 
-    private void Deliver(PackInstallAuditEntry entry)
+    private void Deliver()
     {
         if (_outbox is null) return;
         try
@@ -120,8 +125,8 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // The entry is committed and owed; the drain daemon delivers it. The mutation stands.
-            _logger.LogError(ex, "Pack install audit delivery failed (tenant {Tenant}, {Action} {PackKey} v{Version}); "
-                + "the entry stays owed in the audit outbox.", entry.Tenant, entry.Action, entry.PackKey, entry.Version);
+            // Pack coordinates are caller-controlled; keep them in the signed audit, not diagnostic log text.
+            _logger.LogError(ex, "Pack install audit delivery failed; the entry stays owed in the audit outbox.");
         }
     }
 
@@ -175,9 +180,7 @@ public sealed class KernelAuditPackInstallAudit : IPackInstallAudit
             // Fail-safe-but-LOUD: the mutation already happened; a recording fault must not brick it, but a
             // pack install/upgrade/break-glass that could not be durably audited is a security-relevant gap.
             _logger.LogError(ex,
-                "Pack install audit append FAILED (tenant {Tenant}, {Action} {PackKey} v{Version}) — the "
-                + "mutation stands but its durable audit envelope was not written.",
-                entry.Tenant, entry.Action, entry.PackKey, entry.Version);
+                "Pack install audit append FAILED - the mutation stands but its durable audit envelope was not written.");
         }
     }
 

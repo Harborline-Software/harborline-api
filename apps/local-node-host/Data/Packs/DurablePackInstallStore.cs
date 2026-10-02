@@ -99,8 +99,9 @@ public sealed class DurablePackInstallStore : IPackInstallStore, IPackInstallMut
     private void StageAudit(NodeLocalPacksDbContext ctx, PackCommitAudit? audit)
     {
         if (audit is null || _audit is null) return;
+        Guid? predecessor = null;
         foreach (var entry in audit.Entries)
-            _audit.Stage(ctx, entry, audit.Decision);
+            predecessor = _audit.Stage(ctx, entry, audit.Decision, predecessor);
     }
 
     /// <inheritdoc />

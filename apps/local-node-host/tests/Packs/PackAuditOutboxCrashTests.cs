@@ -2,10 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
@@ -20,6 +22,7 @@ using Harborline.Api.Foundation.Packs.Verify;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.LocalNodeHost.Data.Packs;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Health;
 using Harborline.Api.LocalNodeHost.Tests.Audit;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
@@ -79,6 +82,116 @@ public sealed class PackAuditOutboxCrashTests : IAsyncLifetime
         await using var restarted = _harness.Reopen();
         Assert.Equal(PackLifecycleState.Draft, new DurablePackInstallStore(restarted.Store.PacksFactory).GetVersion(Tenant, PackKey, "1.0.0")?.Lifecycle);
         await AssertDeliveredOnceAsync(restarted, "Installed");
+    }
+
+    [Fact]
+    public async Task A_failed_append_does_not_copy_untrusted_pack_coordinates_to_the_log()
+    {
+        await _harness.ExecuteAsync("CREATE TRIGGER t1048_log_fault BEFORE INSERT ON search_audit_trail BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;");
+        var logger = new AuditLogger();
+        var adapter = new KernelAuditPackInstallAudit(_harness.Trail, _nodeSigner, logger);
+
+        adapter.Append(new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Refused,
+            "untrusted-pack-coordinate", "1.0.0\r\nFORGED AUDIT MESSAGE", Now, null, null, "refused", PreDecision: true));
+
+        var message = Assert.Single(logger.Messages);
+        Assert.Equal(LogLevel.Error, message.Level);
+        Assert.Equal("Pack install audit append FAILED - the mutation stands but its durable audit envelope was not written.", message.Text);
+    }
+
+    private sealed class AuditLogger : ILogger<KernelAuditPackInstallAudit>
+    {
+        public List<(LogLevel Level, string Text)> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add((logLevel, formatter(state, exception)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_tied_time_ceremony_precedes_its_install_after_restart(bool failCeremony)
+    {
+        var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, Operator, Now);
+        var audit = new KernelAuditPackInstallAudit(_harness.Trail, _nodeSigner, NullLogger<KernelAuditPackInstallAudit>.Instance);
+        var store = new DurablePackInstallStore(_harness.Store.PacksFactory, audit);
+        store.Commit(new PackInstallTransaction(Tenant,
+            new InstalledPack(PackKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [],
+                new Dictionary<string, int>(), Now, _keys.PrincipalId, 1, TrustScope.OwnRoster, []),
+            new PackInstallWatermark(PackKey, "1.0.0", new Dictionary<string, int>()), [])
+        {
+            Audit = new PackCommitAudit([
+                new PackInstallAuditEntry(Tenant, PackInstallAuditAction.BreakGlassOverride, PackKey, "1.0.0", Now,
+                    null, null, "override", BreakGlassJustification: "approved recovery", BreakGlassAuthorizingPrincipal: Operator, ActingPrincipal: Operator),
+                new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Installed, PackKey, "1.0.0", Now,
+                    null, null, "installed", ActingPrincipal: Operator),
+            ], decision),
+        });
+
+        // Put the dependent first in both identifier and physical insertion order. Neither is the ceremony order.
+        await using (var db = _harness.Store.CreateContext())
+        {
+            var rows = await db.AuditOutbox.Where(row => row.EventType == EventType).ToListAsync();
+            var ceremony = Assert.Single(rows, row => Action(row.BodyJson) == "BreakGlassOverride");
+            var installed = Assert.Single(rows, row => Action(row.BodyJson) == "Installed");
+            Assert.Equal(ceremony.AuditId, installed.PredecessorAuditId);
+            db.AuditOutbox.RemoveRange(rows);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+            ceremony.AuditId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+            installed.AuditId = "00000000-0000-0000-0000-000000000001";
+            installed.PredecessorAuditId = ceremony.AuditId;
+            db.AuditOutbox.AddRange(installed, ceremony);
+            await db.SaveChangesAsync();
+        }
+        if (failCeremony)
+        {
+            await using var db = _harness.Store.CreateContext();
+            audit.Stage(db, new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Activated, "independent-pack", "1.0.0",
+                Now, null, null, "activated", ActingPrincipal: Operator),
+                TestAuthorization.AllowedDecision(Tenant, "independent-pack", "pack", Permission.PackagesOperate, Operator, Now));
+            await db.SaveChangesAsync();
+            await _harness.ExecuteAsync("CREATE TRIGGER t1048_ceremony_fault BEFORE INSERT ON search_audit_trail WHEN NEW.record_json LIKE '%BreakGlassOverride%' BEGIN SELECT RAISE(ABORT, 'ceremony unavailable'); END;");
+        }
+
+        await using var restarted = _harness.Reopen();
+        var recorded = new RecordingTrail(restarted.Trail);
+        using var drain = new NodeAuditOutbox(restarted.Store.Factory, recorded, recorded,
+            new Ed25519Signer(_keys), TimeProvider.System, NullLogger<NodeAuditOutbox>.Instance);
+        if (failCeremony)
+        {
+            Assert.Equal(1, await drain.DrainAsync());
+            Assert.Equal(["Activated"], recorded.Actions);
+            Assert.DoesNotContain(await TrailActionsAsync(restarted), action => action is "BreakGlassOverride" or "Installed");
+            await using var db = restarted.Store.CreateContext();
+            Assert.Equal(2, await db.AuditOutbox.CountAsync(row => row.PublishedAtUnixMs == null));
+            await restarted.ExecuteAsync("DROP TRIGGER t1048_ceremony_fault;");
+            recorded.Actions.Clear();
+        }
+        Assert.Equal(2, await drain.DrainAsync());
+        Assert.Equal(["BreakGlassOverride", "Installed"], recorded.Actions);
+        Assert.Equal(0, await drain.DrainAsync());
+        var persisted = await TrailActionsAsync(restarted);
+        Assert.Single(persisted, action => action == "BreakGlassOverride");
+        Assert.Single(persisted, action => action == "Installed");
+    }
+
+    private sealed class RecordingTrail(AuthorityCapturingAuditTrail inner) : IAuditTrail, ICapturedAuditTrail
+    {
+        public List<string?> Actions { get; } = [];
+        public async ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default)
+        {
+            await inner.AppendAsync(record, ct);
+            Actions.Add(Body(record, "action"));
+        }
+        public async ValueTask AppendCapturedAsync(AuditRecord record, CancellationToken ct = default)
+        {
+            await inner.AppendCapturedAsync(record, ct);
+            Actions.Add(Body(record, "action"));
+        }
+        public IAsyncEnumerable<AuditRecord> QueryAsync(AuditQuery query, CancellationToken ct = default) => inner.QueryAsync(query, ct);
     }
 
     [Fact(DisplayName = "T-1048: a crash after the activation commit leaves its audit owed, and a restarted host delivers it once")]
