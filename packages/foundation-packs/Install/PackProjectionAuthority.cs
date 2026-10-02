@@ -1,5 +1,6 @@
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 
 namespace Harborline.Api.Foundation.Packs.Install;
@@ -113,6 +114,15 @@ public sealed class PackProjectionAuthority
     }
 
     internal void Retire() => Interlocked.Exchange(ref _lifetime, 2);
+
+    /// <summary>
+    /// The admission a definition write carries under this authority (ck-10 S3b): the live decision, or, for an
+    /// authority replayed from a stored <see cref="PackProjectionAdmission"/>, that admission's provenance.
+    /// </summary>
+    public DefinitionWriteAdmission ToWriteAdmission() => Decision is { } decision
+        ? DefinitionWriteAdmission.ForPack(decision, this)
+        : DefinitionWriteAdmission.Replay(
+            Tenant, Principal, Operation, PackId, PackVersion, TargetKind, TargetId, ActivationInstant, this);
 
     internal static PackProjectionAuthority FromAdmission(PackProjectionAdmission admission)
     {
