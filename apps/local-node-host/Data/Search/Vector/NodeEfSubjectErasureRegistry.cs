@@ -90,6 +90,18 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
     }
 
     /// <inheritdoc />
+    public async ValueTask<SubjectErasureEvidence?> FindEvidenceAsync(
+        TenantId tenant, SubjectId subject, CancellationToken ct = default)
+    {
+        await using var ctx = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var row = await ctx.SubjectErasures
+            .AsNoTracking()
+            .SingleOrDefaultAsync(r => r.TenantId == tenant.Value && r.SubjectId == subject.Value, ct)
+            .ConfigureAwait(false);
+        return row?.ApprovedAtUnixMs is null ? null : Evidence(row);
+    }
+
+    /// <inheritdoc />
     public async ValueTask CompleteAsync(SubjectId subject, AuditRecord erasedAudit, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(erasedAudit);
@@ -128,11 +140,7 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
         return rows.Select(r => new InterruptedSubjectErasure(
             new TenantId(r.TenantId),
             new SubjectId(r.SubjectId),
-            new SubjectErasureEvidence(
-                (JsonSerializer.Deserialize<string[]>(r.ApprovingActorsJson ?? "[]") ?? [])
-                    .Select(a => new ActorId(a)).ToArray(),
-                r.LegalBasis ?? string.Empty,
-                DateTimeOffset.FromUnixTimeMilliseconds(r.ApprovedAtUnixMs!.Value)))).ToArray();
+            Evidence(r))).ToArray();
     }
 
     /// <inheritdoc />
@@ -147,6 +155,11 @@ public sealed class NodeEfSubjectErasureRegistry : ISubjectErasureRecoveryRegist
         row.NextRecoveryAtUnixMs = (now + RecoveryBackoff(row.RecoveryAttempts)).ToUnixTimeMilliseconds();
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
     }
+
+    private static SubjectErasureEvidence Evidence(SubjectErasureRow r) => new(
+        (JsonSerializer.Deserialize<string[]>(r.ApprovingActorsJson ?? "[]") ?? []).Select(a => new ActorId(a)).ToArray(),
+        r.LegalBasis ?? string.Empty,
+        DateTimeOffset.FromUnixTimeMilliseconds(r.ApprovedAtUnixMs!.Value));
 
     /// <summary>One minute after the first failure, doubling per attempt, at most an hour. Never a give-up.</summary>
     internal static TimeSpan RecoveryBackoff(int attempts) =>

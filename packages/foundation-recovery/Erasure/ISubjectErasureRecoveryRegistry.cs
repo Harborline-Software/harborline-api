@@ -37,6 +37,9 @@ public interface ISubjectErasureRecoveryRegistry : ISubjectErasureRegistry
     /// <returns><c>true</c> when this call performed the mark; <c>false</c> when the subject was already marked.</returns>
     ValueTask<bool> MarkErasedAsync(TenantId tenant, SubjectId subject, SubjectErasureEvidence evidence, CancellationToken ct = default);
 
+    /// <summary>The approval evidence the subject's mark recorded, or <c>null</c> when it recorded none or was completed.</summary>
+    ValueTask<SubjectErasureEvidence?> FindEvidenceAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default);
+
     /// <summary>Whether the subject's erasure completed: its audit secured and its evidence cleared.</summary>
     ValueTask<bool> IsCompletedAsync(TenantId tenant, SubjectId subject, CancellationToken ct = default);
 

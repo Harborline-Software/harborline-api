@@ -285,6 +285,47 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
         Assert.Null(row.ApprovedAtUnixMs);
     }
 
+    [Fact(DisplayName = "T-1048: a retry finishes an interrupted erasure with the evidence its first mark recorded, never the retry's approvers, basis or time")]
+    public async Task RetryAfterInterruption_KeepsTheOriginalEvidence()
+    {
+        var clock = new MutableClock { At = Now };
+        var trail = new AuthorityCapturingAuditTrail(new NodeAuditTrailStore(_store.Factory));
+        var service = Service(_store, new NodeEfSubjectTombstoneStore(_store.Factory), trail,
+            new Ed25519Signer(KeyPair.Generate()), new ScriptedPropagator(), clock);
+
+        // The first attempt marks with captain + officer at Now, then dies before its tombstone.
+        await ExecuteAsync("CREATE TRIGGER t1048_tombstone BEFORE INSERT ON search_subject_tombstones BEGIN SELECT RAISE(ABORT, 't1048'); END;");
+        await Assert.ThrowsAnyAsync<Exception>(() => service.EraseAsync(Request(Alice)));
+        await ExecuteAsync("DROP TRIGGER t1048_tombstone;");
+
+        // A retry an hour later carries other approvers and another basis.
+        clock.At = Now.AddHours(1);
+        var retry = new SubjectErasureRequest(
+            Tenant, Alice, Now, [new ActorId("auditor"), new ActorId("counsel")], "other-ticket");
+        var result = await service.EraseAsync(retry);
+
+        Assert.Equal(SubjectErasureOutcome.Erased, result.Outcome);
+        Assert.Equal(["captain", "officer"], result.Tombstone!.ApprovingActors.Select(a => a.Value));
+        Assert.Equal("erasure-ticket", result.Tombstone.LegalBasis);
+        Assert.Equal(Now, result.Tombstone.ErasedAt);
+        Assert.Single(await ErasedAuditsAsync(trail));
+        await AssertEvidenceClearedAsync(Alice);
+    }
+
+    [Fact(DisplayName = "T-1048: ISubjectErasureService keeps its one member, so an existing implementation compiles; recovery is the separate ISubjectErasureRecovery")]
+    public void An_erase_only_implementation_still_satisfies_the_service_interface()
+    {
+        ISubjectErasureService eraseOnly = new EraseOnlyService();
+        Assert.IsNotAssignableFrom<ISubjectErasureRecovery>(eraseOnly);
+        Assert.Equal([nameof(ISubjectErasureService.EraseAsync)], typeof(ISubjectErasureService).GetMethods().Select(m => m.Name));
+    }
+
+    private sealed class EraseOnlyService : ISubjectErasureService
+    {
+        public Task<SubjectErasureResult> EraseAsync(SubjectErasureRequest request, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+    }
+
     private async Task<int> CountAsync(string table)
     {
         await using var db = _store.CreateContext();

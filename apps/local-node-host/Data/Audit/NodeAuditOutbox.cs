@@ -329,11 +329,11 @@ public sealed class NodeAuditOutboxDrainDaemon(
         using var timer = new PeriodicTimer(Interval, time);
         do
         {
-            if (erasures is not null)
+            if (erasures is ISubjectErasureRecovery recovery)
             {
                 try
                 {
-                    await erasures.RecoverInterruptedAsync(ErasureRecoveryLimit, stoppingToken).ConfigureAwait(false);
+                    await recovery.RecoverInterruptedAsync(ErasureRecoveryLimit, stoppingToken).ConfigureAwait(false);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {

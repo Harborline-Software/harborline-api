@@ -21,7 +21,7 @@ namespace Harborline.Api.Foundation.Recovery.Erasure;
 /// not permitted, so the constructor requires both an <see cref="IAuditTrail"/>
 /// and an <see cref="IOperationSigner"/>.
 /// </summary>
-public sealed class SubjectErasureService : ISubjectErasureService
+public sealed class SubjectErasureService : ISubjectErasureService, ISubjectErasureRecovery
 {
     /// <summary>The ADR 0068 §3 approval floor: at least this many DISTINCT approvers.</summary>
     public const int MinimumApprovers = 2;
@@ -147,6 +147,13 @@ public sealed class SubjectErasureService : ISubjectErasureService
                 // Destroy the stored subject key even on an idempotent retry (key deletion is idempotent).
                 await _keyDestroyer.DestroySubjectKeysAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false);
                 return new SubjectErasureResult(SubjectErasureOutcome.AlreadyErased, existing);
+            }
+
+            // A retry finishes the erasure the FIRST mark approved: its recorded evidence, never this request's.
+            if (_recovery is not null
+                && await _recovery.FindEvidenceAsync(request.Tenant, request.Subject, ct).ConfigureAwait(false) is { } recorded)
+            {
+                evidence = recorded;
             }
         }
 
