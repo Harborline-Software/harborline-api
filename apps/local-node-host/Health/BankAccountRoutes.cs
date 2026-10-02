@@ -194,7 +194,7 @@ public static class BankAccountRoutes
                 Currency:            new CurrencyCode(string.IsNullOrWhiteSpace(body.CurrencyCode) ? "USD" : body.CurrencyCode.Trim().ToUpperInvariant()),
                 LinkedLedgerAccount: new LedgerAccountRef(
                     GLAccountId: new GLAccountId(body.LinkedLedgerAccountId ?? string.Empty),
-                    ChartId:     default),
+                    ChartId:     null),
                 OpeningBalance:      0m,
                 CutoverAsOf:         now,
                 ArchivedAt:          null,
@@ -379,8 +379,10 @@ public static class BankAccountRoutes
             // period. If no period covers the date, the accept proceeds with no fiscal gate (single-
             // device tenants may not have opened a period yet — the bank-rec lock still applies).
             var postedDate = DateOnly.FromDateTime(statementLine.PostedAt.Value.UtcDateTime);
-            FiscalPeriod? period = await b.PeriodRepo
-                .FindByChartAndDateAsync(account.LinkedLedgerAccount.ChartId, postedDate, ct).ConfigureAwait(false);
+            // An account with no chart has no covering period either.
+            FiscalPeriod? period = account.LinkedLedgerAccount.ChartId is { } chartId
+                ? await b.PeriodRepo.FindByChartAndDateAsync(chartId, postedDate, ct).ConfigureAwait(false)
+                : null;
 
             try
             {

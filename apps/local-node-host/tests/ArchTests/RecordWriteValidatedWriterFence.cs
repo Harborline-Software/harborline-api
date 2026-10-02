@@ -31,10 +31,6 @@ internal static class RecordWriteValidatedWriterFence
     /// </summary>
     internal static readonly string[] ValidatedWriters =
     [
-        // Not a write of its own: the port's internal `CreateBatchAsync` default interface member fans out
-        // to the internal `CreateAsync`. It has no production caller at all now that the record writers use
-        // the token seam, so the body it would forward could only come from an envelope writer.
-        "packages/foundation/Assets/Entities/IEntityStore.cs",
         // Body is a serialized DEFINITION envelope on a lifecycle status transition; admitted by the
         // definition lifecycle's own allowed-from transition guard, which a record schema cannot express.
         "packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs",
