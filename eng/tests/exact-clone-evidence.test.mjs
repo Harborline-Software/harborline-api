@@ -168,3 +168,69 @@ test('runner reporting exceptions retain redacted failed command output before s
     assert.doesNotMatch(JSON.stringify(result.persisted), /private-scratch|RAW PRIVATE OUTPUT|FIRST FAILED COMMAND/)
   } finally { rmSync(root, {recursive: true, force: true}) }
 })
+
+
+test('actual tolerated-exit commands retain their output when reports are missing regardless of exit status', () => {
+  const source = readFileSync(path.join(apiRoot, 'eng/run-exact-clone.mjs'), 'utf8').replaceAll('\r\n', '\n')
+  const commandBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
+  const handler = source.slice(source.indexOf('} catch (error) {\n  steps.push'),
+    source.indexOf('\n// Record the report whatever its status.'))
+  for (const id of ['dotnet-host-tests', 'capability-tests']) {
+    for (const status of [0, 1, null]) {
+      const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-provisional-'))
+      try {
+        const steps = []
+        const raw = '\u001b[31mREPORTER FAILED AT START\n' + 'later line\n'.repeat(30) + 'private-scratch/clone/report\n'
+        const redact = text => text.replaceAll('\u001b[31m', '').replaceAll('private-scratch/clone', '<exact-clone>')
+        const run = new Function('steps', 'resolveCommand', 'spawnSync', 'stripAnsi', 'redactEvidence',
+          commandBlock + '\nreturn run')(steps, (command, args) => ({executable: command, args}),
+          () => ({status, stdout: raw, stderr: 'REPORT MISSING\n'}), text => text.replaceAll('\u001b[31m', ''), redact)
+        run(id, 'fixture', [], root, {expectNonZero: true})
+        assert.equal(steps[0].passed, true, 'production tolerated exit is provisional')
+        assert.equal(steps[0].verdictFrom, 'baseline comparison, not exit code')
+        let cleaned = false
+        const result = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
+          'redactEvidence', 'persistStepEvidence', 'rmSync',
+          'let report; let persisted; const retainScratch = false; try { throw new Error("private-scratch/clone/missing-report")\n' +
+          handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, 'private-scratch', redact,
+          persistStepEvidence, () => {
+            assert.equal(readFileSync(path.join(root, '.claude', 'gate-evidence',
+              `exact-clone-fixture-head-${id}.log`), 'utf8'),
+              'REPORTER FAILED AT START\n' + 'later line\n'.repeat(30) + '<exact-clone>/report\nREPORT MISSING\n')
+            cleaned = true
+          })
+        assert.equal(cleaned, true)
+        assert.equal(result.status, 'FAIL')
+        assert.equal(result.steps[0].passed, true, 'diagnostics must not reclassify a provisional verdict')
+        assert.equal(result.steps[0].exitCode, status)
+        assert.doesNotMatch(JSON.stringify(result), /private-scratch|REPORTER FAILED|fullOutput|rawOutput/)
+      } finally { rmSync(root, {recursive: true, force: true}) }
+    }
+  }
+})
+
+test('completed reports retain only failed output; aborted reports retain the captured command chain', () => {
+  for (const scenario of [
+    {status: 'PASS', aborted: false, expected: []},
+    {status: 'FAIL', aborted: false, expected: ['failed-command']},
+    {status: 'FAIL', aborted: true, expected: ['successful-command', 'provisional-command', 'failed-command']},
+  ]) {
+    const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-output-matrix-'))
+    try {
+      const steps = [
+        {id: 'successful-command', passed: true, exitCode: 0, fullOutput: 'successful fixture'},
+        {id: 'provisional-command', passed: true, exitCode: 1, fullOutput: 'permitted or unresolved fixture'},
+        {id: 'failed-command', passed: false, exitCode: 1, fullOutput: 'failed fixture'},
+        {id: 'synthetic-step', passed: false},
+      ]
+      if (scenario.aborted) steps.push({id: 'report-assembly', passed: false, tail: 'missing report'})
+      const persisted = persistStepEvidence({report: {status: scenario.status, apiCommit: 'matrix-head', steps},
+        apiRoot: root, redactEvidence: text => text})
+      assert.deepEqual(persisted.steps.filter(step => step.outputFile).map(step => step.id), scenario.expected)
+      assert.deepEqual(persisted.steps.map(step => step.passed), steps.map(step => step.passed))
+      assert.equal(persisted.status, scenario.status)
+      assert.doesNotMatch(JSON.stringify(persisted), /fullOutput|rawOutput/)
+      if (scenario.status === 'PASS') assert.equal(existsSync(path.join(root, '.claude')), false)
+    } finally { rmSync(root, {recursive: true, force: true}) }
+  }
+})
