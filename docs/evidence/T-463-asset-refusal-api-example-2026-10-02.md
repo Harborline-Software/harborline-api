@@ -91,3 +91,14 @@ rows. The fixture's outer package gate permits requests; this is real HTTP workf
 not production author-only authorization proof. It covers Proposal mode only; VerifyInstalled live
 script invocation remains owed. The child has a 30-second timeout and no operational instance is used.
 This new integration test is UNRUN pending parent capacity release, as are the three asset tests.
+
+## Main reconciliation after PR332 merged
+
+Normally merged current main `d683391bc7a052f1d22c095e5d21ac13b1154f18` after GitHub retargeted PR336
+to main. Three squash-history conflicts had empty incoming sides: preserved the existing verifier
+additions, copied client script item and unresolved-fixture probes. Those three files are byte-identical
+to pre-reconciliation HEAD; candidate/suite fixtures and the permission fix are preserved. Upstream
+pipeline/test-isolation changes came from main without local edits and do not appear in the PR diff
+against main. No force push. The reconciled head still needs parent review/exact-head host validation.
+Loader regressions 3/3, client-routing regressions 4/4 and codegen check passed after reconciliation.
+CPU samples showed active external testhosts/VSTest, so no local .NET validation was launched.

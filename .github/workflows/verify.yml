@@ -194,20 +194,13 @@ jobs:
           git -C "$HARBORLINE_PLATFORM_REPO" checkout -q --detach "$pin" && git -C "$HARBORLINE_PLATFORM_REPO" clean -fdxq
           echo "platform $pin"
 
-      - name: Build the local platform feed
-        run: |
-          node eng/build-local-feed.mjs
-
-      - name: Perf lane (Lane=perf, alone on this host)
-        # T-680: this lane has the box to itself, so the timing gate applies its quiet bounds.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Quiet perf and feed under the machine reservation
         env:
           HARBORLINE_PERF_QUIET: '1'
-        run: |
-          set -o pipefail
-          mkdir -p .claude/gate-evidence
-          dotnet test apps/local-node-host/tests/tests.csproj -c Release --nologo -nodeReuse:false             --filter "Lane=perf"             --logger "trx;LogFileName=perf-tests.trx" --results-directory .claude/gate-evidence             --logger "console;verbosity=detailed"             -- RunConfiguration.TreatNoTestsAsError=true | tee .claude/gate-evidence/perf-tests.log
-          echo "## Layout timing parity (KS)" >> "$GITHUB_STEP_SUMMARY"
-          grep -E "KS D = " .claude/gate-evidence/perf-tests.log | sed -E 's/^ *(\[xUnit[^]]*\] *)?//' | sort -u | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+        run: python .github/workloads/host-workload-lock.py -- bash .github/workloads/perf.sh
 
       - name: Evidence
         if: always()
