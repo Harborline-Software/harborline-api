@@ -118,7 +118,7 @@ internal static class PackInstallRoutes
             // Preview NEVER mutates and the uploaded artifact is not yet a pack record — no record target,
             // admitted only because `packages:operate` is declared install-wide.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -140,7 +140,7 @@ internal static class PackInstallRoutes
         {
             var tenant = NodeTenant.Resolve(activeTeam);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -175,7 +175,7 @@ internal static class PackInstallRoutes
                 bytes, new PackInstallContext(tenant, trustStore, revocation, time.GetUtcNow(), RevocationMaxAge));
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, authority, PackOperation.Operate, naming.PackKey, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, naming.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -241,7 +241,7 @@ internal static class PackInstallRoutes
             // The pointer flip is an act ON the named pack — that pack is the record target.
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, authority, PackOperation.Operate, request.PackKey, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, request.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -346,7 +346,7 @@ internal static class PackInstallRoutes
             // Retraction is an act ON the named pack — that pack is the record target.
             var authority = PackRouteAuthorization.Authority(http, tenant, time);
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, authority, PackOperation.Operate, request.PackKey, ct)
+                .RefusalAsync(http, gate, authority, PackOperation.Operate, request.PackKey, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -422,7 +422,7 @@ internal static class PackInstallRoutes
             var tenant = selected?.TenantId ?? NodeTenant.Resolve(activeTeam);
             // The installed-pack LIST is an install-wide read — it names no one pack.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {

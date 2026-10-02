@@ -78,7 +78,11 @@ public sealed class NodeBankAccountWriter(
         protected override async ValueTask<BankAccount?> BindAsync(CancellationToken ct)
         {
             if (account.TenantId != authority.Tenant)
+<<<<<<< HEAD
                 throw new ArgumentException("The bank account tenant does not match the write authority.", nameof(account));
+=======
+                throw new ArgumentException("The bank account tenant does not match the write authority.");
+>>>>>>> origin/main
             if (await writer.Accounts.GetByIdAsync(authority.Tenant, account.Id, ct).ConfigureAwait(false) is not null)
                 throw new InvalidOperationException($"Bank account '{account.Id.Value}' already exists.");
             return account;
@@ -93,7 +97,11 @@ public sealed class NodeBankAccountWriter(
 
         protected override ValueTask<BankAccount> ValidateAsync(BankAccount bound, BankAccount mutation, CancellationToken ct) =>
             string.IsNullOrWhiteSpace(mutation.DisplayName)
+<<<<<<< HEAD
                 ? throw new ArgumentException("A bank account needs a display name.", nameof(account))
+=======
+                ? throw new ArgumentException("A bank account needs a display name.", nameof(mutation))
+>>>>>>> origin/main
                 : ValueTask.FromResult(mutation);
 
         protected override async ValueTask CommitAsync(BankAccount validated, CancellationToken ct) =>

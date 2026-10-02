@@ -1,0 +1,94 @@
+{
+  "contract": "harborline.verification-suite/v1",
+  "suiteId": "t463.ledger.post.future",
+  "version": "1.0.0",
+  "catalogue": "53787c4f69c20d380f3d78416e822d365cfe93fcc028b00c86150316dac613d3",
+  "fixtures": [
+    {
+      "fixtureId": "approver",
+      "instant": "2026-09-20T09:00:00.0000000+00:00",
+      "timeZone": "Europe/London",
+      "locale": "en-GB",
+      "identifierSeed": "t463-ledger",
+      "ordering": "ordinal-by-key",
+      "actor": "moss.adeyemi",
+      "grants": [
+        {
+          "roleKey": "invoice.approver",
+          "scope": "/"
+        },
+        {
+          "roleKey": "invoice.author",
+          "scope": "/"
+        }
+      ],
+      "ports": [
+        {
+          "portId": "notifications.email",
+          "simulator": "record-only"
+        },
+        {
+          "portId": "payments.remit",
+          "simulator": "denied"
+        }
+      ],
+      "facts": [
+        {
+          "recordType": "journal",
+          "body": "{\"id\":\"ledger-initial\",\"status\":\"draft\",\"total\":0}"
+        }
+      ]
+    },
+    {
+      "fixtureId": "clerk",
+      "instant": "2026-09-20T09:00:00.0000000+00:00",
+      "timeZone": "Europe/London",
+      "locale": "en-GB",
+      "identifierSeed": "t463-ledger",
+      "ordering": "ordinal-by-key",
+      "actor": "dana.okafor",
+      "grants": [
+        {
+          "roleKey": "invoice.author",
+          "scope": "/"
+        }
+      ],
+      "ports": [
+        {
+          "portId": "notifications.email",
+          "simulator": "record-only"
+        },
+        {
+          "portId": "payments.remit",
+          "simulator": "denied"
+        }
+      ],
+      "facts": [
+        {
+          "recordType": "journal",
+          "body": "{\"id\":\"ledger-initial\",\"status\":\"draft\",\"total\":0}"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "ledger-post",
+      "title": "Posting executes through the existing ledger service.",
+      "fixtureId": "approver",
+      "actionId": "ledger.post",
+      "inputs": {
+        "recordType": "\"journal\"",
+        "values": "{\"debit\":200,\"credit\":200}"
+      },
+      "assertions": [
+        {
+          "predicateId": "outcome.accepted",
+          "target": null,
+          "expected": "true"
+        }
+      ],
+      "rows": []
+    }
+  ]
+}

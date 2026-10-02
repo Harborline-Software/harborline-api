@@ -30,7 +30,7 @@ on:
   push:
     # T-577: no push-to-main run; the merge group already proved the landing commit.
     # 2026-09-29 (owner, platform's T-579 rule): a push is publication only. It reruns no test: the
-    # two test jobs below skip on push, pack-consume only packs, and publish refuses a commit that is
+    # two source-test jobs below skip on push; pack-consume proves the freshly packed bytes, and publish refuses a commit that is
     # not on main (which the merge group proved).
     tags: ["v*-preview.*", "v*-alpha.*", "v*-beta.*", "v*-rc.*"]
   workflow_dispatch:
@@ -147,7 +147,7 @@ jobs:
   # external consumer would. It does not wait on the host suite (verify.yml): proving the packed
   # nupkgs restore and run is independent evidence from the unit suite, and gating it behind the
   # suite is precisely what hid a restore-breaking NU1015 in Directory.Build.props.
-  # On push (publication only) it packs and uploads without the consumer run.
+  # Every event consumes the exact packed bytes; push skips the broader source checks.
   pack-consume:
     # A draft and a `stacked` PR skip it, as protocol-lane-conformance does; every other event runs it.
     if: >-
@@ -186,6 +186,8 @@ jobs:
             exit 1
           fi
           echo "value=$value" >> "$GITHUB_OUTPUT"
+      - name: Test package promotion guards
+        run: python3 -m unittest discover -s eng/tests -p "test_package_proof.py"
       - name: Pack and verify clean consumer
         env:
           HARBORLINE_PACKAGE_PACK_ONLY: ${{ github.event_name == 'push' && '1' || '' }}
@@ -211,17 +213,22 @@ jobs:
           pnpm run build
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm pack --pack-destination "${{ github.workspace }}/artifacts/packages"
+      - name: Bind the distribution manifest to the successful consumer proof
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: python3 eng/package-proof.py seal artifacts/packages "$VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: harborline-api-${{ steps.version.outputs.value }}
           path: |
             artifacts/packages/*.nupkg
             artifacts/packages/*.tgz
+            artifacts/packages/consumer-proof.json
+            artifacts/packages/package-manifest.json
           if-no-files-found: error
-  # Publication reruns no test (2026-09-29, owner). The full suite and the clean consumer were
-  # proved on the commit in its merge group (verify, pack-consume), so publish only accepts a commit
-  # main contains. The nupkgs come from pack-consume's artifact rather than being re-packed; on a
-  # dispatch pack-consume also reruns the consumer check on those exact bytes.
+  # Publication does not rerun the source suite. It accepts only commits on main and the exact
+  # NuGet bytes consumed in this run. The npm tarball is identity/hash checked, not consumer-tested.
+  # The source/run-bound receipt and distribution manifest are checked after artifact transfer.
   publish:
     needs: [pack-consume]
     if: >-
@@ -250,6 +257,10 @@ jobs:
         with:
           name: harborline-api-${{ needs.pack-consume.outputs.version }}
           path: artifacts/packages
+      - name: Verify transferred package bytes and consumer proof
+        env:
+          VERSION: ${{ needs.pack-consume.outputs.version }}
+        run: python3 eng/package-proof.py verify artifacts/packages "$VERSION"
       - name: Require explicit distribution authority
         shell: bash
         run: |

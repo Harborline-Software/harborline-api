@@ -6,8 +6,8 @@
 # eng/baselines/mutation-slices.json (days since the epoch mod the slice count; silent-failure slices
 # first). A slice still "pending" there has its score recorded, not enforced; a follow-up PR copies
 # the score from this run's summary into the baselines file. A pull request is never held to that floor: verify.yml's `stryker` job reports the
-# survivors on its changed lines instead. winbox only (macpro is the gate bottleneck; mac16 is the
-# perf lane's). No pull_request trigger, so no fork code reaches the runner.
+# survivors on its changed lines instead. Windows remains the default; mac16 requires committed
+# qualification before routing can select it. No pull_request trigger, so no fork code reaches the runner.
 name: mutation
 
 on:
@@ -28,20 +28,40 @@ permissions:
   contents: read
 
 jobs:
-  stryker-full:
+  workload-route:
     if: vars.ACTIONS_ENABLED == 'true'
-    runs-on: [self-hosted, Windows, winbox]
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.route.outputs.enabled }}
+      labels: ${{ steps.route.outputs.labels }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Explain background routing
+        id: route
+        env:
+          BACKGROUND_MUTATION_ROUTE: ${{ vars.BACKGROUND_MUTATION_ROUTE }}
+          LOCAL_BACKGROUND_RESERVATION: ${{ vars.LOCAL_BACKGROUND_RESERVATION }}
+        run: |
+          node --test .github/workloads/workload-route.test.mjs .github/workloads/windows-default.test.mjs .github/workloads/select-platform-pin.test.mjs
+          python3 .github/workloads/host-workload-lock.test.py
+          node .github/workloads/workload-route.mjs
+  stryker-full:
+    needs: workload-route
+    if: vars.ACTIONS_ENABLED == 'true' && needs.workload-route.outputs.enabled == 'true'
+    runs-on: ${{ fromJSON(needs.workload-route.outputs.labels) }}
     timeout-minutes: 360
     defaults:
       run:
         shell: bash
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      NUGET_PACKAGES: C:\nuget-runner
       # vstest's 90 s default lapsed on a loaded winbox with eight Stryker runners (T-236 proof run).
       VSTEST_CONNECTION_TIMEOUT: '300'
     steps:
       - name: Git Bash on PATH for the service account
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
@@ -50,20 +70,39 @@ jobs:
       - uses: actions/checkout@v7
         with:
           clean: true
+          persist-credentials: false
 
-      - name: Platform pin and local feed
-        run: |
-          plat="$USERPROFILE/Projects/Harborline/lanes/platform-pin-stryker"
-          pin=$(node -e "console.log(JSON.parse(require('fs').readFileSync('eng/platform-pin.json','utf8')).commit)")
-          [ -d "$plat/.git" ] || git clone -q https://github.com/Harborline-Software/harborline-platform.git "$plat"
-          git -C "$plat" fetch -q origin && git -C "$plat" checkout -q --detach "$pin" && git -C "$plat" clean -fdxq
-          HARBORLINE_PLATFORM_REPO="$plat" node eng/build-local-feed.mjs
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        if: runner.os != 'Windows'
+        with:
+          python-version: '3.14'
+      - name: Check out Platform main without executing it
+        uses: actions/checkout@v7
+        with:
+          repository: Harborline-Software/harborline-platform
+          ref: main
+          fetch-depth: 0
+          path: .platform
+          persist-credentials: false
+      - name: Validate and select the recorded Platform pin
+        run: node .github/workloads/select-platform-pin.mjs
 
-      - name: Mutation (full, break from the baselines file)
+      - name: Reserved full mutation and isolated feed
         run: |
-          dotnet tool restore
-          node eng/mutation-report.mjs --full ${SLICE:+--slice "$SLICE"}
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            source .github/workloads/full-mutation.sh
+          else
+            python .github/workloads/host-workload-lock.py -- bash .github/workloads/full-mutation.sh
+          fi
         env:
+          HARBORLINE_PLATFORM_REPO: ${{ github.workspace }}/.platform
+          NUGET_PACKAGES: ${{ runner.temp }}/mutation-nuget-${{ github.run_id }}-${{ github.run_attempt }}
           SLICE: ${{ inputs.slice }}
 
       - name: Mutation reports
