@@ -22,8 +22,11 @@ namespace Harborline.Api.LocalNodeHost.Tests.Packs;
 
 public sealed partial class AccessAdministrationPreloadTests
 {
-    [Fact]
-    public async Task T433_predeclared_key_drives_real_engine_instance_and_workflow_grant_with_idempotent_replay()
+    [Theory]
+    [InlineData(false, "1.0.3")]
+    [InlineData(true, "1.0.1")]
+    public async Task T433_predeclared_key_drives_real_engine_instance_and_workflow_grant_with_idempotent_replay(
+        bool releasedPredecessor, string expectedWorkflowVersion)
     {
         var tenant = new TenantId("43300000-0000-4000-8000-000000000000");
         var actor = new ActorId("m6-t433-admin");
@@ -31,7 +34,8 @@ public sealed partial class AccessAdministrationPreloadTests
         var expectedInstance = "forminst:forms/d4e5853b33c3fa3c1f5fef18c00f0c62";
         var expectedGrant = new GrantId(Guid.Parse("2f6717a4-88a6-0d55-0688-96f359e06dea"));
         await _platformPreload.PreloadAsync(tenant, CancellationToken.None);
-        await _preload.PreloadAsync(tenant, CancellationToken.None);
+        if (releasedPredecessor) await InstallReleased113Async(tenant);
+        else await _preload.PreloadAsync(tenant, CancellationToken.None);
 
         var (grants, configuration) = TestInMemoryAuthorizationStores.Pair();
         var definitions = new AuthorizationDefinitionWriter(configuration, configuration,
@@ -57,7 +61,8 @@ public sealed partial class AccessAdministrationPreloadTests
             [new GrantIssuanceHandler(new NodeGrantIssuanceContext(grants), _roles,
                 new DefinitionJoinedAuthorizationReader(grants, configuration))]);
         var projection = new AccessGrantFormSubmissionProjection(
-            new NodeWorkflowInstantiationService(workflowStore, factory), dispatcher, workflowStore);
+            new NodeWorkflowInstantiationService(workflowStore, factory,
+                _app.Services.GetRequiredService<IWorkflowDefinitionExecutionStore>()), dispatcher, workflowStore);
         var engine = new ProjectingFormEngine(_app.Services.GetRequiredService<IFormEngine>(),
             new FormSubmitProjectionRunner([projection]));
         var form = new FormDefinitionId("access.grant-a-role");
@@ -82,6 +87,8 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.Equal("/records", grant.Scope.Value);
         var workflow = await workflowStore.LoadAsync("access-grant-form:" + expectedInstance);
         Assert.NotNull(workflow);
+        // Oracle: released 1.1.3 carries workflow 1.0.1; the current 1.1.6 carries 1.0.3.
+        Assert.Equal(expectedWorkflowVersion, workflow.DefinitionVersion);
         Assert.Equal(WorkflowStatus.Completed, workflow.Status);
         var result = await workflowStore.FindStepResultAsync(new WorkflowStepKey(workflow.Id, 0, GrantIssuanceSteps.Approve));
         Assert.NotNull(result);

@@ -206,11 +206,12 @@ public static class NodeWorkflowComposition
         // (an issued invoice → an invoice-approval Process; an Active RecurringInvoiceSchedule →
         // a recurring-generation Process the daemon then drives). Completes the engine end-to-end: the
         // handlers + dispatcher + daemon advance instances; THIS is what puts instances in the store. Depends
-        // only on the IWorkflowStore + the LocalNodeDbContext factory (both already registered).
+        // on the workflow store and context factory; Access issuance also resolves its active admitted definition.
         services.AddSingleton(sp =>
             new NodeWorkflowInstantiationService(
                 sp.GetRequiredService<IWorkflowStore>(),
-                sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>()));
+                sp.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>(),
+                sp.GetService<IWorkflowDefinitionExecutionStore>()));
 
         // ── The invoice-issue cutover + the parked-task (Ask-bar Inbox) read model (ADR 0135 vertical flow) ──
         //

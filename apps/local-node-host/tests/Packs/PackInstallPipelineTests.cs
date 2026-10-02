@@ -91,12 +91,12 @@ public sealed class PackInstallPipelineTests : IDisposable
         var outcome = await _installer.InstallAsync(tampered, Context());
 
         Assert.False(outcome.Installed);
-        Assert.Equal([PackInstallCodes.RefusedNotVerified], outcome.RefusalCodes);
+        Assert.Equal(["pack.install.refused.not_verified"], outcome.RefusalCodes);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
         Assert.Null(_store.GetWatermark(Tenant, PackKey));
         Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Refused
-            && entry.Detail == PackInstallCodes.RefusedNotVerified);
+            && entry.Detail == "pack.install.refused.not_verified");
     }
 
     [Fact]
