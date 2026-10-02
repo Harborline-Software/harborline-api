@@ -202,7 +202,7 @@ public sealed class NodeEntityWriterCrashAuditTests : IAsyncLifetime
     }
 
     private static LocalNodeDbContext LocalNode(DurableAuditHarness harness) =>
-        harness.Store.CreateLocalNodeContext([new FinancialLedgerEntityModule()]);
+        harness.Store.CreateLocalNodeContext([new FinancialLedgerEntityModule(), new Data.Audit.AuditOutboxEntityModule()]);
 
     private sealed class LocalNodeFactory(DurableAuditHarness harness) : IDbContextFactory<LocalNodeDbContext>
     {
