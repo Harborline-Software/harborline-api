@@ -1,0 +1,140 @@
+{
+  "apps/local-node-host/tests/ArchTests/DekPairingResolverArchFence.cs\tDekPairingResolverArchFence\tClearAllPools": {
+    "Count": 4,
+    "TypeSha256": "fb694c4ba640e05be997db8cf3899ea3c4cab2d87fe6b87d2a675840988e2eca",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Authorization/SqliteEntityStore.cs\tSqliteEntityStore\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "b80163c20c7dbb542589da20c103b5f78016c43b5f54f54bd6b7a67849dcd04c",
+    "Owner": "T-1031",
+    "Reason": "Inherited mutating store helper; annotation cannot isolate arbitrary callers."
+  },
+  "apps/local-node-host/tests/BackupRestore/NodeRehostCompositionTests.cs\tNodeRehostCompositionTests\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "5ae7a91b71013fa0a4f3fd47c41de11c113bb08774696035efb95a86b1aaba06",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Calendar/CalendarDevSeederTests.cs\tCalendarDevSeederTests\tSetEnvironmentVariable": {
+    "Count": 4,
+    "TypeSha256": "eaa80403848b0e7885af6699a1922095545b7ac04a54f44aa48ce4fcccd8beef",
+    "Owner": "T-1031",
+    "Reason": "Inherited environment override/restoration; isolation not established."
+  },
+  "apps/local-node-host/tests/Calendar/NodeEfCalendarCollectionStoreTests.cs\tNodeEfCalendarCollectionStoreTests\tClearAllPools": {
+    "Count": 5,
+    "TypeSha256": "e6ea14e849fde7c01d96134461639c4a9c8143827abd872a3472953818a61fd6",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Calendar/NodeEfCalendarStoreTests.cs\tNodeEfCalendarStoreTests\tClearAllPools": {
+    "Count": 4,
+    "TypeSha256": "a33a5f4234e209d8c02b17c11581d44c4fda588ce70204da0a3ee41ad1d4dd3a",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Encryption/SqlCipherFailClosedTests.cs\tSqlCipherFailClosedTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "2ddaa8134db5703ff821c6d796184478c44b2eef4c2c4fed96c5988cc37867c0",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Encryption/SqlCipherStoreDekTests.cs\tSqlCipherStoreDekTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "b28b385f795a532e79d6737aae0951a31c4856a7a97682e28d9be72bdeea6826",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Financial/PaymentApplicationReversalRepositoryTests.cs\tPaymentApplicationReversalRepositoryTests\tClearAllPools": {
+    "Count": 14,
+    "TypeSha256": "3a4eec1b5ab7407b18e682d06b107c6293187e0e55f299a63925c5b3d51ebcc4",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Financial/PaymentApplicationUnapplyServiceSeamTests.cs\tPaymentApplicationUnapplyServiceSeamTests\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "1fee155ee079abed1d408711b0169d97e4be5d5baafa5f4f499732eea7ddd375",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Forms/VolatileBlobStoreProductionGuardTests.cs\tVolatileBlobStoreProductionGuardTests\tSetEnvironmentVariable": {
+    "Count": 4,
+    "TypeSha256": "30135b33bf25a54df956bbf94660ebf0e735fe71ef5932659e19e85a303a35cc",
+    "Owner": "T-1031",
+    "Reason": "Inherited environment override/restoration; isolation not established."
+  },
+  "apps/local-node-host/tests/Identity/AccessHoldersReadCompositionTests.cs\tAccessHoldersReadCompositionTests\tClearAllPools": {
+    "Count": 3,
+    "TypeSha256": "74caa13f515d4e68c87cb9c791ca51931fe7b4881e63b094c8369227ef523136",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Identity/BootstrapClaimRedemptionTests.cs\tBootstrapClaimRedemptionTests\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "ff943d08a034926f6b5de1a8aa51ff7e2fbed4c1d7127d0070e49f19af431aef",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Identity/CanonicalPrincipalPartyReaderTests.cs\tCanonicalPrincipalPartyReaderTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "42e0a4dce204645a08fecdc764240cd323d6ad1373d1a3485f487be4228f41af",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Identity/InstallationIdentityMigrationSchemaTests.cs\tInstallationIdentityMigrationSchemaTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "78df43c4b61e75d4e09c117789cc68d53918366322db0ca4f340bdf5101518bb",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Identity/LegacyIdentityMigrationServiceTests.cs\tLegacyIdentityMigrationServiceTests.SqliteLegacyStore\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "7877c1572226d5ddbd453c42efbad9494744a11ab51ff61a68106cfb5feb3239",
+    "Owner": "T-1031",
+    "Reason": "Inherited mutating store helper; annotation cannot isolate arbitrary callers."
+  },
+  "apps/local-node-host/tests/Identity/Mtw00CRedFixtures/LegacyV1CutoverAuthorityProof.cs\tLegacyV1CutoverAuthorityProof.CutoverProofStore\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "de76a15c1b53f07937e07a37644c26d6c4f90f6fa6a77624d1ee1c23b5138afc",
+    "Owner": "T-1031",
+    "Reason": "Inherited mutating store helper; annotation cannot isolate arbitrary callers."
+  },
+  "apps/local-node-host/tests/Identity/Mtw00CRedFixtures/Mtw00CRedFixtureHarness.cs\tDurableStore\tClearAllPools": {
+    "Count": 1,
+    "TypeSha256": "05d5586fd4bb78b857c7d3b486d872bd92b26e99a7d8a960e44bc142873a0466",
+    "Owner": "T-1031",
+    "Reason": "Inherited mutating store helper; annotation cannot isolate arbitrary callers."
+  },
+  "apps/local-node-host/tests/Identity/UnattributedGrantCompositionTests.cs\tUnattributedGrantCompositionTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "ba3757c199026a0bfd087418d1e4562b16e7603317403511c66337ac38a6c9db",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Identity/VerifiedTenantRosterReaderTests.cs\tVerifiedTenantRosterReaderTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "0ce8c88f523f75a7fdef0058e602c0ea7fcc480e3a985185ca78d1c65e807138",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/Maintenance/MaintenanceStoreTests.cs\tMaintenanceStoreTests\tClearAllPools": {
+    "Count": 3,
+    "TypeSha256": "8d43f60513f4bee9d7e5ff1fdd7d96123e60baa5b8e34cd7dbc0857592a4efd5",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/NodeLocalStore/NodeLocalDoctypeStoreTests.cs\tNodeLocalDoctypeStoreTests\tClearAllPools": {
+    "Count": 6,
+    "TypeSha256": "d3b545f18efb7925824d912354cbb6b61f8724b889f3e1f9a9af591bfb4e0177",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  },
+  "apps/local-node-host/tests/OrgBranding/NodeEfOrgBrandingStoreTests.cs\tNodeEfOrgBrandingStoreTests\tClearAllPools": {
+    "Count": 2,
+    "TypeSha256": "70cad30e25121079abf2d4580f39a917eca2f71fdf21faeea105900e9bd6ba70",
+    "Owner": "T-1031",
+    "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
+  }
+}
