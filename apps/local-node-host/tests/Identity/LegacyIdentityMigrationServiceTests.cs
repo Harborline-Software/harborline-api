@@ -1209,7 +1209,7 @@ public sealed class LegacyIdentityMigrationServiceTests
 
         public ValueTask DisposeAsync()
         {
-            SqliteConnection.ClearAllPools();
+            // Every connection owned by this helper has Pooling=false and is disposed by its caller.
             if (File.Exists(_path))
             {
                 File.Delete(_path);
