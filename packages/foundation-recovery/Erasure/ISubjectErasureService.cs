@@ -46,6 +46,15 @@ public interface ISubjectErasureService
     /// The approval floor or the mandatory-minimum dwell window was not satisfied.
     /// </exception>
     Task<SubjectErasureResult> EraseAsync(SubjectErasureRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// T-1048: finishes up to <paramref name="limit"/> erasures whose registry mark committed but which a crash
+    /// interrupted before their audit was secured, from the approval evidence the mark recorded. A host runs it
+    /// at startup and on an interval. A failing erasure is deferred with backoff, never abandoned. A registry
+    /// that records no evidence has nothing to recover.
+    /// </summary>
+    /// <returns>The number of erasures this pass completed.</returns>
+    Task<int> RecoverInterruptedAsync(int limit, CancellationToken ct = default);
 }
 
 /// <summary>

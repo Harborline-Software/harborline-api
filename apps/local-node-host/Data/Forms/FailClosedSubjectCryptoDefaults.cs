@@ -44,4 +44,7 @@ internal sealed class FailClosedSubjectErasureService : ISubjectErasureService
         => throw new InvalidOperationException(
             "Subject erasure (crypto-shred) is not available on this node-forms composition. Wire " +
             "AddHarborlineRecoveryCoordinator with durable erasure stores (RequireDurableErasureStores) to enable it.");
+
+    // It never erases, so no erasure of its can be interrupted.
+    public Task<int> RecoverInterruptedAsync(int limit, CancellationToken ct = default) => Task.FromResult(0);
 }

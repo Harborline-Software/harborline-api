@@ -117,11 +117,13 @@ public sealed class LocalNodeExclusiveEfContextCatalogTests
         "20260928120000_AddConfigurationRecoveries",
         // DES-0029 ck-6: an activation's evidence outbox row carries its captured authority and last delivery error.
         "20260929180000_AddConfigurationEvidenceAuthority",
+        // T-1048: a subject erasure's recovery evidence, completion and backoff on the search context.
+        "20261002190000_SubjectErasureRecoveryEvidence",
     ];
 
     [Fact]
     [Trait("PlanCard", "ADM-01A")]
-    public void Catalog_Binds_The_Exact_16_Contexts_60_Migrations_And_15_Plus_1_Owners()
+    public void Catalog_Binds_The_Exact_16_Contexts_61_Migrations_And_15_Plus_1_Owners()
     {
         var catalog = LocalNodeExclusiveEfContextCatalog.All;
 
