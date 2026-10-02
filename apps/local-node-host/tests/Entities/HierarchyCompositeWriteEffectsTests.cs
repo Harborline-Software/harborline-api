@@ -344,20 +344,49 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal(addEdge ? 2 : 0, (await h.ParentEdges(KidA, At)).Count);
     }
 
-    [Fact]
-    public async Task CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement(int admissionDays)
     {
         var h = await Harness.CreateAsync();
         await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        var admittedAt = At.AddDays(admissionDays);
+        var first = h.CoordinatorOver(h.Entities, admittedAt);
         h.Hierarchy.BeforeAtomic = () =>
-            h.Coordinator.ReparentAsync(KidA, OldA, OldB, "first", Actor, Tenant, At);
+            first.ReparentAsync(KidA, OldA, OldB, "first", Actor, Tenant, admittedAt);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             h.Coordinator.ReparentAsync(KidA, OldA, East, "stale", Actor, Tenant, At));
 
         // Oracle: only the first committed move and its audit row survive.
-        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
-        Assert.Equal("first", Assert.Single(await h.AuditRows()).Justification);
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, admittedAt)).To);
+        if (admissionDays != 0)
+            Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        var audit = Assert.Single(await h.AuditRows());
+        Assert.Equal("first", audit.Justification);
+        Assert.Equal(admittedAt, audit.At);
+    }
+
+    [Fact]
+    public async Task SplitAfterLaterAdmittedReparent_RefusesChangedIntervalBeforeMintingAnyReplacement()
+    {
+        var h = await Harness.CreateAsync(Original);
+        await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(-1));
+        var later = h.CoordinatorOver(h.Entities, At.AddDays(1));
+        h.Hierarchy.BeforeAtomic = () =>
+            later.ReparentAsync(KidA, Original, OldB, "later-first", Actor, Tenant, At.AddDays(1));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Coordinator.SplitAsync(
+            Original, [Target("east")], new Dictionary<EntityId, EntityId> { [KidA] = East },
+            "stale-split", Actor, Tenant, At));
+
+        // Oracle: the later move preserves the earlier parent history; stale split mints/deletes/audits nothing.
+        Assert.NotNull(await h.Entities.GetAsync(Original));
+        Assert.Null(await h.Entities.GetAsync(East));
+        Assert.Equal(Original, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At.AddDays(1))).To);
+        Assert.Equal("later-first", Assert.Single(await h.AuditRows()).Justification);
     }
 
     private static EntityId Id(string localPart) => new("entity", "test", localPart);

@@ -140,7 +140,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(oldEntity);
                 var current = await coordinator.ReadAffectedChildrenAsync(
                     [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, transactionCt).ConfigureAwait(false);
-                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                if (!SameEdgeState(current, displaced))
                     throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 var minted = new List<EntityId>(validated.Count);
                 foreach (var (body, options) in validated)
@@ -414,7 +414,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 await RefuseCycleAsync(validated, transactionCt).ConfigureAwait(false);
                 var current = await coordinator.ReadAffectedChildrenAsync(
                     [oldParent], edge => edge.From == child, at, transactionCt).ConfigureAwait(false);
-                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                if (!SameEdgeState(current, displaced))
                     throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 foreach (var edge in displaced)
                     await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
@@ -467,6 +467,13 @@ public sealed class NodeHierarchyCompositeCoordinator(
         }
         return new CompositeAuthorization(decisions);
     }
+
+    // Invalidation retains an edge id but changes its interval. A later-admitted competing move can
+    // therefore remain visible at this act's earlier instant: id equality alone is not a concurrency check.
+    private static bool SameEdgeState(IReadOnlyList<EntityEdge> current, IReadOnlyList<EntityEdge> bound) =>
+        current.Select(edge => (edge.Id, edge.From, edge.To, edge.Kind, edge.Validity.ValidFrom, edge.Validity.ValidTo))
+            .ToHashSet().SetEquals(bound.Select(edge =>
+                (edge.Id, edge.From, edge.To, edge.Kind, edge.Validity.ValidFrom, edge.Validity.ValidTo)));
 
     private async Task<IReadOnlyList<EntityEdge>> ReadAffectedChildrenAsync(
         IEnumerable<EntityId> parents,
