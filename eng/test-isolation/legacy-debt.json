@@ -89,12 +89,6 @@
     "Owner": "T-1031",
     "Reason": "Inherited global pool cleanup for temporary store handles; overlap safety not established."
   },
-  "apps/local-node-host/tests/Identity/LegacyIdentityMigrationServiceTests.cs\tLegacyIdentityMigrationServiceTests.SqliteLegacyStore\tClearAllPools": {
-    "Count": 1,
-    "TypeSha256": "7877c1572226d5ddbd453c42efbad9494744a11ab51ff61a68106cfb5feb3239",
-    "Owner": "T-1031",
-    "Reason": "Inherited mutating store helper; annotation cannot isolate arbitrary callers."
-  },
   "apps/local-node-host/tests/Identity/Mtw00CRedFixtures/LegacyV1CutoverAuthorityProof.cs\tLegacyV1CutoverAuthorityProof.CutoverProofStore\tClearAllPools": {
     "Count": 2,
     "TypeSha256": "de76a15c1b53f07937e07a37644c26d6c4f90f6fa6a77624d1ee1c23b5138afc",

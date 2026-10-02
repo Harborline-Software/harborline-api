@@ -110,6 +110,7 @@ public sealed class SpatialFrameRouteTests : IAsyncLifetime
         _factory = _outer.GetRequiredService<IDbContextFactory<LocalNodeDbContext>>();
         await using (var ctx = await _factory.CreateDbContextAsync())
             await ctx.Database.EnsureCreatedAsync();
+        await SpatialAuditOutboxSchema.ApplyAsync(connectionString);
 
         var rootSeed = new byte[32];
         Random.Shared.NextBytes(rootSeed);

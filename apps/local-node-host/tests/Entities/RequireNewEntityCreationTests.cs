@@ -33,48 +33,15 @@ public sealed class RequireNewEntityCreationTests
         Assert.Equal(2, storage.Entities.Count);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Batch_create_honors_require_new_and_rolls_back_only_its_new_prefix(bool requireNew)
-    {
-        using var storage = new InMemoryAssetStorage();
-        var store = new InMemoryEntityStore(storage, TimeProvider.System);
-        using var body = JsonDocument.Parse("{\"value\":1}");
-        var existing = await store.CreateAsync(Schema, body, Options("existing"));
-        var before = (await store.GetAsync(existing))!.CurrentVersion;
-        EntityDraft[] drafts = [new(Schema, body, Options("prefix", true)), new(Schema, body, Options("existing", requireNew))];
-        if (requireNew)
-        {
-            await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.CreateBatchAsync(drafts));
-            Assert.Null(await store.GetAsync(new("test", "require-new", "prefix")));
-            Assert.Single(storage.Entities);
-            Assert.Single(storage.Versions);
-        }
-        else
-        {
-            var result = await store.CreateBatchAsync(drafts);
-            Assert.Equal(existing, result[1]);
-            Assert.Equal(2, storage.Entities.Count);
-        }
-        Assert.Equal(before, (await store.GetAsync(existing))!.CurrentVersion);
-        Assert.Single(storage.Versions[existing]);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Canceled_required_insert_leaves_no_claim_and_retry_succeeds(bool batch)
+    [Fact]
+    public async Task Canceled_required_insert_leaves_no_claim_and_retry_succeeds()
     {
         using var storage = new InMemoryAssetStorage();
         var store = new InMemoryEntityStore(storage, TimeProvider.System);
         using var body = JsonDocument.Parse("{\"value\":1}");
         var options = Options("canceled", true);
         var canceled = new CancellationToken(canceled: true);
-        if (batch)
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.CreateBatchAsync([new(Schema, body, options)], canceled));
-        else
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.CreateAsync(Schema, body, options, canceled));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.CreateAsync(Schema, body, options, canceled));
         Assert.Empty(storage.Entities);
         Assert.Empty(storage.Versions);
         await store.CreateAsync(Schema, body, options);

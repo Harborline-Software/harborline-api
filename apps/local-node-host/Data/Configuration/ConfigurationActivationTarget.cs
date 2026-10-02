@@ -10,6 +10,7 @@ using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Install;
 using Harborline.Api.Foundation.Packs.Install.Compatibility;
+using Harborline.Api.Kernel.Runtime;
 using Harborline.Api.LocalNodeHost.Data.PackProjection;
 using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Blocks.BuilderDefinitions;
@@ -60,6 +61,7 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
     private readonly AuthorizationGate _gate;
     private readonly ConfigurationEvidenceOutbox? _evidence;
     private readonly IPackPlatformCompatibility? _platform;
+    private readonly IWritePipelineObserver? _pipelineObserver;
     private PackProjectionSqliteUnit? _unit;
 
     /// <summary>
@@ -67,13 +69,15 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
     /// each committed activation's evidence to the audit trail; without it the rows stay owed to a later drain.
     /// </summary>
     public ConfigurationActivationTarget(IDbContextFactory<NodeLocalPacksDbContext> factory, DurablePackInstallStore packs,
-        AuthorizationGate gate, ConfigurationEvidenceOutbox? evidence, IPackPlatformCompatibility? platform = null)
+        AuthorizationGate gate, ConfigurationEvidenceOutbox? evidence, IPackPlatformCompatibility? platform = null,
+        IWritePipelineObserver? pipelineObserver = null)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _packs = packs ?? throw new ArgumentNullException(nameof(packs));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
         _evidence = evidence;
         _platform = platform;
+        _pipelineObserver = pipelineObserver;
     }
 
     /// <summary>Crash injection for the crash-path tests: named points throw or block; production leaves it null.</summary>
@@ -195,93 +199,23 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
         var tenant = authority.Tenant;
         var now = authority.At;
         var intent = request.EvidenceIntent;
-        var inputs = InputsDigest(request.Prepared.Candidate.Digest, request.Prepared.Baseline.Digest, request.Principal, intent.Reason);
         ConfigurationActivationOutcome outcome;
         using (var transaction = new PackProjectionTransaction(cancellationToken))
         {
             transaction.Enlist(_packs);
             transaction.Enlist(this);
             using var context = CreateContext();
-            var current = ReadCurrent(context, tenant);
-
-            // The evidence intent is scoped to the tenant; reuse with different inputs refuses, the same inputs
-            // are already committed and are answered by Acknowledged, never by a second switch.
-            var reused = context.EvidenceOutbox.AsNoTracking().FirstOrDefault(r => r.Tenant == tenant.Value && r.IntentId == intent.Id);
-            if (reused is not null)
-            {
-                return ConfigurationActivationOutcome.Refused(current, request, new(
-                    reused.InputsDigest == inputs ? "configuration-evidence-intent-acknowledged" : "configuration-evidence-intent-reused",
-                    "evidenceIntent", "The evidence intent identity was already committed for this tenant."));
-            }
-
-            // Host obligations before the decision: the prepared projection is present and unchanged, and the
-            // destination still matches what preparation validated.
-            var verification = Verify(context, tenant, request.Prepared.Candidate, request.Prepared.Projection);
-            if (verification.Findings.Count > 0)
-                return ConfigurationActivationOutcome.Refused(current, request, verification.Findings[0]);
-
-            // Point-of-use authority for THIS request, resolved live and bound to the decision by identity.
-            var gateRequest = authority.InstallWide(Operate);
-            var decision = await _gate.DecideAsync(gateRequest, cancellationToken).ConfigureAwait(false);
-            var decisionId = DecisionId(decision);
-            var access = new ConfigurationActivationAuthority(decision.Verdict == AuthorizationVerdict.Allowed, decisionId);
-            var decided = ConfigurationActivation.DecideCompareAndSwap(current, request,
-                candidate => ReferenceEquals(candidate, request) ? access : new(false, string.Empty));
-            if (decided.Refusal is not null) return ConfigurationActivationOutcome.Refused(decided);
-
-            // Everything below commits together or not at all.
-            foreach (var owner in request.Prepared.Ownership)
-                _packs.RecordKeyOwnership(tenant, owner.DefinitionKey, owner.PackageKey);
-            CrashPoint?.Invoke("ownership-written");
-            var candidateJson = Canonical(request.Prepared.Candidate);
-            // VSTHRD103: an async method awaits the async read rather than the blocking Find.
-            var pointer = await context.EffectiveGenerations.FindAsync([tenant.Value], cancellationToken).ConfigureAwait(false);
-            if (pointer is null)
-            {
-                context.EffectiveGenerations.Add(new ConfigurationEffectiveGenerationRow
-                {
-                    Tenant = tenant.Value, Digest = request.Prepared.Candidate.Digest, ReferencesJson = candidateJson,
-                    Principal = request.Principal, ActivatedAt = now, DecisionId = decisionId, EvidenceIntentId = intent.Id,
-                });
-            }
-            else
-            {
-                if (pointer.Digest != current.Digest) throw new InvalidOperationException("configuration-effective-moved");
-                pointer.Digest = request.Prepared.Candidate.Digest;
-                pointer.ReferencesJson = candidateJson;
-                pointer.Principal = request.Principal;
-                pointer.ActivatedAt = now;
-                pointer.DecisionId = decisionId;
-                pointer.EvidenceIntentId = intent.Id;
-            }
-            context.EvidenceOutbox.Add(new ConfigurationEvidenceOutboxRow
-            {
-                Tenant = tenant.Value, IntentId = intent.Id, Reason = intent.Reason, InputsDigest = inputs,
-                DecisionId = decisionId, DecisionJson = DecisionJson(decision), PriorDigest = current.Digest,
-                NewDigest = request.Prepared.Candidate.Digest, Principal = request.Principal, CommittedAt = now,
-                // DES-0029 ck-6: the decision's authority commits with the switch, so the evidence can be delivered
-                // with it after this request, and its live decision, are gone.
-                AuthoritySnapshotJson = ConfigurationEvidenceOutbox.Capture(decision),
-            });
-            context.SaveChanges();
-            CrashPoint?.Invoke("before-commit");
             try
             {
-                transaction.Commit();
+                var write = new ConfigurationActivationWrite(this, context, transaction, request, authority);
+                var result = await WritePipeline.RunAsync(write, _pipelineObserver, cancellationToken).ConfigureAwait(false);
+                if (result is null) return write.SettledOutcome!;
+                outcome = result;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (ConfigurationActivationRefusedException refusal)
             {
-                throw new ConfigurationCommitIndeterminateException(intent.Id, exception);
+                return refusal.Outcome;
             }
-            try
-            {
-                CrashPoint?.Invoke("after-commit");
-            }
-            catch (Exception exception)
-            {
-                throw new ConfigurationCommitIndeterminateException(intent.Id, exception);
-            }
-            outcome = ConfigurationActivationOutcome.ConfirmCommitted(decided);
         }
 
         // Publication runs after the durable commit and outside the lease: this row alone is delivered from the
@@ -293,12 +227,166 @@ public sealed class ConfigurationActivationTarget : IPackProjectionParticipant
             CrashPoint?.Invoke("before-publish");
             if (_evidence is not null) await _evidence.DeliverAsync(tenant.Value, intent.Id, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException)
+        {
+            // Committed but unpublished because the caller cancelled: the outbox row is the evidence that
+            // publication is owed, and the caller is answered with the switch that committed.
+        }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Committed but unpublished: the outbox row is the evidence that publication is owed.
             _ = exception;
         }
         return outcome;
+    }
+
+    private sealed record ActivationBound(ConfigurationGeneration Current);
+
+    private sealed record ActivationMutation(string Inputs, string CandidateJson, string DecisionId);
+
+    private sealed record ActivationSealed(
+        ActivationBound Bound,
+        ActivationMutation Mutation,
+        AuthorizationDecision Authorization,
+        ConfigurationActivationDecision Decision);
+
+    /// <summary>The configuration switch as the one six-stage DES-0029 ck-10 kernel write.</summary>
+    private sealed class ConfigurationActivationWrite(
+        ConfigurationActivationTarget target,
+        NodeLocalPacksDbContext context,
+        PackProjectionTransaction transaction,
+        ConfigurationActivationRequest request,
+        AuthorizationWriteContext authority)
+        : KernelWrite<ActivationBound, ActivationMutation, ActivationSealed, ConfigurationActivationOutcome>
+    {
+        private AuthorizationDecision authorization = null!;
+
+        /// <summary>The bind-settled evidence-intent refusal returned after the executor stops at bind.</summary>
+        public ConfigurationActivationOutcome? SettledOutcome { get; private set; }
+
+        protected override async ValueTask AuthorizeAsync(CancellationToken ct)
+        {
+            // Point-of-use authority for this request comes before every state read or validation.
+            authorization = await target._gate.DecideAsync(authority.InstallWide(Operate), ct).ConfigureAwait(false);
+            var decisionId = DecisionId(authorization);
+            if (authorization.Verdict == AuthorizationVerdict.Allowed) return;
+
+            // Preserve the platform's existing access-refusal shape while stopping at authorize.  This is the
+            // sole current-generation read permitted on the refused path; evidence and projection are unread.
+            var current = target.ReadCurrent(context, authority.Tenant);
+            var decided = ConfigurationActivation.DecideCompareAndSwap(current, request,
+                candidate => ReferenceEquals(candidate, request)
+                    ? new ConfigurationActivationAuthority(false, decisionId)
+                    : new(false, string.Empty));
+            throw new ConfigurationActivationRefusedException(ConfigurationActivationOutcome.Refused(decided));
+        }
+
+        protected override ValueTask<ActivationBound?> BindAsync(CancellationToken ct)
+        {
+            var current = target.ReadCurrent(context, authority.Tenant);
+            var reused = context.EvidenceOutbox.AsNoTracking().FirstOrDefault(row =>
+                row.Tenant == authority.Tenant.Value && row.IntentId == request.EvidenceIntent.Id);
+            if (reused is null) return ValueTask.FromResult<ActivationBound?>(new(current));
+
+            var inputs = InputsDigest(request.Prepared.Candidate.Digest, request.Prepared.Baseline.Digest,
+                request.Principal, request.EvidenceIntent.Reason);
+            SettledOutcome = ConfigurationActivationOutcome.Refused(current, request, new(
+                reused.InputsDigest == inputs ? "configuration-evidence-intent-acknowledged" : "configuration-evidence-intent-reused",
+                "evidenceIntent", "The evidence intent identity was already committed for this tenant."));
+            return ValueTask.FromResult<ActivationBound?>(null);
+        }
+
+        protected override ValueTask<ActivationMutation> MutateAsync(ActivationBound bound, CancellationToken ct) =>
+            ValueTask.FromResult(new ActivationMutation(
+                InputsDigest(request.Prepared.Candidate.Digest, request.Prepared.Baseline.Digest,
+                    request.Principal, request.EvidenceIntent.Reason),
+                Canonical(request.Prepared.Candidate),
+                DecisionId(authorization)));
+
+        protected override ValueTask<ActivationSealed> ValidateAsync(
+            ActivationBound bound,
+            ActivationMutation mutation,
+            CancellationToken ct)
+        {
+            var verification = target.Verify(context, authority.Tenant, request.Prepared.Candidate, request.Prepared.Projection);
+            if (verification.Findings.Count > 0)
+                throw new ConfigurationActivationRefusedException(
+                    ConfigurationActivationOutcome.Refused(bound.Current, request, verification.Findings[0]));
+
+            var access = new ConfigurationActivationAuthority(true, mutation.DecisionId);
+            var decided = ConfigurationActivation.DecideCompareAndSwap(bound.Current, request,
+                candidate => ReferenceEquals(candidate, request) ? access : new(false, string.Empty));
+            if (decided.Refusal is not null)
+                throw new ConfigurationActivationRefusedException(ConfigurationActivationOutcome.Refused(decided));
+            return ValueTask.FromResult(new ActivationSealed(bound, mutation, authorization, decided));
+        }
+
+        protected override async ValueTask CommitAsync(ActivationSealed validated, CancellationToken ct)
+        {
+            // Everything below commits together or not at all.
+            foreach (var owner in request.Prepared.Ownership)
+                target._packs.RecordKeyOwnership(authority.Tenant, owner.DefinitionKey, owner.PackageKey);
+            target.CrashPoint?.Invoke("ownership-written");
+            // VSTHRD103: an async method awaits the async read rather than the blocking Find.
+            var pointer = await context.EffectiveGenerations.FindAsync([authority.Tenant.Value], ct).ConfigureAwait(false);
+            if (pointer is null)
+            {
+                context.EffectiveGenerations.Add(new ConfigurationEffectiveGenerationRow
+                {
+                    Tenant = authority.Tenant.Value, Digest = request.Prepared.Candidate.Digest,
+                    ReferencesJson = validated.Mutation.CandidateJson, Principal = request.Principal,
+                    ActivatedAt = authority.At, DecisionId = validated.Mutation.DecisionId,
+                    EvidenceIntentId = request.EvidenceIntent.Id,
+                });
+            }
+            else
+            {
+                if (pointer.Digest != validated.Bound.Current.Digest)
+                    throw new InvalidOperationException("configuration-effective-moved");
+                pointer.Digest = request.Prepared.Candidate.Digest;
+                pointer.ReferencesJson = validated.Mutation.CandidateJson;
+                pointer.Principal = request.Principal;
+                pointer.ActivatedAt = authority.At;
+                pointer.DecisionId = validated.Mutation.DecisionId;
+                pointer.EvidenceIntentId = request.EvidenceIntent.Id;
+            }
+            context.EvidenceOutbox.Add(new ConfigurationEvidenceOutboxRow
+            {
+                Tenant = authority.Tenant.Value, IntentId = request.EvidenceIntent.Id, Reason = request.EvidenceIntent.Reason,
+                InputsDigest = validated.Mutation.Inputs, DecisionId = validated.Mutation.DecisionId,
+                DecisionJson = DecisionJson(validated.Authorization), PriorDigest = validated.Bound.Current.Digest,
+                NewDigest = request.Prepared.Candidate.Digest, Principal = request.Principal, CommittedAt = authority.At,
+                // DES-0029 ck-6: the decision's authority commits with the switch, so the evidence can be delivered
+                // with it after this request, and its live decision, are gone.
+                AuthoritySnapshotJson = ConfigurationEvidenceOutbox.Capture(validated.Authorization),
+            });
+            context.SaveChanges();
+            target.CrashPoint?.Invoke("before-commit");
+            try
+            {
+                transaction.Commit();
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                throw new ConfigurationCommitIndeterminateException(request.EvidenceIntent.Id, exception);
+            }
+            try
+            {
+                target.CrashPoint?.Invoke("after-commit");
+            }
+            catch (Exception exception)
+            {
+                throw new ConfigurationCommitIndeterminateException(request.EvidenceIntent.Id, exception);
+            }
+        }
+
+        protected override ValueTask<ConfigurationActivationOutcome> ReactAsync(ActivationSealed validated, CancellationToken ct) =>
+            ValueTask.FromResult(ConfigurationActivationOutcome.ConfirmCommitted(validated.Decision));
+    }
+
+    private sealed class ConfigurationActivationRefusedException(ConfigurationActivationOutcome outcome) : Exception
+    {
+        public ConfigurationActivationOutcome Outcome { get; } = outcome;
     }
 
     private ConfigurationProjectionValidation Verify(NodeLocalPacksDbContext context, TenantId tenant,

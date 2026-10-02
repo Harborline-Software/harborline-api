@@ -69,6 +69,7 @@ public sealed class SpatialFramePiiSealingTests : IAsyncLifetime
         {
             await ctx.Database.EnsureCreatedAsync();
         }
+        await SpatialAuditOutboxSchema.ApplyAsync(connectionString);
 
         var rootSeed = new byte[32];
         Random.Shared.NextBytes(rootSeed);
