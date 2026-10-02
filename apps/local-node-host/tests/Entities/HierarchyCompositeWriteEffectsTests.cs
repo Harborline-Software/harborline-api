@@ -133,8 +133,14 @@ public sealed class HierarchyCompositeWriteEffectsTests
 
         var result = await h.MergeAsync(h.Coordinator, Options("merged", Tenant));
 
-        // The merged-away child is superseded and deleted, never parented under the record it was merged into.
-        Assert.DoesNotContain(await h.ParentEdges(OldB, At), edge => edge.To == Merged);
+        // Oracle: the internal ChildOf edge ends at merge, while its history and supersession remain.
+        Assert.DoesNotContain(await h.ParentEdges(OldB, At), edge => edge.Kind == EdgeKind.ChildOf);
+        var internalEdge = Assert.Single(await h.ParentEdges(OldB, JustBefore));
+        Assert.Equal((OldA, At), (internalEdge.To, internalEdge.Validity.ValidTo));
+        await foreach (var ancestor in h.Hierarchy.GetAncestorsAsync(OldB, At))
+            Assert.Equal(0, ancestor.Depth);
+        Assert.Contains(await h.ParentEdges(OldB, At),
+            edge => edge.Kind == EdgeKind.SupersededBy && edge.To == Merged);
         Assert.Equal([KidA], result.ReassignedChildren);
         Assert.Equal(Merged, Assert.Single(await h.ParentEdges(KidA, At)).To);
         Assert.Null(await h.Entities.GetAsync(OldB));
@@ -303,6 +309,54 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Empty(await Rows(log));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ChangedDisplacedEdges_RefuseCommitAndWriteNothing(bool split, bool addEdge)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(-1));
+        h.Hierarchy.BeforeAtomic = async () =>
+        {
+            if (addEdge)
+                await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At);
+            else
+                await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At);
+            h.Hierarchy.Added.Clear();
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            if (split)
+                await h.Coordinator.SplitAsync(Original, [Target("east")],
+                    new Dictionary<EntityId, EntityId> { [KidA] = East }, "split", Actor, Tenant, At);
+            else
+                await h.Coordinator.ReparentAsync(KidA, Original, East, "move", Actor, Tenant, At);
+        });
+
+        // Oracle: a stale bind must preserve the intervening write and produce no composite effects.
+        await h.AssertNothingWrittenAsync([Original], East);
+        Assert.Equal(addEdge ? 2 : 0, (await h.ParentEdges(KidA, At)).Count);
+    }
+
+    [Fact]
+    public async Task CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        h.Hierarchy.BeforeAtomic = () =>
+            h.Coordinator.ReparentAsync(KidA, OldA, OldB, "first", Actor, Tenant, At);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Coordinator.ReparentAsync(KidA, OldA, East, "stale", Actor, Tenant, At));
+
+        // Oracle: only the first committed move and its audit row survive.
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Equal("first", Assert.Single(await h.AuditRows()).Justification);
+    }
+
     private static EntityId Id(string localPart) => new("entity", "test", localPart);
 
     private static CreateOptions Options(string localPart, TenantId tenant) =>
@@ -388,9 +442,15 @@ public sealed class HierarchyCompositeWriteEffectsTests
     private sealed class RecordingHierarchy(InMemoryHierarchyService inner) : IHierarchyCompositeUnitOfWork
     {
         public List<EntityEdge> Added { get; } = [];
+        public Func<Task>? BeforeAtomic { get; set; }
 
-        public Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default) =>
-            inner.ExecuteAtomicAsync(action, ct);
+        public async Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default)
+        {
+            var beforeAtomic = BeforeAtomic;
+            BeforeAtomic = null;
+            if (beforeAtomic is not null) await beforeAtomic();
+            return await inner.ExecuteAtomicAsync(action, ct);
+        }
 
         public async Task<EntityEdge> AddEdgeAsync(
             EntityId from, EntityId to, EdgeKind kind, DateTimeOffset validFrom,

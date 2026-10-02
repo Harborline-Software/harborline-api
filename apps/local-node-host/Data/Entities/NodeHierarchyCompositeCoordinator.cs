@@ -138,6 +138,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
             result = await store.ExecuteAtomicAsync(async transactionCt =>
             {
                 authorization.Require(oldEntity);
+                var current = await coordinator.ReadAffectedChildrenAsync(
+                    [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, transactionCt).ConfigureAwait(false);
+                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                    throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 var minted = new List<EntityId>(validated.Count);
                 foreach (var (body, options) in validated)
                     minted.Add(await coordinator.Entities.CreateAsync(body, options, transactionCt).ConfigureAwait(false));
@@ -240,9 +244,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
         /// superseded and deleted with them, so it is not moved under the merged record.</summary>
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = (await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false))
-                .Where(edge => !oldEntities.Contains(edge.From))
-                .ToList();
+            displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
 
         protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
             ValueTask.FromResult(newOptions with { ValidFrom = at });
@@ -276,6 +278,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
                     authorization.Require(edge.From);
                     authorization.Require(newId);
                     await store.InvalidateEdgeAsync(edge.Id, at, ct).ConfigureAwait(false);
+                    if (oldEntities.Contains(edge.From))
+                        continue;
                     var replacementEdge = await store.AddEdgeAsync(
                         edge.From, newId, EdgeKind.ChildOf, at, null, ct).ConfigureAwait(false);
                     if (edge.Validity.ValidTo is { } validTo)
@@ -388,6 +392,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(oldParent);
                 authorization.Require(newParent);
                 await RefuseCycleAsync(transactionCt).ConfigureAwait(false);
+                var current = await coordinator.ReadAffectedChildrenAsync(
+                    [oldParent], edge => edge.From == child, at, transactionCt).ConfigureAwait(false);
+                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                    throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 foreach (var edge in displaced)
                     await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
                 var replacementEdge = await store.AddEdgeAsync(
