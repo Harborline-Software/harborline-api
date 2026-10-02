@@ -1,4 +1,7 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Entities;
@@ -119,16 +122,61 @@ public sealed class WritePipelineExecutorFenceTests
             .Select(site => site.Symbol)
             .ToArray();
 
+        var repositoryRoot = RepositoryRoot();
         Assert.All(ExemptFromTheExecutor, row =>
         {
             var caller = row.Key[(row.Key.IndexOf('|') + 1)..];
             var method = caller[(caller.LastIndexOf('.') + 1)..];
             var type = caller[..caller.LastIndexOf('.')];
-            // The call is in the method itself or in a closure the compiler lifted out of it.
+            // Retain the IL check so the source check cannot accept a different RunAsync symbol.
             Assert.True(
                 runCallers.Any(symbol => symbol.StartsWith(type, StringComparison.Ordinal)
                     && (symbol.Contains($".{method}(", StringComparison.Ordinal) || symbol.Contains($"<{method}>", StringComparison.Ordinal))),
                 $"Exempt site {caller} does not run WritePipeline.RunAsync inside its unit; move it onto the executor or remove the exemption.");
+            var source = File.ReadAllText(Path.Combine(repositoryRoot, row.Key[..row.Key.IndexOf('|')]));
+            var declaration = CSharpSyntaxTree.ParseText(source).GetRoot().DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Single(node => node.Identifier.ValueText == method);
+            Assert.True(RunsExecutorInsideAtomicCallback(declaration),
+                $"Exempt site {caller} must run the executor in the callback passed to ExecuteAtomicAsync.");
+        });
+    }
+
+    [Theory]
+    // Oracle: the exemption requires execution in the atomic callback, not merely in the same method.
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", true)]
+    [InlineData("return unit.ExecuteAtomicAsync(async ct => { return await WritePipeline.RunAsync(write, observer, ct); });", true)]
+    [InlineData("await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(ct => Done());", false)]
+    [InlineData("Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(ct => Done());", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => { Func<Task> other = async () => await WritePipeline.RunAsync(write, observer, ct); return Done(); });", false)]
+    [InlineData("await WritePipeline.RunAsync(write, observer, ct); return unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));", false)]
+    [InlineData("return unit.ExecuteAtomicAsync(ct => Done());", false)]
+    public void ExemptionRejectsExecutorOutsideAtomicCallback(string body, bool expected)
+    {
+        var declaration = CSharpSyntaxTree.ParseText("class Fixture { void MergeAsync() { " + body + " } }")
+            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single();
+        Assert.Equal(expected, RunsExecutorInsideAtomicCallback(declaration));
+    }
+
+    private static string RepositoryRoot([CallerFilePath] string thisFile = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "../../../.."));
+
+    private static bool RunsExecutorInsideAtomicCallback(MethodDeclarationSyntax method)
+    {
+        var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Where(call => call.Expression is MemberAccessExpressionSyntax member
+                && member.Expression is IdentifierNameSyntax { Identifier.ValueText: "WritePipeline" }
+                && member.Name.Identifier.ValueText == "RunAsync")
+            .ToArray();
+        return calls.Length > 0 && calls.All(call =>
+        {
+            // The nearest function must be the callback itself, not a deferred nested lambda/local function.
+            var function = call.Ancestors().FirstOrDefault(node =>
+                node is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax or MethodDeclarationSyntax);
+            return function is AnonymousFunctionExpressionSyntax { Parent: ArgumentSyntax argument }
+                && argument.Parent is ArgumentListSyntax { Parent: InvocationExpressionSyntax atomic }
+                && atomic.Expression is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "ExecuteAtomicAsync" }
+                && atomic.ArgumentList.Arguments[0] == argument;
         });
     }
 
