@@ -111,12 +111,21 @@ const run = (id, command, args, cwd, {expectNonZero = false} = {}) => {
   const resolved = resolveCommand(command, args)
   const result = spawnSync(resolved.executable, resolved.args, {cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024})
   const rawOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  const output = stripAnsi(rawOutput)
+  // Error messages, executable paths and spawn arguments can contain credentials.
+  // Retain only bounded OS codes and numeric errno, plus the termination signal.
+  const safeCode = value => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : 'UNKNOWN'
+  const spawnError = result.error ? {code: safeCode(result.error.code),
+    ...(Number.isSafeInteger(result.error.errno) ? {errno: result.error.errno} : {})} : undefined
+  const signal = result.signal ? safeCode(result.signal) : undefined
+  const diagnostics = [spawnError && `spawn error: ${JSON.stringify(spawnError)}`, signal && `termination signal: ${signal}`].filter(Boolean)
+  const output = stripAnsi(rawOutput) + (diagnostics.length ? `\n${diagnostics.join('\n')}\n` : '')
   const step = {
     id,
     passed: expectNonZero ? true : result.status === 0,
     verdictFrom: expectNonZero ? 'baseline comparison, not exit code' : 'exit code',
     exitCode: result.status,
+    ...(spawnError ? {spawnError} : {}),
+    ...(signal ? {signal} : {}),
     durationMs: Date.now() - started,
     tail: redactEvidence(output).trimEnd().split('\n').slice(-14).join('\n'),
   }

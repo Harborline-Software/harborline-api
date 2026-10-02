@@ -234,3 +234,53 @@ test('completed reports retain only failed output; aborted reports retain the ca
     } finally { rmSync(root, {recursive: true, force: true}) }
   }
 })
+
+
+test('real empty-output spawn failures retain safe cause metadata and logs before cleanup', () => {
+  const source = readFileSync(path.join(apiRoot, 'eng/run-exact-clone.mjs'), 'utf8').replaceAll('\r\n', '\n')
+  const commandBlock = source.slice(source.indexOf('const run ='), source.indexOf('\nlet report'))
+  const handler = source.slice(source.indexOf('} catch (error) {\n  steps.push'),
+    source.indexOf('\n// Record the report whatever its status.'))
+  for (const kind of ['missing-executable', 'terminated-process', 'buffer-error']) {
+    const root = mkdtempSync(path.join(tmpdir(), 'exact-clone-spawn-failure-'))
+    try {
+      const executable = kind === 'missing-executable' ? path.join(root, 'private-secret-executable') : process.execPath
+      const args = kind === 'terminated-process' ? ['-e', 'setInterval(() => {}, 1000)'] : ['private-secret-argument']
+      let observed
+      const spawn = (...params) => {
+        observed = kind === 'buffer-error'
+          ? {status: null, signal: 'SIGTERM', stdout: '', stderr: '', error: Object.assign(new Error('private-secret-message'),
+            {code: 'ENOBUFS', errno: -105, path: executable, spawnargs: args})}
+          : kind === 'terminated-process' ? spawnSync(params[0], params[1], {...params[2], timeout: 100, killSignal: 'SIGTERM'}) : spawnSync(...params)
+        return observed
+      }
+      const steps = []
+      const redact = text => text.replaceAll(root, '<exact-clone-root>')
+      const run = new Function('steps', 'resolveCommand', 'spawnSync', 'stripAnsi', 'redactEvidence',
+        commandBlock + '\nreturn run')(steps, (command, args) => ({executable: command, args}), spawn, text => text, redact)
+      run('dotnet-host-tests', executable, args, root, {expectNonZero: true})
+      assert.equal(observed.status, null)
+      assert.equal(observed.stdout ?? '', '')
+      assert.equal(observed.stderr ?? '', '')
+      assert.equal(steps[0].passed, true)
+      if (kind === 'missing-executable') assert.equal(steps[0].spawnError.code, 'ENOENT')
+      if (kind === 'terminated-process') assert.equal(steps[0].signal, 'SIGTERM')
+      if (kind === 'buffer-error') assert.deepEqual(steps[0].spawnError, {code: 'ENOBUFS', errno: -105})
+      let cleaned = false
+      const persisted = new Function('steps', 'head', 'baselineProvenance', 'apiRoot', 'scratch',
+        'redactEvidence', 'persistStepEvidence', 'rmSync',
+        'let report; let persisted; const retainScratch = false; try { throw new Error("missing report")\n' +
+        handler + '\nreturn persisted')(steps, 'fixture-head', {}, root, root, redact, persistStepEvidence, () => {
+          const log = readFileSync(path.join(root, '.claude', 'gate-evidence',
+            'exact-clone-fixture-head-dotnet-host-tests.log'), 'utf8')
+          assert.match(log, kind === 'missing-executable' ? /spawn error:.*ENOENT/ : /termination signal: SIGTERM/)
+          assert.doesNotMatch(log, /private-secret/)
+          cleaned = true
+        })
+      assert.equal(cleaned, true)
+      assert.equal(persisted.status, 'FAIL')
+      assert.equal(persisted.steps[0].exitCode, null)
+      assert.doesNotMatch(JSON.stringify(persisted), /private-secret|spawnargs|fullOutput|rawOutput/)
+    } finally { rmSync(root, {recursive: true, force: true}) }
+  }
+})
