@@ -363,7 +363,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<DateTimeOffset?> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, DateTimeOffset? mutation, CancellationToken ct)
         {
-            await RefuseCycleAsync(ct).ConfigureAwait(false);
+            await RefuseCycleAsync(mutation, ct).ConfigureAwait(false);
             return mutation;
         }
 
@@ -372,7 +372,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// inside the atomic unit, where the answer is authoritative, because an opposing reparent can commit
         /// between the two (each moving one entity under the other) and both would otherwise pass validate.
         /// </summary>
-        private async ValueTask RefuseCycleAsync(CancellationToken ct)
+        private async ValueTask RefuseCycleAsync(DateTimeOffset? validTo, CancellationToken ct)
         {
             if (newParent == child)
                 throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
@@ -380,6 +380,26 @@ public sealed class NodeHierarchyCompositeCoordinator(
             {
                 if (ancestor.Ancestor == child)
                     throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
+            }
+            // A later-admitted opposing move may already be committed but invisible at this act's instant.
+            // Follow child edges over overlapping intervals, so the new edge cannot form a cycle later either.
+            var pending = new Stack<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            var visited = new HashSet<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            pending.Push((child, at, validTo));
+            while (pending.TryPop(out var interval))
+            {
+                if (!visited.Add(interval)) continue;
+                await foreach (var edge in coordinator.Store.GetChildrenNotEndedAsync(interval.Parent, interval.From, ct)
+                    .ConfigureAwait(false))
+                {
+                    var from = edge.Validity.ValidFrom > interval.From ? edge.Validity.ValidFrom : interval.From;
+                    var to = interval.To;
+                    if (edge.Validity.ValidTo is { } edgeEnd && (to is null || edgeEnd < to.Value)) to = edgeEnd;
+                    if (to is { } end && from >= end) continue;
+                    if (edge.From == newParent)
+                        throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
+                    pending.Push((edge.From, from, to));
+                }
             }
         }
 
@@ -391,7 +411,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(child);
                 authorization.Require(oldParent);
                 authorization.Require(newParent);
-                await RefuseCycleAsync(transactionCt).ConfigureAwait(false);
+                await RefuseCycleAsync(validated, transactionCt).ConfigureAwait(false);
                 var current = await coordinator.ReadAffectedChildrenAsync(
                     [oldParent], edge => edge.From == child, at, transactionCt).ConfigureAwait(false);
                 if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))

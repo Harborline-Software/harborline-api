@@ -359,6 +359,41 @@ public sealed class HierarchyCompositeWriteEffectsTests
 
     private static EntityId Id(string localPart) => new("entity", "test", localPart);
 
+    [Fact]
+    public async Task OpposingReparentAtLaterInstant_RefusesEarlierMoveAtCommit()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.AddEdgeAsync(OldB, East, EdgeKind.ChildOf, At.AddDays(-1));
+        h.Hierarchy.BeforeAtomic = () =>
+            h.Coordinator.ReparentAsync(OldB, East, KidA, "later-first", Actor, Tenant, At.AddDays(1));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            h.Coordinator.ReparentAsync(KidA, OldA, OldB, "earlier-second", Actor, Tenant, At));
+
+        // Oracle: the committed later move survives, while the overlapping reverse move writes nothing.
+        Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At.AddDays(1))).To);
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
+        Assert.Equal("later-first", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Fact]
+    public async Task ReparentWithNonoverlappingFutureReverseEdge_DoesNotRefuse()
+    {
+        var h = await Harness.CreateAsync();
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At.AddDays(1));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "nonoverlapping", Actor, Tenant, At);
+
+        // Oracle: half-open edge intervals touch at the boundary without forming a temporal cycle.
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Empty(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
+        Assert.Equal("nonoverlapping", Assert.Single(await h.AuditRows()).Justification);
+    }
+
     private static CreateOptions Options(string localPart, TenantId tenant) =>
         new("entity", "test", localPart, Actor, tenant, At, ExplicitLocalPart: localPart);
 
