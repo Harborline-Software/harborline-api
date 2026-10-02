@@ -1,0 +1,6 @@
+job=c331-forms worktree=ck10s3 commit=11f5a76b
+scope=--project Harborline.Foundation.Forms.Engine.csproj --scoped **/IAuthorizedFormEntityWriter.cs
+filter=FullyQualifiedName~.Tests.Forms.|FullyQualifiedName~FormSubmission|FullyQualifiedName~FormEngine|FullyQualifiedName~AuthorizationWriteStageTests
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s3\.config\dotnet-tools.json
+started=2026-10-02T07:23:04Z
+finished=2026-10-02T07:24:17Z exit=0
