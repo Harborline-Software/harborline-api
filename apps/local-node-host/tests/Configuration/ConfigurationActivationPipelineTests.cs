@@ -73,6 +73,11 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
 
         Assert.Equal("configuration-authority-refused", outcome.Decision.Refusal?.Code);
         Assert.False(outcome.Decision.Authority!.Allowed);
+        // Oracle: SHA-256 of the literal retained decision header for this fixed denied act:
+        // {"principal":"test:operator","tenant":"tenant-configuration-pipeline","operation":"packages:operate",
+        //  "decidedAt":"2026-10-01T09:00:00+00:00","verdict":"Denied"} (without formatting whitespace).
+        Assert.Equal("a754feca461e1b71873794fa3edc909ac50c5851f27168c962d3bf4649553d7f",
+            outcome.Decision.Authority.DecisionId);
         Assert.Equal([WritePipelineStage.Authorize], _observer.Stages);
         Assert.Equal(prior, denying.ReadEffective(Tenant).Digest);
         Assert.NotEqual(candidate, denying.ReadEffective(Tenant).Digest);
