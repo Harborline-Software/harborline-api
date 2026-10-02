@@ -1,0 +1,6 @@
+job=j335 worktree=ck10s5c commit=10ef7cd9
+scope=--project Harborline.Foundation.Packs.csproj --scoped **/Install/PackInstaller.cs
+filter=FullyQualifiedName~.Tests.Packs.|FullyQualifiedName~PackInstall|FullyQualifiedName~AuthorizationWriteStageTests|FullyQualifiedName~.Tests.Configuration.|FullyQualifiedName~.Tests.Forms.|FullyQualifiedName~.Tests.Catalogue.
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\.config\dotnet-tools.json
+started=2026-10-02T06:37:35Z
+finished=2026-10-02T06:46:32Z exit=0

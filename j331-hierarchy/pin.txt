@@ -1,0 +1,6 @@
+job=j331-hierarchy worktree=ck10s3 commit=48cf9872
+scope=--scoped **/Data/Entities/NodeHierarchyCompositeCoordinator.cs
+filter=FullyQualifiedName~Hierarchy|FullyQualifiedName~AuthorizationWriteStageTests|FullyQualifiedName~CompiledSchemaEntityValidationTests|FullyQualifiedName~RecordWriteRulesStageTests
+stryker=dotnet-stryker 5.0.0 dotnet-stryker C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s3\.config\dotnet-tools.json
+started=2026-10-02T06:46:35Z
+finished=2026-10-02T06:50:29Z exit=0

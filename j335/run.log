@@ -1,0 +1,366 @@
+
+   _____ _              _               _   _ ______ _______ ÿ
+  / ____| |            | |             | \ | |  ____|__   __|ÿ
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |   ÿ
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |   ÿ
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |   ÿ
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|   ÿ
+                   __/ |                                     ÿ
+                  |___/                                      ÿ
+
+
+Version: 5.0.0
+
+[02:37:36 INF] Analysis starting.
+[02:37:36 INF] Analyzing 1 test project(s).
+[02:37:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\apps\node-operator-cli\Harborline.NodeOperatorCli.csproj. Using analysis results: net11.0
+[02:37:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-engine-room\Harborline.Foundation.EngineRoom.csproj. Using analysis results: net11.0
+[02:37:40 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[02:37:40 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:41 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation\Harborline.Foundation.csproj. Using analysis results: net11.0
+[02:37:41 WRN] Project ..\..\..\packages\foundation\Harborline.Foundation.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:41 WRN] Analysis of project ..\..\..\packages\foundation\Harborline.Foundation.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:41 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[02:37:41 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[02:37:42 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[02:37:42 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[02:37:42 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[02:37:42 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:42 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[02:37:42 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:43 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:44 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[02:37:44 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:44 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj. Using analysis results: net11.0
+[02:37:44 WRN] Project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:44 WRN] Analysis of project ..\..\..\packages\foundation-catalog\Harborline.Foundation.Catalog.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:44 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj. Using analysis results: net11.0
+[02:37:44 WRN] Project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:44 WRN] Analysis of project ..\..\..\packages\foundation-taxonomy\Harborline.Foundation.Taxonomy.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[02:37:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[02:37:45 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:45 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-forms\Harborline.Foundation.Forms.csproj. Using analysis results: net11.0
+[02:37:45 WRN] Project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:45 WRN] Analysis of project ..\..\..\packages\foundation-forms\Harborline.Foundation.Forms.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:45 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-documents\Harborline.Foundation.Documents.csproj. Using analysis results: net11.0
+[02:37:45 WRN] Project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:45 WRN] Analysis of project ..\..\..\packages\foundation-documents\Harborline.Foundation.Documents.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:46 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj. Using analysis results: net11.0
+[02:37:46 WRN] Project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:46 WRN] Analysis of project ..\..\..\packages\blocks-workflow\Harborline.Blocks.Workflow.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:46 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[02:37:46 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:46 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[02:37:46 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj. Using analysis results: net11.0
+[02:37:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj. Using analysis results: net11.0
+[02:37:47 WRN] Project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:47 WRN] Project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:47 WRN] Analysis of project ..\..\..\packages\foundation-report-definitions\Harborline.Foundation.ReportDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:47 WRN] Analysis of project ..\..\..\packages\foundation-data-exchange-definitions\Harborline.Foundation.DataExchangeDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj. Using analysis results: net11.0
+[02:37:47 WRN] Project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:47 WRN] Analysis of project ..\..\..\packages\foundation-forms-engine\Harborline.Foundation.Forms.Engine.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[02:37:47 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:47 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj. Using analysis results: net11.0
+[02:37:47 WRN] Project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:47 WRN] Analysis of project ..\..\..\packages\foundation-view-definitions\Harborline.Foundation.ViewDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj. Using analysis results: net11.0
+[02:37:48 WRN] Project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:48 WRN] Analysis of project ..\..\..\packages\foundation-schedule-definitions\Harborline.Foundation.ScheduleDefinitions.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:48 WRN] Project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:48 WRN] Analysis of project ..\..\..\packages\foundation-governance\Harborline.Foundation.Governance.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[02:37:48 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[02:37:48 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:48 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[02:37:48 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:49 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[02:37:49 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:49 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[02:37:49 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:50 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-security\Harborline.Kernel.Security.csproj. Using analysis results: net11.0
+[02:37:50 WRN] Project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:50 WRN] Analysis of project ..\..\..\packages\kernel-security\Harborline.Kernel.Security.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:50 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj. Using analysis results: net11.0
+[02:37:50 WRN] Project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:50 WRN] Analysis of project ..\..\..\packages\foundation-integrations\Harborline.Foundation.Integrations.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:51 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[02:37:51 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-sync\Harborline.Kernel.Sync.csproj. Using analysis results: net11.0
+[02:37:51 WRN] Project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:51 WRN] Analysis of project ..\..\..\packages\kernel-sync\Harborline.Kernel.Sync.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj. Using analysis results: net11.0
+[02:37:51 WRN] Project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:51 WRN] Analysis of project ..\..\..\packages\kernel-runtime\Harborline.Kernel.Runtime.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[02:37:51 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:51 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj. Using analysis results: net11.0
+[02:37:51 WRN] Project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:51 WRN] Analysis of project ..\..\..\packages\kernel-crdt\Harborline.Kernel.Crdt.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:52 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj. Using analysis results: net11.0
+[02:37:52 WRN] Project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:52 WRN] Analysis of project ..\..\..\packages\foundation-ship-common\Harborline.Foundation.Ship.Common.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:52 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[02:37:52 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj. Using analysis results: net11.0
+[02:37:53 WRN] Project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:53 WRN] Analysis of project ..\..\..\packages\foundation-localfirst\Harborline.Foundation.LocalFirst.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj. Using analysis results: net11.0
+[02:37:53 WRN] Project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:53 WRN] Analysis of project ..\..\..\packages\kernel-event-bus\Harborline.Kernel.EventBus.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[02:37:53 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj. Using analysis results: net11.0
+[02:37:53 WRN] Project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:53 WRN] Analysis of project ..\..\..\packages\foundation-recovery\Harborline.Foundation.Recovery.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:53 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[02:37:53 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[02:37:54 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\apps\local-node-host\Harborline.LocalNodeHost.csproj. Using analysis results: net11.0
+[02:37:54 WRN] Project ..\Harborline.LocalNodeHost.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:54 WRN] Analysis of project ..\Harborline.LocalNodeHost.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:54 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[02:37:54 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:55 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj. Using analysis results: net11.0
+[02:37:55 WRN] Project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:55 WRN] Analysis of project ..\..\..\packages\foundation-capability-admission\Harborline.Foundation.CapabilityAdmission.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:56 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj. Using analysis results: net11.0
+[02:37:56 WRN] Project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:56 WRN] Analysis of project ..\..\..\packages\foundation-rule-engine\Harborline.Foundation.RuleEngine.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:56 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Using analysis results: net11.0
+[02:37:56 WRN] Project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:56 WRN] Analysis of project ..\..\..\packages\foundation-packs\Harborline.Foundation.Packs.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:57 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj. Using analysis results: net11.0
+[02:37:57 WRN] Project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:57 WRN] Analysis of project ..\..\..\packages\blocks-access-grant\Harborline.Blocks.AccessGrant.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:57 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[02:37:57 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Trying again with a nuget restore.
+[02:37:58 WRN] Failed to identify target frameworks for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj. Using analysis results: net11.0
+[02:37:58 WRN] Project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:58 WRN] Analysis of project ..\..\..\packages\foundation-authorization\Harborline.Foundation.Authorization.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:58 WRN] Project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj simulated build failed. Use '--diag' option to have the build log.
+[02:37:58 WRN] Analysis of project ..\..\node-hosting\Harborline.Api.NodeHosting.csproj succeeded but simulated build failed; Stryker may fail later.
+[02:37:59 INF] Picking net11.0 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Harborline.Foundation.Packs.csproj. 
+[02:38:00 INF] Found project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Harborline.Foundation.Packs.csproj to mutate.
+[02:38:00 INF] Analysis complete.
+[02:38:00 INF] Building test project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\apps\local-node-host\tests\tests.csproj (1/1)
+[02:38:00 INF] Building project tests.csproj using dotnet build tests.csproj -c Debug --property:Platform=AnyCPU (directory C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\apps\local-node-host\tests.)
+[02:38:53 INF] Number of tests found: 924 for project C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Harborline.Foundation.Packs.csproj. Initial test run started.
+[02:39:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Compatibility\PackInterfaceRequirementCheck.cs resulted in a compile error (at 73:13) with id: CS0165, message: Use of unassigned local variable 'parsed' (Source code: parsed)
+[02:39:50 INF] Safe Mode! Stryker will remove all mutations in ReadRequirements and mark them as 'compile error'.
+[02:39:50 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Compatibility\PackInterfaceRequirementCheck.cs resulted in a compile error (at 74:36) with id: CS0165, message: Use of unassigned local variable 'requirements' (Source code: requirements)
+[02:39:50 INF] Safe Mode! Stryker will remove all mutations in ReadRequirements and mark them as 'compile error'.
+[02:39:51 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Graph\PackContentEdgeIndex.cs resulted in a compile error (at 230:87) with id: CS0165, message: Use of unassigned local variable 'body' (Source code: body)
+[02:39:51 INF] Safe Mode! Stryker will remove all mutations in AddBodyParsedEdges and mark them as 'compile error'.
+[02:39:51 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Compatibility\PackContractWindowCheck.cs resulted in a compile error (at 46:39) with id: CS0165, message: Use of unassigned local variable 'declared' (Source code: declared)
+[02:39:51 INF] Safe Mode! Stryker will remove all mutations in FindRefusals and mark them as 'compile error'.
+[02:39:53 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Compatibility\PackPlatformRequirementCheck.cs resulted in a compile error (at 57:63) with id: CS0165, message: Use of unassigned local variable 'parsed' (Source code: parsed)
+[02:39:53 INF] Safe Mode! Stryker will remove all mutations in FindUnmet and mark them as 'compile error'.
+[02:39:53 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Merge\PackNarrowedVersion.cs resulted in a compile error (at 69:12) with id: CS0165, message: Use of unassigned local variable 'patch' (Source code: patch)
+[02:39:53 INF] Safe Mode! Stryker will remove all mutations in Derive and mark them as 'compile error'.
+[02:39:53 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Merge\PackNarrowedVersion.cs resulted in a compile error (at 80:15) with id: CS0165, message: Use of unassigned local variable 'major' (Source code: major)
+[02:39:53 INF] Safe Mode! Stryker will remove all mutations in Derive and mark them as 'compile error'.
+[02:39:53 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\Merge\PackNarrowedVersion.cs resulted in a compile error (at 80:23) with id: CS0165, message: Use of unassigned local variable 'minor' (Source code: minor)
+[02:39:53 INF] Safe Mode! Stryker will remove all mutations in Derive and mark them as 'compile error'.
+[02:39:54 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Verify\PackVerifier.cs resulted in a compile error (at 161:43) with id: CS0165, message: Use of unassigned local variable 'bytes' (Source code: bytes)
+[02:39:54 INF] Safe Mode! Stryker will remove all mutations in VerifyContentAddresses and mark them as 'compile error'.
+[02:39:54 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Verify\PackVerifier.cs resulted in a compile error (at 229:38) with id: CS0165, message: Use of unassigned local variable 'binding' (Source code: binding)
+[02:39:54 INF] Safe Mode! Stryker will remove all mutations in VerifyFormBindings and mark them as 'compile error'.
+[02:39:54 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Verify\PackVerifier.cs resulted in a compile error (at 235:16) with id: CS0165, message: Use of unassigned local variable 'content' (Source code: content)
+[02:39:54 INF] Safe Mode! Stryker will remove all mutations in VerifyFormBindings and mark them as 'compile error'.
+[02:39:54 WRN] An unidentified mutation in C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Verify\PackVerifier.cs resulted in a compile error (at 242:43) with id: CS0165, message: Use of unassigned local variable 'inspectionBindings' (Source code: inspectionBindings)
+[02:39:54 INF] Safe Mode! Stryker will remove all mutations in VerifyFormBindings and mark them as 'compile error'.
+[02:39:55 INF] 3424 mutants created
+[02:39:55 INF] Capture mutant coverage using 'CoverageBasedTest' mode.
+[02:40:29 INF] 596   mutants got status CompileError. Reason: Mutant caused compile errors
+[02:40:29 INF] 52    mutants got status NoCoverage.   Reason: Not covered by any test.
+[02:40:29 INF] 133   mutants got status Ignored.      Reason: Removed by block already covered filter
+[02:40:29 INF] 2130  mutants got status Ignored.      Reason: Removed by mutate filter
+[02:40:29 INF] 2911  total mutants are skipped for the above mentioned reasons
+[02:40:29 INF] 513   total mutants will be tested
+
+Killed:   402
+Survived: 110
+Timeout:    1
+Errors:    0
+
+Your json report has been generated at:
+file://C:/Projects/Harborline/harborline-api/.codex/worktrees/ck10s5c/.stryker/t
+ests-scoped-PackInstaller.cs/reports/mutation-report.json
+[02:46:32 INF] Time Elapsed 00:08:56.1718224
+[02:46:32 INF] The final mutation score is 71.33 %
+scoped run: 537 s, .stryker/tests-scoped-PackInstaller.cs/reports/mutation-report.json
+C:\Projects\Harborline\harborline-api\.codex\worktrees\ck10s5c\packages\foundation-packs\Install\PackInstaller.cs: score 71.33 {"Ignored":133,"NoCoverage":52,"Killed":402,"Survived":110,"CompileError":93,"Timeout":1}
+  59 NoCoverage String mutation: ""
+  128 Survived Statement mutation: ;
+  135 Survived Statement mutation: ;
+  143 Survived Statement mutation: ;
+  170 Survived Statement mutation: ;
+  170 Survived String mutation: ""
+  232 Survived String mutation: ""
+  241 Survived Conditional (true) mutation: (true?PackInstallCodes.Upgraded :PackInstallCodes.Installed)
+  241 Survived Conditional (false) mutation: (false?PackInstallCodes.Upgraded :PackInstallCodes.Installed)
+  241 Survived Equality mutation: plan.SuccessAction != PackInstallAuditAction.Upgraded
+  253 Survived Boolean mutation: true
+  275 Survived Linq method mutation (Append() to Prepend()): installed             .Where(pack => pack.PackKey != target.PackKey)            
+  279 Survived Linq method mutation (MaxBy() to MinBy()): versions.MinBy
+  305 Survived Linq method mutation (First() to FirstOrDefault()): manifests[refusal.Path[^2]].Dependencies.FirstOrDefault
+  307 NoCoverage String mutation: $""
+  308 NoCoverage String mutation: $""
+  309 NoCoverage String mutation: $""
+  331 Survived Boolean mutation: true
+  342 Survived Boolean mutation: true
+  344 Survived String mutation: $""
+  366 Survived String mutation: $""
+  387 Survived String mutation: ""
+  388 Survived Boolean mutation: true
+  392 Survived String mutation: $""
+  402 Survived Statement mutation: ;
+  411 Survived Statement mutation: ;
+  421 Survived Statement mutation: ;
+  422 Survived Statement mutation: ;
+  423 Survived Statement mutation: ;
+  437 Survived Boolean mutation: true
+  438 NoCoverage String mutation: ""
+  533 Survived String mutation: $""
+  534 Survived String mutation: $""
+  562 NoCoverage Boolean mutation: true
+  604 Survived Conditional (false) mutation: (false?null :transaction.ReactAsync)
+  623 Survived Logical mutation: outcome.Activated \|\| observers is not null
+  625 Survived Boolean mutation: true
+  744 Survived String mutation: ""
+  747 Survived Boolean mutation: true
+  811 Survived String mutation: ""
+  850 NoCoverage String mutation: ""
+  904 Survived String mutation: "Stryker was here!"
+  912 Survived Statement mutation: ;
+  913 NoCoverage LogicalNotExpression to un-LogicalNotExpression mutation: ReferenceEquals(_projector, projector)
+  914 NoCoverage Statement mutation: ;
+  914 NoCoverage String mutation: ""
+  938 NoCoverage Statement mutation: ;
+  938 NoCoverage String mutation: ""
+  955 Survived Linq method mutation (OrderBy() to OrderByDescending()): validated.ListIncompleteProjectionAdmissions()                          .GroupBy
+  961 Survived Statement mutation: ;
+  969 Survived Statement mutation: ;
+  969 Survived PostIncrementExpression to PostDecrementExpression mutation: completed--
+  974 Survived Statement mutation: ;
+  996 Survived Boolean mutation: true
+  1025 NoCoverage Statement mutation: ;
+  1025 NoCoverage String mutation: ""
+  1026 Survived Statement mutation: ;
+  1051 NoCoverage Equality mutation: exception is OperationCanceledException
+  1052 NoCoverage Block removal mutation: {}
+  1059 Survived Conditional (true) mutation: (true?outcome with { Projected = true, ProjectionResult = result } :outcome with
+  1075 NoCoverage String mutation: ""
+  1095 NoCoverage Statement mutation: ;
+  1095 NoCoverage String mutation: ""
+  1128 Survived Null coalescing mutation (remove left): ReadClaimedCoordinates(packBytes)
+  1131 Survived Logical mutation: verify.Verdict != PackVerdict.Verified \|\| verify.Manifest is null && verify.Co
+  1131 Survived Logical mutation: verify.Verdict != PackVerdict.Verified && verify.Manifest is null
+  1137 Survived Logical mutation: kindPointer is not null                 \|\| verify.Details.Contains(PackVerific
+  1157 Survived Statement mutation: ;
+  1173 NoCoverage Block removal mutation: {}
+  1180 NoCoverage Block removal mutation: {}
+  1239 NoCoverage Conditional (true) mutation: (true?PackInstallCodes.RefusedMissingPlatformCapability :PackInstallCodes.Refuse
+  1239 NoCoverage Conditional (false) mutation: (false?PackInstallCodes.RefusedMissingPlatformCapability :PackInstallCodes.Refus
+  1239 NoCoverage Equality mutation: requirement.Failure != PackPlatformRequirementFailure.MissingCapability
+  1242 NoCoverage Conditional (true) mutation: (true?"/" :ContentPointer(contents, requirement.DeclaredBy))
+  1242 NoCoverage Conditional (false) mutation: (false?"/" :ContentPointer(contents, requirement.DeclaredBy))
+  1243 NoCoverage String mutation: ""
+  1246 Survived LogicalNotExpression to un-LogicalNotExpression mutation: collectRefusals
+  1246 NoCoverage Equality mutation: unmetRequirements[0].Failure != PackPlatformRequirementFailure.MissingCapability
+  1247 NoCoverage Block removal mutation: {}
+  1261 Survived LogicalNotExpression to un-LogicalNotExpression mutation: collectRefusals
+  1262 NoCoverage Block removal mutation: {}
+  1280 Survived Null coalescing mutation (remove left): _store.ListInstalled(context.Tenant)
+  1281 Survived Null coalescing mutation (left to right): LatestInstalled(installed, manifest.Key)?? _store.GetActive(context.Tenant, mani
+  1281 Survived Null coalescing mutation (remove left): LatestInstalled(installed, manifest.Key)
+  1281 Survived Null coalescing mutation (remove right): _store.GetActive(context.Tenant, manifest.Key)
+  1282 Survived Conditional (false) mutation: (false?bound!.Watermark :_store.GetWatermark(context.Tenant, manifest.Key))
+  1295 Survived String mutation: $""
+  1301 NoCoverage Statement mutation: ;
+  1303 NoCoverage String mutation: $""
+  1303 NoCoverage String mutation: ""
+  1322 NoCoverage String mutation: $""
+  1337 Survived Linq method mutation (First() to FirstOrDefault()): composed.FirstOrDefault
+  1367 Survived Statement mutation: ;
+  1374 Survived Statement mutation: ;
+  1377 Survived Statement mutation: ;
+  1378 NoCoverage Conditional (true) mutation: (true?PackInstallCodes.RefusedMalformedDependencyPin :PackInstallCodes.RefusedUn
+  1378 NoCoverage Conditional (false) mutation: (false?PackInstallCodes.RefusedMalformedDependencyPin :PackInstallCodes.RefusedU
+  1382 Survived Statement mutation: ;
+  1383 NoCoverage Conditional (true) mutation: (true?PackInstallCodes.RefusedDowngrade :PackInstallCodes.RefusedFloorWeakened)
+  1383 NoCoverage Conditional (false) mutation: (false?PackInstallCodes.RefusedDowngrade :PackInstallCodes.RefusedFloorWeakened)
+  1383 NoCoverage Equality mutation: hit.Kind != PackWatermarkHitKind.VersionDowngrade
+  1386 NoCoverage String mutation: ""
+  1391 Survived Logical mutation: not PackInstallCodes.RefusedDowngrade or not PackInstallCodes.RefusedFloorWeaken
+  1393 Survived Conditional (false) mutation: (false?PackInstallVerdict.RequiresBreakGlass :isUpgrade ? PackInstallVerdict.Wou
+  1395 Survived Conditional (false) mutation: (false?PackInstallVerdict.WouldUpgrade :PackInstallVerdict.WouldInstall)
+  1437 Survived Linq method mutation (Any() to All()): unmetDependencies.All
+  1441 Survived Linq method mutation (Any() to All()): unmetDependencies.All
+  1448 Survived Conditional (false) mutation: (false?PackInstallCodes.RefusedMalformedDependencyPin :PackInstallCodes.RefusedU
+  1458 Survived Conditional (true) mutation: (true?PackInstallCodes.RefusedDowngrade :PackInstallCodes.RefusedFloorWeakened)
+  1465 Survived Conditional (true) mutation: (true?PackInstallCodes.RefusedDowngrade :PackInstallCodes.RefusedFloorWeakened)
+  1465 Survived Conditional (false) mutation: (false?PackInstallCodes.RefusedDowngrade :PackInstallCodes.RefusedFloorWeakened)
+  1465 Survived Equality mutation: hit.Kind != PackWatermarkHitKind.VersionDowngrade
+  1468 Survived String mutation: ""
+  1473 Survived Conditional (false) mutation: (false?PackInstallVerdict.WouldUpgrade :PackInstallVerdict.WouldInstall)
+  1493 Survived Conditional (true) mutation: (true?unmetRequirements :Array.Empty<PackUnmetPlatformRequirement>())
+  1493 Survived Conditional (false) mutation: (false?unmetRequirements :Array.Empty<PackUnmetPlatformRequirement>())
+  1506 Survived Conditional (true) mutation: (true?newFloors :PackSafetyFloors.PreserveOmitted(newFloors, watermark.Floors))
+  1515 Survived Conditional (false) mutation: (false?PackInstallAuditAction.Upgraded :PackInstallAuditAction.Installed)
+  1537 Survived Boolean mutation: true
+  1546 Survived Null coalescing mutation (remove left): Array.Empty<PackUnmetPlatformRequirement>()
+  1548 Survived Null coalescing mutation (remove right): refusals
+  1548 Survived String mutation: ""
+  1549 Survived Null coalescing mutation (remove left): Array.Empty<PackContentDestination>()
+  1579 NoCoverage Conditional (true) mutation: (true?"/" :ContentPointer(contents, requirement.DeclaredBy))
+  1579 NoCoverage Conditional (false) mutation: (false?"/" :ContentPointer(contents, requirement.DeclaredBy))
+  1580 NoCoverage String mutation: ""
+  1586 Survived Equality mutation: index <= contents.Count
+  1591 NoCoverage String mutation: ""
+  1598 Survived Equality mutation: index <= contents.Count
+  1598 Survived PostIncrementExpression to PostDecrementExpression mutation: index--
+  1603 NoCoverage String mutation: ""
+  1608 Survived Equality mutation: index <= manifest.Dependencies.Count
+  1611 Survived Negate expression: !(string.Equals(candidate.Key, dependency.DependencyKey, StringComparison.Ordina
+  1618 NoCoverage String mutation: ""
+  1628 Survived String mutation: ""
+  1641 NoCoverage String mutation: "Stryker was here!"
+  1642 Survived Null coalescing mutation (remove left): string.Empty
+  1642 Survived String mutation: "Stryker was here!"
+  1663 Survived Conditional (true) mutation: (true?error :$"{error}: {detail}")
+  1663 Survived Conditional (false) mutation: (false?error :$"{error}: {detail}")
+  1663 Survived Equality mutation: detail is not null
+  1681 Survived Null coalescing mutation (remove right): dependents
+  1797 Survived Logical mutation: string.Equals(reference.ToPackKey, manifest.Key, StringComparison.Ordinal)      
+  1808 Survived Statement mutation: ;
+  1811 NoCoverage Equality mutation: c == 0
+  1813 NoCoverage Equality mutation: c == 0
+  1841 NoCoverage Statement mutation: ;
+  1853 Survived Statement mutation: ;
+  1866 Survived Statement mutation: ;
+  1886 Survived Null coalescing mutation (remove left): packGroup.OrderBy(item => item.Version, VersionComparer).Last()
+  1886 Survived Equality mutation: item.Lifecycle != PackLifecycleState.Active
+  1887 Survived Linq method mutation (Last() to First()): packGroup.OrderBy(item => item.Version, VersionComparer).First
+  1887 Survived Linq method mutation (OrderBy() to OrderByDescending()): packGroup.OrderByDescending
+  1888 Survived Equality mutation: item.Kind != PackContentKind.NavWorkspaceConfig
+  1890 Survived LogicalNotExpression to un-LogicalNotExpression mutation: PackNavigationDeclarationParser.DeclaresNavigation(item.CanonicalJson)
+  1891 NoCoverage Statement mutation: ;
+  1893 Survived LogicalNotExpression to un-LogicalNotExpression mutation: parsed.Succeeded
+  1895 Survived Statement mutation: ;
+  1925 NoCoverage String mutation: ""
+  1971 Survived Conditional (false) mutation: (false?newVersion :current.Version)
+  1971 Survived Equality mutation: PackVersion.Compare(newVersion, current.Version) >= 0
+  1989 Survived String mutation: ""
