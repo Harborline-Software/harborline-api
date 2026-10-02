@@ -100,6 +100,18 @@ public sealed class GrantRevocationWritePipelineTests
         Assert.Equal(GrantStatus.Active, (await h.Grants.FindAsync(Tenant, h.Grant))!.Status);
     }
 
+    [Fact(DisplayName = "ck-10 S4: a revocation without evidence or without a carried decision is refused before any stage runs")]
+    public async Task Revoke_MissingEvidenceOrDecision_IsRefusedBeforeAnyStage()
+    {
+        var h = await Harness.CreateAsync();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => h.Writer.RevokeAsync(Tenant, h.Grant, null!, Decision(h.Grant)));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => h.Writer.RevokeAsync(Tenant, h.Grant, Evidence(Admin, At), null!));
+
+        Assert.Empty(h.Stages);
+        Assert.Equal(GrantStatus.Active, (await h.Grants.FindAsync(Tenant, h.Grant))!.Status);
+    }
+
     private static GrantRevocation Evidence(ActorId by, DateTimeOffset at) =>
         new(by, at, new GrantReason(GrantReasonCodes.RevocationOffboarding, "pipeline"));
 
