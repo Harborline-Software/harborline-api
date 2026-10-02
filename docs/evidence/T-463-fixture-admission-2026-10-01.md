@@ -37,7 +37,7 @@ properties inherited from the existing T-463 oracle, not computed by the code
 under test. Empty/type/identity/fact/action refusal expectations are explicit
 Platform admission contract values. These probes are not Stryker evidence.
 
-## Required evidence still pending
+## Historical pending-evidence snapshot (2026-10-01)
 
 The two new `VerificationRunnerTests.File_authored_candidates` theory cases have
 **not run** on this source revision. They consume the candidate files unchanged
@@ -60,3 +60,24 @@ proposal/verify/review/release/activate/recovery acceptance are unsupported here
 Owners remain existing T-463, T-549, T-544, T-975, T-460/T-461. No new tickets or
 architecture decisions were created. The draft requires parent review; no ready,
 auto-merge, activation, release or full acceptance certification is authorized.
+
+## Update 2026-10-02: hosted proof and native-DLL refusal regression
+
+The pending host statement above describes the original evidence snapshot, not the current status of
+the two file-authored cases. At head `29f036ca0f1fe55804b05925e843c0c388b0b333`, both cases executed
+successfully in Windows, Linux and macOS artifacts from
+[verify run 36946523803](https://github.com/Harborline-Software/harborline-api/actions/runs/36946523803).
+Its tested merge `96b0895d2b7b5c1b27bdbef146f894b75b05abe6` had the same tree as that head. This does
+not cover the subsequent loader-only fix or #336's three new C# cases/live client workflow.
+
+Review identified unconditional `Assembly.LoadFrom` over every DLL, which aborts when a supplied bin
+directory includes a native binary. The loader now validates the REQUIRED producer first, skips only
+non-managed DLLs during discovery, and leaves managed loading/parser failures uncaught. It does not
+convert dependency failures into passing admission.
+
+`eng/test-t463-admission-loading.ps1` runs fresh PowerShell children with the cached producer directory
+above and actual Windows `C:/Windows/System32/kernel32.dll` as the native fixture. Mixed managed/native
+input passed all 11 production admission probes. Missing required producer and native-substituted
+required producer each exited 1 without a passing admission summary. All three regression scenarios
+passed; producer source/pin provenance remains unestablished. No heavy build or native mutation run.
+Contract generation `--check` passed. No production C# or fixture content changed in this fix.
