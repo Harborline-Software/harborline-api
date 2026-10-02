@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -163,12 +164,12 @@ public sealed class FounderTenantMembershipAttachTests
             await context.SaveChangesAsync();
         }
 
+        var grantsBefore = await GrantSnapshotAsync(fixture);
+
         Assert.Equal(
             FounderTenantMembershipAttachStatus.SkippedNoFounder,
             await fixture.Service.RunAsync(CancellationToken.None));
-        Assert.DoesNotContain(
-            await fixture.Grants.SnapshotAsync(fixture.Tenant),
-            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+        Assert.Equal(grantsBefore, await GrantSnapshotAsync(fixture));
     }
 
     [Fact]
@@ -184,12 +185,12 @@ public sealed class FounderTenantMembershipAttachTests
             await context.SaveChangesAsync();
         }
 
+        var grantsBefore = await GrantSnapshotAsync(fixture);
+
         Assert.Equal(
             FounderTenantMembershipAttachStatus.SkippedNoFounder,
             await fixture.Service.RunAsync(CancellationToken.None));
-        Assert.DoesNotContain(
-            await fixture.Grants.SnapshotAsync(fixture.Tenant),
-            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+        Assert.Equal(grantsBefore, await GrantSnapshotAsync(fixture));
     }
 
     [Fact]
@@ -198,12 +199,12 @@ public sealed class FounderTenantMembershipAttachTests
     {
         await using var fixture = await AttachFixture.CreateAsync(partyNeverResolves: true);
 
+        var grantsBefore = await GrantSnapshotAsync(fixture);
+
         Assert.Equal(
             FounderTenantMembershipAttachStatus.Unavailable,
             await fixture.Service.RunAsync(CancellationToken.None));
-        Assert.DoesNotContain(
-            await fixture.Grants.SnapshotAsync(fixture.Tenant),
-            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+        Assert.Equal(grantsBefore, await GrantSnapshotAsync(fixture));
     }
 
     [Fact]
@@ -212,13 +213,19 @@ public sealed class FounderTenantMembershipAttachTests
     {
         await using var fixture = await AttachFixture.CreateAsync(founderUsernameClearedAfterCeremony: true);
 
+        var grantsBefore = await GrantSnapshotAsync(fixture);
+
         Assert.Equal(
             FounderTenantMembershipAttachStatus.Unavailable,
             await fixture.Service.RunAsync(CancellationToken.None));
-        Assert.DoesNotContain(
-            await fixture.Grants.SnapshotAsync(fixture.Tenant),
-            grant => grant.Subject.Value == fixture.FounderPrincipal.Value);
+        Assert.Equal(grantsBefore, await GrantSnapshotAsync(fixture));
     }
+
+    // Compare all grant fields for every subject. The store does not promise row order,
+    // and serializing the ordered records avoids depending on nested object identity.
+    private static async Task<string> GrantSnapshotAsync(AttachFixture fixture) =>
+        JsonSerializer.Serialize((await fixture.Grants.SnapshotAsync(fixture.Tenant))
+            .OrderBy(grant => grant.GrantId.Value));
 
     private sealed class AttachFixture : IAsyncDisposable
     {

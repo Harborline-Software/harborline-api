@@ -122,10 +122,23 @@ Skipped JavaScript mutation jobs supply no evidence for these C# tests.
 The new tests use literal length/version bounds, refusal codes and parameter
 names; the store theories invoke `PrepareAsync` and check that refused inputs
 write no authority. Founder tests invoke the real service and assert literal
-statuses and absence of a grant for the founder principal. These expected values are independent
-of production output.
+statuses. The four T-1010 early-return tests now capture the complete grant
+snapshot before invoking the service and assert it is unchanged afterward,
+ordered by grant ID and serialized by value. This invariant covers any subject,
+including an unexpected principal, and preserves the fixture's installer grants.
+The fixture's production-derived founder principal is not an expected value in
+these four assertions.
 
-This evidence repair reads and matches existing raw reports; it introduces no
-production or test behavior change and makes no claim of a new local build,
-mutation run or full API gate. The prior author-reported build and 1,468 passing
-filtered tests with 18 skipped remain prior results, not newly executed checks.
+The recovered reports describe the earlier `cda9800` test snapshot, whose
+founder absence assertions used a production-derived principal. Those historical
+kills do not establish the corrected complete-snapshot invariant. Native focused validation on 2026-10-02 rebuilt the host tests and passed
+all 12 `FounderTenantMembershipAttachTests` (zero skipped). A temporary test-only
+red control appended a real grant for `oracle-unexpected-subject` after each of
+the four service calls: all four failed at the complete-snapshot assertion,
+while the other eight tests passed. The injection was removed; after forcing
+recompilation of the restored source, all 12 tests passed again. These checks
+use SDK 11.0.100-rc.1.26425.128 and the existing T-1010 local feed version
+`0.0.0-alpha.0.h43ec71c33440`; the feed was copied into this isolated clone,
+without changing the checked-in Platform pin or shared worktrees. This focused
+result is not a whole API gate or a new mutation report. The prior author's
+1,468 passing filtered tests with 18 skipped remain prior results.
