@@ -49,8 +49,6 @@ close its control. T-284 retains retry/registry ownership and T-965 retains base
   be fixed by decorating their helper classes. Their callers need review before removing debt.
 - CalendarDevSeederTests and VolatileBlobStoreProductionGuardTests temporarily set host environment
   values. Restoration alone does not establish isolation; their exact sites remain debt.
-- AccessNavigationUpgradeCompositionTests: API #320 already owns the isolation correction. Its
-  one debt row must be removed after that correction reaches this branch; do not duplicate it here.
 
 No automatic inventory update exists. Changes to debt require an explicit reviewed reason.
 The earlier exact-package SQLite diagnostic was bounded stress, not deterministic. There is no
