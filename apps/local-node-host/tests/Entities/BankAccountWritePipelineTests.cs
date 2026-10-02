@@ -142,8 +142,8 @@ public sealed class BankAccountWritePipelineTests
         Assert.Equal(new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero), (DateTimeOffset)stored.UpdatedAtUtc);
     }
 
-    [Fact(DisplayName = "ck-10 S4: a request cancelled after the create commits still returns the committed account, and a retry sees it")]
-    public async Task Create_CancelledAfterCommit_ReturnsTheCommittedAccount_AndARetrySeesIt()
+    [Fact(DisplayName = "ck-10 S4: a request cancelled after the create commits still returns the committed account, which stays usable")]
+    public async Task Create_CancelledAfterCommit_ReturnsTheCommittedAccount_WhichStaysUsable()
     {
         var h = new Harness();
         using var cancellation = new CancellationTokenSource();
@@ -161,6 +161,24 @@ public sealed class BankAccountWritePipelineTests
         Assert.Equal(SixStages, h.Stages);
         Assert.Single(h.Accounts.Rows);
         Assert.NotNull(archived!.ArchivedAt);
+    }
+
+    [Fact(DisplayName = "ck-10 S4: retrying the same create after a cancelled request is refused at bind and leaves exactly one account")]
+    public async Task Create_RetriedAfterACancelledCommit_IsRefusedAtBind_AndLeavesOneAccount()
+    {
+        var h = new Harness();
+        using var cancellation = new CancellationTokenSource();
+        h.Accounts.AfterWrite = cancellation.Cancel;
+        var original = Account("acct-1", Tenant, "Ops Checking");
+        var created = await h.Writer.CreateAsync(original, Authority, cancellation.Token);
+
+        h.Stages.Clear();
+        h.Accounts.AfterWrite = null;
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await h.Writer.CreateAsync(original, Authority));
+
+        Assert.Equal(WritePipelineStage.Bind, h.Stages[^1]);
+        Assert.Equal(1, h.Accounts.Writes);
+        Assert.Equal(created, Assert.Single(h.Accounts.Rows.Values));
     }
 
     private static BankAccount Account(string id, TenantId tenant, string displayName) => new(
