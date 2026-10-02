@@ -1,6 +1,13 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Harborline.Api.Blocks.Assets.Registry.DependencyInjection;
+using Harborline.Api.Blocks.Assets.Registry.Services;
 using Harborline.Api.Foundation.Assets.Common;
+using Harborline.Api.Foundation.Definitions;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
@@ -13,7 +20,10 @@ using Harborline.Api.Foundation.Packs.Model;
 using Harborline.Api.Foundation.Packs.Serialization;
 using Harborline.Api.Foundation.Packs.Trust;
 using Harborline.Api.Foundation.Packs.Verify;
+using Harborline.Api.Foundation.ReportDefinitions;
 using Harborline.Api.Kernel.Runtime;
+using Harborline.Api.LocalNodeHost.Data.PackProjection;
+using Harborline.Api.LocalNodeHost.Data.Packs;
 using Harborline.Api.LocalNodeHost.Tests.Authorization;
 
 using Xunit;
@@ -183,6 +193,67 @@ public sealed class PackActivationPipelineTests
         Assert.Empty(_store.GetOverrides(Tenant, PackKey));
     }
 
+    [Fact(DisplayName = "ck-10 S5b: a request cancelled at the commit-to-react boundary still audits, retires the definitions and returns the committed outcome")]
+    public async Task Cancellation_at_react_still_completes_the_committed_deactivation()
+    {
+        var reports = Reports();
+        ((IPackProjectionReconciler)_installer).AttachProjector(Projector(_store, reports));
+        CommitReportPack(_store);
+        PlatformPackTestPreload.Activate(_store, Tenant);
+        Assert.True((await _installer.ActivateAsync(Context(), ReportPackKey, "1.0.0")).Activated);
+        Assert.NotNull(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
+        _stages.Entered.Clear();
+
+        // The request disconnects exactly when commit has returned and react is about to run.
+        using var request = new CancellationTokenSource();
+        _stages.OnEnter = stage => { if (stage == React) request.Cancel(); };
+
+        var outcome = await _installer.DeactivateAsync(Context(), ReportPackKey, "1.0.0", request.Token);
+
+        Assert.True(request.IsCancellationRequested);
+        Assert.True(outcome.Deactivated, outcome.Error);
+        Assert.True(outcome.Projected);
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        Assert.Null(_store.GetActive(Tenant, ReportPackKey));
+        Assert.Null(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
+        Assert.Contains(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Deactivated && entry.PackKey == ReportPackKey);
+        Assert.Empty(((IPackProjectionAdmissionStore)_store).ListIncompleteProjectionAdmissions());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a crash between deactivation commit and react leaves a durable admission that a restarted installer's reconcile completes")]
+    public async Task A_crash_after_deactivation_commit_is_retired_by_reconcile_after_restart()
+    {
+        // The registry stands in for the durable definition store, which outlives the process.
+        var reports = Reports();
+        await using var origin = await PacksTestStore.CreateAsync();
+        var store = new DurablePackInstallStore(origin.Factory);
+        PlatformPackTestPreload.Activate(store, Tenant);
+        CommitReportPack(store);
+        var stages = new StageRecorder();
+        var installer = Installer(store, new InMemoryPackInstallAudit(), stages);
+        ((IPackProjectionReconciler)installer).AttachProjector(Projector(store, reports));
+        Assert.True((await installer.ActivateAsync(Context(), ReportPackKey, "1.0.0")).Activated);
+        Assert.NotNull(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
+
+        // The process dies after commit returns and before react runs.
+        stages.OnEnter = stage => { if (stage == React) throw new SimulatedCrash(); };
+        await Assert.ThrowsAsync<SimulatedCrash>(() => installer.DeactivateAsync(Context(), ReportPackKey, "1.0.0"));
+        Assert.NotNull(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
+
+        await using var restart = PacksTestStore.Reopen(origin);
+        var reopened = new DurablePackInstallStore(restart.Factory);
+        var reconciler = (IPackProjectionReconciler)Installer(reopened, new InMemoryPackInstallAudit(), new StageRecorder());
+        reconciler.AttachProjector(Projector(reopened, reports));
+        Assert.Null(reopened.GetActive(Tenant, ReportPackKey));
+        Assert.Contains(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions(),
+            admission => admission.PackId == ReportPackKey);
+
+        reconciler.ReconcilePending();
+
+        Assert.Null(await reports.GetDefinitionAsync(Tenant.Value, ReportKey, ItemVersion));
+        Assert.Empty(((IPackProjectionAdmissionStore)reopened).ListIncompleteProjectionAdmissions());
+    }
+
     private async Task ActivateAsync()
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
@@ -208,10 +279,67 @@ public sealed class PackActivationPipelineTests
             new PackInstallWatermark(PackKey, "1.0.0", new Dictionary<string, int>()), []));
     }
 
+    private const string ReportPackKey = "test.s5b-report";
+    private const string ReportKey = "s5b.report";
+    private const string ItemVersion = "1.0.0";
+
+    private static PackInstaller Installer(IPackInstallStore store, IPackInstallAudit audit, IWritePipelineObserver observer) =>
+        new(new PackVerifier(new Ed25519Verifier(), new PackFileCodec()), store,
+            new WorkflowRefusingPackContentAdmission(), audit, TestAuthorization.AllowGate(), pipelineObserver: observer);
+
+    private static InMemoryReportDefinitionRegistry Reports() => new(new AcceptAllReports());
+
+    private static PackSeedProjector Projector(IPackInstallStore store, InMemoryReportDefinitionRegistry reports) =>
+        new(store,
+            new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider()
+                .GetRequiredService<IEntityTypeRegistry>(),
+            NullLogger<PackSeedProjector>.Instance, reportDefinitions: reports, time: TimeProvider.System);
+
+    private static void CommitReportPack(IPackInstallMutationStore store)
+    {
+        var json = JsonSerializer.Serialize(new ReportDefinition
+        {
+            Key = ReportKey,
+            Version = ItemVersion,
+            Tenant = Tenant.Value,
+            SchemaVersion = 1,
+            ReportKind = "reports.table/basic",
+            Title = "S5b report",
+            Parameters = JsonSerializer.SerializeToElement(new { groupBy = "person" }),
+            CascadeLayer = CascadeLayer.Tenant,
+            Provenance = JsonDocument.Parse(
+                $$"""{"derivedAt":"2026-09-07T12:00:00+00:00","exportingActor":"s5b-test-author","originPackKey":"{{ReportPackKey}}","tier":"Civilian"}""")
+                .RootElement.Clone(),
+        });
+        var item = new PackSeedItem(ReportKey, PackContentKind.ReportDefinition, ItemVersion, json,
+            Harborline.Api.Foundation.Blobs.Cid.FromBytes(System.Text.Encoding.UTF8.GetBytes(json)));
+        store.Commit(new PackInstallTransaction(Tenant,
+            new InstalledPack(ReportPackKey, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [item],
+                new Dictionary<string, int>(), Now, PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]), 1,
+                TrustScope.OwnRoster, [new PackDependencyRef(PlatformPackTestPreload.PackKey, PlatformPackTestPreload.Version)]),
+            new PackInstallWatermark(ReportPackKey, "1.0.0", new Dictionary<string, int>()), []));
+    }
+
+    private sealed class AcceptAllReports : IReportDefinitionDescriptorRegistry
+    {
+        public ValueTask AdmitAsync(ReportDefinition definition, CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+    }
+
+#pragma warning disable CA1032, CA1064 // A test-only stand-in for process death.
+    private sealed class SimulatedCrash : Exception;
+#pragma warning restore CA1032, CA1064
+
     private sealed class StageRecorder : IWritePipelineObserver
     {
         public List<WritePipelineStage> Entered { get; } = [];
 
-        public void OnStage(WritePipelineStage stage) => Entered.Add(stage);
+        public Action<WritePipelineStage>? OnEnter { get; set; }
+
+        public void OnStage(WritePipelineStage stage)
+        {
+            Entered.Add(stage);
+            OnEnter?.Invoke(stage);
+        }
     }
 }
