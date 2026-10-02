@@ -1,0 +1,22 @@
+{
+  "sourceHead": "1b95413ec4d2dfc9ee9582bd4be3fc71be7f9da8",
+  "reportSha256": "5c94c05cc5c3e9c72d08c3589306aea0acad7585408528743891fa96c080f96d",
+  "command": "node eng/mutation-report.mjs --only apps/local-node-host/tests/tests.csproj --project Harborline.Foundation.Packs.csproj --scoped '**/Install/PackInstaller.cs' --filter 'FullyQualifiedName~PackActivationPipelineTests'",
+  "filteredTests": 42,
+  "mutatedFile": "packages/foundation-packs/Install/PackInstaller.cs",
+  "counts": {
+    "Timeout": 1,
+    "NoCoverage": 299,
+    "CompileError": 93,
+    "Killed": 196,
+    "Survived": 47,
+    "Ignored": 129
+  },
+  "namedKilledMutants": [
+    "1396: null transaction guard at line 547",
+    "1456: deactivation audit detail at line 687",
+    "1494,1496,1497: context predicate at line 758",
+    "1498: context refusal throw at line 759"
+  ],
+  "scopeLimit": "Named S5b obligations are killed. This is not a whole-file survivor-free result; all remaining outcomes are retained in the full JSON."
+}
