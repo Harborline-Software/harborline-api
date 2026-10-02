@@ -237,8 +237,12 @@ public sealed class NodeHierarchyCompositeCoordinator(
             authorization = await coordinator.DecideAllAsync(
                 [expectedNewId, .. oldEntities], actor, tenant, at, ct).ConfigureAwait(false);
 
+        /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
+        /// superseded and deleted with them, so it is not moved under the merged record.</summary>
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
+            displaced = (await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false))
+                .Where(edge => !oldEntities.Contains(edge.From))
+                .ToList();
 
         protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
             ValueTask.FromResult(newOptions with { ValidFrom = at });

@@ -164,7 +164,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
             AccessGrant bound, GrantRevocation mutation, CancellationToken ct) =>
             mutation.RevokedBy == admittedDecision.Request.Principal && mutation.RevokedAt == admittedDecision.DecidedAt
                 ? ValueTask.FromResult(mutation)
-                : throw new ArgumentException("Revocation attribution must match the admitted decision.", nameof(revocation));
+                : throw new ArgumentException("Revocation attribution must match the admitted decision.", nameof(mutation));
 
         protected override async ValueTask CommitAsync(GrantRevocation validated, CancellationToken ct) =>
             revoked = await writer.Grants.RevokeAsync(tenant, grant, validated, ct).ConfigureAwait(false);

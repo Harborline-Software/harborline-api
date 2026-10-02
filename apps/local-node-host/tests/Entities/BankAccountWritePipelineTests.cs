@@ -181,6 +181,17 @@ public sealed class BankAccountWritePipelineTests
         Assert.Equal(created, Assert.Single(h.Accounts.Rows.Values));
     }
 
+    [Fact(DisplayName = "ck-10 S4: a create without an account is refused before any stage runs")]
+    public async Task Create_NullAccount_IsRefusedBeforeAnyStage()
+    {
+        var h = new Harness();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(async () => await h.Writer.CreateAsync(null!, Authority));
+
+        Assert.Empty(h.Stages);
+        Assert.Empty(h.Accounts.Rows);
+    }
+
     private static BankAccount Account(string id, TenantId tenant, string displayName) => new(
         new BankAccountId(id), tenant, default, default, displayName, null, default, default,
         0m, (Instant)Before, null, (Instant)Before, (Instant)Before);

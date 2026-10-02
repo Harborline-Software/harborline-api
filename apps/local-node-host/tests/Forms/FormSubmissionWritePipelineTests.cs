@@ -57,6 +57,20 @@ public sealed class FormSubmissionWritePipelineTests
         Assert.Null(await h.Entities.GetAsync(new EntityId("forminstance", "forms", "first")));
     }
 
+    [Fact(DisplayName = "ck-10 S3: a null decision fails the submission before any stage and stores nothing")]
+    public async Task Submission_NullDecision_ThrowsBeforeAnyStage()
+    {
+        var h = new Harness();
+        using var body = JsonDocument.Parse("""{"name":"submitted"}""");
+
+        var refused = await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            h.Writer.CreateAsync(Form, Schema, body, Options("first"), null!));
+
+        Assert.Equal("decision", refused.ParamName);
+        Assert.Empty(h.Stages);
+        Assert.Null(await h.Entities.GetAsync(new EntityId("forminstance", "forms", "first")));
+    }
+
     private static CreateOptions Options(string localPart) =>
         new("forminstance", "forms", localPart, Submitter, Tenant, At, ExplicitLocalPart: localPart);
 

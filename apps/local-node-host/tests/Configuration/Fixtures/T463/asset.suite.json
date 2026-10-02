@@ -1,0 +1,162 @@
+{
+  "contract": "harborline.verification-suite/v1",
+  "suiteId": "t463.asset.admission",
+  "version": "1.0.0",
+  "catalogue": "53787c4f69c20d380f3d78416e822d365cfe93fcc028b00c86150316dac613d3",
+  "fixtures": [
+    {
+      "fixtureId": "approver",
+      "instant": "2026-09-20T09:00:00.0000000+00:00",
+      "timeZone": "Europe/London",
+      "locale": "en-GB",
+      "identifierSeed": "t463-asset",
+      "ordering": "ordinal-by-key",
+      "actor": "moss.adeyemi",
+      "grants": [
+        {
+          "roleKey": "invoice.approver",
+          "scope": "/"
+        },
+        {
+          "roleKey": "invoice.author",
+          "scope": "/"
+        }
+      ],
+      "ports": [
+        {
+          "portId": "notifications.email",
+          "simulator": "record-only"
+        },
+        {
+          "portId": "payments.remit",
+          "simulator": "denied"
+        }
+      ],
+      "facts": [
+        {
+          "recordType": "asset",
+          "body": "{\"id\":\"asset-initial\",\"status\":\"draft\",\"total\":0}"
+        }
+      ]
+    },
+    {
+      "fixtureId": "clerk",
+      "instant": "2026-09-20T09:00:00.0000000+00:00",
+      "timeZone": "Europe/London",
+      "locale": "en-GB",
+      "identifierSeed": "t463-asset",
+      "ordering": "ordinal-by-key",
+      "actor": "dana.okafor",
+      "grants": [
+        {
+          "roleKey": "invoice.author",
+          "scope": "/"
+        }
+      ],
+      "ports": [
+        {
+          "portId": "notifications.email",
+          "simulator": "record-only"
+        },
+        {
+          "portId": "payments.remit",
+          "simulator": "denied"
+        }
+      ],
+      "facts": [
+        {
+          "recordType": "asset",
+          "body": "{\"id\":\"asset-initial\",\"status\":\"draft\",\"total\":0}"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "approval-authority",
+      "title": "Approval requires the approver role.",
+      "fixtureId": "clerk",
+      "actionId": "records.create",
+      "inputs": {
+        "recordType": "\"asset\"",
+        "values": "{\"supplier\":\"contoso\",\"quantity\":4,\"unitPrice\":500,\"status\":\"approved\"}"
+      },
+      "assertions": [
+        {
+          "predicateId": "authorization.decision",
+          "target": null,
+          "expected": "\"refused\""
+        },
+        {
+          "predicateId": "outcome.accepted",
+          "target": null,
+          "expected": "false"
+        },
+        {
+          "predicateId": "outcome.refusalCode",
+          "target": null,
+          "expected": "\"records-authority-insufficient\""
+        },
+        {
+          "predicateId": "outcome.refusalPointer",
+          "target": null,
+          "expected": "\"/values/status\""
+        }
+      ],
+      "rows": []
+    },
+    {
+      "caseId": "invoice-total",
+      "title": "Declared quantity times unit price yields the literal expected value.",
+      "fixtureId": "approver",
+      "actionId": "records.create",
+      "inputs": {
+        "recordType": "\"asset\""
+      },
+      "assertions": [
+        {
+          "predicateId": "outcome.accepted",
+          "target": null,
+          "expected": null
+        },
+        {
+          "predicateId": "record.number",
+          "target": "/total",
+          "expected": null
+        }
+      ],
+      "rows": [
+        {
+          "rowId": "ten-at-one-hundred",
+          "values": {
+            "values": "{\"supplier\":\"contoso\",\"quantity\":10,\"unitPrice\":100}"
+          },
+          "expected": {
+            "outcome.accepted": "true",
+            "record.number:/total": "1000"
+          }
+        },
+        {
+          "rowId": "three-at-four-hundred",
+          "values": {
+            "values": "{\"supplier\":\"contoso\",\"quantity\":3,\"unitPrice\":400}"
+          },
+          "expected": {
+            "outcome.accepted": "true",
+            "record.number:/total": "1200"
+          }
+        },
+        {
+          "rowId": "two-at-one-hundred",
+          "values": {
+            "values": "{\"supplier\":\"contoso\",\"quantity\":2,\"unitPrice\":100}"
+          },
+          "expected": {
+            "outcome.accepted": "true",
+            "record.number:/total": "200"
+          }
+        }
+      ]
+    }
+  ]
+}

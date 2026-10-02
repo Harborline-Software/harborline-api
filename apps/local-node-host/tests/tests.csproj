@@ -12,6 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Update="Configuration/Fixtures/T463/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../eng/examples/t463-configuration.ps1" Link="Configuration/Fixtures/T463/t463-configuration.ps1" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../../tooling/conformance/access-replacement/AccessReplacementFixture.cs" Link="Packs/AccessReplacementFixture.cs" />
     <None Include="../../../_shared/conformance/terminology/v1.json"
           Link="Terminology/v1.json" CopyToOutputDirectory="PreserveNewest" />
