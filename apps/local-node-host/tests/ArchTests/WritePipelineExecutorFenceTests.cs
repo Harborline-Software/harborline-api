@@ -56,8 +56,6 @@ public sealed class WritePipelineExecutorFenceTests
             "S5 pack narrowing"),
         ("packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.ProjectAndRetire``1[!!0]",
             "S5 pack projection"),
-        ("packages/foundation/Assets/Entities/IEntityStore.cs|Harborline.Api.Foundation.Assets.Entities.IEntityMutationStore.CreateBatchAsync",
-            "S3 raw-port batch fan-out, no production caller"),
         ("packages/foundation/Definitions/EntityStoreDefinitionLifecycle.cs|Harborline.Api.Foundation.Definitions.EntityStoreDefinitionLifecycle`1[!0].TransitionAsync",
             "S3 definition lifecycle"),
     ];

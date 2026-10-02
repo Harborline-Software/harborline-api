@@ -1169,13 +1169,6 @@ public sealed class RoleGateAdmissionTests
             return inner.UpdateAsync(id, body, options, ct);
         }
 
-        public Task<IReadOnlyList<EntityId>> CreateBatchAsync(
-            IEnumerable<EntityDraft> drafts, CancellationToken ct = default)
-        {
-            order.Add("writer");
-            return inner.CreateBatchAsync(drafts, ct);
-        }
-
         public Task<VersionId> UpdateAsync(
             EntityId id, JsonDocument body, UpdateOptions options, CancellationToken ct = default)
         {
