@@ -355,6 +355,17 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<DateTimeOffset?> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, DateTimeOffset? mutation, CancellationToken ct)
         {
+            await RefuseCycleAsync(ct).ConfigureAwait(false);
+            return mutation;
+        }
+
+        /// <summary>
+        /// Refuses a new parent that is the child or one of its descendants. Validate asks first; commit asks again
+        /// inside the atomic unit, where the answer is authoritative, because an opposing reparent can commit
+        /// between the two (each moving one entity under the other) and both would otherwise pass validate.
+        /// </summary>
+        private async ValueTask RefuseCycleAsync(CancellationToken ct)
+        {
             if (newParent == child)
                 throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
             await foreach (var ancestor in coordinator.Store.GetAncestorsAsync(newParent, at, ct).ConfigureAwait(false))
@@ -362,7 +373,6 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 if (ancestor.Ancestor == child)
                     throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
             }
-            return mutation;
         }
 
         protected override async ValueTask CommitAsync(DateTimeOffset? validated, CancellationToken ct)
@@ -373,6 +383,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(child);
                 authorization.Require(oldParent);
                 authorization.Require(newParent);
+                await RefuseCycleAsync(transactionCt).ConfigureAwait(false);
                 foreach (var edge in displaced)
                     await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
                 var replacementEdge = await store.AddEdgeAsync(

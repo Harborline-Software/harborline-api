@@ -90,13 +90,59 @@ public sealed class HierarchyReparentPipelineTests
         Assert.Equal([Root], await h.ParentsOf(Room));
     }
 
+    [Fact(DisplayName = "ck-10 S3: of two opposing reparents that both pass validate, the second to commit is refused inside its atomic unit")]
+    public async Task OpposingReparents_TheSecondToCommitIsRefusedInsideItsUnit()
+    {
+        var h = await Harness.CreateAsync();
+        var depot = new EntityId("entity", "test", "depot");
+        await h.Hierarchy.AddEdgeAsync(depot, Root, EdgeKind.ChildOf, At.AddDays(-1));
+        using var held = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var gate = new CommitGate(held, release);
+
+        // Reparent one validates "site under depot", then is held just before it commits.
+        var first = Task.Run(() => h.CoordinatorObservedBy(gate).ReparentAsync(Site, Root, depot, "first", Actor, Tenant, At));
+        Assert.True(held.Wait(TimeSpan.FromSeconds(30)), "the first reparent never reached commit");
+
+        // Reparent two moves depot under site and commits while the first is held.
+        await h.Coordinator.ReparentAsync(depot, Root, Site, "second", Actor, Tenant, At);
+        Assert.Equal([Site], await h.ParentsOf(depot));
+
+        release.Set();
+        await Assert.ThrowsAsync<ArgumentException>(() => first);
+        Assert.Equal(WritePipelineStage.Commit, gate.Stages[^1]);
+        Assert.Equal([Root], await h.ParentsOf(Site));
+    }
+
+    /// <summary>Records stages and holds the write on entering commit until the test releases it.</summary>
+    private sealed class CommitGate(ManualResetEventSlim held, ManualResetEventSlim release) : IWritePipelineObserver
+    {
+        public List<WritePipelineStage> Stages { get; } = [];
+
+        public void OnStage(WritePipelineStage stage)
+        {
+            Stages.Add(stage);
+            if (stage != WritePipelineStage.Commit) return;
+            held.Set();
+            release.Wait(TimeSpan.FromSeconds(30));
+        }
+    }
+
     private sealed class Harness : IWritePipelineObserver
     {
+        private InMemoryAssetStorage storage = null!;
+        private bool allow;
+
         private Harness(InMemoryHierarchyService hierarchy, NodeHierarchyCompositeCoordinator coordinator)
         {
             Hierarchy = hierarchy;
             Coordinator = coordinator;
         }
+
+        public NodeHierarchyCompositeCoordinator CoordinatorObservedBy(IWritePipelineObserver observer) => new(
+            new InMemoryEntityStore(storage, new FixedTimeProvider(At)), Hierarchy,
+            new HierarchyAuthorizedAuditWriter(new InMemoryAuditLog(storage)),
+            TestAuthorization.Gate(allow), new FixedTimeProvider(At), NullEntityValidator.Instance, observer);
 
         public InMemoryHierarchyService Hierarchy { get; }
         public NodeHierarchyCompositeCoordinator Coordinator { get; private set; }
@@ -112,7 +158,7 @@ public sealed class HierarchyReparentPipelineTests
             await hierarchy.AddEdgeAsync(Site, Root, EdgeKind.ChildOf, At.AddDays(-1));
             await hierarchy.AddEdgeAsync(Building, Site, EdgeKind.ChildOf, At.AddDays(-1));
             await hierarchy.AddEdgeAsync(Room, Building, EdgeKind.ChildOf, At.AddDays(-1));
-            var harness = new Harness(hierarchy, null!);
+            var harness = new Harness(hierarchy, null!) { storage = storage, allow = allow };
             harness.Coordinator = new NodeHierarchyCompositeCoordinator(
                 new InMemoryEntityStore(storage, new FixedTimeProvider(At)), hierarchy,
                 new HierarchyAuthorizedAuditWriter(new InMemoryAuditLog(storage)),
