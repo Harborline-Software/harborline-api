@@ -186,7 +186,7 @@ internal sealed class AccessAdministrationPreloadHostedService : IHostedService
                 return;
             }
 
-            var installed = _installer.Install(exported.FileBytes, context);
+            var installed = await _installer.InstallAsync(exported.FileBytes, context, CancellationToken.None).ConfigureAwait(false);
             if (!installed.Installed)
             {
                 _logger.LogError(

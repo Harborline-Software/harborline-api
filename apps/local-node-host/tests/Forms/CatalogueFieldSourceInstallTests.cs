@@ -63,7 +63,7 @@ public sealed class CatalogueFieldSourceInstallTests
         source["overlay"]!["title"]!["values"]!["en"] = "sentinel-do-not-read";
         var bytes = await Export(keys, codec, CatalogueFieldSourceContractTests.Content(), "1.0.0",
             [CatalogueFieldSourceContract.CapabilityId], [new PackContentSource("source", PackContentKind.FormDefinition, "2.3.4", source)]);
-        Assert.True(installer.Install(bytes, context).Installed);
+        Assert.True((await installer.InstallAsync(bytes, context)).Installed);
         Assert.True(installer.Activate(Tenant, PackKey, "1.0.0", context.Now, "test-operator").Activated);
         using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         var schemas = new InMemorySchemaRegistry(TimeProvider.System);
@@ -129,7 +129,7 @@ public sealed class CatalogueFieldSourceInstallTests
         var installer = Installer(keys, codec, store, admission);
         var context = Context(keys);
         var legacy = await Export(keys, codec, CatalogueFieldSourceContractTests.Content(false), "1.0.0", []);
-        Assert.True(installer.Install(legacy, context).Installed);
+        Assert.True((await installer.InstallAsync(legacy, context)).Installed);
         var before = Assert.Single(store.ListInstalled(Tenant));
         var watermark = store.GetWatermark(Tenant, PackKey);
         var content = CatalogueFieldSourceContractTests.Content();
@@ -143,7 +143,7 @@ public sealed class CatalogueFieldSourceInstallTests
         }
         var bytes = await Export(keys, codec, content, "2.0.0",
             mutation == "missing-requirement" ? [] : [CatalogueFieldSourceContract.CapabilityId]);
-        var outcome = installer.Install(bytes, context);
+        var outcome = await installer.InstallAsync(bytes, context);
         Assert.False(outcome.Installed);
         Assert.Equal(code, Assert.Single(outcome.Preview.AdmissionRefusals).Code);
         Assert.Equal(before, Assert.Single(store.ListInstalled(Tenant)));
@@ -163,7 +163,7 @@ public sealed class CatalogueFieldSourceInstallTests
         var installer = Installer(keys, codec, store, admission);
         var context = Context(keys);
         var bytes = await Export(keys, codec, CatalogueFieldSourceContractTests.Content(), "1.0.0", [CatalogueFieldSourceContract.CapabilityId]);
-        Assert.True(installer.Install(bytes, context).Installed);
+        Assert.True((await installer.InstallAsync(bytes, context)).Installed);
         Assert.True(installer.Activate(Tenant, PackKey, "1.0.0", context.Now, "test-operator").Activated);
         using var services = new ServiceCollection().AddLogging().AddInMemoryAssetTypeSystem().BuildServiceProvider();
         using var forms = new InMemoryFormDefinitionStore(TimeProvider.System);
@@ -195,7 +195,7 @@ public sealed class CatalogueFieldSourceInstallTests
         var installer = new PackInstaller(new PackVerifier(new Ed25519Verifier(), codec), store,
             new WorkflowRefusingPackContentAdmission(), new InMemoryPackInstallAudit(), TestAuthorization.AllowGate(), Platform());
         var bytes = await Export(keys, codec, CatalogueFieldSourceContractTests.Content(), "1.0.0", [CatalogueFieldSourceContract.CapabilityId]);
-        var outcome = installer.Install(bytes, Context(keys));
+        var outcome = await installer.InstallAsync(bytes, Context(keys));
         Assert.False(outcome.Installed);
         Assert.Equal(PackAdmissionCodes.NotWired, Assert.Single(outcome.Preview.AdmissionRefusals).Code);
         Assert.Empty(store.ListInstalled(Tenant));

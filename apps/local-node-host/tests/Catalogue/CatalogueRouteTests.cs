@@ -230,7 +230,7 @@ public sealed class CatalogueRouteTests : IAsyncLifetime
         var exported = await _exporter.ExportAsync(claiming, _signer.Signer, CancellationToken.None);
         Assert.True(exported.Succeeded, string.Join(",", exported.Validation.Errors.Select(error => error.Code)));
 
-        var outcome = _installer.Install(exported.FileBytes!, PackContext());
+        var outcome = await _installer.InstallAsync(exported.FileBytes!, PackContext());
 
         Assert.False(outcome.Installed);
         Assert.Equal([KernelBootstrapErrors.CompiledShapeReplacement], outcome.RefusalCodes);

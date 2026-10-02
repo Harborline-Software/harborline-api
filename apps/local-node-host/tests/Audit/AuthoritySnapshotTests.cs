@@ -335,11 +335,11 @@ public sealed class AuthoritySnapshotTests
             TimeSpan.FromDays(30),
             Principal: "test-operator");
 
-        var refused = installer.Install(Array.Empty<byte>(), context);
+        var refused = await installer.InstallAsync(Array.Empty<byte>(), context);
         Assert.Same(refused.Decision, recorded.LastDecision);
 
         var v2 = await CreatePackAsync(codec, fixtureSigner, "2.0.0");
-        var installed = installer.Install(v2, context);
+        var installed = await installer.InstallAsync(v2, context);
         Assert.True(installed.Installed);
         Assert.Same(installed.Decision, recorded.LastDecision);
 
@@ -377,11 +377,11 @@ public sealed class AuthoritySnapshotTests
         Assert.Same(narrowingDecision, recorded.LastDecision);
 
         var v1 = await CreatePackAsync(codec, fixtureSigner, "1.0.0");
-        var downgradeRefusal = installer.Install(v1, context);
+        var downgradeRefusal = await installer.InstallAsync(v1, context);
         Assert.False(downgradeRefusal.Installed);
         Assert.Same(downgradeRefusal.Decision, recorded.LastDecision);
         var beforeBreakGlass = recorded.Decisions.Count;
-        var brokeGlass = installer.Install(v1, context with
+        var brokeGlass = await installer.InstallAsync(v1, context with
         {
             BreakGlass = new BreakGlass("ticket-199 mutation exercise", "test-operator"),
         });
@@ -616,8 +616,8 @@ public sealed class AuthoritySnapshotTests
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller+Narrowing.ReactAsync(Harborline.Api.Foundation.Packs.Install.PackTenantOverride,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Packs.Install.PackNarrowingOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             "apps/local-node-host/Health/KernelAuditPackInstallAudit.cs|Harborline.Api.LocalNodeHost.Health.KernelAuditPackInstallAudit.AppendCore(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail.AppendAuthorizedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision): System.Threading.Tasks.ValueTask|0",
             "packages/foundation-forms-engine/FormEngine.cs|Harborline.Api.Foundation.Forms.Engine.FormEngine.AppendMintAuditAsync(Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail,Harborline.Api.Foundation.Crypto.SignedOperation`1[Harborline.Api.Kernel.Audit.AuditPayload],Harborline.Api.Foundation.Forms.Models.FormDefinitionId,Harborline.Api.Foundation.Forms.Engine.Capabilities.CapabilityToken,System.DateTimeOffset,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask|Harborline.Api.Kernel.Audit.IAuthorizedAuditTrail.AppendAuthorizedAsync(Harborline.Api.Kernel.Audit.AuditRecord,Harborline.Api.Foundation.Authorization.AuthorizationDecision,System.Threading.CancellationToken,Harborline.Api.Foundation.Authorization.SeparationOfDuty.SeparationOfDutyDecision): System.Threading.Tasks.ValueTask|0",
-            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.Install(System.ReadOnlySpan`1[System.Byte],Harborline.Api.Foundation.Packs.Install.PackInstallContext): Harborline.Api.Foundation.Packs.Install.PackInstallOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
-            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.Install(System.ReadOnlySpan`1[System.Byte],Harborline.Api.Foundation.Packs.Install.PackInstallContext): Harborline.Api.Foundation.Packs.Install.PackInstallOutcome|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|1",
+            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller+Installation.ReactAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+InstallSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Packs.Install.PackInstallOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
+            "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller+Installation.ReactAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+InstallSealed,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Packs.Install.PackInstallOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|1",
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller+Activation.ReactAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+ActivationBound,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Packs.Install.PackActivationOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller+Deactivation.ReactAsync(Harborline.Api.Foundation.Packs.Install.PackInstaller+DeactivationBound,System.Threading.CancellationToken): System.Threading.Tasks.ValueTask`1[Harborline.Api.Foundation.Packs.Install.PackDeactivationOutcome]|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",
             "packages/foundation-packs/Install/PackInstaller.cs|Harborline.Api.Foundation.Packs.Install.PackInstaller.AuditRefused(Harborline.Api.Foundation.Packs.Install.PackInstallContext,Harborline.Api.Foundation.Packs.Install.PackInstallPreview,System.Nullable`1[Harborline.Api.Foundation.Crypto.PrincipalId],Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|Harborline.Api.Foundation.Packs.Install.Audit.IPackInstallAudit.AppendAuthorized(Harborline.Api.Foundation.Packs.Install.Audit.PackInstallAuditEntry,Harborline.Api.Foundation.Authorization.AuthorizationDecision): System.Void|0",

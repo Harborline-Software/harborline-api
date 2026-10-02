@@ -101,7 +101,7 @@ public sealed class AccessNavigationUpgradeCompositionTests
             Dcp: DomainComplianceProfile.General(signer.Signer.IssuerId.ToBase64Url())), signer.Signer);
         Assert.True(export.Succeeded);
         var installer = services.GetRequiredService<IPackInstaller>();
-        var installed = installer.Install(export.FileBytes!, Context(services));
+        var installed = await installer.InstallAsync(export.FileBytes!, Context(services));
         Assert.True(installed.Installed, string.Join(",", installed.RefusalCodes));
         var activation = installer.Activate(Context(services), PackKey, "1.0.0");
         Assert.True(activation.Activated, activation.Detail);

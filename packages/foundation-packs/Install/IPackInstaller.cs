@@ -31,7 +31,8 @@ public interface IPackInstaller
     /// <see cref="PackLifecycleState.Draft"/>; call <see cref="ActivateAsync"/> to make it live. A watermark
     /// refusal (downgrade / floor-weakening) proceeds ONLY with a break-glass ceremony on the context.
     /// </summary>
-    PackInstallOutcome Install(ReadOnlySpan<byte> packBytes, PackInstallContext context);
+    Task<PackInstallOutcome> InstallAsync(
+        ReadOnlyMemory<byte> packBytes, PackInstallContext context, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Activates an installed version (ADR 0011 Draft/Inactive → Active pointer flip) + audits it. A prior Active
