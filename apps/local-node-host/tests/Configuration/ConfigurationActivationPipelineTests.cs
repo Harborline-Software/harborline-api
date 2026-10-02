@@ -80,6 +80,32 @@ public sealed class ConfigurationActivationPipelineTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Refused_decision_preserves_the_existing_effective_pointer_decision_id()
+    {
+        var (initial, _) = Prepare(_target, "intent-before-refusal");
+        var allowed = await ActivateAsync(_target, initial);
+        Assert.Null(allowed.Decision.Refusal);
+        using (var context = _db.CreateContext())
+        {
+            var pointer = Assert.Single(context.EffectiveGenerations);
+            // Oracle: literal pre-existing durable state must survive an authorization refusal.
+            pointer.DecisionId = "decision-before-refusal";
+            context.SaveChanges();
+        }
+        _observer.Stages.Clear();
+        var denying = Target(TestPackGate.Denying());
+        var (request, _) = Prepare(denying, "intent-refused-existing-pointer");
+
+        var outcome = await ActivateAsync(denying, request);
+
+        Assert.Equal("configuration-authority-refused", outcome.Decision.Refusal?.Code);
+        Assert.Equal([WritePipelineStage.Authorize], _observer.Stages);
+        using var after = _db.CreateContext();
+        Assert.Equal("decision-before-refusal", Assert.Single(after.EffectiveGenerations.AsNoTracking()).DecisionId);
+        Assert.Equal("intent-before-refusal", Assert.Single(Outbox()).IntentId);
+    }
+
+    [Fact]
     public async Task Reused_evidence_intent_settles_at_bind_without_writing_again()
     {
         var (request, candidate) = Prepare(_target, "intent-reused");
