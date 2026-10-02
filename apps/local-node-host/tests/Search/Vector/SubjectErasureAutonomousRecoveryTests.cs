@@ -228,25 +228,32 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        // The child signals by a file, not its stdout: a redirected child's output can reach the parent only at exit.
+        var readyFile = databasePath + ".t1048g-ready";
         startInfo.ArgumentList.Add(typeof(SubjectErasureAutonomousRecoveryTests).Assembly.Location);
         startInfo.Environment[SubjectErasureChildProcess.DatabaseVariable] = databasePath;
         using var child = Process.Start(startInfo) ?? throw new InvalidOperationException("The erasing child did not start.");
+        var stdout = child.StandardOutput.ReadToEndAsync();
         var stderr = child.StandardError.ReadToEndAsync();
         try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            string? line;
-            do
+            var deadline = DateTime.UtcNow.AddSeconds(120);
+            while (!File.Exists(readyFile))
             {
-                line = await child.StandardOutput.ReadLineAsync(timeout.Token);
-                Assert.True(line is not null, "The erasing child exited before the injected point: " + await stderr);
+                Assert.False(child.HasExited, "The erasing child exited before the injected point: " + await stdout + await stderr);
+                Assert.True(DateTime.UtcNow < deadline, "The erasing child did not reach the injected point within 120s.");
+                await Task.Delay(50);
             }
-            while (line != SubjectErasureChildProcess.ReadyLine);
+
+            // The real stop: the process is killed while the tombstone write is in progress.
+            child.Kill(entireProcessTree: true);
+            using var exit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await child.WaitForExitAsync(exit.Token);
+            Assert.NotEqual(SubjectErasureChildProcess.DeadlineExitCode, child.ExitCode);
         }
         finally
         {
-            child.Kill(entireProcessTree: true);
-            await child.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+            if (!child.HasExited) child.Kill(entireProcessTree: true);
         }
     }
 
@@ -331,12 +338,13 @@ public sealed class SubjectErasureAutonomousRecoveryTests : IAsyncLifetime
 /// <summary>
 /// T-1048: the erasing child process. When the test starts this assembly with
 /// <see cref="DatabaseVariable"/> set, the module initializer erases Alice over that file and stops, alive, at
-/// the tombstone write, after the registry commit and before the audit, for the parent to kill.
+/// the tombstone write, after the registry commit and before the audit, and creates
+/// <c>&lt;database&gt;.t1048g-ready</c> for the parent, which kills it.
 /// </summary>
 internal static class SubjectErasureChildProcess
 {
     internal const string DatabaseVariable = "HARBORLINE_T1048G_ERASURE_CHILD_DB";
-    internal const string ReadyLine = "T1048G-CHILD-AT-TOMBSTONE";
+    internal const int DeadlineExitCode = 4;
 
     [ModuleInitializer]
     internal static void RunWhenChild()
@@ -345,25 +353,24 @@ internal static class SubjectErasureChildProcess
         if (string.IsNullOrEmpty(databasePath)) return;
         var store = SearchTestStore.OpenExisting(databasePath);
         var service = SubjectErasureAutonomousRecoveryTests.Service(
-            store, new StopAtTombstone(), new InMemoryAuditTrail(), new Ed25519Signer(KeyPair.Generate()),
+            store, new StopAtTombstone(databasePath + ".t1048g-ready"), new InMemoryAuditTrail(), new Ed25519Signer(KeyPair.Generate()),
             new SubjectErasureAutonomousRecoveryTests.ScriptedPropagator());
         service.EraseAsync(SubjectErasureAutonomousRecoveryTests.Request(SubjectErasureAutonomousRecoveryTests.Alice))
             .GetAwaiter().GetResult();
         Environment.Exit(3); // Unreachable: the tombstone write never returns.
     }
 
-    private sealed class StopAtTombstone : ISubjectTombstoneStore
+    private sealed class StopAtTombstone(string readyFile) : ISubjectTombstoneStore
     {
         public ValueTask<SubjectTombstone?> FindAsync(TenantId tenant, string pseudonym, CancellationToken ct = default) =>
             ValueTask.FromResult<SubjectTombstone?>(null);
 
         public ValueTask WriteAsync(SubjectTombstone tombstone, CancellationToken ct = default)
         {
-            Console.Out.WriteLine(ReadyLine);
-            Console.Out.Flush();
+            File.WriteAllText(readyFile, "at tombstone");
             // Deadline: a parent that never kills this process does not leave it running.
             Thread.Sleep(TimeSpan.FromMinutes(5));
-            Environment.Exit(4);
+            Environment.Exit(DeadlineExitCode);
             return ValueTask.CompletedTask;
         }
     }
