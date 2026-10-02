@@ -533,11 +533,97 @@ public sealed class AdminTeamAccessAuthorityTests
 
         var legs = await RestartAndDrainTwiceAsync(fixture);
         var revoked = Assert.Single(legs);
-        Assert.Equal(AuditEventType.CapabilityRevoked, revoked.EventType);
+        Assert.Equal("CapabilityRevoked", revoked.EventType.Value);
         Assert.Equal(WebGrantId, revoked.Target!.Value.RecordId);
         Assert.Equal(Now, revoked.OccurredAt);
         Assert.Equal(new ActorId("principal-admin"), revoked.Actor);
         Assert.NotNull(revoked.AuthoritySnapshot);
+    }
+
+    [Fact]
+    public async Task A_revoke_retry_before_the_outbox_drain_returns_the_original_committed_receipt()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+        var correlation = Guid.Parse("34900000-0000-4000-8000-000000000002");
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        { CorrelationId = correlation };
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, authority));
+
+        Guid owedId;
+        long committedVersion;
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            var owed = await db.AuditOutbox.SingleAsync();
+            owedId = Guid.Parse(owed.AuditId);
+            Assert.Equal("CapabilityRevoked", owed.EventType);
+            Assert.Null(owed.PublishedAtUnixMs);
+            var grant = await db.Grants.SingleAsync(row => row.GrantId == WebGrantId);
+            Assert.Equal((int)GrantStatus.Revoked, grant.Status);
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), grant.RevokedAtUnixMs);
+            committedVersion = grant.OwnerVersion;
+        }
+
+        var replay = await fixture.Authority.RevokeGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            authority with { At = Now.AddMinutes(1) });
+        Assert.NotNull(replay);
+        Assert.Equal(AdminRevokeMemberStatus.Revoked, replay.Status);
+        Assert.Equal(owedId, replay.AuditId);
+        Assert.Equal(correlation, replay.CorrelationId);
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            Assert.Equal(1, await db.AuditOutbox.CountAsync());
+            var grant = await db.Grants.SingleAsync(row => row.GrantId == WebGrantId);
+            Assert.Equal(committedVersion, grant.OwnerVersion);
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), grant.RevokedAtUnixMs);
+        }
+        var delivered = Assert.Single(await RestartAndDrainTwiceAsync(fixture));
+        Assert.Equal("CapabilityRevoked", delivered.EventType.Value);
+        Assert.Equal(owedId, delivered.AuditId);
+    }
+
+    [Fact]
+    public async Task A_signing_failure_leaves_the_roster_membership_and_grant_unchanged()
+    {
+        var roster = new StatefulRosterWriter();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin,
+            grantSigner: new FailingOperationSigner(), memberRevocations: roster);
+        await using var db = fixture.GrantFactory.CreateDbContext();
+        var before = await db.Grants.AsNoTracking().SingleAsync(row => row.GrantId == WebGrantId);
+
+        await Assert.ThrowsAsync<SigningFailedException>(() => fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId));
+
+        Assert.Equal("principal-web", Assert.Single(roster.Members));
+        Assert.Equal(0, roster.RevocationCount);
+        var after = await db.Grants.AsNoTracking().SingleAsync(row => row.GrantId == WebGrantId);
+        Assert.Equal((int)GrantStatus.Active, after.Status);
+        Assert.Null(after.RevokedAtUnixMs);
+        Assert.Equal(before.OwnerVersion, after.OwnerVersion);
+        Assert.Equal(0, await db.AuditOutbox.CountAsync());
+    }
+
+    private sealed class SigningFailedException() : Exception("The grant audit signer failed.");
+
+    private sealed class FailingOperationSigner : IOperationSigner
+    {
+        public PrincipalId IssuerId => throw new NotSupportedException();
+        public ValueTask<SignedOperation<T>> SignAsync<T>(T payload, DateTimeOffset issuedAt, Guid nonce,
+            CancellationToken ct = default) => throw new SigningFailedException();
+    }
+
+    private sealed class StatefulRosterWriter : INodeRosterMemberRevocationAuthority
+    {
+        public HashSet<string> Members { get; } = new(StringComparer.Ordinal) { "principal-web" };
+        public int RevocationCount { get; private set; }
+        public ValueTask<CompromisedDeviceRevocation?> RevokeAsync(TenantId tenant, string decisionTargetId,
+            string revokedPartyId, string revokedByPartyId, string reason, string? correlationId,
+            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default)
+        {
+            RevocationCount++;
+            Members.Remove(revokedPartyId);
+            return ValueTask.FromResult<CompromisedDeviceRevocation?>(null);
+        }
     }
 
     [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the handover commits delivers both legs once from the outbox on restart")]
@@ -838,7 +924,9 @@ public sealed class AdminTeamAccessAuthorityTests
             bool ejectSuccessor = false,
             AuthorizationRefusalAudit? refusalAudit = null,
             PermissionSet? memberRoleSet = null,
-            IAuthorizedAuditTrail? grantAudit = null)
+            IAuthorizedAuditTrail? grantAudit = null,
+            IOperationSigner? grantSigner = null,
+            INodeRosterMemberRevocationAuthority? memberRevocations = null)
         {
             var identityPath = TempPath("identity");
             var sessionPath = TempPath("session");
@@ -973,8 +1061,8 @@ public sealed class AdminTeamAccessAuthorityTests
                 new FixedRosterReader(roster), store, issuer,
                 grantStore, grantWriter, new GrantDerivedClosure(grantStore, memberRoleSet),
                 grantDerivedGate, timeProvider ?? new FixedTimeProvider(Now),
-                rosterWriter, grantAudit,
-                new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
+                memberRevocations ?? rosterWriter, grantAudit,
+                grantSigner ?? new Ed25519Signer(KeyPair.Generate()), refusalAudit: refusalAudit);
             return new Fixture(
                 [identityPath, sessionPath, grantPath], identityFactory, sessionFactory, grantFactory,
                 handle, authority);
