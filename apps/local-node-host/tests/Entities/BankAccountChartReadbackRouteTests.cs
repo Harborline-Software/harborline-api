@@ -138,7 +138,8 @@ public sealed class BankAccountChartReadbackRouteTests : IAsyncLifetime
         await using (var ctx = await _factory.CreateDbContextAsync())
         {
             Assert.Equal(1, await ctx.Database.ExecuteSqlRawAsync(
-                "UPDATE bank_accounts SET linked_ledger_account_json = '{\"GLAccountId\":\"1010\",\"ChartId\":null}'"));
+                "UPDATE bank_accounts SET linked_ledger_account_json = {0}",
+                "{\"GLAccountId\":\"1010\",\"ChartId\":null}"));
         }
 
         var byId = await _client.GetAsync(created.Headers.Location);
