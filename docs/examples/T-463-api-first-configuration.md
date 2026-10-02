@@ -12,9 +12,12 @@ $asset = 'apps/local-node-host/tests/Configuration/Fixtures/T463/asset.candidate
   -CandidateFile $asset -Rationale 'Evaluate the asset intake form as a whole document.'
 ```
 
-This calls GET `/api/local-node/configuration/effective`, POST `/configuration/proposals`,
-PUT `/configuration/proposals/{proposalId}/edits`, and POST `/configuration/proposals/{proposalId}/versions`
-(all shortened paths retain `/api/local-node`). `bodyJson` is the unmodified full document;
+Proposal mode requires `packages:author` only. It calls POST `/api/local-node/configuration/proposals`,
+PUT `/configuration/proposals/{proposalId}/edits`, POST `/configuration/proposals/{proposalId}/versions`,
+then GET `/configuration/proposals/{proposalId}` (all shortened paths retain `/api/local-node`).
+The start response supplies `baselineDigest`; the final author-scoped read checks the proposal and
+baseline identities and compares its `effectiveDigest` with that baseline. It does not call the
+operate-only `/configuration/effective` route. `bodyJson` is the unmodified full document;
 `contentKind` is `FormDefinition`. Output contains the server's edited-definition summary,
 working digest, immutable Saved version and detail bindings. This summary is not a field-level diff.
 JSON syntax and transport admission do not prove Records intent, references or refinement validity.
@@ -30,6 +33,7 @@ For a candidate already installed as Active packs on the test node:
   -ReceiptId 'asset-example-check-1'
 ```
 
+VerifyInstalled requires both `packages:operate` (effective reads/prepare) and `packages:author` (verify).
 This calls GET `/configuration/effective`, POST `/configuration/prepare`, POST `/configuration/verify`,
 then GET `/configuration/effective`. Prepare uses explicitly selected installed Active packages and
 ownership, not the candidate file or Saved version. It may store an isolated prepared projection.

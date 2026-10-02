@@ -62,3 +62,19 @@ no replacement persistence/posting engine, new DSL or ticket created. Owner reco
 [T-463](https://github.com/Harborline-Software/harborline-control/blob/main/tickets/T-463-run-domain-verification-against-a-candidate-generation/ticket.md),
 [T-615](https://github.com/Harborline-Software/harborline-control/blob/main/tickets/T-615-records-definition-identity-and-intent-validation/ticket.md),
 [T-549](https://github.com/Harborline-Software/harborline-control/blob/main/tickets/T-549-replace-the-asset-registry-family-for-the-m10-domain-pack/ticket.md).
+
+## Independent-review permission fix
+
+Review found that Proposal mode's unconditional effective reads required `packages:operate`, even
+though start/edit/save/read intentionally require only `packages:author`. The example now takes
+`baselineDigest` from the start response and reads `/configuration/proposals/{id}` to check proposal
+identity, baseline identity and effective preservation. VerifyInstalled still requires operate plus
+author, explicitly documented. No permissions, endpoints or production code changed.
+
+`./eng/test-t463-api-example.ps1` runs the actual example with an intercepted transport and checks
+literal request order, URL escaping, identity fields, unchanged whole-document body, content kind,
+rationale and session forwarding. Before the fix it failed on the first operate-only GET with the
+fixture's HTTP 403. After the fix all four scenarios passed: author-only sequence, denied author
+stopping after one request, moved effective generation refusal, and proposal identity mismatch refusal.
+This is client routing/transport evidence, not a mock engine or production authorization proof.
+The three new C# host tests and live HTTP node invocation remain UNRUN.

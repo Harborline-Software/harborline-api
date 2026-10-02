@@ -60,23 +60,33 @@ if ($Mode -eq 'Proposal') {
     $suite = Get-Content -LiteralPath $SuiteFile -Raw
     $null = $suite | ConvertFrom-Json
 }
-$baseline = Request 'GET' '/api/local-node/configuration/effective'
 if ($Mode -eq 'Proposal') {
     $id = [uri]::EscapeDataString($ProposalId)
     $started = Request 'POST' '/api/local-node/configuration/proposals' @{ proposalId = $ProposalId }
-    if ($started.baselineDigest -ne $baseline.digest) { throw 'Baseline moved before proposal start; inspect the draft before continuing.' }
+    $baselineDigest = $started.baselineDigest
+    Required $baselineDigest 'Server baselineDigest'
+    if ($started.proposalId -ne $ProposalId) { throw 'Proposal identity changed in the start response.' }
+    if ($started.effectiveDigest -ne $baselineDigest) { throw 'Effective generation changed during proposal start; inspect the draft before continuing.' }
     $edited = Request 'PUT' "/api/local-node/configuration/proposals/$id/edits" @{
         definitionKey = $DefinitionKey; packageKey = $PackageKey
         bodyJson = $candidate; contentKind = 'FormDefinition'
     }
     $saved = Request 'POST' "/api/local-node/configuration/proposals/$id/versions" @{ rationale = $Rationale }
     $result = [ordered]@{
-        mode = $Mode; baselineDigest = $baseline.digest
+        mode = $Mode; baselineDigest = $baselineDigest
         workingDigest = $edited.workingDigest; edits = $edited.edits
         savedVersion = $saved.savedVersion; detail = $saved.detail
         verification = 'NOT EXECUTED: saved proposal edits are not an input to prepare.'
     }
+    $read = Request 'GET' "/api/local-node/configuration/proposals/$id"
+    if ($read.proposalId -ne $ProposalId -or $read.baselineDigest -ne $baselineDigest) {
+        throw 'Proposal identity changed in the final read.'
+    }
+    $effectiveDigest = $read.effectiveDigest
 } else {
+    # These installed-candidate operations require packages:operate as well as packages:author.
+    $baseline = Request 'GET' '/api/local-node/configuration/effective'
+    $baselineDigest = $baseline.digest
     $prepared = Request 'POST' '/api/local-node/configuration/prepare' @{
         expectedBaselineDigest = $baseline.digest; activePackageKeys = @($ActivePackageKeys)
         ownership = @(@{ definitionKey = $DefinitionKey; packageKey = $PackageKey })
@@ -93,8 +103,9 @@ if ($Mode -eq 'Proposal') {
         throw "Verification did not pass for the requested digests: $($verified | ConvertTo-Json -Depth 100 -Compress)"
     }
     $result = [ordered]@{ mode = $Mode; preparation = $prepared; verification = $verified }
+    $effective = Request 'GET' '/api/local-node/configuration/effective'
+    $effectiveDigest = $effective.digest
 }
-$effective = Request 'GET' '/api/local-node/configuration/effective'
-if ($effective.digest -ne $baseline.digest) { throw 'Effective generation changed during the example; inspect concurrent activity.' }
-$result.effectiveDigest = $effective.digest
+if ($effectiveDigest -ne $baselineDigest) { throw 'Effective generation changed during the example; inspect concurrent activity.' }
+$result.effectiveDigest = $effectiveDigest
 $result | ConvertTo-Json -Depth 100
