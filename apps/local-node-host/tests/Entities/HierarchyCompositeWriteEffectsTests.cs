@@ -133,8 +133,17 @@ public sealed class HierarchyCompositeWriteEffectsTests
 
         var result = await h.MergeAsync(h.Coordinator, Options("merged", Tenant));
 
-        // The merged-away child is superseded and deleted, never parented under the record it was merged into.
-        Assert.DoesNotContain(await h.ParentEdges(OldB, At), edge => edge.To == Merged);
+        // Oracle: the internal ChildOf edge ends at merge, while its history and supersession remain.
+        Assert.DoesNotContain(await h.ParentEdges(OldB, At), edge => edge.Kind == EdgeKind.ChildOf);
+        var internalEdge = Assert.Single(await h.ParentEdges(OldB, JustBefore));
+        Assert.Equal((OldA, At), (internalEdge.To, internalEdge.Validity.ValidTo));
+        await foreach (var ancestor in h.Hierarchy.GetAncestorsAsync(OldB, At))
+            Assert.Equal(0, ancestor.Depth);
+        // GetParentsAsync exposes ChildOf edges only; inspect the distinct supersession write itself.
+        var supersession = Assert.Single(h.Hierarchy.Added, edge =>
+            edge.From == OldB && edge.Kind == EdgeKind.SupersededBy);
+        Assert.Equal((Merged, At, (DateTimeOffset?)null),
+            (supersession.To, supersession.Validity.ValidFrom, supersession.Validity.ValidTo));
         Assert.Equal([KidA], result.ReassignedChildren);
         Assert.Equal(Merged, Assert.Single(await h.ParentEdges(KidA, At)).To);
         Assert.Null(await h.Entities.GetAsync(OldB));
@@ -303,7 +312,125 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Empty(await Rows(log));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ChangedDisplacedEdges_RefuseCommitAndWriteNothing(bool split, bool addEdge)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(-1));
+        h.Hierarchy.BeforeAtomic = async () =>
+        {
+            if (addEdge)
+                await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At);
+            else
+                await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At);
+            h.Hierarchy.Added.Clear();
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            if (split)
+                await h.Coordinator.SplitAsync(Original, [Target("east")],
+                    new Dictionary<EntityId, EntityId> { [KidA] = East }, "split", Actor, Tenant, At);
+            else
+                await h.Coordinator.ReparentAsync(KidA, Original, East, "move", Actor, Tenant, At);
+        });
+
+        // Oracle: a stale bind must preserve the intervening write and produce no composite effects.
+        await h.AssertNothingWrittenAsync([Original], East);
+        Assert.Equal(addEdge ? 2 : 0, (await h.ParentEdges(KidA, At)).Count);
+    }
+
+    [Fact]
+    public async Task CompetingReparent_RefusesStaleCommitAndPreservesFirstReplacement()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        h.Hierarchy.BeforeAtomic = () =>
+            h.Coordinator.ReparentAsync(KidA, OldA, OldB, "first", Actor, Tenant, At);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Coordinator.ReparentAsync(KidA, OldA, East, "stale", Actor, Tenant, At));
+
+        // Oracle: only the first committed move and its audit row survive.
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Equal("first", Assert.Single(await h.AuditRows()).Justification);
+    }
+
     private static EntityId Id(string localPart) => new("entity", "test", localPart);
+
+    [Fact]
+    public async Task OpposingReparentAtLaterInstant_RefusesEarlierMoveAtCommit()
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.AddEdgeAsync(OldB, East, EdgeKind.ChildOf, At.AddDays(-1));
+        var later = h.CoordinatorOver(h.Entities, At.AddDays(1));
+        h.Hierarchy.BeforeAtomic = () =>
+            later.ReparentAsync(OldB, East, KidA, "later-first", Actor, Tenant, At.AddDays(1));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            h.Coordinator.ReparentAsync(KidA, OldA, OldB, "earlier-second", Actor, Tenant, At));
+
+        // Oracle: the committed later move survives, while the overlapping reverse move writes nothing.
+        Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At.AddDays(1))).To);
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
+        var audit = Assert.Single(await h.AuditRows());
+        Assert.Equal("later-first", audit.Justification);
+        Assert.Equal(At.AddDays(1), audit.At);
+    }
+
+    [Fact]
+    public async Task ReparentWithNonoverlappingFutureReverseEdge_DoesNotRefuse()
+    {
+        var h = await Harness.CreateAsync();
+        var displaced = await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        await h.Hierarchy.InvalidateEdgeAsync(displaced.Id, At.AddDays(1));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+
+        await h.Coordinator.ReparentAsync(KidA, OldA, OldB, "nonoverlapping", Actor, Tenant, At);
+
+        // Oracle: half-open edge intervals touch at the boundary without forming a temporal cycle.
+        Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+        Assert.Empty(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(OldB, At.AddDays(1))).To);
+        Assert.Equal("nonoverlapping", Assert.Single(await h.AuditRows()).Justification);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FutureMultihopDescendant_RefusesOnlyWhenAllPathIntervalsOverlap(bool overlap)
+    {
+        var h = await Harness.CreateAsync();
+        await h.Hierarchy.AddEdgeAsync(KidA, OldA, EdgeKind.ChildOf, At.AddDays(-1));
+        var first = await h.Hierarchy.AddEdgeAsync(KidB, KidA, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(first.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(OldB, KidB, EdgeKind.ChildOf,
+            overlap ? At.AddHours(36) : At.AddDays(2));
+
+        var move = () => h.Coordinator.ReparentAsync(KidA, OldA, OldB, "multihop", Actor, Tenant, At);
+        if (overlap)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(move);
+            Assert.Equal(OldA, Assert.Single(await h.ParentEdges(KidA, At)).To);
+            Assert.Empty(await h.AuditRows());
+        }
+        else
+        {
+            await move();
+            Assert.Equal(OldB, Assert.Single(await h.ParentEdges(KidA, At)).To);
+            Assert.Equal("multihop", Assert.Single(await h.AuditRows()).Justification);
+        }
+        // Oracle: each leg separately overlaps the open-ended new edge; only the literal common
+        // interval [At+36h, At+48h) forms a cycle. Touching legs have no simultaneous descendant path.
+        Assert.Equal(KidA, Assert.Single(await h.ParentEdges(KidB, At.AddHours(36))).To);
+        Assert.Empty(await h.ParentEdges(KidB, At.AddDays(2)));
+        Assert.Equal(KidB, Assert.Single(await h.ParentEdges(OldB, At.AddDays(2))).To);
+    }
 
     private static CreateOptions Options(string localPart, TenantId tenant) =>
         new("entity", "test", localPart, Actor, tenant, At, ExplicitLocalPart: localPart);
@@ -357,9 +484,9 @@ public sealed class HierarchyCompositeWriteEffectsTests
             return harness;
         }
 
-        public NodeHierarchyCompositeCoordinator CoordinatorOver(IEntityMutationStore entities) => new(
+        public NodeHierarchyCompositeCoordinator CoordinatorOver(IEntityMutationStore entities, DateTimeOffset? admittedAt = null) => new(
             entities, Hierarchy, new HierarchyAuthorizedAuditWriter(Audit),
-            TestAuthorization.Gate(true), new FixedTimeProvider(At), NullEntityValidator.Instance, this);
+            TestAuthorization.Gate(true), new FixedTimeProvider(admittedAt ?? At), NullEntityValidator.Instance, this);
 
         public Task<MergeResult> MergeAsync(NodeHierarchyCompositeCoordinator coordinator, CreateOptions options) =>
             coordinator.MergeAsync(
@@ -388,9 +515,15 @@ public sealed class HierarchyCompositeWriteEffectsTests
     private sealed class RecordingHierarchy(InMemoryHierarchyService inner) : IHierarchyCompositeUnitOfWork
     {
         public List<EntityEdge> Added { get; } = [];
+        public Func<Task>? BeforeAtomic { get; set; }
 
-        public Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default) =>
-            inner.ExecuteAtomicAsync(action, ct);
+        public async Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default)
+        {
+            var beforeAtomic = BeforeAtomic;
+            BeforeAtomic = null;
+            if (beforeAtomic is not null) await beforeAtomic();
+            return await inner.ExecuteAtomicAsync(action, ct);
+        }
 
         public async Task<EntityEdge> AddEdgeAsync(
             EntityId from, EntityId to, EdgeKind kind, DateTimeOffset validFrom,

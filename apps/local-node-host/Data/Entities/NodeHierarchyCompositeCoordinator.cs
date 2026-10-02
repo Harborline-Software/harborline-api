@@ -138,6 +138,10 @@ public sealed class NodeHierarchyCompositeCoordinator(
             result = await store.ExecuteAtomicAsync(async transactionCt =>
             {
                 authorization.Require(oldEntity);
+                var current = await coordinator.ReadAffectedChildrenAsync(
+                    [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, transactionCt).ConfigureAwait(false);
+                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                    throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 var minted = new List<EntityId>(validated.Count);
                 foreach (var (body, options) in validated)
                     minted.Add(await coordinator.Entities.CreateAsync(body, options, transactionCt).ConfigureAwait(false));
@@ -240,9 +244,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// <summary>Binds the children the merge displaces. A child that is itself one of the merged records is
         /// superseded and deleted with them, so it is not moved under the merged record.</summary>
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = (await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false))
-                .Where(edge => !oldEntities.Contains(edge.From))
-                .ToList();
+            displaced = await coordinator.ReadChildrenNotEndedAsync(oldEntities, at, ct).ConfigureAwait(false);
 
         protected override ValueTask<CreateOptions> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
             ValueTask.FromResult(newOptions with { ValidFrom = at });
@@ -276,6 +278,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
                     authorization.Require(edge.From);
                     authorization.Require(newId);
                     await store.InvalidateEdgeAsync(edge.Id, at, ct).ConfigureAwait(false);
+                    if (oldEntities.Contains(edge.From))
+                        continue;
                     var replacementEdge = await store.AddEdgeAsync(
                         edge.From, newId, EdgeKind.ChildOf, at, null, ct).ConfigureAwait(false);
                     if (edge.Validity.ValidTo is { } validTo)
@@ -359,7 +363,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         protected override async ValueTask<DateTimeOffset?> ValidateAsync(
             IReadOnlyList<EntityEdge> bound, DateTimeOffset? mutation, CancellationToken ct)
         {
-            await RefuseCycleAsync(ct).ConfigureAwait(false);
+            await RefuseCycleAsync(mutation, ct).ConfigureAwait(false);
             return mutation;
         }
 
@@ -368,7 +372,7 @@ public sealed class NodeHierarchyCompositeCoordinator(
         /// inside the atomic unit, where the answer is authoritative, because an opposing reparent can commit
         /// between the two (each moving one entity under the other) and both would otherwise pass validate.
         /// </summary>
-        private async ValueTask RefuseCycleAsync(CancellationToken ct)
+        private async ValueTask RefuseCycleAsync(DateTimeOffset? validTo, CancellationToken ct)
         {
             if (newParent == child)
                 throw new ArgumentException("An entity cannot be its own parent.", nameof(newParent));
@@ -376,6 +380,26 @@ public sealed class NodeHierarchyCompositeCoordinator(
             {
                 if (ancestor.Ancestor == child)
                     throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
+            }
+            // A later-admitted opposing move may already be committed but invisible at this act's instant.
+            // Follow child edges over overlapping intervals, so the new edge cannot form a cycle later either.
+            var pending = new Stack<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            var visited = new HashSet<(EntityId Parent, DateTimeOffset From, DateTimeOffset? To)>();
+            pending.Push((child, at, validTo));
+            while (pending.TryPop(out var interval))
+            {
+                if (!visited.Add(interval)) continue;
+                await foreach (var edge in coordinator.Store.GetChildrenNotEndedAsync(interval.Parent, interval.From, ct)
+                    .ConfigureAwait(false))
+                {
+                    var from = edge.Validity.ValidFrom > interval.From ? edge.Validity.ValidFrom : interval.From;
+                    var to = interval.To;
+                    if (edge.Validity.ValidTo is { } edgeEnd && (to is null || edgeEnd < to.Value)) to = edgeEnd;
+                    if (to is { } end && from >= end) continue;
+                    if (edge.From == newParent)
+                        throw new ArgumentException("An entity cannot be placed under its own descendant.", nameof(newParent));
+                    pending.Push((edge.From, from, to));
+                }
             }
         }
 
@@ -387,7 +411,11 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 authorization.Require(child);
                 authorization.Require(oldParent);
                 authorization.Require(newParent);
-                await RefuseCycleAsync(transactionCt).ConfigureAwait(false);
+                await RefuseCycleAsync(validated, transactionCt).ConfigureAwait(false);
+                var current = await coordinator.ReadAffectedChildrenAsync(
+                    [oldParent], edge => edge.From == child, at, transactionCt).ConfigureAwait(false);
+                if (!current.Select(edge => edge.Id).ToHashSet().SetEquals(displaced.Select(edge => edge.Id)))
+                    throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 foreach (var edge in displaced)
                     await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
                 var replacementEdge = await store.AddEdgeAsync(
