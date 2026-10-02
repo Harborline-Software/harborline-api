@@ -560,6 +560,91 @@ public sealed class PackActivationPipelineTests
         Assert.DoesNotContain(_audit.Query(Tenant), entry => entry.Action == PackInstallAuditAction.Narrowed);
     }
 
+    [Fact(DisplayName = "ck-10 S5b: a pack deactivated between validate and commit is refused at commit as not active, audited, with the racing deactivation standing")]
+    public async Task A_deactivation_raced_by_another_deactivation_is_refused_at_commit()
+    {
+        await ActivateAsync();
+        var before = _audit.Query(Tenant).Count;
+        var admissions = Admissions(_store);
+        _stages.OnEnter = stage => { if (stage == Commit) _store.Deactivate(Tenant, PackKey, "1.0.0"); };
+
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.False(outcome.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Empty(outcome.Dependents!);
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        Assert.Null(_store.GetActive(Tenant, PackKey));
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Equal(admissions, Admissions(_store));
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a projection face that stops seeing the pack active before commit refuses the flip as not active, audited, with the reader unchanged")]
+    public async Task A_deactivation_whose_projection_face_is_raced_is_refused_at_commit()
+    {
+        await ActivateAsync();
+        // The reader still shows the pack active, so commit's re-check passes and the flip itself refuses.
+        var projection = new InMemoryPackInstallStore();
+        PlatformPackTestPreload.Activate(projection, Tenant);
+        CommitPack(projection, PackKey, "1.0.0", Item(ContentKey, PackContentKind.FormDefinition, Seed));
+        projection.Activate(Tenant, PackKey, "1.0.0");
+        var installer = SplitInstaller(_store, projection);
+        var before = _audit.Query(Tenant).Count;
+        _stages.OnEnter = stage => { if (stage == Commit) projection.Deactivate(Tenant, PackKey, "1.0.0"); };
+
+        var outcome = await installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.False(outcome.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, outcome.Error);
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+        Assert.Null(projection.GetActive(Tenant, PackKey));
+        Assert.Equal(PackInstallCodes.DeactivateNotActive, AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Empty(((IPackProjectionAdmissionStore)projection).ListIncompleteProjectionAdmissions());
+    }
+
+    [Fact(DisplayName = "ck-10 S5b: a dependent activated between validate and commit refuses the deactivation at commit, naming it, with both packs active")]
+    public async Task A_deactivation_raced_by_a_dependent_activation_is_refused_at_commit()
+    {
+        await ActivateAsync();
+        const string dependent = "test.s5b-dependent";
+        _store.Commit(new PackInstallTransaction(Tenant,
+            new InstalledPack(dependent, "1.0.0", PackScopeTier.Horizontal, PackLifecycleState.Draft, [],
+                new Dictionary<string, int>(), Now, PrincipalId.FromBytes(new byte[PrincipalId.LengthInBytes]), 1,
+                TrustScope.OwnRoster, [new PackDependencyRef(PackKey, "1.0.0")]),
+            new PackInstallWatermark(dependent, "1.0.0", new Dictionary<string, int>()), []));
+        var before = _audit.Query(Tenant).Count;
+        var admissions = Admissions(_store);
+        _stages.OnEnter = stage => { if (stage == Commit) _store.Activate(Tenant, dependent, "1.0.0"); };
+
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.False(outcome.Deactivated);
+        Assert.Equal(PackInstallCodes.DeactivateDependentsActive, outcome.Error);
+        Assert.Equal([dependent], outcome.Dependents!);
+        Assert.Equal([Authorize, Bind, Mutate, Validate, Commit, React], _stages.Entered);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, PackKey)?.Version);
+        Assert.Equal("1.0.0", _store.GetActive(Tenant, dependent)?.Version);
+        Assert.Equal($"{PackInstallCodes.DeactivateDependentsActive}: {dependent}", AssertSingleDeactivationRefusal(before).Detail);
+        Assert.Equal(admissions, Admissions(_store));
+    }
+
+    private static Guid[] Admissions(IPackProjectionAdmissionStore store) =>
+        store.ListIncompleteProjectionAdmissions().Select(admission => admission.AdmissionId).ToArray();
+
+    private PackInstallAuditEntry AssertSingleDeactivationRefusal(int before)
+    {
+        var entries = _audit.Query(Tenant).Skip(before).ToArray();
+        Assert.DoesNotContain(entries, entry => entry.Action == PackInstallAuditAction.Deactivated);
+        var refusal = Assert.Single(entries);
+        Assert.Equal(PackInstallAuditAction.Refused, refusal.Action);
+        Assert.False(refusal.PreDecision);
+        Assert.Equal(PackKey, refusal.PackKey);
+        Assert.Equal("1.0.0", refusal.Version);
+        Assert.Equal("test-operator", refusal.ActingPrincipal);
+        return refusal;
+    }
+
     private async Task ActivateAsync()
     {
         PlatformPackTestPreload.Activate(_store, Tenant);
