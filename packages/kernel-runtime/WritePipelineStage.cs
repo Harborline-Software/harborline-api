@@ -74,8 +74,10 @@ public static class WritePipeline
         var validated = await write.ValidateAsync(bound, mutation, ct).ConfigureAwait(false);
         Enter(WritePipelineStage.Commit, observer, ct);
         await write.CommitAsync(validated, ct).ConfigureAwait(false);
-        Enter(WritePipelineStage.React, observer, ct);
-        return await write.ReactAsync(validated, ct).ConfigureAwait(false);
+        // Past commit the write is durable, so cancellation is no longer observed: react (audit, cleanup, the
+        // outcome) runs to completion rather than leaving a committed write unreported.
+        Enter(WritePipelineStage.React, observer, CancellationToken.None);
+        return await write.ReactAsync(validated, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static void Enter(WritePipelineStage stage, IWritePipelineObserver? observer, CancellationToken ct)
