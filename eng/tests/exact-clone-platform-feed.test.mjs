@@ -34,6 +34,10 @@ function fixture(t) {
     [`GIT_CONFIG_KEY_${count}`]: `url.${remote.replaceAll('\\', '/')}.insteadOf`,
     [`GIT_CONFIG_VALUE_${count}`]: publicUrl}
   delete env.HARBORLINE_PLATFORM_REPO
+  // This fixture substitutes its own producer and checkout; a surrounding real-job handoff
+  // belongs to another consumer. Dedicated same-job tests still bind and reject explicit inputs.
+  delete env.HARBORLINE_PLATFORM_FEED_HANDOFF_PATH
+  delete env.HARBORLINE_PLATFORM_FEED_HANDOFF_SHA256
   return {apiRoot, platform, scratch, pin, env, commit, directory}
 }
 const resolver = async () => (await import('../exact-clone-platform-feed.mjs')).resolvePlatformCheckout

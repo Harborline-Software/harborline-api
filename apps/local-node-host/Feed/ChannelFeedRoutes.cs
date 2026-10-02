@@ -77,7 +77,7 @@ public static class ChannelFeedRoutes
             // The act addresses a CHANNEL, not one pack: no pack record target, so the gate admits it only
             // because `packages:operate` is declared install-wide on the definition side.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {
@@ -142,7 +142,7 @@ public static class ChannelFeedRoutes
             var tenant = ResolveTenant();
             // The channel TABLE is an install-wide read — it names no pack.
             var refusal = await PackRouteAuthorization
-                .RefusalAsync(gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
+                .RefusalAsync(http, gate, PackRouteAuthorization.Authority(http, tenant, time), PackOperation.Operate, null, ct)
                 .ConfigureAwait(false);
             if (refusal is not null)
             {

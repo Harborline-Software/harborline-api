@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-# HARBORLINE_PACKAGE_PACK_ONLY=1: pack and stop, no checks (packages.yml on push, which is
-# publication only; the merge group already ran the full check on the same commit).
+# On tag publication, skip the repository boundary check already proved by the merge group.
+# Every new set of packed bytes still requires the isolated consumer proof.
 pack_only=${HARBORLINE_PACKAGE_PACK_ONLY:-}
 [ "$pack_only" = 1 ] || bash "$repo_root/eng/verify-boundaries.sh"
 version=${HARBORLINE_PACKAGE_VERSION:-"0.1.0-preview.local.$(date -u +%Y%m%d%H%M%S)"}
@@ -29,20 +29,4 @@ for project in "${package_projects[@]}"; do
   # immutable version the workflow selected.
   dotnet pack "$project" -c Release -p:MinVerVersionOverride="$version" -o "$artifact_dir"
 done
-[ "$pack_only" = 1 ] && exit 0
-# The nuget.org URL is listed FIRST deliberately. With the local feed first, NuGet
-# normalises the URL that follows as though it were a path -- the "//" collapses and
-# it is then resolved relative to the project directory, so restore dies with
-#   NU1301: The local source '...\tests\package-consumer\https:\api.nuget.org\...'
-# Observed on SDK 11.0.100-preview.7 under both bash and PowerShell, so it is a NuGet
-# argument-handling quirk rather than MSYS path conversion. It bites on every run:
-# each run mints a brand-new version, so NuGet can never satisfy the restore from
-# cache and always walks the remote source. Listing the URL first avoids it, and is
-# inert wherever the quirk does not reproduce.
-dotnet restore "$repo_root/tests/package-consumer/Consumer.csproj" \
-  -p:HarborlinePackageVersion="$version" \
-  --source https://api.nuget.org/v3/index.json \
-  --source "$artifact_dir" \
-  --force-evaluate
-dotnet run --project "$repo_root/tests/package-consumer/Consumer.csproj" \
-  -c Release --no-restore -p:HarborlinePackageVersion="$version"
+python3 "$repo_root/eng/package-proof.py" consume "$artifact_dir" "$version"
