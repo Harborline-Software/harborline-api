@@ -10,10 +10,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $fixtureRoot = Join-Path $PSScriptRoot '../apps/local-node-host/tests/Configuration/Fixtures/T463'
 $assemblyRoot = (Resolve-Path -LiteralPath $AssemblyDirectory).Path
+$producer = Join-Path $assemblyRoot 'Harborline.Blocks.BuilderDefinitions.dll'
+# The required producer must exist and be managed. Never classify it as an optional native DLL.
+[System.Reflection.AssemblyName]::GetAssemblyName($producer) | Out-Null
 Get-ChildItem -LiteralPath $assemblyRoot -Filter '*.dll' | ForEach-Object {
+    try { [System.Reflection.AssemblyName]::GetAssemblyName($_.FullName) | Out-Null }
+    catch [System.BadImageFormatException] { return }
+    # Missing/broken managed dependencies still fail here or when the parser is invoked.
     [System.Reflection.Assembly]::LoadFrom($_.FullName) | Out-Null
 }
-$producer = Join-Path $assemblyRoot 'Harborline.Blocks.BuilderDefinitions.dll'
 Write-Output "Production parser SHA256: $((Get-FileHash -LiteralPath $producer -Algorithm SHA256).Hash.ToLowerInvariant())"
 Write-Output 'Evidence: admission only; build provenance supplied by caller; no host execution or release certification.'
 function Read-Suite([string]$name) {
