@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Harborline.Api.Foundation.Assets.Common;
 using Harborline.Api.Foundation.Authorization;
 using Harborline.Api.Foundation.Crypto;
+using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Foundation.Packs.Dcp;
 using Harborline.Api.Foundation.Packs.Export;
 using Harborline.Api.Foundation.Packs.Install;
@@ -109,6 +110,7 @@ public sealed class PackInstallPipelineTests : IDisposable
 
         Assert.False(refused.Installed);
         Assert.Equal(PackInstallVerdict.RequiresBreakGlass, refused.Preview.Verdict);
+        Assert.False(refused.BrokeGlass);
         Assert.Contains(PackInstallCodes.RefusedDowngrade, refused.RefusalCodes);
         Assert.Equal([Authorize, Bind, Mutate, Validate], _stages.Entered);
         Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
@@ -214,6 +216,196 @@ public sealed class PackInstallPipelineTests : IDisposable
         Assert.Same(live, await reports.GetDefinitionAsync(Tenant.Value, PackActivationPipelineTests.ReportKey, PackActivationPipelineTests.ItemVersion));
     }
 
+    [Fact]
+    public async Task A_first_install_audits_installed_and_a_newer_version_audits_upgraded()
+    {
+        Assert.True((await _installer.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        var upgrade = await _installer.InstallAsync(await PackAsync("2.0.0"), Context());
+
+        Assert.True(upgrade.Installed, string.Join(",", upgrade.RefusalCodes));
+        var entries = _audit.Query(Tenant).Where(entry => entry.PackKey == PackKey).ToList();
+        var installed = Assert.Single(entries, entry => entry.Version == "1.0.0");
+        Assert.Equal(PackInstallAuditAction.Installed, installed.Action);
+        Assert.Equal(PackInstallCodes.Installed, installed.Detail);
+        var upgraded = Assert.Single(entries, entry => entry.Version == "2.0.0");
+        Assert.Equal(PackInstallAuditAction.Upgraded, upgraded.Action);
+        Assert.Equal(PackInstallCodes.Upgraded, upgraded.Detail);
+    }
+
+    [Fact]
+    public async Task A_blank_principal_is_refused_at_authorize_before_any_write()
+    {
+        var bytes = await PackAsync("1.0.0");
+
+        var thrown = await Assert.ThrowsAsync<ArgumentException>(() => _installer.InstallAsync(bytes, Context() with { Principal = "  " }));
+
+        Assert.Equal("context.Principal", thrown.ParamName);
+        Assert.Equal([Authorize], _stages.Entered);
+        Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
+        Assert.Null(_store.GetWatermark(Tenant, PackKey));
+        var refusal = Assert.Single(_audit.Query(Tenant), entry => entry.PackKey == PackKey);
+        Assert.True(refusal.PreDecision);
+        Assert.Equal(PackInstallCodes.RefusedNoPrincipal, refusal.Detail);
+    }
+
+    [Fact]
+    public async Task An_empty_correlation_id_is_refused_before_the_decision_and_nothing_is_installed()
+    {
+        var bytes = await PackAsync("1.0.0");
+
+        var thrown = await Assert.ThrowsAsync<ArgumentException>(() => _installer.InstallAsync(bytes, Context() with { CorrelationId = Guid.Empty }));
+
+        Assert.Equal("correlationId", thrown.ParamName);
+        Assert.Equal([Authorize], _stages.Entered);
+        Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
+        Assert.Null(_store.GetWatermark(Tenant, PackKey));
+    }
+
+    [Fact]
+    public async Task Null_arguments_to_the_public_writes_throw_before_any_stage_runs()
+    {
+        var bytes = await PackAsync("1.0.0");
+        var decision = TestAuthorization.AllowedDecision(Tenant, PackKey, "pack", Permission.PackagesOperate, at: Now);
+        var patch = new JsonObject { ["title"] = null };
+
+        Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() => _installer.InstallAsync(bytes, null!))).ParamName);
+        Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() => _installer.ActivateAsync(null!, PackKey, "1.0.0"))).ParamName);
+        Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() => _installer.DeactivateAsync(null!, PackKey, "1.0.0"))).ParamName);
+        Assert.Equal("context", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            _installer.NarrowAsync(null!, PackKey, "s5c-form", patch, decision))).ParamName);
+        Assert.Equal("overlayPatch", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            _installer.NarrowAsync(Context(), PackKey, "s5c-form", null!, decision))).ParamName);
+        Assert.Equal("decision", (await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            _installer.NarrowAsync(Context(), PackKey, "s5c-form", patch, null!))).ParamName);
+
+        Assert.Empty(_stages.Entered);
+        Assert.Null(_store.GetVersion(Tenant, PackKey, "1.0.0"));
+    }
+
+    [Fact]
+    public async Task A_reconcile_with_no_projector_composed_fails_at_authorize_and_writes_nothing()
+    {
+        await PendTwoAdmissionsAsync();
+        var pending = PendingIds();
+        var stages = new StageRecorder();
+        var uncomposed = new PackInstaller(
+            new PackVerifier(new Ed25519Verifier(), _codec), _store,
+            new WorkflowRefusingPackContentAdmission(), _audit,
+            TestAuthorization.Gate(_ => true), pipelineObserver: stages);
+        var projections = _projector.Projections;
+        var audited = _audit.Query(Tenant).Count;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ((IPackProjectionReconciler)uncomposed).ReconcilePendingAsync());
+
+        Assert.Equal([Authorize], stages.Entered);
+        Assert.Equal(projections, _projector.Projections);
+        Assert.Equal(pending, PendingIds());
+        Assert.Equal(audited, _audit.Query(Tenant).Count);
+    }
+
+    [Fact]
+    public async Task A_reconcile_completes_every_pending_admission_and_retires_each_replayed_authority()
+    {
+        await PendTwoAdmissionsAsync();
+        Assert.Equal(2, PendingIds().Count);
+        _projector.Authorities.Clear();
+        // Each replayed authority is usable while it is projected.
+        _projector.OnProject = authority => authority.EnsureUsable();
+
+        await ((IPackProjectionReconciler)_installer).ReconcilePendingAsync();
+
+        Assert.Empty(PendingIds());
+        Assert.Equal(2, _projector.Authorities.Count);
+        foreach (var authority in _projector.Authorities)
+        {
+            var replayed = Assert.Throws<PackProjectionAuthorityException>(authority.EnsureUsable);
+            Assert.Equal(PackProjectionAuthorityCodes.Replayed, replayed.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Cancellation_during_a_reconcile_stops_before_the_next_admission_and_leaves_it_pending()
+    {
+        await PendTwoAdmissionsAsync();
+        var pending = PendingIds();
+        Assert.Equal(2, pending.Count);
+        _projector.Authorities.Clear();
+        using var cancellation = new CancellationTokenSource();
+        // The first projection requests cancellation; the pass must not project the second admission.
+        _projector.OnProject = _ => cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ((IPackProjectionReconciler)_installer).ReconcilePendingAsync(cancellation.Token));
+
+        Assert.Single(_projector.Authorities);
+        Assert.Equal([pending[1]], PendingIds());
+    }
+
+    [Fact]
+    public async Task Cancellation_requested_before_a_reconcile_stops_it_at_authorize_with_nothing_completed()
+    {
+        await PendTwoAdmissionsAsync();
+        var pending = PendingIds();
+        var projections = _projector.Projections;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ((IPackProjectionReconciler)_installer).ReconcilePendingAsync(new CancellationToken(canceled: true)));
+
+        Assert.Equal([Authorize], _stages.Entered);
+        Assert.Equal(projections, _projector.Projections);
+        Assert.Equal(pending, PendingIds());
+    }
+
+    [Fact]
+    public async Task A_deactivation_projection_that_throws_is_carried_on_the_outcome_and_the_admission_stays_pending()
+    {
+        Assert.True((await _installer.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        Assert.True((await _installer.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+        Assert.Empty(PendingIds());
+        var failure = new InvalidOperationException("s5c projector failure");
+        _projector.OnProject = _ => throw failure;
+
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.True(outcome.Deactivated);
+        Assert.False(outcome.Projected);
+        Assert.Same(failure, outcome.ProjectionResult);
+        Assert.Equal(PackKey, Assert.Single(Admissions().ListIncompleteProjectionAdmissions()).PackId);
+    }
+
+    [Fact]
+    public async Task A_deactivation_projection_that_refuses_reports_the_refusal_and_the_admission_stays_pending()
+    {
+        Assert.True((await _installer.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        Assert.True((await _installer.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+        _projector.Refuse = true;
+
+        var outcome = await _installer.DeactivateAsync(Context(), PackKey, "1.0.0");
+
+        Assert.True(outcome.Deactivated);
+        Assert.True(outcome.Projected);
+        Assert.True(Assert.IsAssignableFrom<IPackProjectionRefusalReport>(outcome.ProjectionResult).ProjectionRefused);
+        Assert.Equal(PackKey, Assert.Single(Admissions().ListIncompleteProjectionAdmissions()).PackId);
+    }
+
+    /// <summary>Two deactivations whose projections are refused leave two admissions pending.</summary>
+    private async Task PendTwoAdmissionsAsync()
+    {
+        Assert.True((await _installer.InstallAsync(await PackAsync("1.0.0"), Context())).Installed);
+        for (var round = 0; round < 2; round++)
+        {
+            _projector.Refuse = false;
+            Assert.True((await _installer.ActivateAsync(Context(), PackKey, "1.0.0")).Activated);
+            _projector.Refuse = true;
+            Assert.True((await _installer.DeactivateAsync(Context(), PackKey, "1.0.0")).Deactivated);
+        }
+        _projector.Refuse = false;
+        _stages.Entered.Clear();
+    }
+
+    private List<Guid> PendingIds() =>
+        Admissions().ListIncompleteProjectionAdmissions().Select(admission => admission.AdmissionId).ToList();
+
     private IPackProjectionAdmissionStore Admissions() => _store;
 
     private PackInstallContext Context() => new(
@@ -253,12 +445,16 @@ public sealed class PackInstallPipelineTests : IDisposable
     {
         public bool Refuse { get; set; }
         public int Projections { get; private set; }
+        public Action<PackProjectionAuthority>? OnProject { get; set; }
+        public List<PackProjectionAuthority> Authorities { get; } = [];
 
         public void StageProjection(PackProjectionTransaction transaction) { }
 
         public object? Project(PackProjectionAuthority authority, CancellationToken cancellationToken = default)
         {
             Projections++;
+            Authorities.Add(authority);
+            OnProject?.Invoke(authority);
             return new Report(Refuse);
         }
 
