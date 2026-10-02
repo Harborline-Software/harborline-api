@@ -36,7 +36,7 @@ combined report for founder, locator and web-authority entries, and the final
 store report for store entries. Killing-test names are resolved from each raw
 report's `testFiles` using its `killedBy` IDs.
 
-| Baseline ID | File:line | Mutator | Archived run ID | Raw status | Named killing test |
+| Baseline ID | File:line | Mutator | Recovered mutant ID | Raw status | Named killing test |
 | --- | --- | --- | --- | --- | --- |
 | 8915 | FounderTenantMembershipAttachService.cs:182 | Block removal mutation | 9275 | Killed | `Founder_attach_without_the_founder_account_is_skipped_and_writes_no_tenant_authority` |
 | 8918 | FounderTenantMembershipAttachService.cs:189 | Block removal mutation | 9278 | Killed | `Founder_attach_without_the_installation_identity_is_skipped_and_writes_no_tenant_authority` |
@@ -112,7 +112,7 @@ Skipped JavaScript mutation jobs supply no evidence for these C# tests.
 The new tests use literal length/version bounds, refusal codes and parameter
 names; the store theories invoke `PrepareAsync` and check that refused inputs
 write no authority. Founder tests invoke the real service and assert literal
-statuses and absence of tenant authority. These expected values are independent
+statuses and absence of a grant for the founder principal. These expected values are independent
 of production output.
 
 This evidence repair reads and matches existing raw reports; it introduces no
