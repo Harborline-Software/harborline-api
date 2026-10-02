@@ -558,6 +558,45 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Single(legs.Select(record => record.Payload.Payload.Body["correlation_id"]).Distinct());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_review_retry_before_the_outbox_drain_reuses_its_committed_receipt(bool deliverBetweenReads)
+    {
+        var crashing = new CrashingAuditTrail();
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: crashing);
+        var correlation = Guid.Parse("34900000-0000-4000-8000-000000000001");
+        var authority = new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)
+        { CorrelationId = correlation };
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.ReviewGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, authority));
+
+        string owedId;
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            owedId = (await db.AuditOutbox.SingleAsync()).AuditId;
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), (await db.Grants.SingleAsync(row => row.GrantId == WebGrantId)).LastReviewedAtUnixMs);
+        }
+        if (deliverBetweenReads)
+            crashing.OnQuery = async () => { await RestartAndDrainTwiceAsync(fixture); };
+        var replay = await fixture.Authority.ReviewGrantAsync(fixture.Handle, TenantId, WebGrantId,
+            authority with { At = Now.AddMinutes(1) });
+        Assert.NotNull(replay);
+        Assert.Equal(Guid.Parse(owedId), replay.AuditId);
+        Assert.Equal(correlation, replay.CorrelationId);
+        Assert.Equal(Now, replay.ReviewedAt);
+        await using (var db = fixture.GrantFactory.CreateDbContext())
+        {
+            Assert.Equal(1, await db.AuditOutbox.CountAsync());
+            Assert.Equal(Now.ToUnixTimeMilliseconds(), (await db.Grants.SingleAsync(row => row.GrantId == WebGrantId)).LastReviewedAtUnixMs);
+        }
+        await Assert.ThrowsAsync<GrantActionReplayConflictException>(() => fixture.Authority.ReviewGrantAsync(
+            fixture.Handle, TenantId, ThirdGrantId, authority));
+        var delivered = Assert.Single(await RestartAndDrainTwiceAsync(fixture));
+        Assert.Equal(new AuditEventType("GrantReviewRecorded"), delivered.EventType);
+        Assert.Equal(Guid.Parse(owedId), delivered.AuditId);
+    }
+
     [Fact(DisplayName = "T-1048 ck-6 grant: a revocation the store refuses at commit stages no audit entry")]
     public async Task A_revocation_refused_at_commit_stages_no_audit_entry()
     {
@@ -607,6 +646,7 @@ public sealed class AdminTeamAccessAuthorityTests
     /// <summary>A trail whose first append never happens: the process stops between the commit and the audit.</summary>
     private sealed class CrashingAuditTrail : IAuthorizedAuditTrail
     {
+        public Func<Task>? OnQuery { get; set; }
         public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => throw new ProcessCrashedException();
 
         public ValueTask AppendAuthorizedAsync(
@@ -617,7 +657,11 @@ public sealed class AdminTeamAccessAuthorityTests
             AuditQuery query,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
         {
-            await Task.CompletedTask;
+            if (OnQuery is { } callback)
+            {
+                OnQuery = null;
+                await callback();
+            }
             yield break;
         }
     }
@@ -1127,21 +1171,20 @@ public sealed class AdminTeamAccessAuthorityTests
         List<AuthorizationDecision> decisions) : IAuthorizedGrantRevocationWriter
     {
         public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-            AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
-            IReadOnlyList<AuditRecord>? audit = null)
+            AuthorizationDecision admittedDecision, IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, cancellationToken, audit);
+            return inner.RecordReviewAsync(tenant, grant, at, actor, admittedDecision, audit, cancellationToken);
         }
 
         public Task<GrantScopeNarrowing?> NarrowScopeAsync(
             TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
             GrantRevocation revocation, AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
             return inner.NarrowScopeAsync(tenant, current, narrowed, successor, revocation,
-                admittedDecision, cancellationToken, audit);
+                admittedDecision, audit, cancellationToken);
         }
 
         public Task<AccessGrant?> RevokeAsync(
@@ -1149,11 +1192,10 @@ public sealed class AdminTeamAccessAuthorityTests
             GrantId grant,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default,
-            IReadOnlyList<AuditRecord>? audit = null)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, cancellationToken, audit);
+            return inner.RevokeAsync(tenant, grant, revocation, admittedDecision, audit, cancellationToken);
         }
 
         public Task<AdministratorHandover?> HandoverAsync(
@@ -1162,11 +1204,10 @@ public sealed class AdminTeamAccessAuthorityTests
             AccessGrant successor,
             GrantRevocation revocation,
             AuthorizationDecision admittedDecision,
-            CancellationToken cancellationToken = default,
-            IReadOnlyList<AuditRecord>? audit = null)
+            IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
         {
             decisions.Add(admittedDecision);
-            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, cancellationToken, audit);
+            return inner.HandoverAsync(tenant, current, successor, revocation, admittedDecision, audit, cancellationToken);
         }
 
         // Ticket 362 - the narrowing's single store transaction, under the same admitted decision.

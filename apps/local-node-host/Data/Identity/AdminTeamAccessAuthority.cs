@@ -575,7 +575,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         if (existing.Status is not GrantStatus.Revoked)
         {
             var revoked = await _grantRevocations.RevokeAsync(tenant, target, revocation,
-                    decision, cancellationToken, [audit])
+                    decision, [audit], cancellationToken)
                 .ConfigureAwait(false);
             if (revoked is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
         }
@@ -637,7 +637,7 @@ internal sealed partial class AdminTeamAccessAuthority(
         var delegatedLeg = await PrepareGrantAuditAsync(tenant, target, context.Decision, AuditEventType.CapabilityDelegated,
             "member-scope-narrowed", correlation, successorId, cancellationToken).ConfigureAwait(false);
         var narrowed = await _grantRevocations.NarrowScopeAsync(tenant, target, narrowedScope, successorId,
-            revocation, context.Decision, cancellationToken, [revokedLeg, delegatedLeg]).ConfigureAwait(false);
+            revocation, context.Decision, [revokedLeg, delegatedLeg], cancellationToken).ConfigureAwait(false);
         if (narrowed is null) return new(AdminNarrowMemberGrantStatus.NotFound);
         await DeliverGrantAuditAsync(revokedLeg, context.Decision, cancellationToken).ConfigureAwait(false);
         var auditId = await DeliverGrantAuditAsync(delegatedLeg, context.Decision, cancellationToken).ConfigureAwait(false);
@@ -836,7 +836,7 @@ internal sealed partial class AdminTeamAccessAuthority(
                 successor.GrantId, cancellationToken)
             .ConfigureAwait(false);
         var handover = await _grantRevocations
-            .HandoverAsync(tenant, target, successor, revocation, decision, cancellationToken, [delegatedLeg, revokedLeg])
+            .HandoverAsync(tenant, target, successor, revocation, decision, [delegatedLeg, revokedLeg], cancellationToken)
             .ConfigureAwait(false);
         if (handover is null) return new AdminRevokeMemberResult(AdminRevokeMemberStatus.NotFound);
 

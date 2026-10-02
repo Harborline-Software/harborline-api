@@ -20,22 +20,20 @@ internal interface IAuthorizedGrantRevocationWriter
     // T-1048 (DES-0029 ck-6): each write takes the act's audit records, already signed, and stages them in its own
     // commit, so a crash after the commit leaves them owed to the outbox drain instead of lost.
     Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null);
+        AuthorizationDecision admittedDecision, IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default);
 
     /// <summary>Atomically narrows a grant's scope without changing its role or subject.</summary>
     Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
         GrantRevocation revocation, AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null);
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default);
 
     Task<AccessGrant?> RevokeAsync(
         TenantId tenant,
         GrantId grant,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null);
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default);
 
     /// <summary>Ledger L618 — the atomic Administrator handover, under the same admitted decision.</summary>
     Task<AdministratorHandover?> HandoverAsync(
@@ -44,8 +42,7 @@ internal interface IAuthorizedGrantRevocationWriter
         AccessGrant successor,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null);
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Ticket 362 — the atomic revoke-and-reissue that narrows a member's conferred grant, under the same
@@ -73,8 +70,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
     private IGrantStore Grants => grants;
 
     public Task<AccessGrant?> RecordReviewAsync(TenantId tenant, GrantId grant, DateTimeOffset at, ActorId actor,
-        AuthorizationDecision admittedDecision, CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null)
+        AuthorizationDecision admittedDecision, IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", grant.ToString());
@@ -88,7 +84,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
     public Task<GrantScopeNarrowing?> NarrowScopeAsync(
         TenantId tenant, GrantId current, ScopeExpression narrowed, GrantId successor,
         GrantRevocation revocation, AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default, IReadOnlyList<AuditRecord>? audit = null)
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());
@@ -102,8 +98,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
         GrantId grant,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null)
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(revocation);
         ArgumentNullException.ThrowIfNull(admittedDecision);
@@ -119,8 +114,7 @@ internal sealed class AuthorizedGrantRevocationWriter(
         AccessGrant successor,
         GrantRevocation revocation,
         AuthorizationDecision admittedDecision,
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<AuditRecord>? audit = null)
+        IReadOnlyList<AuditRecord>? audit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(admittedDecision);
         admittedDecision.RequireAllowedReaction(MembersManage, tenant, "members", current.ToString());

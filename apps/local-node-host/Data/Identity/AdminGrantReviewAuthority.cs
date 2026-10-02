@@ -43,7 +43,7 @@ internal sealed partial class AdminTeamAccessAuthority
         var record = await PrepareGrantAuditAsync(tenant, target, context.Decision, GrantReviewRecorded,
             "grant-reviewed", correlation, null, cancellationToken).ConfigureAwait(false);
         var reviewed = await _grantRevocations.RecordReviewAsync(tenant, target, authority.At, authority.Principal,
-            context.Decision, cancellationToken, [record]).ConfigureAwait(false);
+            context.Decision, [record], cancellationToken).ConfigureAwait(false);
         if (reviewed is null) return null;
         var audit = await DeliverGrantAuditAsync(record, context.Decision, cancellationToken).ConfigureAwait(false);
         return new(audit, correlation, reviewed.LastReviewedAt);
