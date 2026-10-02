@@ -27,7 +27,7 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var bytes = await ExportAsync(source with { Version = "1.1.4" });
+        var bytes = await ExportAsync(source with { Version = "1.1.7" });
         var decision = await TestAuthorization.Gate(false).DecideAsync(TestAuthorization.Write(Tenant)
             .Request(AuthorizationOperation.Parse("records:write"), "record", "private-pack-denial-record"));
         var denied = new AuthorizationDeniedException(decision);
@@ -65,7 +65,8 @@ public sealed partial class AccessAdministrationPreloadTests
     [Fact]
     public async Task Selected_replacement_real_signed_probe_preserves_active_runtime_and_returns_native_pointer()
     {
-        await PreloadPlatformThenAccessAsync();
+        // T-1017: the signed probe is 1.1.4-atomicity-probe.0, below the shipped 1.1.6, so it replaces the released 1.1.3 it was derived from.
+        await InstallReleased113Async();
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Harborline.Api.slnx"))) directory = directory.Parent;
         var bytes = await File.ReadAllBytesAsync(Path.Combine(directory!.FullName, AccessReplacementFixture.DirectoryPath,
@@ -105,7 +106,7 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var http = ReplacementHttp(await ExportAsync(source with { Version = "1.1.4" }));
+        var http = ReplacementHttp(await ExportAsync(source with { Version = "1.1.7" }));
         var correlation = Guid.Parse("43300000-0000-4000-8000-000000000110");
         http.Request.Headers["X-Correlation-ID"] = correlation.ToString("D");
         var installer = new DiagnosticActivation(_installer);
@@ -124,7 +125,7 @@ public sealed partial class AccessAdministrationPreloadTests
         var trail = new InMemoryAuditTrail();
         var adapter = new KernelAuditPackInstallAudit(trail, _signer, NullLogger<KernelAuditPackInstallAudit>.Instance);
         adapter.AppendAuthorized(new PackInstallAuditEntry(Tenant, PackInstallAuditAction.Activated, source.Key,
-            "1.1.4", decision.Request.At, null, null, "pack.install.activated", ActingPrincipal: decision.Request.Principal.Value), decision);
+            "1.1.7", decision.Request.At, null, null, "pack.install.activated", ActingPrincipal: decision.Request.Principal.Value), decision);
         var rows = new List<AuditRecord>();
         await foreach (var row in trail.QueryAsync(new AuditQuery(Tenant))) rows.Add(row);
         Assert.Equal(correlation.ToString("D"), Assert.Single(rows).Payload.Payload.Body["correlation_id"]);
@@ -152,7 +153,7 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var bytes = await ExportAsync(source with { Version = "1.1.4" });
+        var bytes = await ExportAsync(source with { Version = "1.1.7" });
         var http = ReplacementHttp(bytes);
         var result = await ReplaceAsync(http, source.Key);
         var receipt = JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -160,8 +161,8 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.True(receipt.GetProperty("draftInstall").GetProperty("installed").GetBoolean());
         Assert.True(receipt.GetProperty("activation").GetProperty("activated").GetBoolean());
         Assert.True(receipt.GetProperty("activation").GetProperty("projected").GetBoolean());
-        Assert.Equal("1.1.3", receipt.GetProperty("activeBefore").GetProperty("version").GetString());
-        Assert.Equal("1.1.4", receipt.GetProperty("activeAfter").GetProperty("version").GetString());
+        Assert.Equal("1.1.6", receipt.GetProperty("activeBefore").GetProperty("version").GetString());
+        Assert.Equal("1.1.7", receipt.GetProperty("activeAfter").GetProperty("version").GetString());
         Assert.Equal(6, receipt.GetProperty("activeAfter").GetProperty("declaredDefinitions").GetArrayLength());
     }
 
@@ -205,7 +206,7 @@ public sealed partial class AccessAdministrationPreloadTests
     {
         await PreloadPlatformThenAccessAsync();
         var source = AccessAdministrationPreloadHostedService.ReadExportRequest(_signer.Signer.IssuerId.ToBase64Url());
-        var bytes = await ExportAsync(source with { Version = "1.1.4-atomicity-probe.0" });
+        var bytes = await ExportAsync(source with { Version = "1.1.7-atomicity-probe.0" });
         var before = _store.GetActive(Tenant, source.Key);
         var result = await SelectedPackReplacementRoutes.ReplaceAsync(ReplacementHttp(bytes), source.Key,
             new RefusingActivation(_installer), _store, TrustingTheNodeKey(), PackRevocationList.Empty,
@@ -219,7 +220,7 @@ public sealed partial class AccessAdministrationPreloadTests
         Assert.Equal("pack.view-definition.malformed", activation.GetProperty("refusal").GetProperty("code").GetString());
         Assert.Equal("/contents/6/contentBase64", activation.GetProperty("refusal").GetProperty("pointer").GetString());
         Assert.Equal(before, _store.GetActive(Tenant, source.Key));
-        Assert.Equal(PackLifecycleState.Draft, _store.GetVersion(Tenant, source.Key, "1.1.4-atomicity-probe.0")!.Lifecycle);
+        Assert.Equal(PackLifecycleState.Draft, _store.GetVersion(Tenant, source.Key, "1.1.7-atomicity-probe.0")!.Lifecycle);
     }
 
     private sealed class RefusingActivation(IPackInstaller inner) : IPackInstaller

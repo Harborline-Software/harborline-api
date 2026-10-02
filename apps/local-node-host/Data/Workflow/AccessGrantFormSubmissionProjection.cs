@@ -78,7 +78,9 @@ internal sealed class AccessGrantFormSubmissionProjection(
             "online-only" => GrantResidency.OnlineOnly,
             var value => Enum.Parse<GrantResidency>(value, ignoreCase: true),
         };
-        var validFrom = DateTimeOffset.Parse(Required(values, "effectiveFrom"), System.Globalization.CultureInfo.InvariantCulture);
+        // L940 (T-1017): an omitted effectiveFrom starts the grant at the admitted instant on the server clock.
+        var validFrom = Optional(values, "effectiveFrom") is { } from
+            ? DateTimeOffset.Parse(from, System.Globalization.CultureInfo.InvariantCulture) : context.SubmittedAt;
         DateTimeOffset? validUntil = values.TryGetProperty("effectiveTo", out var until) && until.GetString() is { Length: > 0 } text
             ? DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : null;
         var roleName = Required(values, "role");
@@ -93,8 +95,12 @@ internal sealed class AccessGrantFormSubmissionProjection(
     }
 
     private static string Required(JsonElement values, string name) =>
+        Optional(values, name) ?? throw new InvalidOperationException($"Access grant form requires '{name}'.");
+
+    /// <summary>The field's string value, or null when it is absent, JSON null or blank.</summary>
+    private static string? Optional(JsonElement values, string name) =>
         values.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
-            ? value.GetString()! : throw new InvalidOperationException($"Access grant form requires '{name}'.");
+            ? value.GetString() : null;
 }
 
 /// <summary>Builds an idempotent durable grant write for the typed handler's completed step.</summary>
