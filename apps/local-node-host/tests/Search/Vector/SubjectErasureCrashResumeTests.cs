@@ -6,6 +6,7 @@ using Harborline.Api.Foundation.Recovery;
 using Harborline.Api.Foundation.Recovery.Erasure;
 using Harborline.Api.Foundation.Recovery.TenantKey;
 using Harborline.Api.Kernel.Audit;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Search.Vector;
 using Harborline.Api.LocalNodeHost.Tests.Search;
 
@@ -84,6 +85,37 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
         Assert.Single(await ErasedAuditsAsync());
     }
 
+    [Fact(DisplayName = "T-1048 ck-6 erasure: a crash after the registry commit, restarted over the same file, records one SubjectErased in the durable trail")]
+    public async Task CrashAfterRegistryCommit_RestartOverTheSameFile_RecordsOneDurableAudit()
+    {
+        await ExecuteAsync("CREATE TRIGGER ck6_fault BEFORE INSERT ON search_subject_tombstones BEGIN SELECT RAISE(ABORT, 'ck6'); END;");
+        await Assert.ThrowsAnyAsync<Exception>(() => DurableService(_store).EraseAsync(Request()));
+        await ExecuteAsync("DROP TRIGGER ck6_fault;");
+        Assert.True(await new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System).IsErasedAsync(Tenant, Alice));
+        Assert.Empty(await DurableErasedAuditsAsync(_store));
+
+        // The process is gone. A new host opens the same file and the erasure request is retried, twice.
+        await using var restarted = SearchTestStore.Reopen(_store);
+        Assert.Equal(SubjectErasureOutcome.Erased, (await DurableService(restarted).EraseAsync(Request())).Outcome);
+        Assert.Equal(SubjectErasureOutcome.AlreadyErased, (await DurableService(restarted).EraseAsync(Request())).Outcome);
+
+        var audit = Assert.Single(await DurableErasedAuditsAsync(restarted));
+        Assert.Equal(Now, audit.OccurredAt);
+        Assert.Equal(1, await TombstonesAsync());
+        Assert.Equal(1, _propagator.Calls);
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 erasure: an erasure refused before the registry commit records no erasure and no SubjectErased")]
+    public async Task RefusedErasure_WritesNoRegistryRowAndNoAudit()
+    {
+        var single = new SubjectErasureRequest(Tenant, Alice, Now, [new ActorId("captain")], "erasure-ticket");
+
+        await Assert.ThrowsAsync<SubjectErasureRejectedException>(() => DurableService(_store).EraseAsync(single));
+
+        Assert.False(await new NodeEfSubjectErasureRegistry(_store.Factory, TimeProvider.System).IsErasedAsync(Tenant, Alice));
+        Assert.Empty(await DurableErasedAuditsAsync(_store));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private SubjectErasureService Service() => new(
@@ -95,6 +127,24 @@ public sealed class SubjectErasureCrashResumeTests : IAsyncLifetime
         new FixedClock(),
         minimumWindow: TimeSpan.Zero,
         propagators: [_propagator]);
+
+    private SubjectErasureService DurableService(SearchTestStore store) => new(
+        new NodeEfSubjectErasureRegistry(store.Factory, TimeProvider.System),
+        new NodeEfSubjectTombstoneStore(store.Factory),
+        new NodeAuditTrailStore(store.Factory),
+        new Ed25519Signer(KeyPair.Generate()),
+        new NoopTenantKeyDestroyer(),
+        new FixedClock(),
+        minimumWindow: TimeSpan.Zero,
+        propagators: [_propagator]);
+
+    private static async Task<List<AuditRecord>> DurableErasedAuditsAsync(SearchTestStore store)
+    {
+        var records = new List<AuditRecord>();
+        await foreach (var record in new NodeAuditTrailStore(store.Factory).QueryAsync(new AuditQuery(Tenant, AuditEventType.SubjectErased)))
+            records.Add(record);
+        return records;
+    }
 
     private static SubjectErasureRequest Request() =>
         new(Tenant, Alice, Now, [new ActorId("captain"), new ActorId("officer")], "erasure-ticket");

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Harborline.Api.Blocks.AccessGrant;
 using Harborline.Api.Foundation.Assets.Common;
@@ -10,6 +11,7 @@ using Harborline.Api.Foundation.IdentityAtlas;
 using Harborline.Api.Foundation.IdentityAtlas.Permissions;
 using Harborline.Api.Kernel.Audit;
 using Harborline.Api.LocalNodeHost.CompromisedDeviceResponse;
+using Harborline.Api.LocalNodeHost.Data.Audit;
 using Harborline.Api.LocalNodeHost.Data.Authorization;
 using Harborline.Api.LocalNodeHost.Data.Identity;
 using Harborline.Api.LocalNodeHost.Data.Roster;
@@ -518,6 +520,77 @@ public sealed class AdminTeamAccessAuthorityTests
         Assert.Equal(predecessor.RevokedAtUnixMs, successor.ValidityFromUnixMs);
     }
 
+    [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the revocation commits delivers its one audit from the outbox on restart")]
+    public async Task Crash_after_the_revocation_commit_delivers_its_audit_once_on_restart()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeGrantAsync(
+            fixture.Handle, TenantId, WebGrantId,
+            new AuthorizationWriteContext(new ActorId("principal-admin"), new TenantId(TenantId), Now)));
+
+        var legs = await RestartAndDrainTwiceAsync(fixture);
+        var revoked = Assert.Single(legs);
+        Assert.Equal(AuditEventType.CapabilityRevoked, revoked.EventType);
+        Assert.Equal(WebGrantId, revoked.Target!.Value.RecordId);
+        Assert.Equal(Now, revoked.OccurredAt);
+        Assert.Equal(new ActorId("principal-admin"), revoked.Actor);
+        Assert.NotNull(revoked.AuthoritySnapshot);
+    }
+
+    [Fact(DisplayName = "T-1048 ck-6 grant: a crash after the handover commits delivers both legs once from the outbox on restart")]
+    public async Task Crash_after_the_handover_commit_delivers_both_legs_once_on_restart()
+    {
+        await using var fixture = await Fixture.CreateAsync(PermissionCompositions.Admin, grantAudit: new CrashingAuditTrail());
+        await PromoteToAdministratorAsync(fixture, WebGrantId);
+
+        await Assert.ThrowsAsync<ProcessCrashedException>(() => fixture.Authority.RevokeMemberGrantAsync(
+            fixture.Handle, TenantId, WebGrantId, successorPrincipalId: "principal-admin"));
+
+        var legs = await RestartAndDrainTwiceAsync(fixture);
+        Assert.Equal(
+            new[] { AuditEventType.CapabilityDelegated, AuditEventType.CapabilityRevoked },
+            legs.Select(record => record.EventType).ToArray());
+        Assert.All(legs, record => Assert.Equal(WebGrantId, record.Target!.Value.RecordId));
+        Assert.Single(legs.Select(record => record.Payload.Payload.Body["correlation_id"]).Distinct());
+    }
+
+    /// <summary>The process is gone: a new trail and outbox open the same grant file, drain at startup, and drain again.</summary>
+    private static async Task<List<AuditRecord>> RestartAndDrainTwiceAsync(Fixture fixture)
+    {
+        var trail = new AuthorityCapturingAuditTrail(new NodeAuditTrailStore(fixture.GrantFactory));
+        using var outbox = new NodeAuditOutbox(fixture.GrantFactory, trail, trail, new Ed25519Signer(KeyPair.Generate()),
+            TimeProvider.System, NullLogger<NodeAuditOutbox>.Instance);
+        await outbox.DrainAsync();
+        await outbox.DrainAsync();
+        await using (var grants = fixture.GrantFactory.CreateDbContext())
+            Assert.Equal(0, await grants.AuditOutbox.CountAsync(row => row.PublishedAtUnixMs == null));
+        var records = new List<AuditRecord>();
+        await foreach (var record in trail.QueryAsync(new AuditQuery(new TenantId(TenantId))))
+            records.Add(record);
+        return records;
+    }
+
+    private sealed class ProcessCrashedException() : Exception("The process stopped after the grant commit.");
+
+    /// <summary>A trail whose first append never happens: the process stops between the commit and the audit.</summary>
+    private sealed class CrashingAuditTrail : IAuthorizedAuditTrail
+    {
+        public ValueTask AppendAsync(AuditRecord record, CancellationToken ct = default) => throw new ProcessCrashedException();
+
+        public ValueTask AppendAuthorizedAsync(
+            AuditRecord record, AuthorizationDecision decision, CancellationToken ct = default,
+            SeparationOfDutyDecision? approval = null) => throw new ProcessCrashedException();
+
+        public async IAsyncEnumerable<AuditRecord> QueryAsync(
+            AuditQuery query,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+    }
+
     private static async Task PromoteToAdministratorAsync(Fixture fixture, string grantId)
     {
         await using var grants = fixture.GrantFactory.CreateDbContext();
@@ -689,7 +762,8 @@ public sealed class AdminTeamAccessAuthorityTests
             PermissionSet? successorPermissions = null,
             bool ejectSuccessor = false,
             AuthorizationRefusalAudit? refusalAudit = null,
-            PermissionSet? memberRoleSet = null)
+            PermissionSet? memberRoleSet = null,
+            IAuthorizedAuditTrail? grantAudit = null)
         {
             var identityPath = TempPath("identity");
             var sessionPath = TempPath("session");
@@ -812,7 +886,7 @@ public sealed class AdminTeamAccessAuthorityTests
                 new FixedRosterReader(roster), store, grantDerivedGate, new FixedTimeProvider(Now));
             IAuthorizedGrantRevocationWriter grantWriter = new AuthorizedGrantRevocationWriter(grantStore, grantFactory);
             INodeRosterMemberRevocationAuthority rosterWriter = new NoopRosterMemberRevocationAuthority();
-            IAuthorizedAuditTrail grantAudit = new InMemoryAuditTrail();
+            grantAudit ??= new InMemoryAuditTrail();
             if (captures is not null)
             {
                 grantWriter = new CapturingGrantWriter(grantWriter, captures.GrantWriterDecisions);
