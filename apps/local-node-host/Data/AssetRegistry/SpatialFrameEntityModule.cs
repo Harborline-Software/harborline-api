@@ -96,5 +96,13 @@ public sealed class SpatialFrameEntityModule : IHarborlineEntityModule
             e.HasIndex(r => new { r.TenantId, r.AnchorId, r.FrameCode })
                 .HasDatabaseName("ix_spatial_frame_quarantine_series");
         });
+
+        // T-1048: a mint or quarantine stages its signed audit entry in the SAME fenced save as the row it
+        // records. The search context owns the outbox table and its migrations; this context only writes rows.
+        modelBuilder.Entity<Search.AuditOutboxRow>(e =>
+        {
+            Search.AuditOutboxRow.Map(e);
+            e.ToTable("search_audit_outbox", table => table.ExcludeFromMigrations());
+        });
     }
 }

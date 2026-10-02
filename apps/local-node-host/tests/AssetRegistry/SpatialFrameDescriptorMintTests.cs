@@ -65,6 +65,7 @@ public sealed class SpatialFrameDescriptorMintTests : IAsyncLifetime
         {
             await ctx.Database.EnsureCreatedAsync();
         }
+        await SpatialAuditOutboxSchema.ApplyAsync(connectionString);
 
         _audit = new InMemoryRegistryAuditLog();
         var rootSeed = new byte[32];

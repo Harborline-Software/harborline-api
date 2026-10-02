@@ -3,6 +3,7 @@ using System;
 using Harborline.Api.LocalNodeHost.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,17 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Harborline.Api.LocalNodeHost.Data.Migrations;
 
 [DbContext(typeof(LocalNodeDbContext))]
-partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
+[Migration("20261002162649_SpatialFramesMapAuditOutbox")]
+partial class _20261002162649_SpatialFramesMapAuditOutbox
 {
-    // If you encounter a merge conflict in the line below, it means you need to
-    // discard one of the migration branches and recreate its migrations on top of
-    // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261002162649_SpatialFramesMapAuditOutbox";
-
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    /// <inheritdoc />
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
 #pragma warning disable 612, 618
-        modelBuilder.HasAnnotation("ProductVersion", "11.0.0-preview.5.26302.115");
+        modelBuilder.HasAnnotation("ProductVersion", "11.0.0-rc.1.26425.128");
 
         modelBuilder.Entity("Harborline.Api.Blocks.Banking.Models.BankAccount", b =>
             {
@@ -86,7 +84,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "EntityId")
                     .HasDatabaseName("ix_bank_accounts_tenant_entity");
 
-                b.ToTable("bank_accounts", (string)null);
+                b.ToTable("bank_accounts");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Banking.Models.MatchLink", b =>
@@ -131,7 +129,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "StatementLine")
                     .HasDatabaseName("ix_match_links_tenant_statement_line");
 
-                b.ToTable("match_links", (string)null);
+                b.ToTable("match_links");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Banking.Models.Reconciliation", b =>
@@ -198,7 +196,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_reconciliations_tenant_account_period");
 
-                b.ToTable("reconciliations", (string)null);
+                b.ToTable("reconciliations");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Banking.Models.StatementLine", b =>
@@ -267,7 +265,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "AccountId", "ProviderTxnId")
                     .HasDatabaseName("ix_statement_lines_tenant_account_provider_txn");
 
-                b.ToTable("statement_lines", (string)null);
+                b.ToTable("statement_lines");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Docs.Models.Attachment", b =>
@@ -370,7 +368,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "Status")
                     .HasDatabaseName("ix_attachments_tenant_status");
 
-                b.ToTable("attachments", (string)null);
+                b.ToTable("attachments");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Docs.Models.DocumentRef", b =>
@@ -449,7 +447,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "ClusterCode", "ParentEntityType", "ParentEntityId")
                     .HasDatabaseName("ix_document_refs_tenant_parent_active");
 
-                b.ToTable("document_refs", (string)null);
+                b.ToTable("document_refs");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialAp.Models.Bill", b =>
@@ -619,7 +617,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_bills_tenant_chart_vendor_number");
 
-                b.ToTable("bills", (string)null);
+                b.ToTable("bills");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialAr.Models.Invoice", b =>
@@ -779,7 +777,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_invoices_tenant_chart_number");
 
-                b.ToTable("invoices", (string)null);
+                b.ToTable("invoices");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialAr.Models.RecurringInvoiceSchedule", b =>
@@ -856,7 +854,30 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "Status")
                     .HasDatabaseName("ix_recurring_invoice_schedules_tenant_status");
 
-                b.ToTable("recurring_invoice_schedules", (string)null);
+                b.ToTable("recurring_invoice_schedules");
+            });
+
+        modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Data.TenantChartMappingRow", b =>
+            {
+                b.Property<string>("TenantId")
+                    .HasMaxLength(256)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("LegalEntityId")
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("ChartId")
+                    .IsRequired()
+                    .HasMaxLength(128)
+                    .HasColumnType("TEXT");
+
+                b.HasKey("TenantId", "LegalEntityId");
+
+                b.HasIndex("TenantId")
+                    .HasDatabaseName("ix_tenant_chart_mappings_tenant_id");
+
+                b.ToTable("tenant_chart_mappings");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.ChartOfAccounts", b =>
@@ -906,7 +927,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("LegalEntityId")
                     .HasDatabaseName("ix_charts_of_accounts_entity_id");
 
-                b.ToTable("charts_of_accounts", (string)null);
+                b.ToTable("charts_of_accounts");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.GLAccount", b =>
@@ -987,7 +1008,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_gl_accounts_chart_code");
 
-                b.ToTable("gl_accounts", (string)null);
+                b.ToTable("gl_accounts");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.JournalEntry", b =>
@@ -1066,7 +1087,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_journal_entries_tenant_source_ref");
 
-                b.ToTable("journal_entries", (string)null);
+                b.ToTable("journal_entries");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.LegalEntity", b =>
@@ -1110,7 +1131,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId")
                     .HasDatabaseName("ix_legal_entities_tenant_id");
 
-                b.ToTable("legal_entities", (string)null);
+                b.ToTable("legal_entities");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Models.LegalEntityOwnership", b =>
@@ -1153,7 +1174,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_legal_entity_ownerships_edge");
 
-                b.ToTable("legal_entity_ownerships", (string)null);
+                b.ToTable("legal_entity_ownerships");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialPayments.Models.Payment", b =>
@@ -1302,7 +1323,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "IntendedTargetType", "IntendedTargetId")
                     .HasDatabaseName("ix_payments_tenant_intended_target");
 
-                b.ToTable("payments", (string)null);
+                b.ToTable("payments");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialPayments.Models.PaymentApplication", b =>
@@ -1372,7 +1393,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "TargetId")
                     .HasDatabaseName("ix_payment_applications_tenant_target");
 
-                b.ToTable("payment_applications", (string)null);
+                b.ToTable("payment_applications");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialPeriods.Models.FiscalPeriod", b =>
@@ -1436,7 +1457,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("ChartId", "StartDate", "EndDate")
                     .HasDatabaseName("ix_fiscal_periods_chart_dates");
 
-                b.ToTable("fiscal_periods", (string)null);
+                b.ToTable("fiscal_periods");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.FinancialPeriods.Models.FiscalYear", b =>
@@ -1494,7 +1515,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("ExternalRef")
                     .HasDatabaseName("ix_fiscal_years_external_ref");
 
-                b.ToTable("fiscal_years", (string)null);
+                b.ToTable("fiscal_years");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.People.Foundation.Models.EmailAddress", b =>
@@ -1579,7 +1600,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "PartyId")
                     .HasDatabaseName("ix_party_emails_tenant_party");
 
-                b.ToTable("party_email_addresses", (string)null);
+                b.ToTable("party_email_addresses");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.People.Foundation.Models.Party", b =>
@@ -1720,7 +1741,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "Kind")
                     .HasDatabaseName("ix_parties_tenant_kind");
 
-                b.ToTable("parties", (string)null);
+                b.ToTable("parties");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.People.Foundation.Models.PartyAddress", b =>
@@ -1799,7 +1820,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "PartyId")
                     .HasDatabaseName("ix_party_addresses_tenant_party");
 
-                b.ToTable("party_addresses", (string)null);
+                b.ToTable("party_addresses");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.People.Foundation.Models.PartyRole", b =>
@@ -1883,7 +1904,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "PartyId", "RoleName", "RoleRecordId")
                     .HasDatabaseName("ux_party_roles_idempotency_active");
 
-                b.ToTable("party_roles", (string)null);
+                b.ToTable("party_roles");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.People.Foundation.Models.PhoneNumber", b =>
@@ -1969,7 +1990,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "PartyId")
                     .HasDatabaseName("ix_party_phones_tenant_party");
 
-                b.ToTable("party_phone_numbers", (string)null);
+                b.ToTable("party_phone_numbers");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Workflow.Durable.WorkflowEventRecord", b =>
@@ -2012,7 +2033,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                     .IsUnique()
                     .HasDatabaseName("ux_workflow_events_instance_seq");
 
-                b.ToTable("workflow_events", (string)null);
+                b.ToTable("workflow_events");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Workflow.Durable.WorkflowInstanceRecord", b =>
@@ -2072,7 +2093,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "Status")
                     .HasDatabaseName("ix_workflow_instances_tenant_status");
 
-                b.ToTable("workflow_instances", (string)null);
+                b.ToTable("workflow_instances");
             });
 
         modelBuilder.Entity("Harborline.Api.Blocks.Workflow.Durable.WorkflowStepIdempotencyRecord", b =>
@@ -2109,30 +2130,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("InstanceId")
                     .HasDatabaseName("ix_workflow_step_idempotency_instance");
 
-                b.ToTable("workflow_step_idempotency", (string)null);
-            });
-
-        modelBuilder.Entity("Harborline.Api.Blocks.FinancialLedger.Data.TenantChartMappingRow", b =>
-            {
-                b.Property<string>("TenantId")
-                    .HasMaxLength(256)
-                    .HasColumnType("TEXT");
-
-                b.Property<string>("LegalEntityId")
-                    .HasMaxLength(128)
-                    .HasColumnType("TEXT");
-
-                b.Property<string>("ChartId")
-                    .IsRequired()
-                    .HasMaxLength(128)
-                    .HasColumnType("TEXT");
-
-                b.HasKey("TenantId", "LegalEntityId");
-
-                b.HasIndex("TenantId")
-                    .HasDatabaseName("ix_tenant_chart_mappings_tenant_id");
-
-                b.ToTable("tenant_chart_mappings", (string)null);
+                b.ToTable("workflow_step_idempotency");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.AssetRegistry.SpatialFrameDescriptorRow", b =>
@@ -2209,7 +2207,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "AnchorId", "FrameCode", "FrameEpoch")
                     .HasDatabaseName("ix_spatial_frame_descriptors_series_epoch");
 
-                b.ToTable("spatial_frame_descriptors", (string)null);
+                b.ToTable("spatial_frame_descriptors");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.AssetRegistry.SpatialFrameQuarantineRow", b =>
@@ -2271,7 +2269,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "AnchorId", "FrameCode")
                     .HasDatabaseName("ix_spatial_frame_quarantine_series");
 
-                b.ToTable("spatial_frame_quarantine", (string)null);
+                b.ToTable("spatial_frame_quarantine");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditEventRow", b =>
@@ -2335,7 +2333,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "OccurredAt")
                     .HasDatabaseName("ix_node_audit_events_tenant_occurred");
 
-                b.ToTable("node_audit_events", (string)null);
+                b.ToTable("node_audit_events");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Audit.NodeAuditSignatureEpochRow", b =>
@@ -2366,7 +2364,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("IssuerId")
                     .HasDatabaseName("ix_node_audit_signature_epochs_issuer");
 
-                b.ToTable("node_audit_signature_epochs", (string)null);
+                b.ToTable("node_audit_signature_epochs");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Forms.FormSubmitOutboxRow", b =>
@@ -2435,7 +2433,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "State", "Sequence")
                     .HasDatabaseName("ix_form_submit_outbox_tenant_state_sequence");
 
-                b.ToTable("form_submit_outbox", (string)null);
+                b.ToTable("form_submit_outbox");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.HomeEpoch.HomeEpochRecord", b =>
@@ -2491,7 +2489,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("TenantId", "EpochNumber")
                     .HasDatabaseName("ix_home_epochs_tenant_epoch");
 
-                b.ToTable("home_epochs", (string)null);
+                b.ToTable("home_epochs");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Layout.LayoutDenialOutboxRow", b =>
@@ -2539,7 +2537,7 @@ partial class LocalNodeDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("State")
                     .HasDatabaseName("ix_layout_denial_outbox_state");
 
-                b.ToTable("layout_denial_outbox", (string)null);
+                b.ToTable("layout_denial_outbox");
             });
 
         modelBuilder.Entity("Harborline.Api.LocalNodeHost.Data.Search.AuditOutboxRow", b =>
