@@ -262,7 +262,9 @@ public sealed class AuthorizationWriteStageTests
             new SchemaId("schema"), oldBody, Options("merge-old", actor, tenant, at));
         var firstChild = new EntityId("entity", "test", "merge-child-a");
         var secondChild = new EntityId("entity", "test", "merge-child-b");
+        var otherParent = new EntityId("entity", "test", "merge-child-b-original-parent");
         await hierarchy.AddEdgeAsync(firstChild, oldId, EdgeKind.ChildOf, at);
+        await hierarchy.AddEdgeAsync(secondChild, otherParent, EdgeKind.ChildOf, at.AddDays(-1));
         var newOptions = Options("merge-new", actor, tenant, at);
         var newId = InMemoryEntityStore.DeriveEntityId(new SchemaId("schema"), newOptions);
 
@@ -271,12 +273,21 @@ public sealed class AuthorizationWriteStageTests
             [oldId], new SchemaId("schema"), newBody, newOptions, "merge", actor, tenant, at);
         await hierarchy.RaceWindow;
         // A concurrent act commits a child with a LATER instant while the merge is waiting.
-        var later = clock.GetUtcNow();
-        Assert.True(later > at);
-        await hierarchy.AddEdgeAsync(secondChild, oldId, EdgeKind.ChildOf, later);
+        await coordinator.ReparentAsync(secondChild, otherParent, oldId, "later reparent", actor, tenant, at);
+        var later = at.AddMinutes(1);
+        Assert.Equal(2, clock.ReadCount);
         hierarchy.Resume();
         await merge;
 
+        Assert.Equal(otherParent, Assert.Single(hierarchy.ActiveChildEdges(at),
+            edge => edge.From == secondChild).To);
+        Assert.All(hierarchy.AllEdges, edge =>
+            Assert.True(edge.Validity.ValidTo is null || edge.Validity.ValidTo >= edge.Validity.ValidFrom));
+        var displaced = Assert.Single(hierarchy.AllEdges, edge => edge.From == secondChild && edge.To == oldId);
+        Assert.Equal(later, displaced.Validity.ValidFrom);
+        Assert.Equal(later, displaced.Validity.ValidTo);
+        Assert.Equal(later, Assert.Single(hierarchy.AllEdges, edge =>
+            edge.From == secondChild && edge.To == newId).Validity.ValidFrom);
         var activeChildren = hierarchy.ActiveChildEdges(later);
         Assert.Equal(2, activeChildren.Count);
         Assert.All(activeChildren, edge => Assert.Equal(newId, edge.To));
@@ -2298,6 +2309,11 @@ public sealed class AuthorizationWriteStageTests
 
         internal void Resume() => _resume.TrySetResult();
 
+        internal IReadOnlyList<EntityEdge> AllEdges
+        {
+            get { lock (_gate) return _edges.ToArray(); }
+        }
+
         internal IReadOnlyList<EntityEdge> ActiveChildEdges(DateTimeOffset at)
         {
             lock (_gate)
@@ -2409,10 +2425,15 @@ public sealed class AuthorizationWriteStageTests
             DateTimeOffset? asOf = null,
             CancellationToken ct = default) => throw new NotSupportedException();
 
-        public IAsyncEnumerable<ClosureEntry> GetAncestorsAsync(
+        public async IAsyncEnumerable<ClosureEntry> GetAncestorsAsync(
             EntityId descendant,
             DateTimeOffset? asOf = null,
-            CancellationToken ct = default) => throw new NotSupportedException();
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            await Task.CompletedTask;
+            yield break;
+        }
 
         public IAsyncEnumerable<ClosureEntry> GetDescendantsAsync(
             EntityId ancestor,
