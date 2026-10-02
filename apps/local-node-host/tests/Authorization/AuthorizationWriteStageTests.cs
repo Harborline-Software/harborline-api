@@ -1493,8 +1493,9 @@ public sealed class AuthorizationWriteStageTests
 
     // T-519: one fixture per stage that refuses there and nowhere else, pinned to the literal ADR-0038 order
     // (not to WritePipeline.Order, so reordering the kernel declaration reds this fence). Authorize, bind,
-    // validate and commit refuse through their real collaborators; mutate and react are pure, so their only
-    // refusal is the cancellation check they make on entry.
+    // validate and commit refuse through their real collaborators; mutate is pure, so its only refusal is the
+    // cancellation check it makes on entry. React is past commit and no longer observes cancellation (ck-10), so
+    // the cancellation that would have refused it there instead returns the committed write.
     [Theory]
     [InlineData(WritePipelineStage.Authorize)]
     [InlineData(WritePipelineStage.Bind)]
@@ -1533,8 +1534,16 @@ public sealed class AuthorizationWriteStageTests
             };
         }
 
-        await Assert.ThrowsAnyAsync<Exception>(async () =>
-            await writer.WriteAsync(new InstallAuthorizationDefinition(definition), cancel.Token));
+        if (refusing == WritePipelineStage.React)
+        {
+            await writer.WriteAsync(new InstallAuthorizationDefinition(definition), cancel.Token);
+            Assert.True(cancel.IsCancellationRequested);
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<Exception>(async () =>
+                await writer.WriteAsync(new InstallAuthorizationDefinition(definition), cancel.Token));
+        }
 
         Assert.Equal(adr0038.TakeWhile(stage => stage != refusing).Append(refusing), recorder.Stages);
         Assert.Equal(refusing == WritePipelineStage.Authorize ? 0 : 1, states.ReadCount);
