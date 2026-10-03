@@ -154,6 +154,45 @@ public sealed class SqliteStartupLifecycleProbeTests
     }
 
     [Fact]
+    public void WideNestedExceptionsHaveASharedCaptureAndGlobalExportBudget()
+    {
+        Exception tree = new LargeStackException();
+        for (var depth = 0; depth < 4; depth++)
+            tree = new AggregateException(Enumerable.Repeat(tree, 8));
+        using var probe = new SqliteStartupLifecycleProbe();
+        for (var index = 0; index < 64; index++) probe.Capture("earlier-observed-error", exception: tree);
+        probe.CaptureFailure("startup", tree);
+        probe.CaptureFailure("disposal", new IOException("private disposal message"));
+        Assert.True(CountCapturedNodes(probe.Failures[0].Error) <= 32);
+        var json = probe.SerializeBoundedEvidence();
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(json) <= 262144);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        Assert.True(CountExportedNodes(document.RootElement) <= 128);
+        Assert.True(document.RootElement.GetProperty("ExportTruncated").GetBoolean());
+        var roots = document.RootElement.GetProperty("Failures").EnumerateArray().ToArray();
+        Assert.Equal("startup", roots[0].GetProperty("Phase").GetString());
+        Assert.Equal("disposal", roots[1].GetProperty("Phase").GetString());
+        Assert.Equal("System.IO.IOException", roots[1].GetProperty("Error").GetProperty("Type").GetString());
+        Assert.DoesNotContain("private disposal message", json);
+    }
+
+    private static int CountCapturedNodes(SqliteStartupLifecycleProbe.ExceptionEvidence node) =>
+        1 + node.Inner.Sum(CountCapturedNodes);
+
+    private static int CountExportedNodes(System.Text.Json.JsonElement value) => value.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.Array => value.EnumerateArray().Sum(CountExportedNodes),
+        System.Text.Json.JsonValueKind.Object => (value.TryGetProperty("Type", out _) ? 1 : 0)
+            + value.EnumerateObject().Sum(property => CountExportedNodes(property.Value)),
+        _ => 0,
+    };
+
+    private sealed class LargeStackException : Exception
+    {
+        public override string StackTrace => "   at WideOwner.Run()" + new string('\u0001', 4000);
+    }
+
+    [Fact]
     public async Task FactoryRegistrationAttachesActualEfLifecycleHooksAndKeepsPoolingAndCipher()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sqlite-ef-hook-control-" + Guid.NewGuid().ToString("N"));

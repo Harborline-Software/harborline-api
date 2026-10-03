@@ -119,8 +119,7 @@ internal sealed class SqliteStartupLifecycleProbe : IDisposable,
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
-            File.WriteAllText(destination, JsonSerializer.Serialize(new { Events, FailureEvents, Failures, FirstChanceSqlite },
-                new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(destination, SerializeBoundedEvidence());
         }
         catch { /* A failed evidence write cannot hide the startup/disposal failure. */ }
     }
@@ -142,8 +141,7 @@ internal sealed class SqliteStartupLifecycleProbe : IDisposable,
     {
         try
         {
-            writeOutput("SQLITE_STARTUP_LIFECYCLE_V1 " + JsonSerializer.Serialize(
-                new { Events, FailureEvents, Failures, FirstChanceSqlite }));
+            writeOutput("SQLITE_STARTUP_LIFECYCLE_V1 " + SerializeBoundedEvidence());
         }
         catch { /* Evidence serialization/output never replaces the primary fault. */ }
     }
@@ -158,15 +156,120 @@ internal sealed class SqliteStartupLifecycleProbe : IDisposable,
     private long Id(object value) => identities.GetValue(value,
         _ => new Identity(Interlocked.Increment(ref identitySequence))).Value;
 
-    private ExceptionEvidence Describe(Exception exception, int depth = 0) => new(
-        Id(exception), exception.GetType().FullName!,
-        exception is SqliteException sqlite ? sqlite.SqliteErrorCode : null,
-        exception is SqliteException extended ? extended.SqliteExtendedErrorCode : null,
-        SanitizeStack(exception.StackTrace),
-        depth >= 4 ? [] : (exception is AggregateException aggregate
-            ? aggregate.InnerExceptions.Take(8)
-            : exception.InnerException is { } inner ? new[] { inner } : Array.Empty<Exception>())
-            .Select(inner => Describe(inner, depth + 1)).ToArray());
+    private ExceptionEvidence Describe(Exception exception)
+    {
+        var remaining = 32;
+        return Describe(exception, 0, ref remaining);
+    }
+
+    private ExceptionEvidence Describe(Exception exception, int depth, ref int remaining)
+    {
+        remaining--;
+        IReadOnlyList<Exception> children = exception is AggregateException aggregate
+            ? aggregate.InnerExceptions
+            : exception.InnerException is { } inner ? new[] { inner } : Array.Empty<Exception>();
+        var retained = new List<ExceptionEvidence>();
+        if (depth < 4)
+            foreach (var child in children.Take(8))
+            {
+                if (remaining == 0) break;
+                retained.Add(Describe(child, depth + 1, ref remaining));
+            }
+        return new(Id(exception), ClipMetadata(exception.GetType().FullName, 256)!,
+            exception is SqliteException sqlite ? sqlite.SqliteErrorCode : null,
+            exception is SqliteException extended ? extended.SqliteExtendedErrorCode : null,
+            SanitizeStack(exception.StackTrace), retained.ToArray(), retained.Count < children.Count);
+    }
+
+    // A single export budget covers all exception graphs, not each branch or record.
+    internal string SerializeBoundedEvidence()
+    {
+        var lifecycle = lifecycleFailures.ToArray();
+        var observed = failures.ToArray();
+        var native = FailureEvents;
+        var firstChance = FirstChanceSqlite;
+        var roots = lifecycle.Length + observed.Length + native.Count(row => row.Error is not null) + firstChance.Length;
+        for (var stackBytes = 65536; ; stackBytes /= 2)
+        {
+            var budget = new ExportBudget(128 - roots, stackBytes);
+            var explicitFailures = lifecycle.Select(row => Project(row, budget)).ToArray();
+            var nativeFailures = native.Select(row => Project(row, budget, keepError: true)).ToArray();
+            var observedFailures = observed.Select(row => Project(row, budget)).ToArray();
+            var first = firstChance.Select(row => Project(row, budget)).ToArray();
+            var json = JsonSerializer.Serialize(new
+            {
+                Events = Events.Select(row => Project(row, budget, keepError: false)).ToArray(),
+                FailureEvents = nativeFailures,
+                Failures = explicitFailures.Concat(observedFailures).ToArray(),
+                FirstChanceSqlite = first,
+                ExportTruncated = budget.Truncated,
+            });
+            if (System.Text.Encoding.UTF8.GetByteCount(json) <= 262144) return json;
+            if (stackBytes == 0) break;
+        }
+        // Fixed-count, fixed-string summaries retain decisive lifecycle/native evidence.
+        var fallback = new ExportBudget(0, 0);
+        return JsonSerializer.Serialize(new
+        {
+            Events = Array.Empty<ProbeEvent>(),
+            FailureEvents = native.Select(row => Project(row, fallback, keepError: true)).ToArray(),
+            Failures = lifecycle.Select(row => Project(row, fallback)).ToArray(),
+            FirstChanceSqlite = Array.Empty<Failure>(),
+            ExportTruncated = true,
+        });
+    }
+
+    private static Failure Project(Failure row, ExportBudget budget) => row with
+    {
+        Phase = ClipMetadata(row.Phase, 64)!,
+        Error = Project(row.Error, budget),
+        ObservationStack = budget.Stack(row.ObservationStack),
+    };
+
+    private static ProbeEvent Project(ProbeEvent row, ExportBudget budget, bool keepError) => row with
+    {
+        Phase = ClipMetadata(row.Phase, 64)!,
+        Context = ClipMetadata(row.Context, 256),
+        Error = keepError && row.Error is { } error ? Project(error, budget) : null,
+        Native = row.Native with
+        {
+            Library = ClipMetadata(row.Native.Library, 128),
+            State = ClipMetadata(row.Native.State, 32),
+            UnavailableReason = ClipMetadata(row.Native.UnavailableReason, 128),
+        },
+    };
+
+    private static ExceptionEvidence Project(ExceptionEvidence error, ExportBudget budget)
+    {
+        var stack = budget.Stack(error.Stack);
+        var children = new List<ExceptionEvidence>();
+        foreach (var child in error.Inner)
+        {
+            if (budget.NodesRemaining == 0) break;
+            budget.NodesRemaining--;
+            children.Add(Project(child, budget));
+        }
+        var omitted = error.Truncated || children.Count != error.Inner.Length;
+        budget.Truncated |= omitted;
+        return error with { Stack = stack, Inner = children.ToArray(), Truncated = omitted };
+    }
+
+    private static string? ClipMetadata(string? value, int bound) =>
+        value is null ? null : value[..Math.Min(value.Length, bound)];
+
+    private sealed class ExportBudget(int nodesRemaining, int stackBytesRemaining)
+    {
+        internal int NodesRemaining = Math.Max(0, nodesRemaining);
+        internal bool Truncated;
+        internal string? Stack(string? value)
+        {
+            if (value is null) return null;
+            var bytes = System.Text.Encoding.UTF8.GetByteCount(value);
+            if (bytes <= stackBytesRemaining) { stackBytesRemaining -= bytes; return value; }
+            Truncated = true;
+            return null;
+        }
+    }
 
     private NativeEvidence Snapshot(DbConnection? connection)
     {
@@ -277,7 +380,7 @@ internal sealed class SqliteStartupLifecycleProbe : IDisposable,
     internal sealed record NativeEvidence(long? HandleId, string? State, string? Library,
         int? Version, int? StatementsVisited, int? BusyVisited, bool Complete, string? UnavailableReason);
     internal sealed record ExceptionEvidence(long Id, string Type, int? SqliteCode,
-        int? SqliteExtendedCode, string? Stack, ExceptionEvidence[] Inner);
+        int? SqliteExtendedCode, string? Stack, ExceptionEvidence[] Inner, bool Truncated = false);
     internal sealed record ProbeEvent(long Sequence, string Phase, long? ConnectionId,
         Guid? CommandId, string? Context, NativeEvidence Native, ExceptionEvidence? Error);
     internal sealed record Failure(long Sequence, string Phase, ExceptionEvidence Error,

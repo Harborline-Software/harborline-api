@@ -28,7 +28,7 @@ namespace Harborline.Api.LocalNodeHost.Tests.ArchTests;
 /// <see cref="AuthorizationDefinitionWriteFenceTests"/>). The inventory is the measurable gap: each slice
 /// deletes its rows, and a new write path off the executor reds this fence until it is reviewed.
 /// </summary>
-public sealed class WritePipelineExecutorFenceTests
+public sealed partial class WritePipelineExecutorFenceTests
 {
     private static readonly string[] StageNames =
         ["AuthorizeAsync", "BindAsync", "MutateAsync", "ValidateAsync", "CommitAsync", "ReactAsync"];
@@ -1798,7 +1798,9 @@ public sealed class WritePipelineExecutorFenceTests
             || !HasBoundCompiledSource(encode, calculationFile, foundationPath)
             || !HasReviewedCalculationBindings(calculation, encode, context.Foundation)) return false;
         var root = RepositoryRoot();
-        return HasReviewedKernelBaseConstruction([CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, baseFile)))])
+        var hostTree = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, HostHierarchySource)));
+        return HasReviewedCompiledHostCalls(hostMethod.DeclaringType!, BoundaryModel(hostTree), hostPath)
+            && HasReviewedKernelBaseConstruction([CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, baseFile)))])
             && HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, calculationFile))));
     }
 
