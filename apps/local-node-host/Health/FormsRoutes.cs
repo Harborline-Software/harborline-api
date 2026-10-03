@@ -438,7 +438,7 @@ public static class FormsRoutes
     /// <summary>
     /// K3 first refuses a start before the admitted instant because no host backdate capability is composed.
     /// Then checks a declared interval end against that start, defaulting an omitted start to
-    /// <paramref name="admittedAt"/>, before saving. Unparseable values remain for form validation.
+    /// <paramref name="admittedAt"/>, before saving. Unparseable start values remain for form validation; nonempty malformed end values are refused.
     /// Returns a named 400 interval or 403 backdate refusal, or <see langword="null"/> when admitted.
     /// </summary>
     internal static async Task<IResult?> BackdateRefusalAsync(
@@ -459,8 +459,9 @@ public static class FormsRoutes
             if (gate.EffectiveToField(form) is { } endField
                 && candidate.RootElement.TryGetProperty(endField, out var endValue)
                 && endValue.ValueKind == JsonValueKind.String
-                && DateTimeOffset.TryParse(endValue.GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var end) && end <= requested)
+                && endValue.GetString() is { Length: > 0 } endText
+                && (!DateTimeOffset.TryParse(endText, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var end) || end <= requested))
                 return Results.Json(new { code = "access.grant.invalid-validity-interval", detail = new { field = endField } },
                     statusCode: StatusCodes.Status400BadRequest);
             return null;
