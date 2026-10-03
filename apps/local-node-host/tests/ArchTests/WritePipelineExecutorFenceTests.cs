@@ -405,6 +405,30 @@ public sealed class WritePipelineExecutorFenceTests
     }
 
     [Theory]
+    [InlineData("await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct)); return await escaped.Pending;")]
+    [InlineData("await using var scope = lease; return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    [InlineData("using var scope = lease; return await unit.ExecuteAtomicAsync(async ct => await WritePipeline.RunAsync(write, observer, ct));")]
+    public void ExemptionRejectsDynamicAccessAndImplicitDisposal(string body)
+    {
+        var source = BoundaryFixture(body).Replace("IWritePipelineObserver observer)",
+            "IWritePipelineObserver observer, dynamic escaped, Escape lease)", StringComparison.Ordinal) + """
+            class Escape : IAsyncDisposable, IDisposable {
+                KernelWrite<object, int, int, int> write;
+                IWritePipelineObserver observer;
+                public Task<int> Pending => WritePipeline.RunAsync(write, observer, default).AsTask();
+                public async ValueTask DisposeAsync() { await WritePipeline.RunAsync(write, observer, default); }
+                public void Dispose() { WritePipeline.RunAsync(write, observer, default).AsTask().GetAwaiter().GetResult(); }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var declaration = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(node => node.Identifier.ValueText == "MergeAsync");
+        var model = BoundaryModel(tree);
+        Assert.DoesNotContain(model.Compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        Assert.False(RunsExecutorInsideAtomicCallback(declaration, model));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ExemptionRejectsConditionalShippingAndDecoyBranches(bool productionSymbols)
@@ -443,7 +467,11 @@ public sealed class WritePipelineExecutorFenceTests
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
-            .Select(assembly => assembly.Location).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(assembly => assembly.Location)
+            .Concat(new[] { typeof(DynamicAttribute).Assembly.Location,
+                typeof(Microsoft.CSharp.RuntimeBinder.Binder).Assembly.Location,
+                typeof(System.Linq.Expressions.Expression).Assembly.Location })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(location => MetadataReference.CreateFromFile(location));
         // The host relies on implicit global usings; include those when binding its standalone source file.
         var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; "
@@ -502,17 +530,10 @@ public sealed class WritePipelineExecutorFenceTests
         var atomicCall = mutationCalls[0];
         if (atomicCall.ArgumentList.Arguments.FirstOrDefault()?.Expression is not AnonymousFunctionExpressionSyntax callback)
             return false;
-        // Outside the callback, only the reviewed shipping prelude and task completion wrappers are
-        // supported. An ordinary helper can hide another executor just as a delegate alias can;
-        // approving such helpers would require an interprocedural proof this fence does not perform.
-        if (method.DescendantNodes().OfType<InvocationExpressionSyntax>().Any(call =>
-            !call.Ancestors().Contains(callback) && call != atomicCall
-                && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model))) return false;
-        // Invocation syntax is not the complete side-effect surface: construction, accessors and
-        // user-defined operators/conversions can run an escaped executor without an invocation node.
-        // Refuse those outside the reviewed callback instead of assuming interprocedural purity.
-        if (method.DescendantNodes().OfType<ExpressionSyntax>().Any(expression =>
-            !expression.Ancestors().Contains(callback) && HasUnsupportedOuterEffect(expression, model))) return false;
+        // This exemption supports the shipping method's closed outer shape, not arbitrary C# purity.
+        // Every statement and expression outside the atomic callback must match an allowed case;
+        // unknown syntax, dynamic/unresolved binding and implicit effects fail closed.
+        if (!HasReviewedOuterBody(method, atomicCall, callback, model)) return false;
         var calls = method.DescendantNodes().OfType<InvocationExpressionSyntax>()
             .Where(call => IsExecutorCall(call, model))
             .ToArray();
@@ -533,18 +554,81 @@ public sealed class WritePipelineExecutorFenceTests
         });
     }
 
-    private static bool HasUnsupportedOuterEffect(ExpressionSyntax expression, SemanticModel model)
+    private static bool HasReviewedOuterBody(MethodDeclarationSyntax method, InvocationExpressionSyntax atomic,
+        AnonymousFunctionExpressionSyntax callback, SemanticModel model)
     {
-        if (expression is BaseObjectCreationExpressionSyntax or AssignmentExpressionSyntax
-            || expression.IsKind(SyntaxKind.PreIncrementExpression)
-            || expression.IsKind(SyntaxKind.PreDecrementExpression)
-            || expression.IsKind(SyntaxKind.PostIncrementExpression)
-            || expression.IsKind(SyntaxKind.PostDecrementExpression)) return true;
-        var symbol = model.GetSymbolInfo(expression).Symbol;
-        if (symbol is IPropertySymbol or IEventSymbol
-            || symbol is IFieldSymbol { IsStatic: true, IsConst: false }) return true;
-        if (symbol is IMethodSymbol { MethodKind: MethodKind.UserDefinedOperator or MethodKind.Conversion }) return true;
-        return model.GetConversion(expression).MethodSymbol is not null;
+        if (method.Body is not { Statements.Count: > 0 } body
+            || body.Statements[^1] is not ReturnStatementSyntax { Expression: { } result }) return false;
+        foreach (var statement in body.Statements.Take(body.Statements.Count - 1))
+        {
+            switch (statement)
+            {
+                case ExpressionStatementSyntax { Expression: InvocationExpressionSyntax call }
+                    when IsReviewedPreludeCall(call, model)
+                        && model.GetSymbolInfo(call).Symbol is IMethodSymbol { Name: nameof(ArgumentNullException.ThrowIfNull) }:
+                    if (!IsReviewedOuterExpression(call, atomic, callback, model)) return false;
+                    break;
+                case LocalDeclarationStatementSyntax local when local.UsingKeyword.RawKind == 0
+                    && local.AwaitKeyword.RawKind == 0 && local.Modifiers.Count == 0
+                    && local.Declaration.Type.IsVar && local.Declaration.Variables.Count == 1
+                    && local.Declaration.Variables[0].Initializer?.Value is InvocationExpressionSyntax call
+                    && IsReviewedPreludeCall(call, model)
+                    && model.GetSymbolInfo(call).Symbol is IMethodSymbol { Name: nameof(TimeProvider.GetUtcNow) }:
+                    if (!IsReviewedOuterExpression(call, atomic, callback, model)) return false;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return IsReviewedOuterExpression(result, atomic, callback, model);
+    }
+
+    private static bool IsReviewedOuterExpression(ExpressionSyntax expression, InvocationExpressionSyntax atomic,
+        AnonymousFunctionExpressionSyntax callback, SemanticModel model)
+    {
+        if (expression == callback) return true; // Its execution/completion is proved separately below.
+        var type = model.GetTypeInfo(expression).Type;
+        if (type is { TypeKind: TypeKind.Dynamic or TypeKind.Error }
+            || model.GetConversion(expression).MethodSymbol is not null) return false;
+        switch (expression)
+        {
+            case ParenthesizedExpressionSyntax parentheses:
+                return IsReviewedOuterExpression(parentheses.Expression, atomic, callback, model);
+            case PostfixUnaryExpressionSyntax postfix when postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression):
+                return IsReviewedOuterExpression(postfix.Operand, atomic, callback, model);
+            case AwaitExpressionSyntax awaited:
+                // Only the reviewed atomic task and framework completion wrappers may be awaited here.
+                return IsReviewedOuterExpression(awaited.Expression, atomic, callback, model)
+                    && model.GetTypeInfo(awaited.Expression).Type is INamedTypeSymbol task
+                    && ((task.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks"
+                        && task.MetadataName is "Task\u00601" or "ValueTask\u00601")
+                        || (task.ContainingNamespace.ToDisplayString() == "System.Runtime.CompilerServices"
+                            && task.MetadataName is "ConfiguredTaskAwaitable\u00601" or "ConfiguredValueTaskAwaitable\u00601"))
+                    && task.ContainingAssembly.Identity.ToString() == typeof(Task).Assembly.FullName;
+            case InvocationExpressionSyntax call:
+                if (call != atomic && !IsReviewedPreludeCall(call, model) && !IsTaskWrapperCall(call, model)) return false;
+                if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) return false;
+                if (call.Expression is not MemberAccessExpressionSyntax member) return false;
+                if (method.IsStatic)
+                {
+                    if (!SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(member.Expression).Symbol,
+                        method.ContainingType)) return false;
+                }
+                else if (!IsReviewedOuterExpression(member.Expression, atomic, callback, model)) return false;
+                return call.ArgumentList.Arguments.All(argument => argument.RefKindKeyword.RawKind == 0
+                    && IsReviewedOuterExpression(argument.Expression, atomic, callback, model));
+            case IdentifierNameSyntax:
+                return model.GetSymbolInfo(expression).Symbol is IParameterSymbol or ILocalSymbol
+                    or IFieldSymbol { IsStatic: false };
+            case ThisExpressionSyntax:
+                return type is not null;
+            case LiteralExpressionSyntax literal:
+                return literal.IsKind(SyntaxKind.TrueLiteralExpression)
+                    || literal.IsKind(SyntaxKind.FalseLiteralExpression)
+                    || literal.IsKind(SyntaxKind.DefaultLiteralExpression);
+            default:
+                return false;
+        }
     }
 
     private static bool IsMutationCall(InvocationExpressionSyntax call, SemanticModel model)
