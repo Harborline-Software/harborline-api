@@ -3,13 +3,18 @@
 import {readFileSync, readdirSync, writeFileSync, statSync} from 'node:fs'
 import path from 'node:path'
 import {compareInputs, fingerprint} from './validation-reuse.mjs'
-import {hostLanes, artifactLane} from './validation-lanes.mjs'
+import {hostLanes, hostProfiles, artifactLane} from './validation-lanes.mjs'
 
-export function compareObservations(current, prior) {
+export function compareObservations(current, prior, lane) {
   const problems = []
   for (const [name, item] of [['current', current], ['prior', prior]]) {
     try {
       if (!item?.inputs || item.fingerprint !== fingerprint(item.inputs)) problems.push(`${name} observation missing or corrupt`)
+      else if (!/^[0-9a-f]{40}$/.test(item.candidateSha ?? '')) problems.push(`${name} observation candidate identity missing or invalid`)
+      else if (lane && (item.inputs.lane !== 'host'
+        || item.inputs.platform?.os !== hostProfiles[lane]?.os
+        || item.inputs.platform?.architecture !== hostProfiles[lane]?.architecture))
+        problems.push(`${name} observation host profile differs from expected lane`)
     } catch {problems.push(`${name} observation missing or corrupt`)}
   }
   if (problems.length) return {sameInputs: false, completeInputs: false, problems,
@@ -46,9 +51,9 @@ export function compareDirectories(currentDirectory, priorDirectory) {
   const current = observations(currentDirectory), prior = observations(priorDirectory)
   const lanes = hostLanes.map(lane => ({lane,
     currentEvidencePresent: Boolean(current.found.get(lane)?.inputs), priorEvidencePresent: Boolean(prior.found.get(lane)?.inputs),
-    ...compareObservations(current.found.get(lane), prior.found.get(lane))}))
+    ...compareObservations(current.found.get(lane), prior.found.get(lane), lane)}))
   const evidenceComplete = lanes.every(lane => lane.currentEvidencePresent && lane.priorEvidencePresent
-    && lane.problems.every(problem => !problem.includes('observation missing or corrupt')))
+    && !lane.problems.some(problem => problem.includes('observation')))
     && current.problems.length === 0 && prior.problems.length === 0
   return {schemaVersion: 1, mode: 'shadow', reuseAuthorized: false, requiredWorkSkipped: false,
     evidenceState: evidenceComplete ? 'present' : 'unknown', currentProblems: current.problems, priorProblems: prior.problems, lanes}
