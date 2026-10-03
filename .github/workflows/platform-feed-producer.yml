@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/platform-feed-producer.yml'
+      - '.github/workflows/verify.yml'
       - '.github/actions/platform-feed/action.yml'
       - 'eng/platform-feed-*.mjs'
       - 'eng/platform-feed-profile.json'

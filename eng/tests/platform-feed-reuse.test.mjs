@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {execFileSync, spawnSync} from 'node:child_process'
-import {mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, symlinkSync} from 'node:fs'
+import {copyFileSync, chmodSync, realpathSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync, symlinkSync} from 'node:fs'
 import path from 'node:path'
 import {tmpdir} from 'node:os'
 import {inputProblems, reuseProblems, definitionProblems} from '../platform-feed-reuse-policy.mjs'
@@ -244,10 +244,10 @@ test('GitHub redirect drops credentials; forbidden endpoints and unsafe redirect
 })
 
 test('archive reader accepts only one bounded named data entry and never extracts or executes', () => {
-  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const python = realpathSync(execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-c', 'import sys;print(sys.executable)'], {encoding: 'utf8'}).trim())
   const make = names => execFileSync(python, ['-c',
     "import io,sys,zipfile,json\nb=io.BytesIO()\nwith zipfile.ZipFile(b,'w') as z:\n for n in json.loads(sys.argv[1]): z.writestr(n,'fixture')\nsys.stdout.buffer.write(b.getvalue())", JSON.stringify(names)], {stdio: 'pipe'})
-  const decode = bytes => unpackFeed(bytes, `sha256:${digest(bytes)}`)
+  const decode = bytes => unpackFeed(bytes, `sha256:${digest(bytes)}`, {python})
   assert.equal(decode(make(['feed-bundle.json'])).toString(), 'fixture')
   for (const names of [['../execute.py'], ['feed-bundle.json', '../execute.py'], ['feed-bundle.json', 'feed-bundle.json']])
     assert.throws(() => decode(make(names)))
@@ -255,13 +255,20 @@ test('archive reader accepts only one bounded named data entry and never extract
   assert.throws(() => unpackFeed(archive, 'sha256:' + '0'.repeat(64)), /digest differs/)
   const directory = mkdtempSync(path.join(tmpdir(), 'candidate-python-shadow-')), previousCwd = process.cwd(), previousPath = process.env.PYTHONPATH
   const marker = path.join(directory, 'candidate-module-executed')
+  const priorSearchPath = process.env.PATH
+  // A real executable on PATH rejects Python flags; bare lookup would fail this test.
+  for (const name of (process.platform === 'win32' ? ['python.exe', 'python3.exe'] : ['python', 'python3']))
+    copyFileSync(process.execPath, path.join(directory, name))
   writeFileSync(path.join(directory, 'zipfile.py'), `open(${JSON.stringify(marker)},'w').write('executed')\nclass ZipFile:\n def __init__(self,*args): pass\n def __enter__(self): return self\n def __exit__(self,*args): pass\n def namelist(self): return ['feed-bundle.json']\n def getinfo(self,*args): return type('Info',(),{'file_size':6})()\n def read(self,*args): return b'forged'\n`)
   try {
     process.chdir(directory); process.env.PYTHONPATH = directory
+    process.env.PATH = directory + path.delimiter + priorSearchPath
+    assert.throws(() => unpackFeed(archive, `sha256:${digest(archive)}`, {python: ''}), /trusted archive interpreter unavailable/)
     assert.equal(decode(archive).toString(), 'fixture', 'authenticated ZIP entry is authoritative even with candidate shadow modules')
     assert.equal(readdirSync(directory).includes('candidate-module-executed'), false, 'candidate module never executes')
   } finally {
     process.chdir(previousCwd)
+    process.env.PATH = priorSearchPath
     if (previousPath === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = previousPath
     rmSync(directory, {recursive: true, force: true})
   }
@@ -407,15 +414,18 @@ test('workflow keeps every fresh API gate, one Linux opt-in, read-only producer 
   const root = path.resolve(import.meta.dirname, '../..')
   const workflow = readFileSync(path.join(root, '.github/workflows/platform-feed-producer.yml'), 'utf8')
   assert.match(workflow, /contents: read/)
+  assert.match(workflow, /paths:[\s\S]*?['"]\.github\/workflows\/verify\.yml['"]/)
   assert.equal(/(?:contents|actions|checks|packages|id-token): write/.test(workflow), false)
   assert.equal(/pull_request:|pull_request_target:/.test(workflow), false)
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/)
   assert.match(workflow, /persist-credentials: false/)
   assert.match(workflow, /path: \.claude\/platform-feed-producer\/feed-bundle\.json/)
   const action = readFileSync(path.join(root, '.github/actions/platform-feed/action.yml'), 'utf8')
-  assert.match(action, /if node eng\/platform-feed-reuse\.mjs consume/)
-  assert.match(action, /node eng\/build-local-feed\.mjs/)
-  assert.match(action, /node eng\/same-job-platform-feed\.mjs build/)
+  assert.ok(action.indexOf('id: feed_tools') < action.indexOf('name: Test the feed contract'))
+  assert.match(action, /HARBORLINE_FEED_PYTHON: \$\{\{ steps\.feed_tools\.outputs\.python \}\}/)
+  assert.match(action, /if "\$FEED_NODE" eng\/platform-feed-reuse\.mjs consume/)
+  assert.match(action, /"\$FEED_NODE" eng\/build-local-feed\.mjs/)
+  assert.match(action, /"\$FEED_NODE" eng\/same-job-platform-feed\.mjs build/)
   const verify = readFileSync(path.join(root, '.github/workflows/verify.yml'), 'utf8')
   assert.equal((verify.match(/cross-run-reuse: 'true'/g) ?? []).length, 1)
   assert.match(verify.slice(verify.indexOf('  verify-linux:'), verify.indexOf('  verify-windows:')), /cross-run-reuse: 'true'/)
@@ -445,7 +455,7 @@ test('composed action executes fresh fallback and propagates its failure; artifa
     const record = path.join(directory, 'calls.txt'); writeFileSync(record, '')
     const harness = 'set -eo pipefail\nnode() { printf "%s\\n" "$*" >> "$TEST_FEED_RECORD"; if [[ "$1" = eng/platform-feed-reuse.mjs ]]; then [[ -n "${GH_TOKEN:-}" ]] || return 88; return "$TEST_REUSE_STATUS"; else [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${GH_ENTERPRISE_TOKEN:-}${GITHUB_ENTERPRISE_TOKEN:-}${ACTIONS_RUNTIME_TOKEN:-}${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] || return 91; return "$TEST_FRESH_STATUS"; fi; }\n'
     const result = spawnSync(bash, ['-c', harness + run], {encoding: 'utf8', timeout: 10000, env: {...process.env,
-      CROSS_RUN_REUSE: fixture.cross, SAME_JOB_HANDOFF: fixture.same, HARBORLINE_PLATFORM_REPO: '/fixture/platform',
+      FEED_NODE: 'node', CROSS_RUN_REUSE: fixture.cross, SAME_JOB_HANDOFF: fixture.same, HARBORLINE_PLATFORM_REPO: '/fixture/platform',
       GH_TOKEN: 'synthetic-metadata-only', GITHUB_TOKEN: 'synthetic-build-forbidden',
       GH_ENTERPRISE_TOKEN: 'synthetic-enterprise-one', GITHUB_ENTERPRISE_TOKEN: 'synthetic-enterprise-two',
       ACTIONS_RUNTIME_TOKEN: 'synthetic-runtime', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'synthetic-identity',
@@ -453,4 +463,25 @@ test('composed action executes fresh fallback and propagates its failure; artifa
     assert.equal(result.status, fixture.status, result.stderr)
     assert.deepEqual(readFileSync(record, 'utf8').trim().split('\n').filter(Boolean), fixture.calls)
   }
+})
+
+test('composed reuse launches pinned Node after candidate PATH and function shadowing', t => {
+  const root = path.resolve(import.meta.dirname, '../..')
+  const source = readFileSync(path.join(root, '.github/actions/platform-feed/action.yml'), 'utf8')
+  const run = source.slice(source.lastIndexOf('      run: |') + '      run: |'.length)
+    .trimStart().split('\n').map(line => line.replace(/^        /, '')).join('\n')
+  const directory = mkdtempSync(path.join(tmpdir(), 'feed-node-shadow-'))
+  t.after(() => rmSync(directory, {recursive: true, force: true}))
+  const trusted = path.join(directory, 'trusted-node'), marker = path.join(directory, 'calls')
+  writeFileSync(trusted, '#!/bin/bash\nprintf "trusted:%s\\n" "$*" >> "$TEST_RECORD"\n')
+  chmodSync(trusted, 0o755)
+  writeFileSync(path.join(directory, 'node'), '#!/bin/bash\nprintf "attacker\\n" >> "$TEST_RECORD"\n')
+  chmodSync(path.join(directory, 'node'), 0o755)
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : '/bin/bash'
+  const result = spawnSync(bash, ['-c', 'set -eo pipefail\nexport PATH="$TEST_SHADOW:$PATH"\nnode() { printf "attacker-function\\n" >> "$TEST_RECORD"; }\n' + run],
+    {encoding: 'utf8', timeout: 10000, env: {...process.env, FEED_NODE: trusted.replaceAll('\\', '/'),
+      TEST_RECORD: marker.replaceAll('\\', '/'), TEST_SHADOW: directory.replaceAll('\\', '/'),
+      CROSS_RUN_REUSE: 'true', SAME_JOB_HANDOFF: 'true', HARBORLINE_PLATFORM_REPO: '/fixture/platform'}})
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(marker, 'utf8'), 'trusted:eng/platform-feed-reuse.mjs consume /fixture/platform\n')
 })

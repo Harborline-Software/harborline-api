@@ -42,17 +42,20 @@ export function githubClient(token, fetcher = fetch) {
   }
 }
 
-export function unpackFeed(archive, authenticatedDigest) {
+export function unpackFeed(archive, authenticatedDigest, {python = process.env.HARBORLINE_FEED_PYTHON} = {}) {
   if (typeof authenticatedDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(authenticatedDigest)
     || archive.length > 64 * 1024 * 1024 || `sha256:${hash(archive)}` !== authenticatedDigest)
     throw new Error('artifact archive digest differs from authenticated metadata')
+  // Workflow step outputs bind this path before candidate tests can alter PATH.
+  if (typeof python !== 'string' || !path.isAbsolute(python) || !lstatSync(python).isFile())
+    throw new Error('trusted archive interpreter unavailable')
   const directory = mkdtempSync(path.join(tmpdir(), 'api-feed-archive-'))
   try {
     const file = path.join(directory, 'artifact.zip'); writeFileSync(file, archive)
     // -I ignores cwd, PYTHONPATH and user site modules. Both ZIP bytes and decoded entry
     // are bound in one isolated standard-library process; no candidate module is imported.
     const script = "import sys,zipfile,hashlib,io,json,base64\nraw=open(sys.argv[1],'rb').read()\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n if z.namelist()!=['feed-bundle.json']: raise ValueError('unexpected artifact entries')\n if z.getinfo('feed-bundle.json').file_size>64*1024*1024: raise ValueError('oversize feed')\n entry=z.read('feed-bundle.json')\n print(json.dumps({'archiveSha256':hashlib.sha256(raw).hexdigest(),'entryBase64':base64.b64encode(entry).decode('ascii')}))\n"
-    const decoded = JSON.parse(execFileSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-c', script, file],
+    const decoded = JSON.parse(execFileSync(python, ['-I', '-c', script, file],
       {cwd: directory, timeout: 10000, maxBuffer: 90 * 1024 * 1024, stdio: 'pipe', env: buildEnvironment()}))
     if (`sha256:${decoded.archiveSha256}` !== authenticatedDigest || typeof decoded.entryBase64 !== 'string')
       throw new Error('decoded entry is not bound to authenticated archive')
