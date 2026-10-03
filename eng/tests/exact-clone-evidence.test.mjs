@@ -182,9 +182,9 @@ test('actual tolerated-exit commands retain their output when reports are missin
         const steps = []
         const raw = '\u001b[31mREPORTER FAILED AT START\n' + 'later line\n'.repeat(30) + 'private-scratch/clone/report\n'
         const redact = text => text.replaceAll('\u001b[31m', '').replaceAll('private-scratch/clone', '<exact-clone>')
-        const run = new Function('steps', 'resolveCommand', 'spawnSync', 'stripAnsi', 'redactEvidence',
+        const run = new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence',
           commandBlock + '\nreturn run')(steps, (command, args) => ({executable: command, args}),
-          () => ({status, stdout: raw, stderr: 'REPORT MISSING\n'}), text => text.replaceAll('\u001b[31m', ''), redact)
+          () => ({status, stdout: raw, stderr: 'REPORT MISSING\n'}), path.join(root, 'progress.jsonl'), text => text.replaceAll('\u001b[31m', ''), redact)
         run(id, 'fixture', [], root, {expectNonZero: true})
         assert.equal(steps[0].passed, true, 'production tolerated exit is provisional')
         assert.equal(steps[0].verdictFrom, 'baseline comparison, not exit code')
@@ -256,8 +256,8 @@ test('real empty-output spawn failures retain safe cause metadata and logs befor
       }
       const steps = []
       const redact = text => text.replaceAll(root, '<exact-clone-root>')
-      const run = new Function('steps', 'resolveCommand', 'spawnSync', 'stripAnsi', 'redactEvidence',
-        commandBlock + '\nreturn run')(steps, (command, args) => ({executable: command, args}), spawn, text => text, redact)
+      const run = new Function('steps', 'resolveCommand', 'observedSpawnSync', 'progressFile', 'stripAnsi', 'redactEvidence',
+        commandBlock + '\nreturn run')(steps, (command, args) => ({executable: command, args}), (_id, ...params) => spawn(...params.slice(0, 3)), path.join(root, 'progress.jsonl'), text => text, redact)
       run('dotnet-host-tests', executable, args, root, {expectNonZero: true})
       assert.equal(observed.status, null)
       assert.equal(observed.stdout ?? '', '')
