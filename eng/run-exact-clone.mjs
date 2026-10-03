@@ -15,7 +15,7 @@
 import {execFileSync} from 'node:child_process'
 import {copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync} from 'node:fs'
 import {evidenceTarget, persistStepEvidence} from './exact-clone-evidence.mjs'
-import {observedSpawnSync} from './exact-clone-progress.mjs'
+import {observedSpawnSync, resetProgressFile} from './exact-clone-progress.mjs'
 import {validateFlakeRegistry, RETRY_LIMIT} from './flake-registry.mjs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
@@ -92,8 +92,7 @@ let knownTestsWriteRefused = false
 const steps = []
 const progressFile = path.join(apiRoot, '.claude', 'gate-evidence', `exact-clone-${head}-progress.jsonl`)
 // A new attempt must not inherit a previous attempt's terminal state.
-mkdirSync(path.dirname(progressFile), {recursive: true})
-writeFileSync(progressFile, '')
+resetProgressFile(progressFile)
 // The ESC byte is part of the pattern; stripping only the bracket sequence would leave a stray
 // ESC that \s+ cannot match, so a colourised summary would fail to parse for a reason invisible
 // in the printed output. Built via fromCharCode so this file carries no literal control byte.
