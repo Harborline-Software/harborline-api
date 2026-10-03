@@ -156,7 +156,8 @@ try {
 
   run('validation-reuse-contracts', process.execPath, ['--test',
     'eng/tests/validation-reuse.test.mjs', 'eng/tests/validation-inputs.test.mjs',
-    'eng/tests/validation-github-shadow.test.mjs'], clone)
+    'eng/tests/validation-github-shadow.test.mjs', 'eng/tests/validation-producer-policy.test.mjs',
+    'eng/tests/validation-compiler-inputs.test.mjs', 'eng/tests/validation-consumer.test.mjs'], clone)
   run('platform-feed', process.execPath, ['eng/exact-clone-platform-feed.mjs', apiRoot, scratch], clone)
   run('dotnet-restore', 'dotnet', ['restore', 'Harborline.Api.slnx', '-nodeReuse:false', '-maxcpucount:6'], clone)
   // Ticket 340: on landing, the clean-clone build is also the Roslyn analysis
@@ -167,6 +168,7 @@ try {
   const archDirectory = path.join(qualityDirectory, 'arch')
   const eslintDirectory = path.join(qualityDirectory, 'eslint')
   const buildArgs = ['build', 'Harborline.Api.slnx', '-c', 'Release', '--nologo', '--no-restore', '-nodeReuse:false', '-maxcpucount:6']
+  buildArgs.push('-p:HarborlineValidationInputCapture=1')
   if (qualityEnabled) {
     rmSync(roslynDirectory, {recursive: true, force: true})
     rmSync(archDirectory, {recursive: true, force: true})

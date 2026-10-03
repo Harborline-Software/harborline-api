@@ -1,0 +1,14 @@
+<Project>
+  <!-- Observation only: ProvideCommandLineArgs does not suppress compiler execution. -->
+  <PropertyGroup Condition="'$(HarborlineValidationInputCapture)' == '1'">
+    <ProvideCommandLineArgs>true</ProvideCommandLineArgs>
+  </PropertyGroup>
+  <Target Name="HarborlineObserveCompilerArguments" AfterTargets="CoreCompile"
+          Condition="'$(HarborlineValidationInputCapture)' == '1' And '$(MSBuildProjectExtension)' == '.csproj'">
+    <WriteLinesToFile File="$(IntermediateOutputPath)validation-compiler.args"
+                      Lines="@(CscCommandLineArgs)" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)validation-compiler.context"
+                      Lines="project=$(MSBuildProjectFullPath);framework=$(TargetFramework);configuration=$(Configuration);skipCompilerExecution=$(SkipCompilerExecution);designTimeBuild=$(DesignTimeBuild)"
+                      Overwrite="true" Encoding="UTF-8" />
+  </Target>
+</Project>

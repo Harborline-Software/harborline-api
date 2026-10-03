@@ -68,6 +68,31 @@ than assumed stable because the workflow checks out control `main`.
 
 ## Smallest next reviewed implementation
 
+The dependent producer-shadow phase adds a read-only `workflow_run` consumer
+loaded from its own default-branch workflow commit, with no persisted checkout
+credential and no candidate checkout or artifact execution. It independently
+resolves main and compares producer/verifier/workflow/action definitions using
+GitHub tree blob identities, rejecting changed or truncated definitions. It also
+checks whether producer source is already on protected-main ancestry; same-repo
+successful PR artifacts do not establish that trust. Reports bind candidate SHA,
+tree, input fingerprint and expected coverage profile and require all three host
+lanes to agree on the candidate.
+
+An opt-in MSBuild hook observes `CscCommandLineArgs` after actual CoreCompile and
+captures project/framework/configuration/execution context. The reader hashes
+sources, references, analyzers and other explicit compiler file inputs, refusing
+unknown switches, unapproved paths, missing files, nested responses and
+design-time/skipped execution. This is not a hermetic build attestation: arbitrary
+MSBuild tasks, generated-input timing, ambient runtime dependencies and candidate
+execution can still influence observations. Native execution of the new hook
+must be validated under the coordinated Windows test slot before landing.
+
+No signer or check-writing token was added. The consumer publishes a shadow
+artifact using the existing Actions runtime mechanism and cannot skip gates or
+write required candidate check verdicts. Promoting it to an authoritative required
+wrapper is a later explicit reviewed workflow/policy change; a `checks:write`
+capability, if chosen for that design, must be approved before activation.
+
 Keep the shadow observer running, inspect real comparison reports and resolve
 the unknown input dimensions. Add a default-branch, independently reviewed
 producer/broker job that obtains GitHub run/job/artifact metadata itself and

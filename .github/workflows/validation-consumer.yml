@@ -1,0 +1,44 @@
+name: validation-consumer-shadow
+
+on:
+  workflow_run:
+    workflows: [verify]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # workflow_run loads this definition from the default branch. Never checkout
+      # event.workflow_run.head_sha or execute/download candidate scripts here.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Consumer contracts
+        run: node --test eng/tests/validation-producer-policy.test.mjs eng/tests/validation-consumer.test.mjs
+      - name: Independently inspect producer provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RUN_ID: ${{ github.event.workflow_run.id }}
+          VALIDATION_CONSUMER_REPOSITORY: ${{ github.repository }}
+          VALIDATION_CONSUMER_EVENT: ${{ github.event_name }}
+          VALIDATION_CONSUMER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          VALIDATION_CONSUMER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: node eng/validation-consumer.mjs
+      - name: Shadow evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-consumer-shadow-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: .claude/gate-evidence/validation-consumer-shadow.json

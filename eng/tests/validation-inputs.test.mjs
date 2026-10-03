@@ -17,7 +17,7 @@ test('collector observes restored dependency/native bytes, tools and coverage wi
     write('package-lock.json', '{"lockfileVersion":3,"packages":{"":{"name":"fixture"}}}')
     git('add', '.'); git('commit', '--quiet', '-m', 'fixture')
     write('app/obj/project.assets.json', JSON.stringify({targets: {'net11.0': {'provider/1.2.3': {runtime: {'provider.dll': {}}}}},
-      libraries: {'provider/1.2.3': {sha512: 'fixture-package-hash'}}, project: {frameworks: {'net11.0': {}}}}))
+      libraries: {'provider/1.2.3': {sha512: 'fixture-package-hash', path: path.join(root, 'provider')}}, project: {frameworks: {'net11.0': {}}}}))
     write('app/bin/e_sqlcipher.dll', 'abc')
     const options = {apiRoot: root, clone: root, hostBaseline: 'eng/baselines/host-test-baseline.json', coverage: false,
       quality: false, env: {}, commandVersion: command => ({dotnet: '11.0.100', npm: '11.0.0', pnpm: '11.1.3'})[command]}
@@ -25,6 +25,7 @@ test('collector observes restored dependency/native bytes, tools and coverage wi
     assert.equal(observed.inputs.dependencies.native[0].sha256, 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
     assert.equal(observed.inputs.dependencies.evaluated[0].targets['net11.0']['provider/1.2.3'].runtime['provider.dll'] instanceof Object, true)
     assert.equal(observed.inputs.toolchain.tools.pnpm, '11.1.3')
+    assert.equal(observed.inputs.dependencies.evaluated[0].libraries['provider/1.2.3'].path, '<clone>/provider')
     assert.equal(observed.reuseAuthorized, false)
     assert.ok(observed.inputs.unknownInputs.includes('evaluated compiler inputs are not yet captured by a trusted producer'))
     assert.notEqual(collectInputs({...options, coverage: true}).fingerprint, observed.fingerprint)
