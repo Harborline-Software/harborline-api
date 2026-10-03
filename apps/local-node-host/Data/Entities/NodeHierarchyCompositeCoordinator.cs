@@ -106,8 +106,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
                 actor, tenant, at, ct).ConfigureAwait(false);
 
         protected override async ValueTask<IReadOnlyList<EntityEdge>?> BindAsync(CancellationToken ct) =>
-            displaced = await coordinator.ReadAffectedChildrenAsync(
-                [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, ct).ConfigureAwait(false);
+            displaced = await coordinator.ReadChildrenNotEndedAsync(
+                [oldEntity], at, ct, edge => childReassignments.ContainsKey(edge.From)).ConfigureAwait(false);
 
         protected override ValueTask<IReadOnlyList<SplitTarget>> MutateAsync(IReadOnlyList<EntityEdge> bound, CancellationToken ct) =>
             ValueTask.FromResult<IReadOnlyList<SplitTarget>>(
@@ -143,8 +143,8 @@ public sealed class NodeHierarchyCompositeCoordinator(
             result = await store.ExecuteAtomicAsync(async transactionCt =>
             {
                 authorization.Require(oldEntity);
-                var current = await coordinator.ReadAffectedChildrenAsync(
-                    [oldEntity], edge => childReassignments.ContainsKey(edge.From), at, transactionCt).ConfigureAwait(false);
+                var current = await coordinator.ReadChildrenNotEndedAsync(
+                    [oldEntity], at, transactionCt, edge => childReassignments.ContainsKey(edge.From)).ConfigureAwait(false);
                 if (!SameEdgeState(current, displaced))
                     throw new InvalidOperationException("The displaced edges changed between bind and commit.");
                 var minted = new List<EntityId>(validated.Count);
@@ -158,9 +158,12 @@ public sealed class NodeHierarchyCompositeCoordinator(
                     authorization.Require(edge.From);
                     authorization.Require(oldEntity);
                     authorization.Require(newParent);
-                    await store.InvalidateEdgeAsync(edge.Id, at, transactionCt).ConfigureAwait(false);
+                    // Requested scheduled children are part of the split even before their edge starts.
+                    // Close the old edge at its start and retain that start and its original finite end.
+                    var start = edge.Validity.ValidFrom > at ? edge.Validity.ValidFrom : at;
+                    await store.InvalidateEdgeAsync(edge.Id, start, transactionCt).ConfigureAwait(false);
                     var replacementEdge = await store.AddEdgeAsync(
-                        edge.From, newParent, EdgeKind.ChildOf, at, null, transactionCt).ConfigureAwait(false);
+                        edge.From, newParent, EdgeKind.ChildOf, start, null, transactionCt).ConfigureAwait(false);
                     if (edge.Validity.ValidTo is { } validTo)
                         await store.InvalidateEdgeAsync(replacementEdge.Id, validTo, transactionCt).ConfigureAwait(false);
                     reassigned.Add(edge.From);
@@ -506,12 +509,14 @@ public sealed class NodeHierarchyCompositeCoordinator(
     private async Task<IReadOnlyList<EntityEdge>> ReadChildrenNotEndedAsync(
         IEnumerable<EntityId> parents,
         DateTimeOffset asOf,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<EntityEdge, bool>? include = null)
     {
         var edges = new List<EntityEdge>();
         foreach (var parent in parents.Distinct())
         await foreach (var edge in unitOfWork.GetChildrenNotEndedAsync(parent, asOf, ct).ConfigureAwait(false))
-            edges.Add(edge);
+            if (include is null || include(edge))
+                edges.Add(edge);
         return edges;
     }
 

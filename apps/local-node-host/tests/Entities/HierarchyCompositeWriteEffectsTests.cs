@@ -521,6 +521,68 @@ public sealed class HierarchyCompositeWriteEffectsTests
         Assert.Equal("finite-path-end", Assert.Single(await h.AuditRows()).Justification);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Split_ReassignsRequestedFutureChild_PreservesScheduledInterval(bool finite)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var scheduled = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        if (finite) await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(2));
+        await h.Hierarchy.AddEdgeAsync(KidB, Original, EdgeKind.ChildOf, At.AddDays(3));
+        h.Hierarchy.Invalidated.Clear();
+
+        var result = await h.Coordinator.SplitAsync(Original, [Target("east")],
+            new Dictionary<EntityId, EntityId> { [KidA] = East }, "scheduled-split", Actor, Tenant, At);
+
+        // Oracle: move only the requested child, beginning at day1 and retaining its day2/open end.
+        Assert.Empty(await h.ParentEdges(KidA, At));
+        var moved = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal((East, At.AddDays(1), finite ? (DateTimeOffset?)At.AddDays(2) : null),
+            (moved.To, moved.Validity.ValidFrom, moved.Validity.ValidTo));
+        if (finite) Assert.Empty(await h.ParentEdges(KidA, At.AddDays(2)));
+        else Assert.Equal(East, Assert.Single(await h.ParentEdges(KidA, At.AddDays(2))).To);
+        Assert.Contains((scheduled.Id, At.AddDays(1)), h.Hierarchy.Invalidated);
+        Assert.Equal(finite ? 2 : 1, h.Hierarchy.Invalidated.Count);
+        Assert.Equal(Original, Assert.Single(await h.ParentEdges(KidB, At.AddDays(3))).To);
+        Assert.Equal([KidA], result.ReassignedChildren);
+        Assert.Equal([East], result.NewEntities);
+        Assert.Null(await h.Entities.GetAsync(Original));
+        Assert.NotNull(await h.Entities.GetAsync(East));
+        var row = Assert.Single(await h.AuditRows());
+        Assert.Equal((Original, Op.Split, Actor, Tenant, At, "scheduled-split"),
+            (row.EntityId, row.Op, row.Actor, row.Tenant, row.At, row.Justification));
+        Assert.Equal([KidA.ToString()], Strings(row.Payload.RootElement, "reassigned"));
+        Assert.Equal([East.ToString()], Strings(row.Payload.RootElement, "newIds"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Split_ChangedFutureChildSnapshot_RefusesBeforeMinting(bool addEdge)
+    {
+        var h = await Harness.CreateAsync(Original);
+        var scheduled = await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(1));
+        await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(4));
+        h.Hierarchy.BeforeAtomic = async () =>
+        {
+            if (addEdge) await h.Hierarchy.AddEdgeAsync(KidA, Original, EdgeKind.ChildOf, At.AddDays(2));
+            else await h.Hierarchy.InvalidateEdgeAsync(scheduled.Id, At.AddDays(2));
+            h.Hierarchy.Added.Clear();
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Coordinator.SplitAsync(
+            Original, [Target("east")], new Dictionary<EntityId, EntityId> { [KidA] = East },
+            "stale-scheduled-split", Actor, Tenant, At));
+
+        // Oracle: the intervening future write survives; stale split creates/deletes/audits nothing.
+        await h.AssertNothingWrittenAsync([Original], East);
+        var winner = Assert.Single(await h.ParentEdges(KidA, At.AddDays(1)));
+        Assert.Equal((Original, At.AddDays(1), addEdge ? At.AddDays(4) : At.AddDays(2)),
+            (winner.To, winner.Validity.ValidFrom, winner.Validity.ValidTo!.Value));
+        Assert.Equal(addEdge ? 2 : 0, (await h.ParentEdges(KidA, At.AddDays(2))).Count);
+    }
+
     private static CreateOptions Options(string localPart, TenantId tenant) =>
         new("entity", "test", localPart, Actor, tenant, At, ExplicitLocalPart: localPart);
 
@@ -604,6 +666,7 @@ public sealed class HierarchyCompositeWriteEffectsTests
     private sealed class RecordingHierarchy(InMemoryHierarchyService inner) : IHierarchyCompositeUnitOfWork
     {
         public List<EntityEdge> Added { get; } = [];
+        public List<(long EdgeId, DateTimeOffset ValidTo)> Invalidated { get; } = [];
         public Func<Task>? BeforeAtomic { get; set; }
 
         public async Task<T> ExecuteAtomicAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default)
@@ -623,8 +686,11 @@ public sealed class HierarchyCompositeWriteEffectsTests
             return edge;
         }
 
-        public Task InvalidateEdgeAsync(long edgeId, DateTimeOffset validTo, CancellationToken ct = default) =>
-            inner.InvalidateEdgeAsync(edgeId, validTo, ct);
+        public async Task InvalidateEdgeAsync(long edgeId, DateTimeOffset validTo, CancellationToken ct = default)
+        {
+            await inner.InvalidateEdgeAsync(edgeId, validTo, ct);
+            Invalidated.Add((edgeId, validTo));
+        }
 
         public IAsyncEnumerable<EntityEdge> GetChildrenAsync(EntityId parent, DateTimeOffset? asOf = null, CancellationToken ct = default) =>
             inner.GetChildrenAsync(parent, asOf, ct);
