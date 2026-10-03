@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {execFileSync} from 'node:child_process'
+import {mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -53,6 +54,51 @@ test('rename classification includes the old runtime path, not just the new docu
   const plan = classifyFocusedModes(parseChangedFiles('R100\0packages/Old.cs\0docs/old.md\0'))
   assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
   assert.equal(plan.selection, 'focused')
+})
+test('both selector checks accept every zero-padded rename/copy score from 000 through 100', () => {
+  for (const prefix of ['R', 'C']) for (let score = 0; score <= 100; score++) {
+    const status = `${prefix}${String(score).padStart(3, '0')}`
+    const plan = classifyFocusedModes(parseChangedFiles(`${status}\0packages/Old.cs\0docs/new.md\0`))
+    assert.equal(plan.selection, 'focused', status)
+    assert.deepEqual(plan.changes.map(row => row.path).sort(), ['docs/new.md', 'packages/Old.cs'])
+    assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+    assert.ok(requireRunnableSelection(plan), status)
+  }
+})
+test('real Git edited-rename output preserves both paths and executes the supported selector', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'focused-mode-git-rename-'))
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], {encoding: 'utf8'})
+  try {
+    git('init', '--quiet')
+    mkdirSync(path.join(root, 'packages')); mkdirSync(path.join(root, 'docs'))
+    const lines = Array.from({length: 100}, (_, i) => `row ${String(i).padStart(3, '0')} unchanged source content\n`)
+    writeFileSync(path.join(root, 'packages/Old.cs'), lines.join(''))
+    git('add', '.')
+    git('-c', 'user.name=ModePolicyFixture', '-c', 'user.email=modepolicy@example.invalid', 'commit', '--quiet', '-m', 'baseline')
+    renameSync(path.join(root, 'packages/Old.cs'), path.join(root, 'docs/new.md'))
+    lines[50] = 'edited row with distinct contents\n'
+    writeFileSync(path.join(root, 'docs/new.md'), lines.join(''))
+    git('add', '--all')
+    const raw = git('diff', '--cached', '--name-status', '-z', '--find-renames')
+    const changes = parseChangedFiles(raw)
+    assert.equal(changes.length, 1)
+    assert.match(changes[0].status, /^R0[0-9]{2}$/)
+    assert.equal(changes[0].oldPath, 'packages/Old.cs'); assert.equal(changes[0].path, 'docs/new.md')
+    const plan = classifyFocusedModes(changes)
+    assert.equal(plan.selection, 'focused')
+    assert.deepEqual(plan.requiredModes, ['coverage-off', 'coverage-on'])
+    assert.ok(requireRunnableSelection(plan))
+  } finally { rmSync(root, {recursive: true, force: true}) }
+})
+test('malformed and out-of-range rename/copy scores fail both selection and plan validation', () => {
+  for (const status of ['R101', 'C101', 'R999', 'C999', 'R0100', 'C1000', 'R-01', 'C+01', 'R1e2', 'C01x']) {
+    const plan = classifyFocusedModes([{status, oldPath: 'packages/Old.cs', path: 'docs/new.md'}])
+    assert.equal(plan.selection, 'unsupported', status)
+    assert.throws(() => requireRunnableSelection(plan), /unsupported-selection/)
+    const forged = selected(); forged.changes[0].status = status
+    const body = {...forged}; delete body.planDigest; forged.planDigest = hash(body)
+    assert.throws(() => requireRunnableSelection(forged), /invalid-plan/, status)
+  }
 })
 for (const change of [
   {status: 'M', path: 'new-format.blob'}, {status: 'T', path: 'README.md'},

@@ -14,6 +14,10 @@ const safePath = value => typeof value === 'string' && value.length > 0
   && !/^[\\/]|^[A-Za-z]:|[\\\x00-\x1f]/.test(value)
   && !value.split('/').some(part => !part || part === '.' || part === '..')
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value)
+// Git emits zero-padded similarity scores (e.g. R098/C098). Keep selection
+// and completed-plan consistency validation on the same 0..100 vocabulary.
+const validChangeStatus = value => typeof value === 'string'
+  && /^(?:[AMD]|[RC](?:[0-9]{1,2}|0[0-9]{2}|100)?)$/.test(value)
 const fail = (code, detail) => { throw new Error(`focused-mode ${code}: ${detail}`) }
 
 function category(file) {
@@ -37,7 +41,7 @@ export function classifyFocusedModes(changes, {diffAvailable = true} = {}) {
   let unsupported = diffAvailable !== true || !Array.isArray(changes)
   for (const change of Array.isArray(changes) ? changes : []) {
     const status = change?.status
-    const validStatus = typeof status === 'string' && /^(A|M|D|R(?:100|[0-9]{1,2})?|C(?:100|[0-9]{1,2})?)$/.test(status)
+    const validStatus = validChangeStatus(status)
     const renamed = validStatus && /^[RC]/.test(status)
     const files = renamed ? [change.oldPath, change.path] : [change?.path]
     if (!validStatus || files.some(file => !safePath(file))) unsupported = true
@@ -75,7 +79,7 @@ export function requireRunnableSelection(plan) {
   if (plan.selection === 'unsupported') fail('unsupported-selection', 'unknown change class or unavailable/invalid diff; dual-mode proof is required but no supported focused selector was established')
   if (plan.diffAvailable !== true || !Array.isArray(plan.changes) || plan.changes.some(row =>
     !row || !safePath(row.path) || row.kind === 'unknown' || row.kind !== category(row.path)
-    || !/^(A|M|D|R(?:100|[0-9]{1,2})?|C(?:100|[0-9]{1,2})?)$/.test(row.status ?? ''))) {
+    || !validChangeStatus(row.status))) {
     fail('invalid-plan', 'change records do not match the classifier')
   }
   const expected = plan.changes.some(row => row.kind !== 'documentation') ? modes : []
