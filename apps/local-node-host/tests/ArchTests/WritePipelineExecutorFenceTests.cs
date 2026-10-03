@@ -1,4 +1,8 @@
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -668,6 +672,87 @@ public sealed class WritePipelineExecutorFenceTests
         Assert.False(HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(source)));
     }
 
+    [Theory]
+    [InlineData("encoder effect")]
+    [InlineData("partial calculation owner")]
+    public void ReviewedCalculationRejectsUnreviewedHelperOrOwnerConstruction(string effect)
+    {
+        var root = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(RepositoryRoot(),
+            "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))).GetRoot();
+        var calculation = root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(method => method.Identifier.ValueText == "DeriveEntityId");
+        var encoder = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Single(type => type.Identifier.ValueText == "Base32Lower").ToFullString();
+        if (effect == "encoder effect")
+        {
+            var encode = CSharpSyntaxTree.ParseText(encoder).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single();
+            encoder = encoder.Insert(encode.Body!.OpenBraceToken.Span.End,
+                " _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); ");
+        }
+        var source = "using System; using System.Security.Cryptography; using System.Text; using Harborline.Api.Foundation.Assets.Common; using Harborline.Api.Foundation.Assets.Entities; using Harborline.Api.Foundation.Definitions; "
+            + "namespace Harborline.Api.Foundation.Assets.Entities { public sealed "
+            + (effect == "partial calculation owner" ? "partial " : "")
+            + "class InMemoryEntityStore { " + calculation.ToFullString() + " } " + encoder + " }";
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var compilation = BoundaryModel(tree).Compilation;
+        if (effect == "partial calculation owner")
+            compilation = compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
+                "namespace Harborline.Api.Foundation.Assets.Entities; public sealed partial class InMemoryEntityStore { static InMemoryEntityStore() { _ = System.Threading.Tasks.Task.Run(() => System.Threading.Tasks.Task.Delay(1)); } }"));
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        Assert.False(HasReviewedCalculationSource(tree));
+    }
+
+    [Fact]
+    public void ReviewedBaseRejectsAnEffectfulLinkedCompiledDeclarationBehindSafePhysicalSource()
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "packages/kernel-runtime/WritePipelineStage.cs"));
+        var safeTree = CSharpSyntaxTree.ParseText(source);
+        var declaration = safeTree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Single(type => type.Identifier.ValueText == "KernelWrite");
+        source = source.Insert(declaration.OpenBraceToken.Span.End,
+            " protected KernelWrite() { _ = Task.Run(async () => { await Task.Delay(1); await WritePipeline.RunAsync(this, null, default); }); } ");
+        var linkedTree = CSharpSyntaxTree.ParseText(source, path: "external/LinkedWritePipeline.cs");
+        var references = BoundaryModel(linkedTree).Compilation.References
+            .Where(reference => reference.Display != typeof(WritePipeline).Assembly.Location);
+        var globals = CSharpSyntaxTree.ParseText("global using System; global using System.Collections.Generic; global using System.Linq; global using System.Threading; global using System.Threading.Tasks;");
+        var identity = typeof(WritePipeline).Assembly.GetName();
+        var compilation = CSharpCompilation.Create(identity.Name!, [linkedTree, globals], references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        var linked = Assembly.Load(image.ToArray()).GetType(typeof(KernelWrite<,,,>).FullName!)!;
+        Assert.True(HasReviewedKernelBaseConstruction([safeTree]));
+        Assert.False(HasReviewedCompiledBase(linked));
+    }
+
+    [Fact]
+    public void CompiledSourceBindingRejectsAReplacementDocumentWithTheSamePhysicalPath()
+    {
+        const string file = "packages/foundation/Assets/Entities/InMemoryEntityStore.cs";
+        var source = Microsoft.CodeAnalysis.Text.SourceText.From("public static class Replacement { public static int Value() => 42; }",
+            System.Text.Encoding.UTF8, Microsoft.CodeAnalysis.Text.SourceHashAlgorithm.Sha256);
+        var tree = CSharpSyntaxTree.ParseText(source, path: Path.Combine(RepositoryRoot(), file));
+        var compilation = BoundaryModel(tree).Compilation;
+        using var image = new MemoryStream();
+        using var symbols = new MemoryStream();
+        var emitted = compilation.Emit(image, symbols, options: new Microsoft.CodeAnalysis.Emit.EmitOptions(
+            debugInformationFormat: Microsoft.CodeAnalysis.Emit.DebugInformationFormat.PortablePdb));
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        image.Position = 0;
+        symbols.Position = 0;
+        using var pe = new PEReader(image);
+        var metadata = pe.GetMetadataReader();
+        var method = metadata.MethodDefinitions.Single(handle => metadata.GetString(metadata.GetMethodDefinition(handle).Name) == "Value");
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(symbols);
+        var reader = provider.GetMetadataReader();
+        var document = reader.GetDocument(reader.GetMethodDebugInformation(method).Document);
+        Assert.Equal(file, Audit.AuditAppendSymbolInventory.NormalizeFile(reader.GetString(document.Name)));
+        Assert.False(HasMatchingSourceDocument(reader, method, file));
+    }
+
     private static SemanticModel BoundaryModel(SyntaxTree tree, MetadataReference? kernelReference = null)
     {
         var references = AppDomain.CurrentDomain.GetAssemblies()
@@ -862,6 +947,63 @@ public sealed class WritePipelineExecutorFenceTests
         return true;
     }
 
+    private static bool HasReviewedCompiledBase(Type basis)
+    {
+        // Inspect the actual artifact: a linked Compile item cannot substitute an effectful constructor.
+        const BindingFlags declared = BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        if (!basis.IsAbstract || basis.BaseType != typeof(object) || basis.TypeInitializer is not null
+            || basis.GetFields(declared).Length != 0
+            || basis.GetMethods(declared).Length != 6
+            || basis.GetMethods(declared).Any(method => !method.IsAbstract || method.IsStatic)) return false;
+        var constructors = basis.GetConstructors(declared);
+        if (constructors.Length != 1 || constructors[0].GetParameters().Length != 0) return false;
+        var constructor = constructors[0];
+        var body = constructor.GetMethodBody();
+        if (body is null || body.LocalVariables.Count != 0 || body.ExceptionHandlingClauses.Count != 0
+            || body.GetILAsByteArray() is not { } il) return false;
+        var position = 0;
+        while (position < il.Length && il[position] == 0x00) position++;
+        if (position + 6 > il.Length || il[position++] != 0x02 || il[position++] != 0x28) return false;
+        var target = constructor.Module.ResolveMethod(BitConverter.ToInt32(il, position));
+        position += 4;
+        if (target != typeof(object).GetConstructor(Type.EmptyTypes)) return false;
+        while (position < il.Length && il[position] == 0x00) position++;
+        return position == il.Length - 1 && il[position] == 0x2a;
+    }
+
+    private static bool HasBoundCompiledSource(MethodBase method, string expectedFile)
+    {
+        var assemblyPath = method.Module.Assembly.Location;
+        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        if (!File.Exists(assemblyPath) || !File.Exists(pdbPath)) return false;
+        using var assemblyStream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(assemblyStream);
+        var metadata = pe.GetMetadataReader();
+        if (metadata.GetGuid(metadata.GetModuleDefinition().Mvid) != method.Module.ModuleVersionId) return false;
+        var entries = pe.ReadDebugDirectory().Where(entry => entry.Type == DebugDirectoryEntryType.CodeView).ToArray();
+        if (entries.Length != 1) return false;
+        using var pdbStream = File.OpenRead(pdbPath);
+        using var provider = MetadataReaderProvider.FromPortablePdbStream(pdbStream);
+        var reader = provider.GetMetadataReader();
+        var id = reader.DebugMetadataHeader!.Id.ToArray();
+        if (id.Length != 20 || new Guid(id.AsSpan(0, 16)) != pe.ReadCodeViewDebugDirectoryData(entries[0]).Guid
+            || BitConverter.ToUInt32(id, 16) != entries[0].Stamp) return false;
+        return HasMatchingSourceDocument(reader, (MethodDefinitionHandle)MetadataTokens.Handle(method.MetadataToken), expectedFile);
+    }
+
+    private static bool HasMatchingSourceDocument(MetadataReader reader, MethodDefinitionHandle method, string expectedFile)
+    {
+        var debug = reader.GetMethodDebugInformation(method);
+        var documents = debug.GetSequencePoints().Where(point => !point.IsHidden)
+            .Select(point => point.Document.IsNil ? debug.Document : point.Document).Distinct().ToArray();
+        if (documents.Length == 0) return false;
+        var expectedHash = SHA256.HashData(File.ReadAllBytes(Path.Combine(RepositoryRoot(), expectedFile)));
+        return documents.All(handle => !handle.IsNil
+            && Audit.AuditAppendSymbolInventory.NormalizeFile(reader.GetString(reader.GetDocument(handle).Name)) == expectedFile
+            && reader.GetGuid(reader.GetDocument(handle).HashAlgorithm) == new Guid("8829d00f-11b8-4213-878b-770e8597ac16")
+            && reader.GetBlobBytes(reader.GetDocument(handle).Hash).SequenceEqual(expectedHash));
+    }
+
     private static bool HasReviewedCalculationSource(SyntaxTree tree)
     {
         if (tree.GetRoot().ContainsDirectives) return false;
@@ -885,14 +1027,56 @@ public sealed class WritePipelineExecutorFenceTests
                 return new EntityId(options.Scheme, options.Authority, local);
             }
             """);
-        return reviewedCalculation is not null && HasSameReviewedTokens(actualCalculation, reviewedCalculation);
+        var owners = tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Where(type => type.Identifier.ValueText == "InMemoryEntityStore").ToArray();
+        if (owners.Length != 1 || owners[0].Modifiers.Any(SyntaxKind.PartialKeyword)
+            || owners[0].Members.OfType<ConstructorDeclarationSyntax>().Any(ctor => ctor.Modifiers.Any(SyntaxKind.StaticKeyword))
+            || owners[0].Members.OfType<FieldDeclarationSyntax>().Any(field => field.Modifiers.Any(SyntaxKind.StaticKeyword)
+                && !field.Modifiers.Any(SyntaxKind.ConstKeyword))) return false;
+        var encoders = tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+            .Where(type => type.Identifier.ValueText == "Base32Lower").ToArray();
+        var reviewedEncoder = SyntaxFactory.ParseMemberDeclaration("""
+            internal static class Base32Lower
+            {
+                private const string Alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+
+                public static string Encode(ReadOnlySpan<byte> bytes)
+                {
+                    if (bytes.IsEmpty) return string.Empty;
+
+                    var outputLength = (bytes.Length * 8 + 4) / 5;
+                    var output = new char[outputLength];
+                    int buffer = 0, bitsLeft = 0, outputIndex = 0;
+
+                    foreach (var b in bytes)
+                    {
+                        buffer = (buffer << 8) | b;
+                        bitsLeft += 8;
+                        while (bitsLeft >= 5)
+                        {
+                            output[outputIndex++] = Alphabet[(buffer >> (bitsLeft - 5)) & 0x1F];
+                            bitsLeft -= 5;
+                        }
+                    }
+
+                    if (bitsLeft > 0)
+                        output[outputIndex] = Alphabet[(buffer << (5 - bitsLeft)) & 0x1F];
+
+                    return new string(output);
+                }
+            }
+            """);
+        return reviewedCalculation is not null && HasSameReviewedTokens(actualCalculation, reviewedCalculation)
+            && encoders.Length == 1 && reviewedEncoder is not null && HasSameReviewedTokens(encoders[0], reviewedEncoder);
     }
 
     private static bool HasReviewedWriterConstructionSource(INamedTypeSymbol writer, SemanticModel model)
     {
         // Closed construction template: primary-parameter capture, four reviewed field initializers,
         // the existing id calculation, and an implicit empty base constructor. This is not a proof
-        // of arbitrary constructors or helper purity. Any constructor/initializer change needs review.
+        // of arbitrary constructors or helper purity. The closed ID/encoder templates trust the existing
+        // identifier value contracts, framework hashing/span/string APIs, and compiler-generated lambdas.
+        // Domain/helper construction changes require review; the actual artifact and its PDB bind the source.
         if (writer.DeclaringSyntaxReferences.Length != 1
             || writer.DeclaringSyntaxReferences[0].GetSyntax() is not ClassDeclarationSyntax declaration
             || declaration.SyntaxTree.GetRoot().ContainsDirectives
@@ -922,14 +1106,17 @@ public sealed class WritePipelineExecutorFenceTests
             || !SymbolEqualityComparer.Default.Equals(basis.OriginalDefinition,
                 model.Compilation.GetTypeByMetadataName(typeof(KernelWrite<,,,>).FullName!))) return false;
         var root = RepositoryRoot();
-        var kernelDirectory = Path.Combine(root, "packages/kernel-runtime");
-        var kernelTrees = Directory.EnumerateFiles(kernelDirectory, "*.cs", SearchOption.AllDirectories)
-            .Where(path => !Path.GetRelativePath(kernelDirectory, path).Split(Path.DirectorySeparatorChar)
-                .Any(segment => segment is "obj" or "bin" or "tests"))
-            .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path)).ToArray();
-        if (!HasReviewedKernelBaseConstruction(kernelTrees)) return false;
-        return HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root,
-            "packages/foundation/Assets/Entities/InMemoryEntityStore.cs"))));
+        const string baseFile = "packages/kernel-runtime/WritePipelineStage.cs";
+        const string calculationFile = "packages/foundation/Assets/Entities/InMemoryEntityStore.cs";
+        var actualOwner = typeof(InMemoryEntityStore);
+        var actualEncoder = actualOwner.Assembly.GetType("Harborline.Api.Foundation.Assets.Entities.Base32Lower")!;
+        if (actualOwner.TypeInitializer is not null || actualEncoder.TypeInitializer is not null
+            || !HasReviewedCompiledBase(typeof(KernelWrite<,,,>))
+            || !HasBoundCompiledSource(typeof(WritePipeline).GetMethod(nameof(WritePipeline.NameOf))!, baseFile)
+            || !HasBoundCompiledSource(actualOwner.GetMethod(nameof(InMemoryEntityStore.DeriveEntityId))!, calculationFile)
+            || !HasBoundCompiledSource(actualEncoder.GetMethod("Encode")!, calculationFile)) return false;
+        return HasReviewedKernelBaseConstruction([CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, baseFile)))])
+            && HasReviewedCalculationSource(CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, calculationFile))));
     }
 
     private static bool HasSameReviewedTokens(SyntaxNode actual, SyntaxNode expected) =>
